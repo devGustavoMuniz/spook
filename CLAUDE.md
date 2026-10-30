@@ -35,6 +35,20 @@ Monorepo pnpm + Turborepo: `apps/web`, `apps/desktop`, `packages/shared`, `packa
 - Testes acompanham o código. CI roda lint, testes e build a cada push.
 - Cada fase termina com benchmark k6 versionado em `bench/`, com resultados registrados.
 
+## Contrato da API (código gerado, não edite à mão)
+
+Fluxo: handlers huma → `server/api/openapi.yaml` → orval → `packages/shared/src/api`. Depois de mudar a API ou o SQL, regenere tudo e commite junto (o CI falha se houver diferença):
+
+- OpenAPI: `scripts/go.sh run ./cmd/spook openapi > server/api/openapi.yaml`
+- sqlc: `docker run --rm -v "$PWD/server":/src -w /src sqlc/sqlc:1.31.1 generate`
+- Client TS: `pnpm --filter @spook/shared generate`
+
+Rotas da API ficam sob `/api` (o `/healthz` também existe na raiz). IDs Snowflake trafegam como string no JSON. Sessão: cookie `spook_session` (web) ou `Authorization: Bearer` (desktop, que pede o token com `X-Spook-Client: desktop`).
+
+## Deploy
+
+Produção no VPS segue o padrão do antrax: usuário `spook`, Docker rootless, entrada só por Cloudflare Tunnel, imagens no GHCR, deploy por GitHub Actions via SSH (`.github/workflows/deploy.yml`). Preparação única do servidor e secrets: `deploy/README.md`. Medições a partir da Fase 1 são contra produção.
+
 ## Comandos
 
 - `pnpm dev`: sobe web, backend, Postgres, Garage (S3) e LiveKit localmente.
