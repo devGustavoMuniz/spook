@@ -1,0 +1,29 @@
+@import "@fontsource/instrument-sans/400.css";
+@import "@fontsource/instrument-sans/500.css";
+@import "@fontsource/instrument-sans/600.css";
+@import "@spook/brand/tokens.css";
+
+body {
+  margin: 0;
+  font-family: "Instrument Sans", system-ui, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+main {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  gap: 0.5rem;
+  align-content: center;
+}
+
+.status {
+  color: var(--muted-foreground);
+}
+.status[data-state="ok"] {
+  color: var(--primary);
+}
+.status[data-state="down"] {
+  color: var(--destructive-text);
+}
