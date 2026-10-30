@@ -500,8 +500,9 @@ Entrega o deploy em produção, no padrão do VPS (RNF05): Docker Compose de pro
 - [ ] Medido: p95 de listar e enviar mensagens.
 
 ### Fase 3 — Gateway realtime
-**Pendência antes de começar:** observabilidade em produção via Grafana Cloud (plano gratuito), com apenas um coletor OpenTelemetry leve no VPS enviando traces, métricas e logs. Prometheus, Loki e Grafana não rodam no VPS, para não pesar no servidor nem distorcer os benchmarks (o dev local continua com Tempo e Grafana via Compose). Até lá, o backend em produção roda com OTLP desligado.
+**Pendência bloqueante (primeiro critério abaixo):** observabilidade em produção via Grafana Cloud (plano gratuito), com apenas um coletor OpenTelemetry leve no VPS enviando traces, métricas e logs. Prometheus, Loki e Grafana não rodam no VPS, para não pesar no servidor nem distorcer os benchmarks (o dev local continua com Tempo e Grafana via Compose). Até lá, o backend em produção roda com OTLP desligado.
 
+- [ ] Traces e métricas do backend em produção chegam ao Grafana Cloud via coletor OpenTelemetry no VPS.
 - [ ] Mensagem enviada aparece nos outros clientes sem recarregar a página.
 - [ ] Derrubar a conexão e reconectar recupera os eventos perdidos (resume).
 - [ ] Usuário sem VIEW_CHANNEL não recebe eventos daquele canal.
