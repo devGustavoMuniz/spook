@@ -1,36 +1,46 @@
-/* Tokens da identidade visual (SPEC.md seção 9.2). Tema inicial: o do sistema. */
+/* Tokens da identidade visual (SPEC.md seção 9.2). O tema é aplicado pela classe `.dark`
+   na raiz (o ThemeProvider do app segue o sistema operacional até o usuário escolher). */
 :root {
   --primary: #7c5cc4;
   --primary-foreground: #fafafa;
   --background: #ffffff;
-  --card: #ffffff;
-  --popover: #ffffff;
-  --sidebar: #f7f7f7;
   --foreground: #0a0a0a;
-  --muted-foreground: #636363;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --sidebar: #f7f7f7;
   --secondary: #f2f2f2;
+  --secondary-foreground: #0a0a0a;
   --muted: #f2f2f2;
+  --muted-foreground: #636363;
   --accent: #f1ecfa;
+  --accent-foreground: #0a0a0a;
   --border: #e1e1e1;
   --input: #e1e1e1;
   --ring: #a58be6;
   --destructive: #9f0712;
+  --destructive-foreground: #fafafa;
   --destructive-text: #9f0712;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #060606;
-    --card: #0d0d0d;
-    --popover: #0d0d0d;
-    --sidebar: #0b0b0b;
-    --foreground: #fafafa;
-    --muted-foreground: #9e9e9e;
-    --secondary: #1b1b1b;
-    --muted: #1b1b1b;
-    --accent: #221b33;
-    --border: #222222;
-    --input: #222222;
-    --destructive-text: #ff6467;
-  }
+.dark {
+  --background: #060606;
+  --foreground: #fafafa;
+  --card: #0d0d0d;
+  --card-foreground: #fafafa;
+  --popover: #0d0d0d;
+  --popover-foreground: #fafafa;
+  --sidebar: #0b0b0b;
+  --secondary: #1b1b1b;
+  --secondary-foreground: #fafafa;
+  --muted: #1b1b1b;
+  --muted-foreground: #9e9e9e;
+  --accent: #221b33;
+  --accent-foreground: #fafafa;
+  --border: #222222;
+  --input: #222222;
+  --destructive-text: #ff6467;
+  color-scheme: dark;
 }

@@ -8,9 +8,17 @@
   "scripts": {
     "lint": "biome check . && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "generate": "orval"
   },
   "devDependencies": {
+    "@types/react": "19.1.12",
+    "orval": "8.46.0",
+    "react": "19.1.1",
     "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.105.0",
+    "zod": "4.6.7"
   }
 }

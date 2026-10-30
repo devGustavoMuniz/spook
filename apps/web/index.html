@@ -3,8 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="/favicon.ico" />
     <title>Spook</title>
+    <meta name="description" content="Seus servidores, sua galera, num só lugar. Chat · Voz · Vídeo · Compartilhar tela." />
+    <meta name="theme-color" content="#7c5cc4" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Spook" />
+    <meta property="og:title" content="Spook" />
+    <meta property="og:description" content="Seus servidores, sua galera, num só lugar." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Aplica o tema salvo antes da primeira pintura (evita flash). O ThemeProvider assume depois.
+      try {
+        var t = localStorage.getItem("spook-theme");
+        var dark = t === "dark" || ((!t || t === "system") && matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

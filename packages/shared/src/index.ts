@@ -1,2 +1,8 @@
-// Tipos, schemas Zod e clients (API e gateway) entram aqui a partir da Fase 1.
-export type HealthStatus = { status: "ok" | "degraded" };
+// Cliente da API gerado pelo orval a partir de server/api/openapi.yaml (`pnpm --filter @spook/shared generate`).
+// Tipos/schemas do gateway entram aqui a partir da Fase 3.
+export * from "./api/endpoints/auth/auth";
+export * from "./api/endpoints/users/users";
+export * from "./api/model";
+export * as schemas from "./api/zod/index.zod";
+export type { ApiFieldError } from "./http";
+export { ApiError, isApiError, shouldRetry } from "./http";
