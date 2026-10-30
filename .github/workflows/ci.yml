@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.10" # mesma versão do toolchain em server/go.mod e do Dockerfile.server-dev
+          cache-dependency-path: server/go.sum
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+          working-directory: server
+      - run: go test ./...
+      - run: go build -o bin/spook ./cmd/spook
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint test build --filter='!@spook/server'
