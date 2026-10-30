@@ -9,7 +9,7 @@
     "lint": "biome check . && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "build": "tsc --noEmit",
-    "generate": "orval"
+    "generate": "orval && biome check --write src/api"
   },
   "devDependencies": {
     "@types/react": "19.1.12",
