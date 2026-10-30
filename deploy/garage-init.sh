@@ -4,7 +4,7 @@
 set -eu
 
 cd "$(dirname "$0")/.."
-[ -f .env ] && set -a && . ./.env && set +a
+[ -f "${COMPOSE_ENV_FILE:-.env}" ] && set -a && . "./${COMPOSE_ENV_FILE:-.env}" && set +a
 
 BUCKET="${S3_BUCKET:-spook}"
 KEY_ID="${S3_ACCESS_KEY_ID:?defina S3_ACCESS_KEY_ID (GK + 24 hex)}"
@@ -13,7 +13,7 @@ CAPACITY="${GARAGE_CAPACITY:-10GB}"
 CORS_ORIGINS="${S3_CORS_ORIGINS:-http://localhost:5180}"
 AWS_CLI_IMAGE="amazon/aws-cli:2.39.3"
 
-compose="docker compose -f deploy/docker-compose.yml"
+compose="docker compose ${COMPOSE_ENV_FILE:+--env-file $COMPOSE_ENV_FILE} -f ${COMPOSE_FILE:-deploy/docker-compose.yml}"
 garage() { $compose exec -T garage /garage "$@"; }
 
 # 1. Layout (um nó só, replication_factor = 1)
