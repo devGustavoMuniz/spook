@@ -131,7 +131,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 
 ### RNF03 — Mensurabilidade
 - Toda fase termina com um benchmark k6 reproduzível, versionado no repositório.
-- Os mesmos cenários rodam contra o Laravel e o Spook, no mesmo VPS e com o mesmo volume de dados.
+- Os mesmos cenários rodam contra o Laravel e o Spook, no mesmo VPS e com o mesmo volume de dados. O baseline do Laravel é medido contra `antrax.dottadigital.com`, que roda no mesmo VPS e no mesmo padrão de deploy (RNF05).
 
 ### RNF04 — Segurança
 - Senhas com Argon2id.
@@ -141,18 +141,18 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - Tokens do LiveKit emitidos pelo backend, com escopo de uma sala e expiração curta.
 
 ### RNF05 — Infraestrutura
-- Tudo roda no VPS Hostinger KVM 2 (2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB de banda) via Docker Compose.
-- Domínios (DNS na Cloudflare):
+- Tudo roda no VPS Hostinger KVM 2 (2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB de banda) via Docker Compose, no mesmo padrão do antrax: cada app tem seu usuário Linux (o do Spook é `spook`) com Docker rootless. O deploy não usa root.
+- Ninguém escuta em 80/443. A entrada é por Cloudflare Tunnel: o Spook tem seu próprio túnel e seu próprio container `cloudflared`. O TLS é terminado na Cloudflare.
+- Domínios (DNS na Cloudflare), todos via túnel:
 
-  | Host | Serviço | Proxy Cloudflare |
-  | --- | --- | --- |
-  | `spook.dottadigital.com` | Web + API + gateway | Pode ser ativado |
-  | `spook-rtc.dottadigital.com` | LiveKit (sinalização, mídia e TURN) | Desativado (DNS only): o proxy não repassa UDP nem as portas do TURN |
-  | `spook-files.dottadigital.com` | Garage (URLs pré-assinadas) | Desativado (DNS only) |
+  | Host | Serviço (via túnel) |
+  | --- | --- |
+  | `spook.dottadigital.com` | Web + API + gateway WebSocket |
+  | `spook-rtc.dottadigital.com` | LiveKit (sinalização) |
+  | `spook-files.dottadigital.com` | Garage (URLs pré-assinadas) |
 
-  Todos ficam em um único nível de subdomínio, cobertos pelo certificado gratuito da Cloudflare caso o proxy seja ativado no futuro. Sem proxy, o Caddy emite os certificados via Let's Encrypt.
-- TLS automático com Caddy.
-- Portas UDP liberadas para o LiveKit.
+  Todos ficam em um único nível de subdomínio, cobertos pelo certificado gratuito da Cloudflare.
+- A mídia do LiveKit não passa pelo túnel: vai direto pelo IP público do VPS (`--node-ip 187.127.26.46`), em `7891/tcp` e `7892/udp`, portas que não colidem com as do antrax. Essas portas são liberadas no firewall da Hostinger. Sem TURN/TLS por enquanto; se for preciso TURN, ele usa UDP em porta livre.
 
 ### RNF06 — Qualidade
 - Lint e formatação: golangci-lint (Go) e Biome (TypeScript).
@@ -198,7 +198,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 | Testes front | Vitest + React Testing Library + Playwright + MSW | Unitários, componentes, E2E e API mockada |
 | Tooling front | pnpm + Biome + Turborepo | Monorepo rápido; lint e formatação numa ferramenta só |
 | Desktop | Tauri 2; voz, vídeo e tela via Rust + LiveKit Rust SDK | App leve; o WebRTC do WebView é instável no Linux (WebKitGTK) e tem problemas de permissão no macOS |
-| Infra | Docker Compose + Caddy | Tudo num VPS; TLS automático |
+| Infra | Docker Compose rootless + Cloudflare Tunnel | Tudo num VPS, um usuário Linux por app, sem portas 80/443 abertas; TLS na Cloudflare |
 | Observabilidade | OpenTelemetry + Prometheus + Grafana + Loki | Base da comparação com o Laravel |
 | Benchmark | k6 (HTTP e WebSocket), LiveKit load test, `getStats()`, pprof | Medição reproduzível |
 
@@ -232,7 +232,7 @@ spook/                      pnpm + Turborepo
 │  │  └─ queries/           .sql consumidos pelo sqlc
 │  └─ api/openapi.yaml
 ├─ bench/                   cenários k6 e scripts de comparação
-└─ deploy/                  docker-compose, Caddyfile, config do LiveKit
+└─ deploy/                  docker-compose, cloudflared, config do LiveKit
 ```
 
 ### 5.2 Regras de arquitetura do backend
@@ -475,16 +475,23 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 
 Cada fase só é concluída quando todos os critérios forem atendidos **e** o benchmark da fase estiver versionado em `bench/` com resultados registrados.
 
+A partir da Fase 1, as medições de cada fase são feitas contra produção no VPS.
+
 ### Fase 0 — Fundação
 - [ ] `pnpm dev` sobe web, backend, Postgres, Garage e LiveKit localmente com um comando.
 - [ ] CI roda lint (golangci-lint e Biome), testes e build com sucesso.
 - [ ] Traces de uma requisição aparecem no Grafana.
 - [ ] O baseline k6 do Laravel está registrado.
 
-### Fase 1 — Auth e usuários
+### Fase 1 — Auth, usuários e deploy no VPS
+Entrega o deploy em produção, no padrão do VPS (RNF05): Docker Compose de produção em `deploy/`, rodando como o usuário `spook` com Docker rootless; entrada por container `cloudflared` com túnel próprio para `spook.dottadigital.com`, `spook-rtc.dottadigital.com` e `spook-files.dottadigital.com`; mídia do LiveKit direto no IP público; imagens buildadas no CI e publicadas no GHCR (sem build no VPS); segredos fora do git; e deploy reproduzível por GitHub Actions via SSH (push na `main` e `workflow_dispatch`). A preparação única do servidor fica documentada em `deploy/README.md`.
+
 - [ ] Usuário se cadastra, faz login, edita o perfil e faz logout.
 - [ ] Rotas protegidas retornam 401 sem autenticação.
 - [ ] Client TypeScript gerado a partir do OpenAPI e usado pelo front.
+- [ ] Deploy reproduzível no VPS (GitHub Actions por SSH, Docker rootless, imagens do GHCR), com os três domínios acessíveis pelo túnel e segredos fora do repositório.
+- [ ] `https://spook.dottadigital.com/healthz` responde ok em produção.
+- [ ] O cenário k6 do baseline (Fase 0) roda contra o Spook em produção, com o resultado registrado em `bench/results/` ao lado do baseline do Laravel.
 - [ ] Medido: p95 de login e RAM ociosa do backend.
 
 ### Fase 2 — Servidores, canais e mensagens (REST)
