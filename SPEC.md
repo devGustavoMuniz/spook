@@ -148,7 +148,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
   | --- | --- | --- |
   | `spook.dottadigital.com` | Web + API + gateway | Pode ser ativado |
   | `spook-rtc.dottadigital.com` | LiveKit (sinalização, mídia e TURN) | Desativado (DNS only): o proxy não repassa UDP nem as portas do TURN |
-  | `spook-files.dottadigital.com` | MinIO (URLs pré-assinadas) | Desativado (DNS only) |
+  | `spook-files.dottadigital.com` | Garage (URLs pré-assinadas) | Desativado (DNS only) |
 
   Todos ficam em um único nível de subdomínio, cobertos pelo certificado gratuito da Cloudflare caso o proxy seja ativado no futuro. Sem proxy, o Caddy emite os certificados via Let's Encrypt.
 - TLS automático com Caddy.
@@ -169,7 +169,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 
 | Camada | Decisão | Motivo |
 | --- | --- | --- |
-| Backend | **Go**, monólito modular (API REST + gateway WebSocket no mesmo binário) | Objetivo de aprender Go; mesmo ecossistema do LiveKit; construir o realtime à mão é parte do aprendizado. API e gateway juntos simplificam o deploy. |
+| Backend | **Go 1.26** (fixado pela diretiva `toolchain` do `go.mod`), monólito modular (API REST + gateway WebSocket no mesmo binário) | Objetivo de aprender Go; mesmo ecossistema do LiveKit; construir o realtime à mão é parte do aprendizado. API e gateway juntos simplificam o deploy. |
 | Roteador HTTP | chi | 100% compatível com `net/http`; idiomático e sem prender o código a um framework |
 | API e OpenAPI | huma (code-first) sobre o chi | Structs Go geram o spec e a validação; sem duplicar contrato à mão |
 | Autenticação | Sessão própria no Go. Web: cookie httpOnly, Secure, SameSite=Lax. Desktop: token de sessão no keychain do SO, enviado por header | Cookie httpOnly não é acessível por JS (protege contra XSS); o Tauri não depende de cookies entre origens |
@@ -180,9 +180,9 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 | Banco | PostgreSQL | Um único banco relacional resolve tudo nessa escala |
 | IDs | Snowflake (bigint de 64 bits) | Ordenação temporal embutida; paginação por cursor sem coluna extra |
 | Contrato | OpenAPI gerado pelo huma → orval → TanStack Query + Zod | Tipos ponta a ponta entre Go e TypeScript |
-| Cliente HTTP | fetch nativo, via mutator customizado do orval (headers, erros, retry) | Zero dependência; igual na web, no Tauri e no Expo. Progresso de upload para o MinIO usa um `XMLHttpRequest` isolado |
+| Cliente HTTP | fetch nativo, via mutator customizado do orval (headers, erros, retry) | Zero dependência; igual na web, no Tauri e no Expo. Progresso de upload para o Garage usa um `XMLHttpRequest` isolado |
 | Mídia | LiveKit self-hosted, com TURN embutido | Produtivo, com SDKs para web, Rust e React Native |
-| Arquivos | MinIO (compatível com S3) + URL pré-assinada | O cliente sobe direto, sem passar pelo backend |
+| Arquivos | Garage (compatível com S3) + URL pré-assinada | MinIO Community descontinuado; Garage é leve, mantido e compatível com S3. O cliente sobe direto, sem passar pelo backend |
 | Web | React 19 + TypeScript + Vite | Base moderna |
 | Roteamento | TanStack Router | Rotas e params tipados; prefetch integrado ao TanStack Query |
 | UI | Tailwind + shadcn/ui | Componentes acessíveis e customizáveis |
@@ -279,7 +279,7 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | username | citext UNIQUE | 2–32 caracteres, `[a-z0-9_.]` |
 | display_name | text NULL | até 32 caracteres |
 | password_hash | text | Argon2id |
-| avatar_key | text NULL | chave no MinIO |
+| avatar_key | text NULL | chave no storage |
 | created_at | timestamptz | |
 
 ### sessions
@@ -362,7 +362,7 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | id | bigint PK | |
 | message_id | bigint NULL FK messages | NULL até a mensagem ser enviada |
 | uploader_id | bigint FK users | |
-| object_key | text | chave no MinIO |
+| object_key | text | chave no storage |
 | filename | text | |
 | content_type | text | |
 | size_bytes | bigint | |
@@ -476,7 +476,7 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 Cada fase só é concluída quando todos os critérios forem atendidos **e** o benchmark da fase estiver versionado em `bench/` com resultados registrados.
 
 ### Fase 0 — Fundação
-- [ ] `pnpm dev` sobe web, backend, Postgres, MinIO e LiveKit localmente com um comando.
+- [ ] `pnpm dev` sobe web, backend, Postgres, Garage e LiveKit localmente com um comando.
 - [ ] CI roda lint (golangci-lint e Biome), testes e build com sucesso.
 - [ ] Traces de uma requisição aparecem no Grafana.
 - [ ] O baseline k6 do Laravel está registrado.
@@ -591,7 +591,7 @@ Todos os arquivos ficam em `packages/brand/assets/`. Os destinos abaixo são có
 
 1. **Metas de performance da seção 4:** confirmar ou ajustar após o baseline do Laravel.
 2. **Limites de negócio** (100 servidores por usuário, 25 MB por anexo, 10 pessoas por DM em grupo): valores iniciais, a validar.
-3. **Backup do Postgres e do MinIO** no VPS: estratégia e frequência.
+3. **Backup do Postgres e do Garage** no VPS: estratégia e frequência.
 4. **Canal de coleta de feedback** dos usuários após a fase 7.
 5. **Disponibilidade do nome Spook:** registro de marca no INPI e nas lojas de aplicativos (pendência da ficha de identidade).
 6. **Revisão do vetor final por um designer:** alguns programas de design não importam o filtro de neon do SVG.
