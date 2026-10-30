@@ -21,3 +21,20 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("defaults inesperados: %+v", c)
 	}
 }
+
+func TestLoadS3RequiresCredentials(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("S3_ENDPOINT", "http://s3")
+	t.Setenv("S3_ACCESS_KEY_ID", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("esperava erro: S3 sem credenciais")
+	}
+}
+
+func TestLoadInvalidNodeID(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("SPOOK_NODE_ID", "abc")
+	if _, err := Load(); err == nil {
+		t.Fatal("esperava erro para SPOOK_NODE_ID inválido")
+	}
+}

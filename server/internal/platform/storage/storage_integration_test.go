@@ -60,7 +60,7 @@ func TestPresignedRoundTrip(t *testing.T) {
 	key := "integration/" + time.Now().Format("20060102T150405.000000000") + ".txt"
 	payload := []byte("olá, spook! \x00\x01\x02")
 
-	putURL, err := s.PresignPut(ctx, key, "text/plain", time.Minute)
+	putURL, err := s.PresignPut(ctx, key, "text/plain", int64(len(payload)), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestPresignedRoundTrip(t *testing.T) {
 
 func TestPresignedPutRejectsOtherContentType(t *testing.T) {
 	s, _ := newStore(t)
-	putURL, err := s.PresignPut(context.Background(), "integration/ct.bin", "image/png", time.Minute)
+	putURL, err := s.PresignPut(context.Background(), "integration/ct.bin", "image/png", 1, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestPresignedURLExpires(t *testing.T) {
 func TestBucketCORS(t *testing.T) {
 	s, cfg := newStore(t)
 	origin := env(t, "S3_CORS_ORIGINS")
-	putURL, err := s.PresignPut(context.Background(), "integration/cors.bin", "image/png", time.Minute)
+	putURL, err := s.PresignPut(context.Background(), "integration/cors.bin", "image/png", 1, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

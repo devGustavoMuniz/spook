@@ -42,13 +42,17 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 }
 
 // PresignPut gera a URL para o cliente enviar o objeto direto ao storage.
-// O Content-Type faz parte da assinatura: o cliente precisa enviá-lo igual.
-func (s *Store) PresignPut(ctx context.Context, key, contentType string, ttl time.Duration) (string, error) {
-	req, err := s.presign.PresignPutObject(ctx, &s3.PutObjectInput{
+// Content-Type e tamanho (se size > 0) fazem parte da assinatura: o cliente precisa enviá-los iguais.
+func (s *Store) PresignPut(ctx context.Context, key, contentType string, size int64, ttl time.Duration) (string, error) {
+	in := &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		ContentType: aws.String(contentType),
-	}, s3.WithPresignExpires(ttl))
+	}
+	if size > 0 {
+		in.ContentLength = aws.Int64(size)
+	}
+	req, err := s.presign.PresignPutObject(ctx, in, s3.WithPresignExpires(ttl))
 	if err != nil {
 		return "", fmt.Errorf("assinar PUT de %q: %w", key, err)
 	}
