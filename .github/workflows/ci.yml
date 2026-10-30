@@ -3,6 +3,10 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   server:
@@ -14,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.10" # mesma versão do toolchain em server/go.mod e do Dockerfile.server-dev
+          go-version: "1.26.10" # mesma versão do toolchain em server/go.mod, do Dockerfile.server-dev e de deploy/Dockerfile
           cache-dependency-path: server/go.sum
       - uses: golangci/golangci-lint-action@v8
         with:
@@ -22,6 +26,12 @@ jobs:
           working-directory: server
       - run: go test ./...
       - run: go build -o bin/spook ./cmd/spook
+      - name: OpenAPI sem drift (server/api/openapi.yaml)
+        run: go run ./cmd/spook openapi | diff -u api/openapi.yaml -
+      - name: sqlc sem drift
+        run: |
+          docker run --rm -v "$PWD":/src -w /src sqlc/sqlc:1.31.1 generate
+          git diff --exit-code -- .
 
   web:
     runs-on: ubuntu-latest
@@ -33,4 +43,23 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Client da API (orval) sem drift
+        run: |
+          pnpm --filter @spook/shared generate
+          git diff --exit-code -- packages/shared
       - run: pnpm turbo run lint test build --filter='!@spook/server'
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sobe Postgres e Garage
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait postgres garage
+          deploy/garage-init.sh
+      - name: Testes de integração (banco, storage, auth)
+        run: scripts/test-integration.sh
+      - name: Derruba a infra
+        if: always()
+        run: docker compose --env-file .env -f deploy/docker-compose.yml down -v
