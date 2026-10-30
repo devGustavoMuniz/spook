@@ -1,4 +1,7 @@
 // Comando spook: wiring de configuração, dependências e start do servidor.
+//
+// Subcomandos: (nenhum) inicia o servidor; `openapi` imprime o contrato OpenAPI;
+// `healthcheck` consulta /healthz local (usado pelo HEALTHCHECK do container).
 package main
 
 import (
@@ -7,28 +10,64 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-
-	"github.com/devGustavoMuniz/spook/server/internal/health"
+	"github.com/devGustavoMuniz/spook/server/internal/app"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/logger"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/migrate"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/storage"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/telemetry"
+	"github.com/devGustavoMuniz/spook/server/internal/user"
 )
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+	switch {
+	case len(os.Args) > 1 && os.Args[1] == "openapi":
+		err = printOpenAPI()
+	case len(os.Args) > 1 && os.Args[1] == "healthcheck":
+		err = healthcheck()
+	default:
+		err = run()
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "erro fatal:", err)
 		os.Exit(1)
 	}
+}
+
+func printOpenAPI() error {
+	y, err := app.OpenAPIYAML()
+	if err != nil {
+		return err
+	}
+	_, err = os.Stdout.Write(y)
+	return err
+}
+
+func healthcheck() error {
+	addr := os.Getenv("SPOOK_ADDR")
+	if addr == "" {
+		addr = ":8090"
+	}
+	if addr[0] == ':' {
+		addr = "127.0.0.1" + addr
+	}
+	client := http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://" + addr + "/healthz")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthz = %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func run() error {
@@ -52,12 +91,27 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
-
-	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           newRouter(cfg, pool),
-		ReadHeaderTimeout: 5 * time.Second,
+	if err := migrate.Up(ctx, pool); err != nil {
+		return err
 	}
+
+	var avatars user.AvatarStorage // interface nil = upload desligado
+	if cfg.S3.Enabled() {
+		s, err := storage.New(ctx, storage.Config{
+			Endpoint: cfg.S3.Endpoint, Region: cfg.S3.Region, Bucket: cfg.S3.Bucket,
+			AccessKeyID: cfg.S3.AccessKeyID, SecretAccessKey: cfg.S3.SecretAccessKey,
+		})
+		if err != nil {
+			return err
+		}
+		avatars = s
+	}
+
+	handler, err := app.New(ctx, app.Deps{Cfg: cfg, Pool: pool, Storage: avatars})
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -80,24 +134,4 @@ func run() error {
 		return err
 	}
 	return shutdownTelemetry(shutdownCtx)
-}
-
-func newRouter(cfg config.Config, pool health.Pinger) http.Handler {
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.Recoverer)
-	r.Method(http.MethodGet, "/healthz", health.NewHandler(pool))
-
-	if cfg.IsDev() {
-		r.HandleFunc("/debug/pprof/", pprof.Index)
-		r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-		r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		r.Handle("/debug/pprof/{name}", http.HandlerFunc(pprof.Index))
-	}
-
-	// Cada requisição vira um span; o nome da rota é preenchido pelo chi.
-	return otelhttp.NewHandler(r, "http.server",
-		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
-			return req.Method + " " + req.URL.Path
-		}))
 }

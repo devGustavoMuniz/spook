@@ -2,7 +2,7 @@
   "name": "@spook/server",
   "private": true,
   "scripts": {
-    "dev": "docker compose -f ../deploy/docker-compose.yml up --build server",
+    "dev": "docker compose --env-file ../.env -f ../deploy/docker-compose.yml up --build server",
     "lint": "../scripts/go.sh vet ./... && docker run --rm -v \"$PWD\":/src -w /src golangci/golangci-lint:v2.15.0 golangci-lint run",
     "test": "../scripts/go.sh test ./...",
     "test:integration": "../scripts/test-integration.sh",
