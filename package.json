@@ -1,0 +1,22 @@
+{
+  "name": "spook",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm infra:up && turbo run dev --parallel",
+    "infra:up": "docker compose -f deploy/docker-compose.yml up -d --wait postgres garage livekit otel-collector tempo grafana && deploy/garage-init.sh",
+    "infra:down": "docker compose -f deploy/docker-compose.yml down",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "build": "turbo run build",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "turbo": "2.5.8",
+    "typescript": "5.9.2"
+  }
+}
