@@ -1,0 +1,4 @@
+# Imagem de desenvolvimento do backend: compila e roda o código montado em /src.
+FROM golang:1.26.10-alpine
+WORKDIR /src
+CMD ["go", "run", "./cmd/spook"]

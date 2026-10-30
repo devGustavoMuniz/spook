@@ -1,0 +1,99 @@
+name: spook
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-spook}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-spook}
+      POSTGRES_DB: ${POSTGRES_DB:-spook}
+    ports: ["5433:5432"]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+
+  garage:
+    image: dxflrs/garage:v2.5.0
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-0000000000000000000000000000000000000000000000000000000000000001}
+    ports: ["3900:3900"]
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 3s
+      retries: 20
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    volumes: [./livekit/livekit.yaml:/etc/livekit.yaml:ro]
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50020:50000-50020/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7880 || exit 1"]
+      interval: 3s
+      retries: 20
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel.yaml"]
+    volumes: [./otel/collector.yaml:/etc/otel.yaml:ro]
+    ports: ["4317:4317", "4318:4318"]
+    depends_on: [tempo]
+
+  tempo:
+    image: grafana/tempo:latest
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports: ["3200:3200"]
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports: ["3000:3000"]
+    depends_on: [tempo]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 3s
+      retries: 20
+
+  # Backend em modo dev: `go run` sobre o código montado (não exige Go instalado).
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server-dev
+    working_dir: /src
+    volumes:
+      - ../server:/src
+      - gomod:/go/pkg/mod
+      - gobuild:/root/.cache/go-build
+    environment:
+      SPOOK_ADDR: ":8090"
+      SPOOK_ENV: development
+      SPOOK_DATABASE_URL: postgres://${POSTGRES_USER:-spook}:${POSTGRES_PASSWORD:-spook}@postgres:5432/${POSTGRES_DB:-spook}?sslmode=disable
+      SPOOK_OTLP_ENDPOINT: otel-collector:4317
+    ports: ["8090:8090"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      otel-collector: { condition: service_started }
+
+volumes:
+  postgres-data:
+  garage-meta:
+  garage-data:
+  tempo-data:
+  gomod:
+  gobuild:
