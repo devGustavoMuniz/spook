@@ -1,0 +1,9 @@
+# LiveKit de produção. As chaves NÃO ficam aqui: vêm da variável LIVEKIT_KEYS ("<key>: <secret>"),
+# montada pelo compose a partir de LIVEKIT_API_KEY / LIVEKIT_API_SECRET.
+# A sinalização (7880) só é alcançada pelo túnel (spook-rtc.dottadigital.com); a mídia vai direto
+# pelo IP público do VPS (--node-ip no compose) em 7891/tcp e 7892/udp. Sem TURN por enquanto.
+port: 7880
+rtc:
+  tcp_port: 7891
+  udp_port: 7892
+  use_external_ip: false

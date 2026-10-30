@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+**/node_modules
+**/dist
+**/bin
+**/.turbo
+**/coverage
+.DS_Store
+bench
+deploy
+server/bin
+docs

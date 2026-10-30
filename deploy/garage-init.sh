@@ -4,6 +4,7 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+# shellcheck source=/dev/null
 [ -f "${COMPOSE_ENV_FILE:-.env}" ] && set -a && . "./${COMPOSE_ENV_FILE:-.env}" && set +a
 
 BUCKET="${S3_BUCKET:-spook}"
@@ -33,6 +34,7 @@ garage bucket allow --read --write --owner "$BUCKET" --key "$KEY_ID"
 # 4. CORS para o front subir direto com URL pré-assinada
 cors="$(printf '{"CORSRules":[{"AllowedOrigins":["%s"],"AllowedMethods":["GET","PUT","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":3000}]}' \
   "$(printf '%s' "$CORS_ORIGINS" | sed 's/,/","/g')")"
+# shellcheck disable=SC2016  # o template do --format é do Docker, não do shell
 network="$($compose ps -q garage | xargs docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
 docker run --rm --network "$network" \
   -e AWS_ACCESS_KEY_ID="$KEY_ID" -e AWS_SECRET_ACCESS_KEY="$KEY_SECRET" -e AWS_DEFAULT_REGION=garage \
