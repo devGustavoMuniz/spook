@@ -25,6 +25,8 @@ const (
 	MessageCreate     = "MESSAGE_CREATE"
 	MessageUpdate     = "MESSAGE_UPDATE"
 	MessageDelete     = "MESSAGE_DELETE"
+	TypingStart       = "TYPING_START"
+	PresenceUpdate    = "PRESENCE_UPDATE"
 )
 
 // Event é um fato ocorrido no domínio. Topics diz quem deve recebê-lo

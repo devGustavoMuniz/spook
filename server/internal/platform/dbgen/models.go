@@ -20,6 +20,17 @@ type Channel struct {
 	CreatedAt     pgtype.Timestamptz
 }
 
+type ChannelRecipient struct {
+	ChannelID int64
+	UserID    int64
+}
+
+type DmPair struct {
+	UserA     int64
+	UserB     int64
+	ChannelID int64
+}
+
 type Guild struct {
 	ID        int64
 	Name      string
