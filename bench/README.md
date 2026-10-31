@@ -24,6 +24,8 @@ medição interna do k6.
 | `baseline.js` | `HEALTH_PATH` (`/up` no antrax, `/healthz` no Spook) | latência do health check | sim |
 | `me.js` | Spook `GET /api/users/me`; antrax `GET /settings/profile` | endpoint autenticado leve: o usuário logado, sem efeitos colaterais | **sim** (é o cenário comparável de aplicação) |
 | `messages.js` | só o Spook | `GET /api/channels/{id}/messages` (histórico por cursor, 2 páginas por iteração) e `POST` (envio, ≤ 0,8 msg/s por causa do limite de 5/5 s) | **não** (o antrax não tem este fluxo equivalente) |
+| `gateway-connections.js` | só o Spook | N conexões WebSocket ociosas (handshake, IDENTIFY→READY, heartbeats) | **não** (ver Fase 3 abaixo) |
+| `gateway-latency.js` | só o Spook | latência ponta a ponta: envio por REST → `MESSAGE_CREATE` no WebSocket | **não** |
 | `login.js` | só o Spook | `POST /api/auth/login` (cadastra 1 usuário de teste por execução) | **não** (ver abaixo) |
 
 Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatória), `RATE`/`DURATION` (padrão 5 req/s por 60 s),
@@ -59,6 +61,31 @@ mais que 1/s gera 429, contado em `send_rate_limited`), `DURATION`, `PAGE_SIZE` 
 - Exemplo (cookie por ambiente, nunca na linha de comando):
   `COOKIE='spook_session=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id> /bench/scenarios/messages.js`
 - A execução contra produção e o registro dos resultados são da Fase B.
+
+### `gateway-connections.js` e `gateway-latency.js`: o gateway WebSocket (Fase 3)
+Só o Spook. Os dois falam o protocolo da SPEC 5.3 (HELLO → IDENTIFY → READY, heartbeat no intervalo informado) com `k6/ws`.
+Autenticam com o cookie de sessão (`COOKIE`, header Cookie inteiro) ou, com `TICKET=1`, trocam o cookie por um ticket de uso único
+(`POST /api/gateway/ticket`, o caminho do desktop). **Nunca contra produção sem combinar a carga** (Fase B).
+
+| Cenário | Mede | Variáveis |
+| --- | --- | --- |
+| `gateway-connections.js` | N conexões ociosas: handshake (`ws_connecting`), IDENTIFY→READY (`gw_identify_ms`), heartbeats com ACK (`gw_heartbeat_ack`) e quedas inesperadas (`gw_unexpected_close`, deve ser 0) | `BASE_URL`, `COOKIE` ou `MULTI_COOKIES` (`c1\|c2\|…`), `CONNECTIONS` (100), `RAMP` (30s), `HOLD` (60s), `TICKET`, `HEARTBEAT_MS` |
+| `gateway-latency.js` | latência ponta a ponta: um remetente envia por REST `bench:<epoch ms>:<n>` e `RECEIVERS` sockets registram `now - ts` em `gw_e2e_latency_ms` (meta p95 < 100 ms, RNF01; o remetente e os receptores estão no mesmo k6, então o relógio é o mesmo) | `BASE_URL`, `COOKIE` (remetente), `CHANNEL_ID`, `MULTI_COOKIES` (receptores), `RECEIVERS` (10), `SEND_RATE` (0,8/s), `DURATION` (60s), `TICKET` |
+
+- **Limites do servidor que afetam a carga:** até **20 sessões por usuário** (para mais conexões, passe `MULTI_COOKIES` com várias contas de teste,
+  em número ≥ `CONNECTIONS`/20), handshake limitado a **50/s por IP** com rajada de 200 (mantenha `CONNECTIONS/RAMP` ≤ 50), 120 ops por minuto por conexão
+  e 5 mensagens a cada 5 s por usuário e canal (`gateway-latency.js` fica em 0,8 msg/s; acima disso há 429, contado em `send_rate_limited`).
+- **O `gateway-latency.js` escreve mensagens**: canal de **teste**, conta descartável.
+- **Smoke local** (sem produção): suba o backend (`pnpm dev`) e rode, por exemplo,
+  `docker run --rm -i -e COOKIE -e MULTI_COOKIES -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CONNECTIONS=50 -e RAMP=10s -e HOLD=30s /bench/scenarios/gateway-connections.js`.
+- **Conexões por GB de RAM.** O k6 só gera a carga; a RAM vem do backend. Receita: (1) com o backend **ocioso** (sem conexões), meça a RAM base com
+  `docker-stats.sh` (seção 6); (2) rode `gateway-connections.js` com `CONNECTIONS=N` e, durante o `HOLD` (já sem rampa), rode `docker-stats.sh 5 5` e pegue a mediana
+  do container `spook`; (3) `conexões por GB = N / (RAM_com_N_conexões_em_GB)` e, para o custo marginal, `(RAM_N - RAM_base) / N` por conexão
+  (`1 GB / custo marginal` = conexões por GB só de conexões). Repita para N crescente (500, 2.000, 5.000, 10.000) e registre a curva. O gauge
+  `spook.gateway.connections` (OTLP) confirma quantas conexões o servidor viu. Atenção ao ulimit de arquivos do container do k6 e do backend (um socket por conexão)
+  e ao slice de 3 GB/1 CPU do VPS, que o k6 divide com o app na medição interna.
+- Métricas do backend (OTLP, `SPOOK_OTLP_ENDPOINT`): `spook.gateway.connections`, `spook.gateway.sessions`, `spook.gateway.events.dispatched`, `spook.gateway.resumes`,
+  `spook.gateway.invalid_sessions`, `spook.gateway.slow_consumer_closes`, `spook.gateway.publish_to_write.duration` (publicação → escrita no socket) e as métricas de runtime do Go.
 
 ### Login: não é comparado (achado registrado)
 A latência do login é dominada por **política**, não pelo framework: o custo de hash escolhido e o `Timebox` do Fortify. Por isso
