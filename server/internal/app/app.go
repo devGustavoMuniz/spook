@@ -18,6 +18,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/gateway"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/health"
 	"github.com/devGustavoMuniz/spook/server/internal/invite"
@@ -50,6 +51,16 @@ type Deps struct {
 	Bus        *events.Bus
 	APILimiter *ratelimit.Limiter // padrão: 30 req/s por IP, rajada de 90
 	MsgLimiter *ratelimit.Limiter // padrão: 5 mensagens a cada 5 s por usuário e canal
+	// GatewayLimiter limita os handshakes de /api/gateway por IP (padrão: 50/s, rajada de 200).
+	GatewayLimiter *ratelimit.Limiter
+	Gateway        gateway.Config // tempos e limites do gateway (zero = padrões)
+}
+
+// App é a aplicação montada: o handler HTTP e o gateway, que precisa de um desligamento próprio
+// (conexões hijacked não são encerradas pelo http.Server.Shutdown).
+type App struct {
+	Handler http.Handler
+	Gateway *gateway.Hub
 }
 
 // Storage é o storage S3 usado para avatares e ícones.
@@ -60,6 +71,16 @@ type Storage interface {
 
 // New monta o handler HTTP completo. ctx controla as goroutines de manutenção.
 func New(ctx context.Context, d Deps) (http.Handler, error) {
+	a, err := Build(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	return a.Handler, nil
+}
+
+// Build monta a aplicação. Cancelar ctx também encerra o gateway (close 1001); use
+// App.Gateway.Shutdown para esperar as conexões terminarem.
+func Build(ctx context.Context, d Deps) (*App, error) {
 	ids, err := snowflake.New(d.Cfg.NodeID)
 	if err != nil {
 		return nil, err
@@ -74,7 +95,8 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	}
 	bus := d.Bus
 	if bus == nil {
-		bus = events.NewBus(0)
+		// Fila grande: o gateway é um só assinante e recebe todos os eventos em rajada.
+		bus = events.NewBus(4096)
 	}
 
 	userSvc := user.NewService(user.NewStore(pool), avatarStorage, ids)
@@ -96,7 +118,6 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	if msgLimiter == nil {
 		msgLimiter = ratelimit.New(1, 5) // 5 mensagens a cada 5 s (SPEC 7.3)
 	}
-	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter)
 
 	// Ligação entre as features: guild expõe as permissões; channel, message e invite as consomem.
 	// channel não conhece guild (só a interface Access), então guild recebe channel por interface e
@@ -106,6 +127,18 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	guildSvc := guild.NewService(guild.NewStore(pool), channelSvc, guildStorage, userSvc, ids, bus)
 	access.svc = guildSvc
 	messageSvc := message.NewService(message.NewStore(pool), channelSvc, msgLimiter, userSvc, ids, bus)
+	gwCfg := d.Gateway
+	if gwCfg.AllowedOrigins == nil {
+		gwCfg.AllowedOrigins = d.Cfg.AllowedOrigins
+	}
+	gwCfg.Dev = d.Cfg.IsDev()
+	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus)
+	gatewayH := gateway.NewHandler(hub, authSvc, auth.UserID)
+	gwLimiter := d.GatewayLimiter
+	if gwLimiter == nil {
+		gwLimiter = ratelimit.New(50, 200)
+	}
+	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
@@ -116,13 +149,14 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
 	r.Use(middleware.RequestID, middleware.Recoverer)
-	r.Use(limitByPath(d.Cfg.RealIPHeader, authLimiter, apiLimiter))
+	r.Use(limitByPath(d.Cfg.RealIPHeader, authLimiter, apiLimiter, gwLimiter))
 
 	healthH := health.NewHandler(d.Pool)
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH, gatewayH)
+	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	if d.Cfg.IsDev() {
 		r.HandleFunc("/debug/pprof/", pprof.Index)
@@ -136,16 +170,18 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	}
 
 	// Cada requisição vira um span (RNF02).
-	return otelhttp.NewHandler(r, "http.server",
+	h := otelhttp.NewHandler(r, "http.server",
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
-		})), nil
+		}))
+	return &App{Handler: h, Gateway: hub}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
-		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), invite.NewHandler(nil, nil))
+		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), invite.NewHandler(nil, nil),
+		gateway.NewHandler(nil, nil, nil))
 	return api.OpenAPI().YAML()
 }
 
@@ -157,7 +193,8 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 }
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
-	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, inviteH *invite.Handler) huma.API {
+	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, inviteH *invite.Handler,
+	gatewayH *gateway.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -178,16 +215,20 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	channelH.Register(api, authed, auth.Security)
 	messageH.Register(api, authed, auth.Security)
 	inviteH.Register(api, authed, auth.Security)
+	gatewayH.Register(api, authed, auth.Security)
 	return api
 }
 
-func limitByPath(realIPHeader string, authL, apiL *ratelimit.Limiter) func(http.Handler) http.Handler {
+func limitByPath(realIPHeader string, authL, apiL, gwL *ratelimit.Limiter) func(http.Handler) http.Handler {
 	authMW := ratelimit.Middleware(authL, realIPHeader)
 	apiMW := ratelimit.Middleware(apiL, realIPHeader)
+	gwMW := ratelimit.Middleware(gwL, realIPHeader)
 	return func(next http.Handler) http.Handler {
-		authNext, apiNext := authMW(next), apiMW(next)
+		authNext, apiNext, gwNext := authMW(next), apiMW(next), gwMW(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
+			case r.URL.Path == "/api/gateway": // handshake: limite próprio, mais folgado
+				gwNext.ServeHTTP(w, r)
 			case strings.HasPrefix(r.URL.Path, "/api/auth/"):
 				authNext.ServeHTTP(w, r)
 			case strings.HasPrefix(r.URL.Path, "/api/"):

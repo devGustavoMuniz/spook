@@ -106,11 +106,11 @@ func run() error {
 		avatars = s
 	}
 
-	handler, err := app.New(ctx, app.Deps{Cfg: cfg, Pool: pool, Storage: avatars})
+	a, err := app.Build(ctx, app.Deps{Cfg: cfg, Pool: pool, Storage: avatars})
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Addr: cfg.Addr, Handler: a.Handler, ReadHeaderTimeout: 5 * time.Second}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -129,6 +129,10 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	log.Info("encerrando")
+	// O gateway fecha as conexões WebSocket com 1001 (o http.Server não espera conexões hijacked).
+	if err := a.Gateway.Shutdown(shutdownCtx); err != nil {
+		log.Warn("gateway não encerrou a tempo", "err", err)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}

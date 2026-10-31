@@ -622,6 +622,20 @@ components:
       required:
         - user
       type: object
+    TicketBody:
+      additionalProperties: false
+      properties:
+        expires_in:
+          description: Segundos de validade
+          format: int64
+          type: integer
+        ticket:
+          description: Uso único; passe em GET /api/gateway?ticket=…
+          type: string
+      required:
+        - ticket
+        - expires_in
+      type: object
     TransferGuildRequest:
       additionalProperties: false
       properties:
@@ -1228,6 +1242,40 @@ paths:
       summary: Edita a própria mensagem
       tags:
         - messages
+  /api/gateway/ticket:
+    post:
+      operationId: createGatewayTicket
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketBody"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Emite um ticket de uso único (30 s) para abrir o WebSocket sem headers (desktop)
+      tags:
+        - gateway
   /api/guilds:
     get:
       operationId: listGuilds

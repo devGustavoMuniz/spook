@@ -36,6 +36,7 @@ type testEnv struct {
 	srv    *httptest.Server
 	client *http.Client
 	pool   *pgxpool.Pool
+	app    *App
 }
 
 func newEnv(t *testing.T) *testEnv { return newEnvWith(t, nil) }
@@ -65,14 +66,14 @@ func newEnvWith(t *testing.T, tweak func(*Deps)) *testEnv {
 	if tweak != nil {
 		tweak(&deps)
 	}
-	h, err := New(ctx, deps)
+	a, err := Build(ctx, deps)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(h)
+	srv := httptest.NewServer(a.Handler)
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
-	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, pool: pool}
+	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, pool: pool, app: a}
 }
 
 func (e *testEnv) do(t *testing.T, method, path string, body any, hdr map[string]string) (*http.Response, []byte) {
