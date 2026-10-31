@@ -14,10 +14,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
+	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/health"
+	"github.com/devGustavoMuniz/spook/server/internal/invite"
+	"github.com/devGustavoMuniz/spook/server/internal/message"
+	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
@@ -29,12 +38,24 @@ import (
 type Pool interface {
 	dbgen.DBTX
 	Ping(ctx context.Context) error
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 type Deps struct {
 	Cfg     config.Config
 	Pool    Pool
-	Storage user.AvatarStorage // nil desliga o upload de avatar
+	Storage Storage // nil desliga o upload de avatar e de ícone
+
+	// Opcionais (testes): barramento de eventos e limitadores.
+	Bus        *events.Bus
+	APILimiter *ratelimit.Limiter // padrão: 30 req/s por IP, rajada de 90
+	MsgLimiter *ratelimit.Limiter // padrão: 5 mensagens a cada 5 s por usuário e canal
+}
+
+// Storage é o storage S3 usado para avatares e ícones.
+type Storage interface {
+	user.AvatarStorage
+	guild.Storage
 }
 
 // New monta o handler HTTP completo. ctx controla as goroutines de manutenção.
@@ -44,8 +65,20 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 		return nil, err
 	}
 
-	userSvc := user.NewService(user.NewStore(d.Pool), d.Storage, ids)
-	authSvc, err := auth.NewService(ctx, userSvc, auth.NewStore(d.Pool), auth.NewHasher(4), ids)
+	pool := db.Timed(d.Pool) // soma o tempo de banco na métrica `db` do Server-Timing
+
+	var avatarStorage user.AvatarStorage
+	var guildStorage guild.Storage
+	if d.Storage != nil { // interface nil de verdade quando o storage está desligado
+		avatarStorage, guildStorage = d.Storage, d.Storage
+	}
+	bus := d.Bus
+	if bus == nil {
+		bus = events.NewBus(0)
+	}
+
+	userSvc := user.NewService(user.NewStore(pool), avatarStorage, ids)
+	authSvc, err := auth.NewService(ctx, userSvc, auth.NewStore(pool), auth.NewHasher(4), ids)
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +88,30 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View)
 
 	authLimiter := ratelimit.New(10.0/60, 10) // 10 tentativas por minuto por IP em /api/auth/*
-	apiLimiter := ratelimit.New(30, 90)
-	startCleanup(ctx, authLimiter, apiLimiter)
+	apiLimiter := d.APILimiter
+	if apiLimiter == nil {
+		apiLimiter = ratelimit.New(30, 90)
+	}
+	msgLimiter := d.MsgLimiter
+	if msgLimiter == nil {
+		msgLimiter = ratelimit.New(1, 5) // 5 mensagens a cada 5 s (SPEC 7.3)
+	}
+	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter)
+
+	// Ligação entre as features: guild expõe as permissões; channel, message e invite as consomem.
+	// channel não conhece guild (só a interface Access), então guild recebe channel por interface e
+	// channelSvc é criado com um proxy que aponta para guildSvc depois de pronto.
+	access := &lateAccess{}
+	channelSvc := channel.NewService(channel.NewStore(pool), access, ids, bus)
+	guildSvc := guild.NewService(guild.NewStore(pool), channelSvc, guildStorage, userSvc, ids, bus)
+	access.svc = guildSvc
+	messageSvc := message.NewService(message.NewStore(pool), channelSvc, msgLimiter, userSvc, ids, bus)
+	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
+
+	guildH := guild.NewHandler(guildSvc, auth.UserID)
+	channelH := channel.NewHandler(channelSvc, auth.UserID)
+	messageH := message.NewHandler(messageSvc, auth.UserID)
+	inviteH := invite.NewHandler(inviteSvc, auth.UserID)
 
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
@@ -67,7 +122,7 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH)
 
 	if d.Cfg.IsDev() {
 		r.HandleFunc("/debug/pprof/", pprof.Index)
@@ -89,11 +144,20 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
-	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil))
+	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
+		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), invite.NewHandler(nil, nil))
 	return api.OpenAPI().YAML()
 }
 
-func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler) huma.API {
+// lateAccess resolve a dependência circular channel -> guild na montagem.
+type lateAccess struct{ svc *guild.Service }
+
+func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Member, error) {
+	return a.svc.Member(ctx, guildID, userID)
+}
+
+func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
+	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, inviteH *invite.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -110,6 +174,10 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	authed := huma.Middlewares{authH.Middleware(api)}
 	authH.Register(api, authed)
 	userH.Register(api, authed, auth.Security)
+	guildH.Register(api, authed, auth.Security)
+	channelH.Register(api, authed, auth.Security)
+	messageH.Register(api, authed, auth.Security)
+	inviteH.Register(api, authed, auth.Security)
 	return api
 }
 

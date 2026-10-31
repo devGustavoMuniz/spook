@@ -121,3 +121,8 @@ func (s *Service) AvatarURL(ctx context.Context, u User) string {
 }
 
 func avatarPrefix(userID int64) string { return fmt.Sprintf("avatars/%d/", userID) }
+
+// AvatarURLForKey devolve a URL de leitura de uma chave de avatar, ou "" se não houver.
+func (s *Service) AvatarURLForKey(ctx context.Context, key *string) string {
+	return s.AvatarURL(ctx, User{AvatarKey: key})
+}

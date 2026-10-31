@@ -22,7 +22,6 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/migrate"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/storage"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/telemetry"
-	"github.com/devGustavoMuniz/spook/server/internal/user"
 )
 
 func main() {
@@ -95,7 +94,7 @@ func run() error {
 		return err
 	}
 
-	var avatars user.AvatarStorage // interface nil = upload desligado
+	var avatars app.Storage // interface nil = upload desligado
 	if cfg.S3.Enabled() {
 		s, err := storage.New(ctx, storage.Config{
 			Endpoint: cfg.S3.Endpoint, Region: cfg.S3.Region, Bucket: cfg.S3.Bucket,

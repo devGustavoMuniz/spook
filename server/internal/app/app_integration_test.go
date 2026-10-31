@@ -35,9 +35,13 @@ func env(t *testing.T, k string) string {
 type testEnv struct {
 	srv    *httptest.Server
 	client *http.Client
+	pool   *pgxpool.Pool
 }
 
-func newEnv(t *testing.T) *testEnv {
+func newEnv(t *testing.T) *testEnv { return newEnvWith(t, nil) }
+
+// newEnvWith monta o app real; tweak ajusta as dependências antes (limitadores, barramento de eventos).
+func newEnvWith(t *testing.T, tweak func(*Deps)) *testEnv {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -57,14 +61,18 @@ func newEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(ctx, Deps{Cfg: config.Config{Env: "development"}, Pool: pool, Storage: st})
+	deps := Deps{Cfg: config.Config{Env: "development"}, Pool: pool, Storage: st}
+	if tweak != nil {
+		tweak(&deps)
+	}
+	h, err := New(ctx, deps)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
-	return &testEnv{srv: srv, client: &http.Client{Jar: jar}}
+	return &testEnv{srv: srv, client: &http.Client{Jar: jar}, pool: pool}
 }
 
 func (e *testEnv) do(t *testing.T, method, path string, body any, hdr map[string]string) (*http.Response, []byte) {
@@ -297,6 +305,20 @@ func TestHealthzAndOpenAPIServed(t *testing.T) {
 	}
 }
 
+// timingMetrics lê "nome;dur=ms, nome;dur=ms" em um mapa.
+func timingMetrics(h string) map[string]float64 {
+	out := map[string]float64{}
+	for _, part := range strings.Split(h, ",") {
+		var v float64
+		name, dur, ok := strings.Cut(strings.TrimSpace(part), ";dur=")
+		if ok {
+			_, _ = fmt.Sscanf(dur, "%f", &v)
+			out[name] = v
+		}
+	}
+	return out
+}
+
 func TestServerTimingHeader(t *testing.T) {
 	e := newEnv(t)
 	email, username := uniq("timing")
@@ -313,9 +335,10 @@ func TestServerTimingHeader(t *testing.T) {
 	} {
 		resp, b = e.do(t, c.method, c.path, c.body, nil)
 		h := resp.Header.Get("Server-Timing")
-		var app, argon float64
-		if _, err := fmt.Sscanf(h, "app;dur=%f, argon2;dur=%f", &app, &argon); err != nil {
-			t.Fatalf("%s %s: Server-Timing = %q (%v) body=%s", c.method, c.path, h, err, b)
+		m := timingMetrics(h) // a ordem das métricas extras depende do fluxo (db antes ou depois do argon2)
+		app, db, argon := m["app"], m["db"], m["argon2"]
+		if app <= 0 || db <= 0 || argon <= 0 {
+			t.Fatalf("%s %s: Server-Timing = %q (esperava app, db e argon2) body=%s", c.method, c.path, h, b)
 		}
 		if argon <= 0 || argon > app {
 			t.Fatalf("%s %s: argon2 (%.2f) deveria estar entre 0 e app (%.2f)", c.method, c.path, argon, app)
