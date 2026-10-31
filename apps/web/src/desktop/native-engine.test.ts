@@ -300,6 +300,33 @@ describe("NativeVoiceEngine: compartilhar tela", () => {
   });
 });
 
+describe("NativeVoiceEngine: processamento de áudio", () => {
+  it("envia os três interruptores ao Rust (em chamada ou não)", async () => {
+    const { rust, engine } = setup();
+    await engine.setAudioProcessing({
+      echoCancellation: false,
+      noiseSuppression: true,
+      autoGainControl: false,
+    });
+    expect(rust.named("voice_set_audio_processing")[0]?.args).toEqual({
+      echoCancellation: false,
+      noiseSuppression: true,
+      autoGainControl: false,
+    });
+  });
+
+  it("falha do Rust vira VoiceMediaError", async () => {
+    const { rust, engine } = setup();
+    rust.on("voice_set_audio_processing", () => {
+      throw { kind: "other", message: "x" };
+    });
+    const e = await engine
+      .setAudioProcessing({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
+      .catch((x) => x);
+    expect(e).toBeInstanceOf(VoiceMediaError);
+  });
+});
+
 describe("NativeVoiceEngine: dispositivos", () => {
   it("lista com rótulo padrão e devolve [] se o Rust falhar", async () => {
     const { rust, engine } = setup();

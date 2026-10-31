@@ -47,6 +47,13 @@ export type VideoTrackInfo = {
 export type DeviceKind = "audioinput" | "audiooutput" | "videoinput";
 export type DeviceInfo = { id: string; label: string };
 
+/** Processamento do microfone feito pela engine (só o desktop nativo): eco, ruído e ganho. */
+export type AudioProcessingOptions = {
+  echoCancellation: boolean;
+  noiseSuppression: boolean;
+  autoGainControl: boolean;
+};
+
 export type LocalMedia = { microphone: boolean; camera: boolean; screenShare: boolean };
 
 /** Falha ao abrir mídia local; as telas traduzem o `code` em mensagem amigável. */
@@ -123,6 +130,12 @@ export interface VoiceEngine {
   setDeafened(deafened: boolean): void;
   /** Retoma o áudio depois de `audio-blocked`. */
   resumeAudio(): Promise<void>;
+
+  /**
+   * Opcional: só a engine que processa o áudio por conta própria (desktop nativo, com cancelamento de eco)
+   * implementa. A web deixa isso com o navegador (`getUserMedia` já aplica AEC/NS/AGC).
+   */
+  setAudioProcessing?(options: AudioProcessingOptions): Promise<void>;
 
   listDevices(kind: DeviceKind): Promise<DeviceInfo[]>;
   /** Troca o dispositivo ativo (e o lembra para as próximas capturas). */

@@ -125,6 +125,12 @@ Não há certificado de assinatura nem notarização, e não há auto-update. Na
 
 ## Voz, vídeo e tela nativos (Fase 7b)
 
+**Eco, ruído e ganho.** O `NativeAudioSource` do LiveKit não passa pelo APM do WebRTC, então `src-tauri/src/voice/apm.rs` faz a ponte à
+mão com o `AudioProcessingModule` do libwebrtc: o que tocamos (mixer, 48 kHz mono, 10 ms) vai como *far-end* e cada quadro do microfone
+passa por `process_stream` antes de ir ao LiveKit. Padrão: **AEC + redução de ruído + AGC ligados**; três interruptores em "Dispositivos de
+áudio e vídeo" (valores em `localStorage`; comando `voice_set_audio_processing`). Cada mudança recria o módulo (reconverge em ~1 s).
+Teste sem hardware: `cargo test --lib apm::` (far-end de ruído, near-end = cópia atrasada e atenuada; exige > 15 dB de redução).
+
 Nada de WebRTC no WebView (RF12.2): o núcleo em `src-tauri/src/voice/` usa o LiveKit Rust SDK (libwebrtc), `cpal` (microfone e
 alto-falante), `scap` (tela e janela) e `nokhwa` (câmera). A interface fala com ele por comandos e canais do Tauri
 (`apps/web/src/desktop/native-engine.ts` implementa a mesma interface `VoiceEngine` da engine web). Resumo da API em `SPEC.md` (Fase 7b).
@@ -133,7 +139,7 @@ alto-falante), `scap` (tela e janela) e `nokhwa` (câmera). A interface fala com
   webview atrasar (créditos `voice_video_ack`) e a conversão para quando ninguém está desenhando.
 - **Tela:** envia no máx. 1080p a 15 fps. Linux: o seletor é o do próprio sistema (portal xdg + PipeWire, funciona em Wayland e X11 com
   `xdg-desktop-portal`). macOS: 12.3+ e permissão de gravação de tela. Windows: Windows Graphics Capture.
-- **Limitações conhecidas:** sem **áudio do sistema** ao compartilhar a tela; sem cancelamento de eco (use fones); a câmera depende do
+- **Limitações conhecidas:** sem **áudio do sistema** ao compartilhar a tela; a qualidade do cancelamento de eco depende do atraso e do volume do alto-falante (veja abaixo); a câmera depende do
   `nokhwa` (desligável); o `scap` só para a captura no próximo quadro se a tela estiver totalmente parada; os dispositivos de áudio não são
   atualizados ao plugar/desplugar durante a chamada (reabra o diálogo); o `.deb`/AppImage pedem glibc >= 2.39 (build em Ubuntu 24.04) e
   `libasound2`, `libpipewire-0.3-0`, `libgbm1`, `libdrm2` e `libdbus-1-3` instalados.

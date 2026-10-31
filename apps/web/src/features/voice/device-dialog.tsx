@@ -6,15 +6,39 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
-import { chooseDevice, listDevices } from "./controller";
-import { loadDevicePrefs } from "./devices";
-import type { DeviceInfo, DeviceKind } from "./engine";
+import {
+  chooseAudioProcessing,
+  chooseDevice,
+  listDevices,
+  supportsAudioProcessing,
+} from "./controller";
+import { loadAudioProcessing, loadDevicePrefs } from "./devices";
+import type { AudioProcessingOptions, DeviceInfo, DeviceKind } from "./engine";
 
 const FIELDS: { kind: DeviceKind; label: string }[] = [
   { kind: "audioinput", label: "Microfone" },
   { kind: "audiooutput", label: "Alto-falante" },
   { kind: "videoinput", label: "Câmera" },
+];
+
+const AUDIO_SWITCHES: { key: keyof AudioProcessingOptions; label: string; hint: string }[] = [
+  {
+    key: "echoCancellation",
+    label: "Cancelamento de eco",
+    hint: "Evita que os outros ouçam você de volta quando está sem fone.",
+  },
+  {
+    key: "noiseSuppression",
+    label: "Redução de ruído",
+    hint: "Reduz ventilador, teclado e ruído de fundo.",
+  },
+  {
+    key: "autoGainControl",
+    label: "Ajuste automático de volume",
+    hint: "Mantém o volume da sua voz estável.",
+  },
 ];
 
 /** Seletor de microfone, alto-falante e câmera; a escolha fica no navegador e vale na chamada em curso. */
@@ -27,11 +51,15 @@ export function DeviceDialog({
 }) {
   const [devices, setDevices] = useState<Partial<Record<DeviceKind, DeviceInfo[]>>>({});
   const [chosen, setChosen] = useState(loadDevicePrefs);
+  const [processing, setProcessing] = useState(loadAudioProcessing);
+  const [canProcess, setCanProcess] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
     setChosen(loadDevicePrefs());
+    setProcessing(loadAudioProcessing());
+    setCanProcess(supportsAudioProcessing());
     void Promise.all(FIELDS.map(async (f) => [f.kind, await listDevices(f.kind)] as const)).then(
       (entries) => alive && setDevices(Object.fromEntries(entries)),
     );
@@ -78,6 +106,31 @@ export function DeviceDialog({
             </div>
           );
         })}
+        {canProcess ? (
+          <fieldset className="flex flex-col gap-2 border-t pt-3">
+            <legend className="mb-1 text-sm font-medium">Qualidade do microfone</legend>
+            {AUDIO_SWITCHES.map(({ key, label, hint }) => {
+              const id = `audio-processing-${key}`;
+              return (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <label htmlFor={id} className="flex flex-col text-sm">
+                    <span>{label}</span>
+                    <span className="text-xs text-muted-foreground">{hint}</span>
+                  </label>
+                  <Switch
+                    id={id}
+                    checked={processing[key]}
+                    onCheckedChange={(on) => {
+                      const next = { ...processing, [key]: on };
+                      setProcessing(next);
+                      void chooseAudioProcessing(next);
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </fieldset>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

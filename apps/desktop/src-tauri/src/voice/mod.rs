@@ -5,6 +5,7 @@
 //! Camadas: lógica pura e testável (`limits`, `mixer`, `resample`, `wire`, `error`, `frames`, `router`,
 //! `events`) → dispositivos (`audio`, `screen`, `camera`, `capture`) → `core` (sala) → `commands` (Tauri).
 
+pub mod apm;
 pub mod audio;
 pub mod camera;
 pub mod capture;

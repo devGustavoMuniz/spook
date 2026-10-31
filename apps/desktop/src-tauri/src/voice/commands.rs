@@ -7,6 +7,7 @@ use serde::Deserialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
+use super::apm::AudioProcessingSettings;
 use super::audio::DeviceInfo;
 use super::core::{DeviceKind, Emit, ScreenOptions, ViewOptions, VoiceCore};
 use super::error::{ConnectCode, VoiceError};
@@ -89,6 +90,25 @@ pub async fn voice_set_microphone(
 #[tauri::command]
 pub fn voice_set_deafened(state: State<'_, VoiceState>, deafened: bool) {
     state.0.set_deafened(deafened);
+}
+
+#[tauri::command]
+pub fn voice_set_audio_processing(
+    state: State<'_, VoiceState>,
+    echo_cancellation: bool,
+    noise_suppression: bool,
+    auto_gain_control: bool,
+) {
+    state.0.set_audio_processing(AudioProcessingSettings {
+        echo_cancellation,
+        noise_suppression,
+        auto_gain_control,
+    });
+}
+
+#[tauri::command]
+pub fn voice_get_audio_processing(state: State<'_, VoiceState>) -> AudioProcessingSettings {
+    state.0.audio_processing()
 }
 
 #[tauri::command]

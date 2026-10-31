@@ -22,6 +22,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use super::apm::{ApmBridge, AudioProcessingSettings};
 use super::audio::{self, Direction, MicCapture, Playback, FRAME_SAMPLES, SAMPLE_RATE};
 use super::camera;
 use super::capture::VideoOut;
@@ -164,6 +165,7 @@ pub struct VoiceCore {
     deafened: AtomicBool,
     next_id: AtomicU64,
     synthetic: Mutex<Option<SyntheticInputs>>,
+    apm: Arc<ApmBridge>,
 }
 
 impl Default for VoiceCore {
@@ -182,6 +184,7 @@ impl VoiceCore {
             deafened: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             synthetic: Mutex::new(None),
+            apm: Arc::new(ApmBridge::new(AudioProcessingSettings::default())),
         }
     }
 
@@ -252,7 +255,11 @@ impl VoiceCore {
             }
         }
 
-        let playback = match audio::start_playback(self.prefs().output, self.mixer.clone()) {
+        let playback = match audio::start_playback(
+            self.prefs().output,
+            self.mixer.clone(),
+            Some(self.apm.clone()),
+        ) {
             Ok(p) => Some(p),
             Err(e) => {
                 // Sem alto-falante a pessoa ainda pode falar; só não ouve.
@@ -412,8 +419,11 @@ impl VoiceCore {
         }
         let mic = s.mic.as_mut().ok_or_else(VoiceError::no_room)?;
         let source = mic.source.clone();
+        let apm = self.apm.clone();
         mic.pump = Some(tokio::spawn(async move {
-            while let Some(pcm) = rx.recv().await {
+            while let Some(mut pcm) = rx.recv().await {
+                // AEC + supressão de ruído + ganho antes de ir ao LiveKit (o NativeAudioSource não passa pelo APM).
+                apm.process_near(&mut pcm);
                 let frame = AudioFrame {
                     data: Cow::Owned(pcm),
                     sample_rate: SAMPLE_RATE,
@@ -428,6 +438,15 @@ impl VoiceCore {
         mic.capture = Some(capture);
         mic.track.unmute();
         Ok(())
+    }
+
+    /// Liga/desliga AEC, supressão de ruído e controle de ganho (vale já na chamada em curso).
+    pub fn set_audio_processing(&self, settings: AudioProcessingSettings) {
+        self.apm.configure(settings);
+    }
+
+    pub fn audio_processing(&self) -> AudioProcessingSettings {
+        self.apm.settings()
     }
 
     /// Ensurdecer: para de tocar o áudio remoto (o microfone é decisão do controlador da UI).
@@ -470,7 +489,11 @@ impl VoiceCore {
         match kind {
             DeviceKind::AudioOutput => {
                 s.playback = None;
-                s.playback = Some(audio::start_playback(value, self.mixer.clone())?);
+                s.playback = Some(audio::start_playback(
+                    value,
+                    self.mixer.clone(),
+                    Some(self.apm.clone()),
+                )?);
             }
             DeviceKind::AudioInput => {
                 if s.mic.as_ref().is_some_and(|m| m.capture.is_some()) {

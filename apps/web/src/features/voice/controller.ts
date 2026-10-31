@@ -9,8 +9,14 @@ import {
 } from "@spook/shared";
 import { toast } from "sonner";
 import { voiceMessage } from "@/lib/app-errors";
-import { loadDevicePrefs, saveDevicePref } from "./devices";
 import {
+  loadAudioProcessing,
+  loadDevicePrefs,
+  saveAudioProcessing,
+  saveDevicePref,
+} from "./devices";
+import {
+  type AudioProcessingOptions,
   type DeviceKind,
   type DisconnectReason,
   type Unsubscribe,
@@ -142,6 +148,7 @@ async function afterConnect(eng: VoiceEngine, target: JoinTarget, gen: number) {
     const id = prefs[kind];
     if (id) await eng.setDevice(kind, id).catch(() => {});
   }
+  await eng.setAudioProcessing?.(loadAudioProcessing()).catch(() => {});
   const { selfMute, selfDeaf } = session();
   eng.setDeafened(selfDeaf);
   if (!selfMute && !selfDeaf && target.canSpeak) {
@@ -258,6 +265,25 @@ export async function chooseDevice(kind: DeviceKind, deviceId: string) {
   saveDevicePref(kind, deviceId || undefined);
   try {
     await engine?.setDevice(kind, deviceId || "default");
+  } catch (err) {
+    toast.error(mediaMessage(err));
+  }
+}
+
+/** A engine atual processa o áudio (eco/ruído/ganho)? Só o desktop nativo. */
+export function supportsAudioProcessing(): boolean {
+  try {
+    return typeof ensureEngine().setAudioProcessing === "function";
+  } catch {
+    return false;
+  }
+}
+
+/** Interruptores de eco/ruído/ganho (diálogo de dispositivos): persiste e, em chamada, aplica na hora. */
+export async function chooseAudioProcessing(options: AudioProcessingOptions) {
+  saveAudioProcessing(options);
+  try {
+    await engine?.setAudioProcessing?.(options);
   } catch (err) {
     toast.error(mediaMessage(err));
   }

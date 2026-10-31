@@ -12,6 +12,7 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample, Stream};
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+use super::apm::ApmBridge;
 use super::error::{classify_backend_message, MediaCode, MediaDevice, VoiceError};
 use super::mixer::Mixer;
 use super::resample::{downmix_to_mono, f32_to_i16, i16_to_f32, FrameChunker, LinearResampler};
@@ -246,6 +247,8 @@ pub struct Playback {
 /// Gera quadros de saída (qualquer taxa/canais) a partir do mixer 48 kHz mono. Lógica pura e testável.
 pub struct OutputRenderer {
     mixer: Arc<Mutex<Mixer>>,
+    /// Recebe o que tocamos como referência do eco (AEC).
+    apm: Option<Arc<ApmBridge>>,
     resampler: LinearResampler,
     pending: VecDeque<f32>,
     channels: usize,
@@ -255,9 +258,15 @@ pub struct OutputRenderer {
 }
 
 impl OutputRenderer {
-    pub fn new(mixer: Arc<Mutex<Mixer>>, out_rate: u32, channels: usize) -> Self {
+    pub fn new(
+        mixer: Arc<Mutex<Mixer>>,
+        apm: Option<Arc<ApmBridge>>,
+        out_rate: u32,
+        channels: usize,
+    ) -> Self {
         Self {
             mixer,
+            apm,
             resampler: LinearResampler::new(SAMPLE_RATE, out_rate),
             pending: VecDeque::new(),
             channels: channels.max(1),
@@ -274,6 +283,10 @@ impl OutputRenderer {
             {
                 let mut m = self.mixer.lock().unwrap_or_else(|e| e.into_inner());
                 m.mix_into(&mut self.pcm);
+            }
+            // Os mesmos 10 ms que vão para o alto-falante são a referência do cancelador de eco.
+            if let Some(apm) = &self.apm {
+                apm.push_far(&self.pcm);
             }
             self.floats.clear();
             self.floats.extend(self.pcm.iter().map(|&s| i16_to_f32(s)));
@@ -292,6 +305,7 @@ impl OutputRenderer {
 pub fn start_playback(
     device_id: Option<String>,
     mixer: Arc<Mutex<Mixer>>,
+    apm: Option<Arc<ApmBridge>>,
 ) -> Result<Playback, VoiceError> {
     let thread = StreamThread::spawn("spook-out", move || {
         let device = find_device(Direction::Output, device_id.as_deref())?;
@@ -306,10 +320,10 @@ pub fn start_playback(
         let format = config.sample_format();
         let cfg: cpal::StreamConfig = config.into();
         let stream = match format {
-            SampleFormat::F32 => build_output::<f32>(&device, &cfg, channels, rate, mixer),
-            SampleFormat::I16 => build_output::<i16>(&device, &cfg, channels, rate, mixer),
-            SampleFormat::U16 => build_output::<u16>(&device, &cfg, channels, rate, mixer),
-            SampleFormat::I32 => build_output::<i32>(&device, &cfg, channels, rate, mixer),
+            SampleFormat::F32 => build_output::<f32>(&device, &cfg, channels, rate, mixer, apm),
+            SampleFormat::I16 => build_output::<i16>(&device, &cfg, channels, rate, mixer, apm),
+            SampleFormat::U16 => build_output::<u16>(&device, &cfg, channels, rate, mixer, apm),
+            SampleFormat::I32 => build_output::<i32>(&device, &cfg, channels, rate, mixer, apm),
             _ => Err(VoiceError::media(
                 MediaCode::Unsupported,
                 MediaDevice::Speaker,
@@ -329,11 +343,12 @@ fn build_output<T>(
     channels: usize,
     rate: u32,
     mixer: Arc<Mutex<Mixer>>,
+    apm: Option<Arc<ApmBridge>>,
 ) -> Result<Stream, VoiceError>
 where
     T: SizedSample + FromSample<f32>,
 {
-    let mut renderer = OutputRenderer::new(mixer, rate, channels);
+    let mut renderer = OutputRenderer::new(mixer, apm, rate, channels);
     let mut scratch: Vec<f32> = Vec::new();
     device
         .build_output_stream(
@@ -382,7 +397,7 @@ mod tests {
     fn renderer_passthrough_at_48k_stereo() {
         let pcm = tone(440.0, 0, 4800, 0.5);
         let mixer = mixer_with(&pcm);
-        let mut r = OutputRenderer::new(mixer, 48_000, 2);
+        let mut r = OutputRenderer::new(mixer, None, 48_000, 2);
         let mut out = vec![0f32; 960 * 2];
         r.fill(&mut out);
         // os dois canais são iguais e há sinal
@@ -395,7 +410,7 @@ mod tests {
         // 1 s de tom em 48 kHz tocado num dispositivo de 44,1 kHz → ~44100 quadros úteis
         let pcm = tone(300.0, 0, 48_000, 0.5);
         let mixer = mixer_with(&pcm);
-        let mut r = OutputRenderer::new(mixer.clone(), 44_100, 1);
+        let mut r = OutputRenderer::new(mixer.clone(), None, 44_100, 1);
         // o mixer guarda no máximo 200 ms: alimenta aos poucos
         let mut fed = 9_600;
         let mut total = Vec::new();
@@ -420,10 +435,21 @@ mod tests {
     }
 
     #[test]
+    fn renderer_feeds_what_it_plays_to_the_echo_canceller() {
+        use crate::voice::apm::{ApmBridge, AudioProcessingSettings};
+        let apm = Arc::new(ApmBridge::new(AudioProcessingSettings::default()));
+        let mixer = mixer_with(&tone(440.0, 0, 4800, 0.5));
+        let mut r = OutputRenderer::new(mixer, Some(apm.clone()), 48_000, 2);
+        let mut out = vec![0f32; 480 * 2 * 5]; // 5 quadros de 10 ms
+        r.fill(&mut out);
+        assert!((5..=6).contains(&apm.far_frames()), "{}", apm.far_frames());
+    }
+
+    #[test]
     fn renderer_plays_silence_when_deafened() {
         let mixer = mixer_with(&tone(440.0, 0, 4800, 0.5));
         mixer.lock().unwrap().set_deafened(true);
-        let mut r = OutputRenderer::new(mixer, 48_000, 2);
+        let mut r = OutputRenderer::new(mixer, None, 48_000, 2);
         let mut out = vec![1f32; 960 * 2];
         r.fill(&mut out);
         assert!(out.iter().all(|&s| s == 0.0));

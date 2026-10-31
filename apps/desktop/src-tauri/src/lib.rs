@@ -85,6 +85,8 @@ pub fn run() {
             vc::voice_disconnect,
             vc::voice_set_microphone,
             vc::voice_set_deafened,
+            vc::voice_set_audio_processing,
+            vc::voice_get_audio_processing,
             vc::voice_set_camera_enabled,
             vc::voice_list_screen_sources,
             vc::voice_set_screen_share,

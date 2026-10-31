@@ -1,0 +1,330 @@
+//! Processamento de áudio do WebRTC (APM: cancelamento de eco, supressão de ruído e controle de ganho).
+//!
+//! O `NativeAudioSource` do LiveKit NÃO passa pelo APM (ele só atua no caminho do ADM do WebRTC, que não
+//! usamos porque capturamos e tocamos com o cpal). Por isso fazemos a ponte à mão com o
+//! `libwebrtc::native::apm::AudioProcessingModule`:
+//!
+//! * **far-end (reverse stream):** o que TOCAMOS. O renderizador de saída entrega cada quadro de 10 ms
+//!   (48 kHz mono, o mesmo PCM que sai do mixer) a `push_far`, no callback de áudio, sem alocar nem bloquear
+//!   (`try_lock`: se a captura estiver usando o APM naquele instante, esse quadro de referência é pulado).
+//! * **near-end (stream):** cada quadro de 10 ms do MICROFONE passa por `process_near` ANTES de ir ao
+//!   `NativeAudioSource`, junto com a dica de atraso (`set_stream_delay_ms`).
+//!
+//! Sem reprodução ativa não há far-end e o APM só aplica supressão de ruído e ganho. O APM não troca
+//! configuração em execução, então mudar um interruptor recria o módulo (o AEC reconverge em ~1 s).
+
+use std::sync::Mutex;
+
+use libwebrtc::native::apm::AudioProcessingModule;
+use serde::{Deserialize, Serialize};
+
+use super::audio::{FRAME_SAMPLES, SAMPLE_RATE};
+
+/// Dica de atraso entre o que tocamos e o que o microfone ouve de volta (buffers de saída + entrada do
+/// cpal + acústica). O AEC3 estima o atraso sozinho; a dica só acelera a convergência.
+pub const DEFAULT_STREAM_DELAY_MS: i32 = 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AudioProcessingSettings {
+    pub echo_cancellation: bool,
+    pub noise_suppression: bool,
+    pub auto_gain_control: bool,
+}
+
+impl Default for AudioProcessingSettings {
+    /// Tudo ligado por padrão (o eco é o problema de quem usa alto-falante).
+    fn default() -> Self {
+        Self {
+            echo_cancellation: true,
+            noise_suppression: true,
+            auto_gain_control: true,
+        }
+    }
+}
+
+impl AudioProcessingSettings {
+    pub fn any(&self) -> bool {
+        self.echo_cancellation || self.noise_suppression || self.auto_gain_control
+    }
+}
+
+struct Inner {
+    settings: AudioProcessingSettings,
+    apm: Option<AudioProcessingModule>,
+    delay_ms: i32,
+    /// Cópia do quadro far-end (o APM escreve no buffer que recebe); pré-alocada: nada de alocar no callback.
+    far: [i16; FRAME_SAMPLES],
+    far_frames: u64,
+}
+
+fn build(settings: AudioProcessingSettings) -> Option<AudioProcessingModule> {
+    settings.any().then(|| {
+        AudioProcessingModule::new(
+            settings.echo_cancellation,
+            settings.auto_gain_control,
+            // O filtro passa-altas acompanha qualquer processamento (tira ruído grave de DC/vento).
+            true,
+            settings.noise_suppression,
+        )
+    })
+}
+
+pub struct ApmBridge {
+    inner: Mutex<Inner>,
+}
+
+impl ApmBridge {
+    pub fn new(settings: AudioProcessingSettings) -> Self {
+        Self {
+            inner: Mutex::new(Inner {
+                settings,
+                apm: build(settings),
+                delay_ms: DEFAULT_STREAM_DELAY_MS,
+                far: [0; FRAME_SAMPLES],
+                far_frames: 0,
+            }),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn settings(&self) -> AudioProcessingSettings {
+        self.lock().settings
+    }
+
+    /// Aplica novos interruptores (recria o módulo se mudou algo).
+    pub fn configure(&self, settings: AudioProcessingSettings) {
+        let mut g = self.lock();
+        if g.settings == settings && (g.apm.is_some() == settings.any()) {
+            return;
+        }
+        g.settings = settings;
+        g.apm = build(settings);
+    }
+
+    pub fn set_stream_delay_ms(&self, delay_ms: i32) {
+        self.lock().delay_ms = delay_ms.clamp(0, 500);
+    }
+
+    /// Passa um quadro de 10 ms do microfone (48 kHz mono) pelo APM, no lugar. Devolve `true` se processou.
+    pub fn process_near(&self, frame: &mut [i16]) -> bool {
+        if frame.len() != FRAME_SAMPLES {
+            return false;
+        }
+        let mut g = self.lock();
+        let delay = g.delay_ms;
+        let Some(apm) = g.apm.as_mut() else {
+            return false;
+        };
+        // Se a dica falhar, o AEC3 ainda estima o atraso sozinho.
+        let _ = apm.set_stream_delay_ms(delay);
+        apm.process_stream(frame, SAMPLE_RATE as i32, 1).is_ok()
+    }
+
+    /// Entrega ao APM um quadro de 10 ms do que está tocando (referência do eco). Seguro para o callback de
+    /// áudio: não aloca e não espera. Devolve `true` se o quadro foi aceito.
+    pub fn push_far(&self, frame: &[i16]) -> bool {
+        if frame.len() != FRAME_SAMPLES {
+            return false;
+        }
+        let Ok(mut g) = self.inner.try_lock() else {
+            return false;
+        };
+        let Inner {
+            apm,
+            far,
+            far_frames,
+            ..
+        } = &mut *g;
+        let Some(apm) = apm.as_mut() else {
+            return false;
+        };
+        far.copy_from_slice(frame);
+        let ok = apm
+            .process_reverse_stream(far, SAMPLE_RATE as i32, 1)
+            .is_ok();
+        if ok {
+            *far_frames += 1;
+        }
+        ok
+    }
+
+    /// Quantos quadros de referência (far-end) o APM já recebeu (diagnóstico e testes).
+    pub fn far_frames(&self) -> u64 {
+        self.lock().far_frames
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ruído branco determinístico (LCG), amplitude `amp`, `n` amostras.
+    fn noise(n: usize, amp: f32, seed: u32) -> Vec<i16> {
+        let mut s = seed;
+        (0..n)
+            .map(|_| {
+                s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let x = ((s >> 8) as f32 / (1u32 << 24) as f32) * 2.0 - 1.0;
+                (x * amp * i16::MAX as f32) as i16
+            })
+            .collect()
+    }
+
+    fn energy(x: &[i16]) -> f64 {
+        x.iter().map(|&s| (s as f64) * (s as f64)).sum::<f64>() / x.len().max(1) as f64
+    }
+
+    /// Simula o eco: o near-end é o far-end atrasado e atenuado. Devolve a energia (média por amostra) da
+    /// saída nos últimos `tail` quadros e a da entrada no mesmo trecho.
+    fn run_echo(settings: AudioProcessingSettings, delay_samples: usize, gain: f32) -> (f64, f64) {
+        let frames = 1500; // 15 s
+        let far = noise(frames * FRAME_SAMPLES, 0.3, 7);
+        let near: Vec<i16> = (0..far.len())
+            .map(|i| {
+                if i >= delay_samples {
+                    (far[i - delay_samples] as f32 * gain) as i16
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let bridge = ApmBridge::new(settings);
+        let mut out_tail = Vec::new();
+        let mut in_tail = Vec::new();
+        let tail_start = frames - 300; // últimos 3 s
+        for f in 0..frames {
+            let r = f * FRAME_SAMPLES..(f + 1) * FRAME_SAMPLES;
+            bridge.push_far(&far[r.clone()]);
+            let mut q = near[r.clone()].to_vec();
+            bridge.process_near(&mut q);
+            if f >= tail_start {
+                out_tail.extend_from_slice(&q);
+                in_tail.extend_from_slice(&near[r]);
+            }
+        }
+        (energy(&out_tail), energy(&in_tail))
+    }
+
+    fn aec_only() -> AudioProcessingSettings {
+        AudioProcessingSettings {
+            echo_cancellation: true,
+            noise_suppression: false,
+            auto_gain_control: false,
+        }
+    }
+
+    #[test]
+    fn echo_canceller_removes_a_simulated_echo() {
+        // 40 ms de atraso (1920 amostras) e eco a 50 % da amplitude.
+        let (with_aec, input) = run_echo(aec_only(), 1920, 0.5);
+        let (without, input2) = run_echo(
+            AudioProcessingSettings {
+                echo_cancellation: false,
+                noise_suppression: false,
+                auto_gain_control: false,
+            },
+            1920,
+            0.5,
+        );
+        // Desligado, o APM não toca no sinal: a saída é a entrada.
+        assert!(
+            (without - input2).abs() / input2 < 1e-6,
+            "sem APM a saída deve ser igual à entrada"
+        );
+        assert!((input - input2).abs() / input2 < 1e-6);
+        let erle_db = 10.0 * (without / with_aec.max(1e-9)).log10();
+        eprintln!("AEC: redução do eco após convergir = {erle_db:.1} dB");
+        assert!(
+            erle_db > 15.0,
+            "o AEC deveria reduzir o eco em mais de 15 dB depois de convergir, reduziu {erle_db:.1} dB \
+             (com AEC {with_aec:.1}, sem {without:.1})"
+        );
+    }
+
+    #[test]
+    fn near_end_speech_survives_when_there_is_no_far_end() {
+        // Sem reprodução (nenhum far-end) o AEC não pode comer a fala do microfone.
+        let bridge = ApmBridge::new(aec_only());
+        let speech = noise(300 * FRAME_SAMPLES, 0.3, 11);
+        let mut out = Vec::new();
+        for c in speech.chunks(FRAME_SAMPLES) {
+            let mut q = c.to_vec();
+            assert!(bridge.process_near(&mut q));
+            out.extend(q);
+        }
+        let tail = out.len() - 100 * FRAME_SAMPLES;
+        let ratio = energy(&out[tail..]) / energy(&speech[tail..]);
+        eprintln!("sem far-end, energia mantida = {ratio:.2}");
+        assert!(
+            ratio > 0.3,
+            "o sinal do microfone foi atenuado demais: {ratio:.2}"
+        );
+    }
+
+    #[test]
+    fn disabled_settings_bypass_the_module() {
+        let off = AudioProcessingSettings {
+            echo_cancellation: false,
+            noise_suppression: false,
+            auto_gain_control: false,
+        };
+        let b = ApmBridge::new(off);
+        let mut q = vec![123i16; FRAME_SAMPLES];
+        assert!(!b.process_near(&mut q));
+        assert!(!b.push_far(&q));
+        assert!(q.iter().all(|&s| s == 123));
+    }
+
+    #[test]
+    fn configure_rebuilds_and_reports_settings() {
+        let b = ApmBridge::new(AudioProcessingSettings::default());
+        assert!(
+            b.settings().echo_cancellation
+                && b.settings().noise_suppression
+                && b.settings().auto_gain_control
+        );
+        let mut q = vec![0i16; FRAME_SAMPLES];
+        assert!(b.process_near(&mut q));
+        b.configure(AudioProcessingSettings {
+            echo_cancellation: false,
+            noise_suppression: false,
+            auto_gain_control: false,
+        });
+        assert!(!b.process_near(&mut q));
+        b.configure(aec_only());
+        assert!(b.process_near(&mut q));
+        assert_eq!(b.settings(), aec_only());
+    }
+
+    #[test]
+    fn wrong_frame_sizes_are_rejected_without_panicking() {
+        let b = ApmBridge::new(AudioProcessingSettings::default());
+        assert!(!b.process_near(&mut [0i16; 100]));
+        assert!(!b.push_far(&[0i16; 481]));
+    }
+
+    #[test]
+    fn push_far_never_blocks_while_the_capture_holds_the_module() {
+        let b = ApmBridge::new(AudioProcessingSettings::default());
+        let _guard = b.lock(); // simula a captura usando o APM
+        assert!(
+            !b.push_far(&[0i16; FRAME_SAMPLES]),
+            "deveria pular o quadro em vez de esperar"
+        );
+    }
+
+    #[test]
+    fn settings_json_uses_camel_case_and_defaults_to_on() {
+        let s: AudioProcessingSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(s, AudioProcessingSettings::default());
+        let s: AudioProcessingSettings =
+            serde_json::from_str(r#"{"echoCancellation":false}"#).unwrap();
+        assert!(!s.echo_cancellation && s.noise_suppression && s.auto_gain_control);
+        let v = serde_json::to_value(AudioProcessingSettings::default()).unwrap();
+        assert_eq!(v["autoGainControl"], true);
+    }
+}
