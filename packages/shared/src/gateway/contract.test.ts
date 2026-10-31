@@ -81,6 +81,21 @@ describe("fixtures do gateway", () => {
     expect(parsed.voice_states).toEqual([]);
   });
 
+  it("VOICE_STATE_UPDATE: o fixture do Go e as variantes de saída e de DM", () => {
+    const frame = dispatchFrameSchema("VOICE_STATE_UPDATE").parse(
+      fixtures.dispatch.VOICE_STATE_UPDATE,
+    );
+    expect(frame.d).toMatchObject({ channel_id: "301", self_mute: true, self_video: true });
+    // Saída da voz: channel_id nulo. DM: guild_id nulo.
+    const left = { ...frame.d, channel_id: null };
+    const inDm = { ...frame.d, guild_id: null, channel_id: "500" };
+    expect(eventSchemas.VOICE_STATE_UPDATE.safeParse(left).success).toBe(true);
+    expect(eventSchemas.VOICE_STATE_UPDATE.safeParse(inDm).success).toBe(true);
+    // Campo faltando (ex.: self_screen) é violação de contrato.
+    const { self_screen: _s, ...broken } = frame.d;
+    expect(eventSchemas.VOICE_STATE_UPDATE.safeParse(broken).success).toBe(false);
+  });
+
   it("o fixture cobre todos os eventos do schema (e só eles)", () => {
     const all = Object.keys(eventSchemas).filter((n) => n !== "READY" && n !== "RESUMED");
     expect([...names].sort()).toEqual(all.sort());

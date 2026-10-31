@@ -8,6 +8,7 @@ export * from "./api/endpoints/guilds/guilds";
 export * from "./api/endpoints/invites/invites";
 export * from "./api/endpoints/messages/messages";
 export * from "./api/endpoints/users/users";
+export * from "./api/endpoints/voice/voice";
 export * from "./api/model";
 export * as schemas from "./api/zod/index.zod";
 export * from "./gateway";

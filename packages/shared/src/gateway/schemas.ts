@@ -102,6 +102,9 @@ export const voiceStatePayloadSchema = z.object({
   self_screen: z.boolean(),
 });
 
+/** Voice state de um usuário (READY e VOICE_STATE_UPDATE); `channel_id: null` = saiu da voz. */
+export type VoiceStatePayload = z.infer<typeof voiceStatePayloadSchema>;
+
 export const readyDataSchema = z.object({
   session_id: z.string(),
   user: z.object({ id: z.string() }),
