@@ -1,9 +1,12 @@
 import {
+  type AudioCapabilities,
+  type AudioSource,
   type ConnectionState,
   type ConnectParams,
   type DeviceInfo,
   type DeviceKind,
   Emitter,
+  type ScreenShareQuality,
   type VideoTrackInfo,
   type VoiceEngine,
   type VoiceEngineEvents,
@@ -19,12 +22,22 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
   camera = false;
   screen = false;
   deafened = false;
+  /** Capacidades de áudio que a engine declara (testes mudam isto). */
+  audioCapabilities?: AudioCapabilities;
   devices: Record<DeviceKind, DeviceInfo[]> = {
     audioinput: [{ id: "mic1", label: "Microfone USB" }],
     audiooutput: [{ id: "spk1", label: "Caixa de som" }],
     videoinput: [{ id: "cam1", label: "Webcam" }],
   };
   setDevices: [DeviceKind, string][] = [];
+  /** Volumes por pessoa recebidos (`setParticipantVolume`), em ordem. */
+  volumes: [string, AudioSource, number][] = [];
+  /** `setInputLevelMonitor` e `startMicTest`/`cancelMicTest`, em ordem. */
+  monitorCalls: boolean[] = [];
+  micTests = 0;
+  micTestCancels = 0;
+  /** Opções da última chamada de `setScreenShareEnabled(true, ...)`. */
+  lastScreenOpts: { audio?: boolean; quality?: ScreenShareQuality } | undefined;
   /** Falhas programadas por operação: o próximo `connect`/mic/câmera/tela lança isto. */
   failConnect: Error | null = null;
   failConnectOnce: Error | null = null;
@@ -63,14 +76,30 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
     this.calls.push(`camera:${on}`);
     this.camera = on;
   }
-  async setScreenShareEnabled(on: boolean, opts?: { audio?: boolean }) {
+  async setScreenShareEnabled(
+    on: boolean,
+    opts?: { audio?: boolean; quality?: ScreenShareQuality },
+  ) {
     if (on && this.failScreen) throw this.failScreen;
+    if (on) this.lastScreenOpts = opts;
     this.calls.push(`screen:${on}:${opts?.audio ? "audio" : "mudo"}`);
     this.screen = on;
   }
   setDeafened(d: boolean) {
     this.calls.push(`deaf:${d}`);
     this.deafened = d;
+  }
+  setParticipantVolume(identity: string, source: AudioSource, volume: number) {
+    this.volumes.push([identity, source, volume]);
+  }
+  async setInputLevelMonitor(enabled: boolean) {
+    this.monitorCalls.push(enabled);
+  }
+  async startMicTest() {
+    this.micTests++;
+  }
+  cancelMicTest() {
+    this.micTestCancels++;
   }
   async resumeAudio() {
     this.calls.push("resume-audio");

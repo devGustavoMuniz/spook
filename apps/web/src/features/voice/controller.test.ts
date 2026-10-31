@@ -2,13 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { type Backend, makeBackend, server } from "@/test/server";
 import {
+  cancelMicTest,
   joinVoice,
   leaveCall,
   leaveOnPageHide,
+  micTestBlockedByCall,
+  participantVolumeMax,
   REJOIN_DELAYS_MS,
   reconcileVoiceSnapshot,
   reconcileVoiceUpdate,
   resetVoiceController,
+  runMicTest,
+  setPersonVolume,
+  startInputMonitor,
+  stopInputMonitor,
   toggleCamera,
   toggleDeafen,
   toggleMute,
@@ -17,7 +24,15 @@ import {
 import { loadAudioProcessing, saveAudioProcessing } from "./devices";
 import { type AudioProcessingOptions, VoiceConnectError, VoiceMediaError } from "./engine";
 import { setVoiceEngineFactory } from "./engine-provider";
-import { useAudioStatusStore, useVoiceStatesStore, useVoiceStore } from "./store";
+import { useParticipantVolumeStore } from "./participant-volume";
+import { loadScreenQuality } from "./screen-quality";
+import {
+  useAudioStatusStore,
+  useInputLevelStore,
+  useMicTestStore,
+  useVoiceStatesStore,
+  useVoiceStore,
+} from "./store";
 
 const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toasts }));
@@ -402,10 +417,16 @@ describe("processamento do microfone", () => {
       echoCancellation: false,
       noiseSuppression: "strong",
       autoGainControl: true,
+      inputSensitivity: { mode: "off", thresholdDb: -50 },
     });
     await joinVoice(A);
     expect(eng.applied).toEqual([
-      { echoCancellation: false, noiseSuppression: "strong", autoGainControl: true },
+      {
+        echoCancellation: false,
+        noiseSuppression: "strong",
+        autoGainControl: true,
+        inputSensitivity: { mode: "off", thresholdDb: -50 },
+      },
     ]);
   });
 
@@ -427,6 +448,7 @@ describe("processamento do microfone", () => {
   it("rebaixamento não mexe nas escolhas de eco e ganho", async () => {
     await joined();
     saveAudioProcessing({
+      ...loadAudioProcessing(),
       echoCancellation: false,
       noiseSuppression: "strong",
       autoGainControl: false,
@@ -436,6 +458,7 @@ describe("processamento do microfone", () => {
       echoCancellation: false,
       noiseSuppression: "standard",
       autoGainControl: false,
+      inputSensitivity: { mode: "off", thresholdDb: -50 },
     });
   });
 
@@ -444,5 +467,157 @@ describe("processamento do microfone", () => {
     fake.fire("audio-processing-status", { level: "strong", state: "loading" });
     expect(toasts.warning).not.toHaveBeenCalled();
     expect(useAudioStatusStore.getState().status).toEqual({ level: "strong", state: "loading" });
+  });
+});
+
+describe("volume por pessoa (controlador)", () => {
+  beforeEach(() => {
+    fake.audioCapabilities = { strongNoiseSuppression: false, participantVolume: { max: 1 } };
+    useParticipantVolumeStore.getState().reload();
+  });
+
+  it("ajusta voz e áudio da tela, persiste por usuário e aplica na engine", async () => {
+    await joined();
+    expect(participantVolumeMax()).toBe(1);
+    setPersonVolume("50", { voice: 0.4 });
+    setPersonVolume("50", { screen: 0.25 });
+    expect(fake.volumes).toEqual([
+      ["50", "voice", 0.4],
+      ["50", "screen", 1],
+      ["50", "voice", 0.4],
+      ["50", "screen", 0.25],
+    ]);
+    expect(JSON.parse(localStorage.getItem("spook:voice-participant-volumes") ?? "{}")).toEqual({
+      "50": { voice: 0.4, screen: 0.25, muted: false },
+    });
+  });
+
+  it("'silenciar só para mim' manda 0 sem perder o volume; reativar volta ao valor", async () => {
+    await joined();
+    setPersonVolume("50", { voice: 0.7 });
+    fake.volumes.length = 0;
+    setPersonVolume("50", { muted: true });
+    expect(fake.volumes).toEqual([
+      ["50", "voice", 0],
+      ["50", "screen", 0],
+    ]);
+    fake.volumes.length = 0;
+    setPersonVolume("50", { muted: false });
+    expect(fake.volumes).toEqual([
+      ["50", "voice", 0.7],
+      ["50", "screen", 1],
+    ]);
+  });
+
+  it("voltar ao padrão manda 100% explicitamente (a engine guarda o último valor)", async () => {
+    await joined();
+    setPersonVolume("50", { voice: 0.3 });
+    fake.volumes.length = 0;
+    setPersonVolume("50", { voice: 1 });
+    expect(fake.volumes[0]).toEqual(["50", "voice", 1]);
+    expect(localStorage.getItem("spook:voice-participant-volumes")).toBe("{}");
+  });
+
+  it("reaplica o volume salvo quando a pessoa entra na sala", async () => {
+    setPersonVolume("50", { voice: 0.5 });
+    await joined();
+    fake.volumes.length = 0;
+    fake.fire("participant-joined", { identity: "50" });
+    expect(fake.volumes).toEqual([
+      ["50", "voice", 0.5],
+      ["50", "screen", 1],
+    ]);
+    fake.volumes.length = 0;
+    fake.fire("participant-joined", { identity: "99" }); // sem ajuste salvo: nada a fazer
+    expect(fake.volumes).toEqual([]);
+  });
+
+  it("o volume acima do máximo da engine é limitado (desktop/web a 100%)", async () => {
+    await joined();
+    useParticipantVolumeStore.getState().set("50", { voice: 1.8 });
+    fake.fire("participant-joined", { identity: "50" });
+    expect(fake.volumes.at(-2)).toEqual(["50", "voice", 1]);
+  });
+
+  it("silenciar só para mim não mexe no deafen: ensurdecido continua ensurdecido", async () => {
+    await joined();
+    await toggleDeafen();
+    setPersonVolume("50", { muted: true });
+    setPersonVolume("50", { muted: false });
+    expect(s().selfDeaf).toBe(true);
+    expect(fake.deafened).toBe(true);
+  });
+
+  it("engine sem a capacidade (desktop por enquanto): não envia nada e informa 'indisponível'", async () => {
+    fake.audioCapabilities = { strongNoiseSuppression: false };
+    await joined();
+    setPersonVolume("50", { voice: 0.2 });
+    expect(participantVolumeMax()).toBeNull();
+    expect(fake.volumes).toEqual([]);
+  });
+});
+
+describe("qualidade da tela (controlador)", () => {
+  const q = { height: 1440, fps: 30, priority: "detail" } as const;
+
+  it("com a capacidade, manda a qualidade escolhida e a persiste", async () => {
+    fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
+    await joined();
+    await toggleScreenShare({ audio: false, quality: q });
+    expect(fake.lastScreenOpts).toEqual({ audio: false, quality: q });
+    expect(loadScreenQuality()).toEqual(q);
+  });
+
+  it("sem escolha explícita usa a qualidade salva (ou o padrão conservador)", async () => {
+    fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
+    await joined();
+    await toggleScreenShare();
+    expect(fake.lastScreenOpts?.quality).toEqual({ height: 1080, fps: 15, priority: "detail" });
+  });
+
+  it("sem a capacidade (desktop por enquanto) a engine não recebe qualidade", async () => {
+    await joined();
+    await toggleScreenShare({ audio: false, quality: q });
+    expect(fake.lastScreenOpts).toEqual({ audio: false });
+  });
+});
+
+describe("medidor e teste de microfone (controlador)", () => {
+  it("o medidor reaplica o processamento salvo e liga a engine; os níveis chegam ao store", async () => {
+    const applied: unknown[] = [];
+    (
+      fake as { setAudioProcessing?: (o: AudioProcessingOptions) => Promise<void> }
+    ).setAudioProcessing = async (o) => void applied.push(o);
+    saveAudioProcessing({
+      ...loadAudioProcessing(),
+      inputSensitivity: { mode: "auto", thresholdDb: -50 },
+    });
+    await startInputMonitor();
+    expect(applied).toEqual([
+      expect.objectContaining({ inputSensitivity: { mode: "auto", thresholdDb: -50 } }),
+    ]);
+    expect(fake.monitorCalls).toEqual([true]);
+    fake.fire("input-level", { db: -40, gateOpen: true });
+    expect(useInputLevelStore.getState().level).toEqual({ db: -40, gateOpen: true });
+    stopInputMonitor();
+    expect(fake.monitorCalls).toEqual([true, false]);
+    expect(useInputLevelStore.getState().level).toBeNull();
+  });
+
+  it("o teste dispara a engine e o andamento chega ao store; cancelar repassa", async () => {
+    await runMicTest();
+    expect(fake.micTests).toBe(1);
+    fake.fire("mic-test", { phase: "recording", remainingMs: 2500 });
+    expect(useMicTestStore.getState().state).toEqual({ phase: "recording", remainingMs: 2500 });
+    cancelMicTest();
+    expect(fake.micTestCancels).toBe(1);
+  });
+
+  it("o teste fica bloqueado com o microfone aberto na chamada, e liberado mudo ou fora dela", async () => {
+    expect(micTestBlockedByCall()).toBe(false);
+    await joined();
+    expect(micTestBlockedByCall()).toBe(true);
+    await toggleMute();
+    expect(micTestBlockedByCall()).toBe(false);
   });
 });

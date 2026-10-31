@@ -54,7 +54,15 @@ const lk = vi.hoisted(() => {
   }
   /** Processador de IA simulado (o módulo real exige AudioWorklet/WASM, ausentes no jsdom). */
   const noise = {
-    created: [] as { hooks: { onLoad?: (l: string) => void; onSlow?: () => void } }[],
+    created: [] as {
+      hooks: {
+        strong: boolean;
+        sensitivity: unknown;
+        onLoad?: (l: string) => void;
+        onSlow?: () => void;
+        onLevel?: (l: { db: number; gateOpen: boolean }) => void;
+      };
+    }[],
     timeout: 20_000,
   };
   class FakeRoom {
@@ -62,7 +70,10 @@ const lk = vi.hoisted(() => {
     static seed: string[] = [];
     static devices = [{ deviceId: "d1", label: "" }];
     handlers = new Map<string, ((...a: unknown[]) => void)[]>();
-    remoteParticipants = new Map<string, { identity: string }>();
+    remoteParticipants = new Map<
+      string,
+      { identity: string; volumes: [number, string][]; setVolume(v: number, s: string): void }
+    >();
     state = "connected";
     canPlaybackAudio = true;
     connectError: Error | null = null;
@@ -101,15 +112,24 @@ const lk = vi.hoisted(() => {
         if (this.fail) throw this.fail;
         this.isCameraEnabled = on;
       },
-      async setScreenShareEnabled(on: boolean, opts?: unknown) {
+      publishOpts: [] as unknown[],
+      async setScreenShareEnabled(on: boolean, opts?: unknown, publish?: unknown) {
         if (this.fail) throw this.fail;
         this.calls.push(["screen", on, opts]);
+        this.publishOpts.push(publish);
         this.isScreenShareEnabled = on;
       },
     };
     constructor() {
       FakeRoom.last = this;
-      for (const id of FakeRoom.seed) this.remoteParticipants.set(id, { identity: id });
+      for (const id of FakeRoom.seed)
+        this.remoteParticipants.set(id, {
+          identity: id,
+          volumes: [],
+          setVolume(v, s) {
+            this.volumes.push([v, s]);
+          },
+        });
     }
     on(ev: string, h: (...a: unknown[]) => void) {
       this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), h]);
@@ -170,7 +190,12 @@ const lk = vi.hoisted(() => {
     },
     Track: {
       Kind: { Audio: "audio", Video: "video" },
-      Source: { Camera: "camera", ScreenShare: "screen_share", Microphone: "microphone" },
+      Source: {
+        Camera: "camera",
+        ScreenShare: "screen_share",
+        Microphone: "microphone",
+        ScreenShareAudio: "screen_share_audio",
+      },
     },
   };
 });
@@ -179,10 +204,28 @@ vi.mock("./noise-processor", () => ({
   get LOAD_TIMEOUT_MS() {
     return lk.noise.timeout;
   },
-  RnnoiseTrackProcessor: class {
-    name = "spook-rnnoise";
-    constructor(public hooks: { onLoad?: (l: string) => void; onSlow?: () => void }) {
+  MicTrackProcessor: class {
+    name = "spook-mic";
+    configured: unknown[] = [];
+    constructor(
+      public hooks: {
+        strong: boolean;
+        sensitivity: unknown;
+        onLoad?: (l: string) => void;
+        onSlow?: () => void;
+        onLevel?: (l: { db: number; gateOpen: boolean }) => void;
+      },
+    ) {
       lk.noise.created.push(this);
+    }
+    get strong() {
+      return this.hooks.strong;
+    }
+    processedTrack = { stopped: false } as unknown as MediaStreamTrack;
+    async init() {}
+    async destroy() {}
+    configure(s: unknown) {
+      this.configured.push(s);
     }
   },
 }));
@@ -193,7 +236,9 @@ import {
   mapDisconnectReason,
   micConstraints,
   screenShareOptions,
+  screenSharePublishOptions,
   toMediaError,
+  WEB_MAX_PARTICIPANT_VOLUME,
 } from "./web-engine";
 
 const room = () => lk.Room.last;
@@ -234,6 +279,7 @@ const opts = (over: Partial<AudioProcessingOptions> = {}): AudioProcessingOption
   echoCancellation: true,
   noiseSuppression: "standard",
   autoGainControl: true,
+  inputSensitivity: { mode: "off", thresholdDb: -50 },
   ...over,
 });
 
@@ -562,7 +608,10 @@ describe("microfone: nível Forte (IA)", () => {
       strongUnavailableReason: expect.any(String),
     });
     stubAudioWorklet();
-    expect(createWebVoiceEngine().audioCapabilities).toEqual({ strongNoiseSuppression: true });
+    expect(createWebVoiceEngine().audioCapabilities).toMatchObject({
+      strongNoiseSuppression: true,
+      inputSensitivity: true,
+    });
   });
 
   it("liga o processador no track com o filtro do navegador desligado", async () => {
@@ -574,7 +623,7 @@ describe("microfone: nível Forte (IA)", () => {
     await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
     await e.setMicrophoneEnabled(true);
     const mic = room().localParticipant.micPub?.audioTrack;
-    expect(mic?.processor?.name).toBe("spook-rnnoise");
+    expect(mic?.processor?.name).toBe("spook-mic");
     expect(room().localParticipant.micCalls[0]?.[1]).toMatchObject({
       noiseSuppression: false,
       voiceIsolation: false,
@@ -593,7 +642,7 @@ describe("microfone: nível Forte (IA)", () => {
     const mic = room().localParticipant.micPub?.audioTrack;
     await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
     expect(mic?.restarts.at(-1)).toMatchObject({ noiseSuppression: false });
-    expect(mic?.processor?.name).toBe("spook-rnnoise");
+    expect(mic?.processor?.name).toBe("spook-mic");
     // e de volta: tira o processador e devolve o filtro do navegador
     await e.setAudioProcessing?.(opts());
     expect(mic?.processor).toBeUndefined();
@@ -706,5 +755,284 @@ describe("compartilhamento de tela: opções contra eco", () => {
       { audio: false, selfBrowserSurface: "exclude" },
     ]);
     expect(calls[1]).toEqual(["screen", false, undefined]);
+  });
+});
+
+describe("volume por pessoa", () => {
+  function audioTrack() {
+    const t = track("audio") as ReturnType<typeof track> & {
+      volumes: number[];
+      setVolume(v: number): void;
+    };
+    t.volumes = [];
+    t.setVolume = (v: number) => t.volumes.push(v);
+    return t;
+  }
+  const pub = (source: string, sid = "TR_a") => ({ trackSid: sid, source });
+
+  it("a web declara o máximo em 100% (decisão: acima disso exigiria WebAudio e arriscaria o eco)", () => {
+    expect(WEB_MAX_PARTICIPANT_VOLUME).toBe(1);
+    expect(createWebVoiceEngine().audioCapabilities?.participantVolume).toEqual({ max: 1 });
+  });
+
+  it("aplica na pessoa (voz e áudio da tela) usando as fontes do livekit", async () => {
+    lk.Room.seed = ["7"];
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    lk.Room.seed = [];
+    e.setParticipantVolume?.("7", "voice", 0.3);
+    e.setParticipantVolume?.("7", "screen", 0);
+    expect(room().remoteParticipants.get("7")?.volumes).toEqual([
+      [0.3, "microphone"],
+      [0, "screen_share_audio"],
+    ]);
+  });
+
+  it("limita a faixa (0 a 1), mesmo que a interface mande mais", async () => {
+    lk.Room.seed = ["7"];
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    lk.Room.seed = [];
+    e.setParticipantVolume?.("7", "voice", 1.8);
+    e.setParticipantVolume?.("7", "voice", -2);
+    expect(
+      room()
+        .remoteParticipants.get("7")
+        ?.volumes.map(([v]) => v),
+    ).toEqual([1, 0]);
+  });
+
+  it("reaplica o volume guardado quando a pessoa (re)publica a faixa, inclusive volume 0", async () => {
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    e.setParticipantVolume?.("7", "voice", 0);
+    e.setParticipantVolume?.("7", "screen", 0.5);
+    const voice = audioTrack();
+    const screen = audioTrack();
+    room().emit(lk.RoomEvent.TrackSubscribed, voice, pub("microphone", "TR_v"), { identity: "7" });
+    room().emit(lk.RoomEvent.TrackSubscribed, screen, pub("screen_share_audio", "TR_s"), {
+      identity: "7",
+    });
+    expect(voice.volumes).toEqual([0]);
+    expect(screen.volumes).toEqual([0.5]);
+    // republicou: nova faixa, mesmo volume
+    const again = audioTrack();
+    room().emit(lk.RoomEvent.TrackSubscribed, again, pub("microphone", "TR_v2"), { identity: "7" });
+    expect(again.volumes).toEqual([0]);
+  });
+
+  it("ensurdecer continua silenciando tudo, qualquer que seja o volume", async () => {
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    e.setParticipantVolume?.("7", "voice", 1);
+    const t = audioTrack();
+    room().emit(lk.RoomEvent.TrackSubscribed, t, pub("microphone"), { identity: "7" });
+    e.setDeafened(true);
+    expect(t.els[0]).toMatchObject({ muted: true });
+    e.setParticipantVolume?.("7", "voice", 0.8);
+    expect(t.els[0]).toMatchObject({ muted: true });
+    e.setDeafened(false);
+    expect(t.els[0]).toMatchObject({ muted: false });
+  });
+});
+
+describe("sensibilidade de entrada (porta de ruído)", () => {
+  const manual = (thresholdDb = -45) => opts({ inputSensitivity: { mode: "manual", thresholdDb } });
+
+  async function inCall(over: Partial<AudioProcessingOptions> = {}) {
+    stubAudioWorklet();
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts(over));
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    if (!mic) throw new Error("sem track de microfone");
+    return { e, mic };
+  }
+
+  it("desligada (padrão) e sem 'Forte': nenhum processador, nenhum AudioContext", async () => {
+    const { mic } = await inCall();
+    expect(mic.processor).toBeUndefined();
+    expect(lk.noise.created).toHaveLength(0);
+  });
+
+  it("ligar a porta com ruído 'Padrão' cria o processador SEM RNNoise e sem recapturar o microfone", async () => {
+    const { e, mic } = await inCall();
+    await e.setAudioProcessing?.(manual());
+    expect(mic.processor?.name).toBe("spook-mic");
+    expect(lk.noise.created[0]).toMatchObject({
+      hooks: { strong: false, sensitivity: { mode: "manual", thresholdDb: -45 } },
+    });
+    expect(mic.restarts).toHaveLength(0);
+    expect(room().disconnected).toBe(0);
+  });
+
+  it("mudar modo/limiar reconfigura o processador existente (sem recriar, sem cortar)", async () => {
+    const { e, mic } = await inCall();
+    await e.setAudioProcessing?.(manual(-45));
+    await e.setAudioProcessing?.(manual(-30));
+    await e.setAudioProcessing?.(opts({ inputSensitivity: { mode: "auto", thresholdDb: -30 } }));
+    expect(lk.noise.created).toHaveLength(1);
+    expect((lk.noise.created[0] as unknown as { configured: unknown[] }).configured).toEqual([
+      { mode: "manual", thresholdDb: -30 },
+      { mode: "auto", thresholdDb: -30 },
+    ]);
+    expect(mic.restarts).toHaveLength(0);
+  });
+
+  it("desligar a porta tira o processador (se o ruído não é 'Forte')", async () => {
+    const { e, mic } = await inCall();
+    await e.setAudioProcessing?.(manual());
+    await e.setAudioProcessing?.(opts());
+    expect(mic.processor).toBeUndefined();
+  });
+
+  it("a porta vale com ruído 'Desligada' e também com 'Forte' (um só processador compõe os dois)", async () => {
+    const off = await inCall({
+      noiseSuppression: "off",
+      inputSensitivity: manual().inputSensitivity,
+    });
+    expect(off.mic.processor?.name).toBe("spook-mic");
+    expect(lk.noise.created[0]?.hooks.strong).toBe(false);
+
+    lk.noise.created.length = 0;
+    document.body.innerHTML = "";
+    const strong = await inCall({
+      noiseSuppression: "strong",
+      inputSensitivity: manual().inputSensitivity,
+    });
+    expect(strong.mic.processor?.name).toBe("spook-mic");
+    expect(lk.noise.created).toHaveLength(1);
+    expect(lk.noise.created[0]?.hooks).toMatchObject({ strong: true });
+  });
+
+  it("trocar para 'Forte' com a porta ligada recria o processador (RNNoise é fixo na vida dele)", async () => {
+    const { e, mic } = await inCall();
+    await e.setAudioProcessing?.(manual());
+    await e.setAudioProcessing?.(
+      opts({ noiseSuppression: "strong", inputSensitivity: manual().inputSensitivity }),
+    );
+    expect(lk.noise.created.map((c) => c.hooks.strong)).toEqual([false, true]);
+    expect(mic.processor).toBe(lk.noise.created[1]);
+  });
+
+  it("IA rebaixada: a porta continua valendo, agora sem o RNNoise", async () => {
+    const { e, mic } = await inCall({
+      noiseSuppression: "strong",
+      inputSensitivity: manual().inputSensitivity,
+    });
+    lk.noise.created[0]?.hooks.onSlow?.();
+    await vi.waitFor(() => expect(lk.noise.created).toHaveLength(2));
+    expect(lk.noise.created[1]?.hooks.strong).toBe(false);
+    expect(mic.processor).toBe(lk.noise.created[1]);
+    void e;
+  });
+
+  it("sem AudioWorklet no navegador: a capacidade é declarada indisponível e a porta é ignorada", async () => {
+    const e = createWebVoiceEngine();
+    expect(e.audioCapabilities?.inputSensitivity).toBe(false);
+    await e.connect(URL);
+    await e.setAudioProcessing?.(manual());
+    await e.setMicrophoneEnabled(true);
+    expect(room().localParticipant.micPub?.audioTrack.processor).toBeUndefined();
+  });
+
+  it("falha ao subir a porta: segue sem ela e avisa pelo status", async () => {
+    const { e, mic } = await inCall();
+    const statuses: AudioProcessingStatus[] = [];
+    e.on("audio-processing-status", (st) => statuses.push(st));
+    mic.failSetProcessor = new Error("worklet quebrou");
+    await e.setAudioProcessing?.(manual());
+    expect(mic.processor).toBeUndefined();
+    expect(statuses.at(-1)?.gateError).toMatch(/sensibilidade de entrada/);
+  });
+});
+
+describe("medidor de nível", () => {
+  async function inCall() {
+    stubAudioWorklet();
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts());
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    if (!mic) throw new Error("sem track de microfone");
+    return { e, mic };
+  }
+
+  it("em chamada com o microfone aberto mede a faixa real: coloca um processador só de medição", async () => {
+    const { e, mic } = await inCall();
+    const levels: unknown[] = [];
+    e.on("input-level", (l) => levels.push(l));
+    await e.setInputLevelMonitor?.(true);
+    expect(mic.processor?.name).toBe("spook-mic");
+    expect(lk.noise.created[0]?.hooks.sensitivity).toMatchObject({ mode: "off" });
+    lk.noise.created[0]?.hooks.onLevel?.({ db: -30, gateOpen: true });
+    expect(levels).toEqual([{ db: -30, gateOpen: true }]);
+  });
+
+  it("desligar o medidor tira o processador de medição e para de emitir", async () => {
+    const { e, mic } = await inCall();
+    const levels: unknown[] = [];
+    e.on("input-level", (l) => levels.push(l));
+    await e.setInputLevelMonitor?.(true);
+    await e.setInputLevelMonitor?.(false);
+    expect(mic.processor).toBeUndefined();
+    lk.noise.created[0]?.hooks.onLevel?.({ db: -20, gateOpen: false });
+    expect(levels).toEqual([]);
+  });
+
+  it("o teste de gravação não roda com o microfone aberto na chamada (tocaria para todos)", async () => {
+    const { e } = await inCall();
+    const states: unknown[] = [];
+    e.on("mic-test", (st) => states.push(st));
+    await e.startMicTest?.();
+    expect(states).toEqual([{ phase: "error", error: "in-use" }]);
+  });
+});
+
+describe("compartilhamento de tela: qualidade", () => {
+  const q = { height: 1440, fps: 30, priority: "detail" } as const;
+
+  it("captura: resolução, fps e contentHint; sem qualidade nada disso é enviado (comportamento atual)", () => {
+    expect(screenShareOptions(false, q)).toMatchObject({
+      resolution: { width: 2560, height: 1440, frameRate: 30 },
+      contentHint: "detail",
+    });
+    expect(screenShareOptions(false)).not.toHaveProperty("resolution");
+    expect(screenShareOptions(false)).not.toHaveProperty("contentHint");
+  });
+
+  it("publicação: teto de bitrate/fps e prioridade de degradação conforme nitidez x fluidez", () => {
+    expect(screenSharePublishOptions(q)).toEqual({
+      screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 30 },
+      degradationPreference: "maintain-resolution",
+    });
+    expect(
+      screenSharePublishOptions({ height: 720, fps: 60, priority: "motion", maxBitrateKbps: 2000 }),
+    ).toEqual({
+      screenShareEncoding: { maxBitrate: 2_000_000, maxFramerate: 60 },
+      degradationPreference: "maintain-framerate",
+    });
+  });
+
+  it("setScreenShareEnabled repassa captura e publicação; sem qualidade, nenhuma opção de publicação", async () => {
+    const e = createWebVoiceEngine();
+    expect(e.audioCapabilities?.screenShareQuality).toBe(true);
+    await e.connect(URL);
+    await e.setScreenShareEnabled(true, { audio: false, quality: q });
+    await e.setScreenShareEnabled(false);
+    await e.setScreenShareEnabled(true, { audio: false });
+    const calls = room().localParticipant.calls as unknown[][];
+    expect(room().localParticipant.publishOpts).toEqual([
+      {
+        screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 30 },
+        degradationPreference: "maintain-resolution",
+      },
+      undefined,
+      undefined,
+    ]);
+    expect(calls[0]).toMatchObject(["screen", true, { contentHint: "detail" }]);
+    expect(calls[2]?.[2]).not.toHaveProperty("contentHint");
   });
 });

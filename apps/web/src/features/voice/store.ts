@@ -1,6 +1,12 @@
 import type { VoiceStatePayload } from "@spook/shared";
 import { create } from "zustand";
-import type { AudioProcessingStatus, LinkQuality, VideoTrackInfo } from "./engine";
+import type {
+  AudioProcessingStatus,
+  InputLevel,
+  LinkQuality,
+  MicTestState,
+  VideoTrackInfo,
+} from "./engine";
 
 // ---- Sessão local: a chamada em que EU estou ----
 
@@ -137,3 +143,16 @@ export const useAudioStatusStore = create<AudioStatusStore>()((set) => ({
   status: null,
   set: (status) => set({ status }),
 }));
+
+// ---- Medidor de nível e teste de microfone (alimentados pelos eventos da engine) ----
+
+export const useInputLevelStore = create<{
+  /** `null` = sem medição (medidor desligado ou ainda sem leitura). */
+  level: InputLevel | null;
+  set: (l: InputLevel | null) => void;
+}>()((set) => ({ level: null, set: (level) => set({ level }) }));
+
+export const useMicTestStore = create<{
+  state: MicTestState | null;
+  set: (s: MicTestState | null) => void;
+}>()((set) => ({ state: null, set: (state) => set({ state }) }));

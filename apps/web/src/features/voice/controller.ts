@@ -23,13 +23,22 @@ import {
   type AudioProcessingStatus,
   type DeviceKind,
   type DisconnectReason,
+  type ScreenShareQuality,
   type Unsubscribe,
   VoiceConnectError,
   type VoiceEngine,
 } from "./engine";
 import { createVoiceEngine } from "./engine-provider";
 import { mediaMessage } from "./media-errors";
-import { useAudioStatusStore, useVoiceStatesStore, useVoiceStore } from "./store";
+import { effectiveVolume, personVolumeOf, useParticipantVolumeStore } from "./participant-volume";
+import { loadScreenQuality, saveScreenQuality } from "./screen-quality";
+import {
+  useAudioStatusStore,
+  useInputLevelStore,
+  useMicTestStore,
+  useVoiceStatesStore,
+  useVoiceStore,
+} from "./store";
 
 export type JoinTarget = {
   channelId: string;
@@ -74,6 +83,9 @@ function ensureEngine(): VoiceEngine {
     }),
     e.on("audio-blocked", ({ blocked }) => session().patch({ audioBlocked: blocked })),
     e.on("audio-processing-status", onAudioProcessingStatus),
+    e.on("participant-joined", ({ identity }) => applyPersonVolume(e, identity)),
+    e.on("input-level", (l) => useInputLevelStore.getState().set(l)),
+    e.on("mic-test", (s) => useMicTestStore.getState().set(s)),
     e.on("disconnected", ({ reason }) => onDisconnected(reason)),
   ];
   return e;
@@ -97,6 +109,8 @@ function onAudioProcessingStatus(status: AudioProcessingStatus) {
 /** Só para testes: solta a engine, os timers e o estado. */
 export function resetVoiceController() {
   useAudioStatusStore.getState().set(null);
+  useInputLevelStore.getState().set(null);
+  useMicTestStore.getState().set(null);
   generation++;
   clearTimeout(rejoinTimer);
   for (const u of unsubs) u();
@@ -272,13 +286,19 @@ export async function toggleCamera() {
  * carregar a voz dos outros da chamada e eles se ouviriam de volta (eco). Quem decide é o diálogo de
  * compartilhar (`audio`), que também guarda a escolha.
  */
-export async function toggleScreenShare(opts?: { audio?: boolean }) {
+export async function toggleScreenShare(opts?: { audio?: boolean; quality?: ScreenShareQuality }) {
   if (session().status === "idle" || !engine) return;
   const on = !session().screen;
   const audio = on && (opts?.audio ?? loadScreenSharePrefs().audio);
   if (on && opts?.audio !== undefined) saveScreenSharePrefs({ audio: opts.audio });
+  // Só engines que declaram a capacidade recebem a qualidade (o app desktop ainda não a aplica).
+  const quality =
+    on && engine.audioCapabilities?.screenShareQuality
+      ? (opts?.quality ?? loadScreenQuality())
+      : undefined;
+  if (on && opts?.quality) saveScreenQuality(opts.quality);
   try {
-    await engine.setScreenShareEnabled(on, { audio });
+    await engine.setScreenShareEnabled(on, quality ? { audio, quality } : { audio });
     session().patch({ screen: on });
   } catch (err) {
     toast.error(mediaMessage(err));
@@ -316,6 +336,84 @@ export async function chooseAudioProcessing(options: AudioProcessingOptions) {
   } catch (err) {
     toast.error(mediaMessage(err));
   }
+}
+
+// ---- Volume por pessoa ----
+
+/** Maior volume que a engine atual aceita (1 = 100%); `null` = a engine não ajusta volume por pessoa. */
+export function participantVolumeMax(): number | null {
+  return engine?.audioCapabilities?.participantVolume?.max ?? null;
+}
+
+/** Empurra para a engine o volume salvo dessa pessoa (voz e tela); sem ajuste salvo, não faz nada. */
+function applyPersonVolume(eng: VoiceEngine, userId: string) {
+  const max = eng.audioCapabilities?.participantVolume?.max;
+  if (max === undefined || !eng.setParticipantVolume) return;
+  const saved = useParticipantVolumeStore.getState().byUser[userId];
+  if (!saved) return; // sem ajuste salvo: a engine já toca a 100%
+  for (const source of ["voice", "screen"] as const)
+    eng.setParticipantVolume(userId, source, effectiveVolume(saved, source, max));
+}
+
+/**
+ * Ajusta o volume local de uma pessoa (voz, áudio da tela ou "silenciar só para mim"): persiste e aplica na hora.
+ * O deafen é independente: ensurdecido continua tudo mudo, qualquer que seja o volume.
+ */
+export function setPersonVolume(
+  userId: string,
+  patch: Partial<{ voice: number; screen: number; muted: boolean }>,
+) {
+  useParticipantVolumeStore.getState().set(userId, patch);
+  const max = engine?.audioCapabilities?.participantVolume?.max;
+  if (!engine?.setParticipantVolume || max === undefined) return;
+  const v = personVolumeOf(useParticipantVolumeStore.getState().byUser, userId);
+  for (const source of ["voice", "screen"] as const)
+    engine.setParticipantVolume(userId, source, effectiveVolume(v, source, max));
+}
+
+// ---- Medidor de nível, teste de microfone e sensibilidade ----
+
+/**
+ * Liga o medidor (evento `input-level`). Reaplica antes o processamento salvo, para a captura de teste fora
+ * da chamada usar o mesmo nível de ruído, eco, ganho e porta que a chamada usará.
+ */
+export async function startInputMonitor(): Promise<void> {
+  const eng = ensureEngine();
+  if (!eng.setInputLevelMonitor) return;
+  useInputLevelStore.getState().set(null);
+  try {
+    await eng.setAudioProcessing?.(loadAudioProcessing());
+    await eng.setInputLevelMonitor(true);
+  } catch (err) {
+    toast.error(mediaMessage(err));
+  }
+}
+
+export function stopInputMonitor() {
+  void engine?.setInputLevelMonitor?.(false).catch(() => {});
+  useInputLevelStore.getState().set(null);
+}
+
+/** Grava ~5 s e reproduz no alto-falante escolhido. O andamento sai no `useMicTestStore`. */
+export async function runMicTest(): Promise<void> {
+  const eng = ensureEngine();
+  if (!eng.startMicTest) return;
+  useMicTestStore.getState().set({ phase: "requesting" });
+  await eng.setAudioProcessing?.(loadAudioProcessing()).catch(() => {});
+  await eng.startMicTest().catch((err) => {
+    useMicTestStore.getState().set({ phase: "error", error: "unknown" });
+    console.warn("voz: falha no teste de microfone", err);
+  });
+}
+
+export function cancelMicTest() {
+  engine?.cancelMicTest?.();
+}
+
+/** O teste de gravação toca no alto-falante: com o microfone aberto na chamada, todos ouviriam. */
+export function micTestBlockedByCall(): boolean {
+  const s = session();
+  return s.status !== "idle" && !s.selfMute;
 }
 
 /** O que a engine atual sabe fazer com o áudio (a interface se adapta a isto). */

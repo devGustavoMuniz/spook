@@ -24,7 +24,8 @@ import type {
   DeviceKind,
   NoiseSuppressionLevel,
 } from "./engine";
-import { useAudioStatusStore } from "./store";
+import { MicTestSection } from "./mic-test-section";
+import { useAudioStatusStore, useVoiceStore } from "./store";
 
 const FIELDS: { kind: DeviceKind; label: string }[] = [
   { kind: "audioinput", label: "Microfone" },
@@ -98,6 +99,7 @@ export function DeviceDialog({
   const [canProcess, setCanProcess] = useState(false);
   const [caps, setCaps] = useState<AudioCapabilities>({ strongNoiseSuppression: false });
   const status = useAudioStatusStore((st) => st.status);
+  const micOpenInCall = useVoiceStore((st) => st.status !== "idle" && !st.selfMute);
 
   useEffect(() => {
     if (!open) return;
@@ -227,7 +229,19 @@ export function DeviceDialog({
                 </div>
               );
             })}
+            {status?.gateError ? (
+              <output className="block text-xs text-destructive-text">{status.gateError}</output>
+            ) : null}
           </section>
+        ) : null}
+        {canProcess && (caps.inputSensitivity || caps.micTest) ? (
+          <MicTestSection
+            open={open}
+            processing={processing}
+            caps={caps}
+            inCall={micOpenInCall}
+            onChange={update}
+          />
         ) : null}
       </DialogContent>
     </Dialog>

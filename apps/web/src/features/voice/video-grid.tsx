@@ -1,8 +1,12 @@
-import { Maximize2 } from "lucide-react";
+import { Maximize2, PictureInPicture2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { audioCapabilities } from "./controller";
 import type { VideoTrackInfo } from "./engine";
+import { PersonVolumeButton, PersonVolumePanel } from "./person-volume";
+import { togglePictureInPicture, usePictureInPictureId } from "./pip";
 import { useVoiceStore } from "./store";
 import type { PersonLookup } from "./use-person-lookup";
 
@@ -26,6 +30,11 @@ function VideoTile({
   }, [track.source]);
 
   const what = track.kind === "screen" ? "Tela" : "Câmera";
+  const [volumeOpen, setVolumeOpen] = useState(false);
+  const pipId = usePictureInPictureId();
+  const inPip = pipId === track.id;
+  // Janela flutuante: só para vídeo de outra pessoa, onde o navegador suporta e a engine desenha com <video>.
+  const canPip = !track.local && audioCapabilities().pictureInPicture === true;
   return (
     <figure
       data-testid="video-tile"
@@ -45,15 +54,51 @@ function VideoTile({
       <figcaption className="absolute bottom-1 left-1 z-10 max-w-[90%] truncate rounded bg-black/60 px-2 py-0.5 text-xs text-white">
         {track.local ? "Você" : label} · {what}
       </figcaption>
-      <Button
-        variant="secondary"
-        size="icon"
-        className="absolute top-1 right-1 z-10 size-7 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-        aria-label={`Tela cheia: ${what.toLowerCase()} de ${label}`}
-        onClick={() => void host.current?.parentElement?.requestFullscreen?.()}
-      >
-        <Maximize2 />
-      </Button>
+      <div className="absolute top-1 right-1 z-10 flex gap-1 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+        {featured && !track.local ? (
+          <PersonVolumeButton
+            userId={track.identity}
+            name={label}
+            open={volumeOpen}
+            onToggle={() => setVolumeOpen((o) => !o)}
+            className="size-7 bg-secondary text-secondary-foreground"
+          />
+        ) : null}
+        {canPip ? (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="size-7"
+            aria-label={`Janela flutuante: ${what.toLowerCase()} de ${label}`}
+            aria-pressed={inPip}
+            title={inPip ? "Fechar a janela flutuante" : "Abrir em janela flutuante"}
+            onClick={() =>
+              void togglePictureInPicture(track).catch(() =>
+                toast.error("Não foi possível abrir a janela flutuante."),
+              )
+            }
+          >
+            <PictureInPicture2 />
+          </Button>
+        ) : null}
+        <Button
+          variant="secondary"
+          size="icon"
+          className="size-7"
+          aria-label={`Tela cheia: ${what.toLowerCase()} de ${label}`}
+          onClick={() => void host.current?.parentElement?.requestFullscreen?.()}
+        >
+          <Maximize2 />
+        </Button>
+      </div>
+      {featured && volumeOpen && !track.local ? (
+        <PersonVolumePanel
+          userId={track.identity}
+          name={label}
+          onClose={() => setVolumeOpen(false)}
+          className="absolute top-10 right-1 z-20 w-64"
+        />
+      ) : null}
     </figure>
   );
 }

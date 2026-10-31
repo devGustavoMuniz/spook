@@ -1,5 +1,10 @@
 // Dispositivos escolhidos (microfone, alto-falante, câmera): conveniência por navegador, em localStorage.
-import type { AudioProcessingOptions, DeviceKind, NoiseSuppressionLevel } from "./engine";
+import type {
+  AudioProcessingOptions,
+  DeviceKind,
+  InputSensitivity,
+  NoiseSuppressionLevel,
+} from "./engine";
 
 const KEY = "spook:voice-devices";
 
@@ -36,7 +41,28 @@ export const DEFAULT_AUDIO_PROCESSING: AudioProcessingOptions = {
   echoCancellation: true,
   noiseSuppression: "standard",
   autoGainControl: true,
+  inputSensitivity: { mode: "off", thresholdDb: -50 },
 };
+
+/** Faixa do limiar manual da porta de ruído, em dBFS. */
+export const SENSITIVITY_RANGE = { min: -80, max: -20 } as const;
+
+/**
+ * Lê a sensibilidade salva. Valor ausente ou inválido (inclusive o formato antigo, que não tinha o campo) vira
+ * `off`: quem já usava o app não passa a ter a porta ligada sem querer.
+ */
+export function parseInputSensitivity(raw: unknown): InputSensitivity {
+  const out = { ...DEFAULT_AUDIO_PROCESSING.inputSensitivity };
+  if (typeof raw !== "object" || raw === null) return out;
+  const r = raw as Record<string, unknown>;
+  if (r.mode === "auto" || r.mode === "manual" || r.mode === "off") out.mode = r.mode;
+  if (typeof r.thresholdDb === "number" && Number.isFinite(r.thresholdDb))
+    out.thresholdDb = Math.min(
+      SENSITIVITY_RANGE.max,
+      Math.max(SENSITIVITY_RANGE.min, Math.round(r.thresholdDb)),
+    );
+  return out;
+}
 
 const LEVELS: readonly NoiseSuppressionLevel[] = ["off", "standard", "strong"];
 
@@ -58,7 +84,9 @@ export function loadAudioProcessing(): AudioProcessingOptions {
     if (typeof raw.echoCancellation === "boolean") out.echoCancellation = raw.echoCancellation;
     if (typeof raw.autoGainControl === "boolean") out.autoGainControl = raw.autoGainControl;
     out.noiseSuppression = parseNoiseSuppression(raw.noiseSuppression) ?? out.noiseSuppression;
-    if (typeof raw.noiseSuppression === "boolean") saveAudioProcessing(out); // migração do formato antigo
+    out.inputSensitivity = parseInputSensitivity(raw.inputSensitivity);
+    // migração do formato antigo (ruído booleano): regrava no formato novo. Sem `inputSensitivity` salvo = `off`.
+    if (typeof raw.noiseSuppression === "boolean") saveAudioProcessing(out);
     return out;
   } catch {
     return { ...DEFAULT_AUDIO_PROCESSING };

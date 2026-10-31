@@ -265,19 +265,29 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   /** O áudio é tocado pelo Rust: nunca há bloqueio de reprodução automática como no navegador. */
   async resumeAudio() {}
 
-  /** O APM nativo ainda não tem o nível "Forte" (IA): `audioCapabilities` o declara indisponível. */
+  /**
+   * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust). O desktop ainda não captura o áudio do sistema
+   * ao compartilhar a tela (limitação documentada): a interface não oferece "Incluir áudio" e explica o porquê.
+   */
   readonly audioCapabilities: AudioCapabilities = {
-    strongNoiseSuppression: false,
-    strongUnavailableReason: "em breve no app",
+    strongNoiseSuppression: true,
+    screenShareAudio: false,
+    // Contrato "volume por pessoa / teste de microfone / qualidade da tela / PiP": desligado até o Rust
+    // implementar (ver SPEC 5.5, "Adicional: volume por pessoa, teste de microfone e qualidade da tela").
+    // `participantVolume` ausente = sem volume por pessoa. O vídeo é um <canvas>: sem PiP confiável.
+    inputSensitivity: false,
+    micTest: false,
+    screenShareQuality: false,
+    pictureInPicture: false,
   };
 
   async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
     try {
-      // TODO(rust-strong-ns): o comando Rust ainda recebe `noiseSuppression` booleano. "strong" cai para
-      // "standard" (true) até o agente do Rust implementar o nível Forte; trocar `audioCapabilities` junto.
+      // O Rust recebe o nível em texto ("off" | "standard" | "strong"); aceita também o booleano antigo.
       await this.deps.invoke("voice_set_audio_processing", {
-        ...options,
-        noiseSuppression: options.noiseSuppression !== "off",
+        echoCancellation: options.echoCancellation,
+        noiseSuppression: options.noiseSuppression,
+        autoGainControl: options.autoGainControl,
       });
     } catch (err) {
       throw toMediaError(err, "microphone");

@@ -1,14 +1,19 @@
-// Supressão de ruído "Forte" (IA, gratuita e local): RNNoise (Xiph.Org, BSD-3-Clause) compilado para WASM e
-// executado num AudioWorklet, pelo pacote @sapphi-red/web-noise-suppressor (MIT). Decisão e comparação com o
-// DeepFilterNet3 em SPEC.md 5.5 ("Adicional: ruído e eco (web)").
+// Processador do microfone: supressão de ruído "Forte" (IA, gratuita e local) E porta de ruído, compostas num
+// único `AudioContext`/grafo (o livekit-client aceita UM processador por track):
+//   microfone -> [RNNoise (só no "Forte")] -> porta de ruído (`gate-worklet.js`) -> faixa processada
+// RNNoise (Xiph.Org, BSD-3-Clause) compilado para WASM e executado num AudioWorklet, pelo pacote
+// @sapphi-red/web-noise-suppressor (MIT). Decisão e comparação com o DeepFilterNet3 em SPEC.md 5.5
+// ("Adicional: ruído e eco (web)"); a porta, em "Adicional: volume por pessoa, teste de microfone e qualidade da tela".
 //
 // O módulo NÃO importa `livekit-client` (só `web-engine.ts` pode): ele expõe um processador com o formato de
 // `TrackProcessor` da lib (name/init/restart/destroy/processedTrack), que a engine entrega ao track.
-// Tudo é carregado sob demanda: este arquivo só entra no bundle quando alguém escolhe o nível "Forte", e os
-// assets (worklet + WASM, ~220 kB) saem do build do próprio app (`?url`), nunca de um CDN.
+// Tudo é carregado sob demanda: este arquivo só entra no bundle quando alguém usa "Forte" ou a porta, e os
+// assets (worklets + WASM, ~220 kB) saem do build do próprio app (`?url`), nunca de um CDN.
 import rnnoiseWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
 import rnnoiseSimdWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
 import rnnoiseWorkletUrl from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
+import type { InputLevel, InputSensitivity } from "./engine";
+import gateWorkletUrl from "./gate-worklet.js?url";
 
 /** O RNNoise trabalha a 48 kHz (quadros de 480 amostras); o contexto de áudio é criado nessa taxa. */
 const SAMPLE_RATE = 48_000;
@@ -88,7 +93,12 @@ export function resetNoiseProcessorCache() {
 
 // ---- Processador ----
 
-export type NoiseProcessorHooks = {
+export type MicProcessorOptions = {
+  /** RNNoise no grafo (nível "Forte"). Fixo na vida do processador: trocar exige recriar. */
+  strong: boolean;
+  sensitivity: InputSensitivity;
+  /** Nível pós-supressão (o que a porta enxerga), ~20 vezes por segundo. */
+  onLevel?: (level: InputLevel) => void;
   onLoad?: (load: LoadLevel) => void;
   /** O processamento não acompanha o tempo real: quem usa deve rebaixar para "Padrão". */
   onSlow?: () => void;
@@ -97,17 +107,31 @@ export type NoiseProcessorHooks = {
 type RnnoiseNode = { connect(n: AudioNode): void; disconnect(): void; destroy(): void };
 
 /** Formato mínimo do `TrackProcessor` do livekit-client para áudio (a engine web o repassa à lib). */
-export class RnnoiseTrackProcessor {
-  readonly name = "spook-rnnoise";
+export class MicTrackProcessor {
+  readonly name = "spook-mic";
   processedTrack?: MediaStreamTrack;
 
   private ctx: AudioContext | null = null;
   private node: RnnoiseNode | null = null;
+  private gate: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private dest: MediaStreamAudioDestinationNode | null = null;
   private timer: ReturnType<typeof setInterval> | undefined;
+  private sensitivity: InputSensitivity;
 
-  constructor(private readonly hooks: NoiseProcessorHooks = {}) {}
+  constructor(private readonly opts: MicProcessorOptions) {
+    this.sensitivity = opts.sensitivity;
+  }
+
+  get strong() {
+    return this.opts.strong;
+  }
+
+  /** Troca o modo/limiar da porta SEM recriar o grafo (vale na hora, sem cortar a chamada). */
+  configure(sensitivity: InputSensitivity) {
+    this.sensitivity = sensitivity;
+    this.gate?.port.postMessage({ type: "config", ...sensitivity });
+  }
 
   async init(opts: { track: MediaStreamTrack }): Promise<void> {
     await this.build(opts.track);
@@ -124,10 +148,10 @@ export class RnnoiseTrackProcessor {
   }
 
   private async build(track: MediaStreamTrack) {
-    const [{ RnnoiseWorkletNode }, binary] = await Promise.all([
-      import("@sapphi-red/web-noise-suppressor"),
-      loadWasm(),
-    ]);
+    const strong = this.opts.strong;
+    const [rnnoise, binary] = strong
+      ? await Promise.all([import("@sapphi-red/web-noise-suppressor"), loadWasm()])
+      : [null, null];
     let ctx: AudioContext;
     try {
       ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: "interactive" });
@@ -137,25 +161,48 @@ export class RnnoiseTrackProcessor {
     this.ctx = ctx;
     if (ctx.sampleRate !== SAMPLE_RATE) throw new Error("O navegador não cria o áudio a 48 kHz.");
     if (ctx.state === "suspended") await ctx.resume().catch(() => {});
-    await ctx.audioWorklet.addModule(rnnoiseWorkletUrl);
-    const node = new RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary: binary });
+    if (strong) await ctx.audioWorklet.addModule(rnnoiseWorkletUrl);
+    await ctx.audioWorklet.addModule(gateWorkletUrl);
+
     const source = ctx.createMediaStreamSource(new MediaStream([track]));
     const dest = ctx.createMediaStreamDestination();
-    source.connect(node);
-    node.connect(dest);
-    this.node = node;
+    const gate = new AudioWorkletNode(ctx, "spook-gate", {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      channelCount: 1,
+      channelCountMode: "explicit",
+      outputChannelCount: [1],
+      processorOptions: { ...this.sensitivity },
+    });
+    gate.port.onmessage = (e: MessageEvent) => {
+      const m = e.data as { type?: string; db?: number; open?: boolean };
+      if (m?.type === "level" && typeof m.db === "number")
+        this.opts.onLevel?.({ db: m.db, gateOpen: m.open === true });
+    };
+    if (rnnoise && binary) {
+      const node = new rnnoise.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary: binary });
+      source.connect(node);
+      node.connect(gate);
+      this.node = node;
+    } else {
+      source.connect(gate);
+    }
+    gate.connect(dest);
+    this.gate = gate;
     this.source = source;
     this.dest = dest;
     this.processedTrack = dest.stream.getAudioTracks()[0];
-    const monitor = new LoadMonitor(
-      {
-        wall: () => performance.now() / 1000,
-        ctx: () => ctx.currentTime,
-        running: () => ctx.state === "running",
-      },
-      { onLoad: (l) => this.hooks.onLoad?.(l), onSlow: () => this.hooks.onSlow?.() },
-    );
-    this.timer = setInterval(() => monitor.tick(), 2000);
+    if (strong) {
+      const monitor = new LoadMonitor(
+        {
+          wall: () => performance.now() / 1000,
+          ctx: () => ctx.currentTime,
+          running: () => ctx.state === "running",
+        },
+        { onLoad: (l) => this.opts.onLoad?.(l), onSlow: () => this.opts.onSlow?.() },
+      );
+      this.timer = setInterval(() => monitor.tick(), 2000);
+    }
   }
 
   private teardown() {
@@ -165,6 +212,8 @@ export class RnnoiseTrackProcessor {
       this.source?.disconnect();
       this.node?.disconnect();
       this.node?.destroy();
+      if (this.gate) this.gate.port.onmessage = null;
+      this.gate?.disconnect();
     } catch {
       // grafo já desfeito
     }
@@ -172,6 +221,6 @@ export class RnnoiseTrackProcessor {
     this.processedTrack = undefined;
     void this.ctx?.close().catch(() => {});
     this.ctx = null;
-    this.node = this.source = this.dest = null;
+    this.node = this.gate = this.source = this.dest = null;
   }
 }

@@ -1,7 +1,9 @@
-import type { VoiceStatePayload } from "@spook/shared";
+import { useGetMe, type VoiceStatePayload } from "@spook/shared";
 import { HeadphoneOff, MicOff, MonitorUp, Video } from "lucide-react";
+import { useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { cn } from "@/lib/utils";
+import { PersonVolumeButton, PersonVolumePanel } from "./person-volume";
 import type { PersonLookup } from "./use-person-lookup";
 
 /** Ícones de estado de um participante (mudo, surdo, câmera, tela), com texto para leitores de tela. */
@@ -50,31 +52,53 @@ export function VoiceParticipants({
   size?: number;
   className?: string;
 }) {
+  const { data: me } = useGetMe();
+  const [volumeFor, setVolumeFor] = useState<string | null>(null);
   if (participants.length === 0) return null;
+  // Volume por pessoa só vale para quem está na MESMA chamada que eu (`speaking` só vem para a minha chamada).
+  const inMyCall = speaking !== undefined;
   return (
     <ul aria-label="Conectados" className={cn("flex flex-col gap-0.5", className)}>
       {participants.map((p) => {
         const person = lookup(p.user_id);
         const talking = !!speaking?.has(p.user_id);
+        const adjustable = inMyCall && !!me && p.user_id !== me.id;
         return (
           <li
             key={p.user_id}
             data-speaking={talking || undefined}
-            className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground"
+            className="flex flex-col gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground"
           >
-            <span
-              className={cn(
-                "inline-flex rounded-full ring-2 ring-transparent transition-shadow",
-                talking && "ring-emerald-500",
-              )}
-            >
-              <Avatar url={person.avatarUrl} name={person.name} size={size} />
-            </span>
-            <span className={cn("min-w-0 flex-1 truncate", talking && "text-foreground")}>
-              {person.name}
-              {talking ? <span className="sr-only"> (falando)</span> : null}
-            </span>
-            <VoiceFlags state={p} />
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex rounded-full ring-2 ring-transparent transition-shadow",
+                  talking && "ring-emerald-500",
+                )}
+              >
+                <Avatar url={person.avatarUrl} name={person.name} size={size} />
+              </span>
+              <span className={cn("min-w-0 flex-1 truncate", talking && "text-foreground")}>
+                {person.name}
+                {talking ? <span className="sr-only"> (falando)</span> : null}
+              </span>
+              <VoiceFlags state={p} />
+              {adjustable ? (
+                <PersonVolumeButton
+                  userId={p.user_id}
+                  name={person.name}
+                  open={volumeFor === p.user_id}
+                  onToggle={() => setVolumeFor((cur) => (cur === p.user_id ? null : p.user_id))}
+                />
+              ) : null}
+            </div>
+            {adjustable && volumeFor === p.user_id ? (
+              <PersonVolumePanel
+                userId={p.user_id}
+                name={person.name}
+                onClose={() => setVolumeFor(null)}
+              />
+            ) : null}
           </li>
         );
       })}

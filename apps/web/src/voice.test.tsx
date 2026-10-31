@@ -1,5 +1,5 @@
 import { Permission } from "@spook/shared";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetVoiceController } from "@/features/voice/controller";
@@ -325,5 +325,43 @@ describe("chamada em DM", () => {
     await user.click(screen.getByRole("button", { name: "Entrar na chamada" }));
     expect(await screen.findByRole("region", { name: "Controles de voz" })).toBeInTheDocument();
     expect(app.state.voice.tokensFor).toEqual([DM]);
+  });
+});
+
+describe("volume por pessoa na lista de conectados", () => {
+  async function enter(caps: FakeVoiceEngine["audioCapabilities"]) {
+    fake.audioCapabilities = caps;
+    const user = userEvent.setup();
+    const { nav } = await open(FULL, [voiceState("50", VOICE, { self_screen: true })]);
+    await user.click(voiceButton(nav));
+    await within(await screen.findByRole("region", { name: "Controles de voz" })).findByText(
+      "Voz conectada",
+    );
+    return { user, nav };
+  }
+
+  it("outra pessoa tem painel de volume (voz e tela); eu não; Esc fecha", async () => {
+    const { user, nav } = await enter({
+      strongNoiseSuppression: false,
+      participantVolume: { max: 1 },
+    });
+    const list = await within(nav).findByRole("list", { name: "Conectados" });
+    expect(within(list).getAllByRole("button", { name: /^Volume de / })).toHaveLength(1);
+    await user.click(within(list).getByRole("button", { name: "Volume de bia" }));
+    const panel = within(list).getByRole("group", { name: "Volume de bia" });
+    const voice = within(panel).getByRole("slider", { name: /Volume da voz de bia/ });
+    expect(voice).toHaveFocus();
+    expect(within(panel).getByRole("slider", { name: /áudio da tela de bia/ })).toBeInTheDocument();
+    fireEvent.change(voice, { target: { value: "40" } });
+    expect(fake.volumes.at(-2)).toEqual(["50", "voice", 0.4]);
+    expect(voice).toHaveAccessibleName(/40%/);
+    await user.keyboard("{Escape}");
+    expect(within(list).queryByRole("group", { name: "Volume de bia" })).toBeNull();
+  });
+
+  it("engine sem a capacidade (desktop por enquanto): nenhum controle de volume", async () => {
+    const { nav } = await enter({ strongNoiseSuppression: false });
+    const list = await within(nav).findByRole("list", { name: "Conectados" });
+    expect(within(list).queryByRole("button", { name: /^Volume de / })).toBeNull();
   });
 });

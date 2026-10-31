@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeVoiceEngine } from "@/test/fake-voice-engine";
@@ -7,12 +7,13 @@ import { DeviceDialog, noiseStatusText } from "./device-dialog";
 import {
   DEFAULT_AUDIO_PROCESSING,
   loadAudioProcessing,
+  parseInputSensitivity,
   parseNoiseSuppression,
   saveAudioProcessing,
 } from "./devices";
 import type { AudioCapabilities, AudioProcessingOptions } from "./engine";
 import { setVoiceEngineFactory } from "./engine-provider";
-import { useAudioStatusStore } from "./store";
+import { useAudioStatusStore, useInputLevelStore, useMicTestStore } from "./store";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
@@ -168,6 +169,7 @@ describe("persistência e migração do valor antigo", () => {
       echoCancellation: false,
       noiseSuppression: "off",
       autoGainControl: true,
+      inputSensitivity: { mode: "off", thresholdDb: -50 }, // formato antigo não tinha porta de ruído
     });
     // a migração regrava no formato novo
     expect(JSON.parse(localStorage.getItem("spook:voice-audio-processing") ?? "{}")).toMatchObject({
@@ -194,5 +196,190 @@ describe("persistência e migração do valor antigo", () => {
   it("o nível salvo sobrevive a recarregar (Forte -> Forte)", () => {
     saveAudioProcessing({ ...DEFAULT_AUDIO_PROCESSING, noiseSuppression: "strong" });
     expect(loadAudioProcessing().noiseSuppression).toBe("strong");
+  });
+});
+
+class MeterEngine extends ProcessingEngine {
+  audioCapabilities: AudioCapabilities = {
+    strongNoiseSuppression: true,
+    inputSensitivity: true,
+    micTest: true,
+  };
+  monitor: boolean[] = [];
+  tests = 0;
+  cancels = 0;
+  async setInputLevelMonitor(on: boolean) {
+    this.monitor.push(on);
+  }
+  async startMicTest() {
+    this.tests++;
+  }
+  cancelMicTest() {
+    this.cancels++;
+  }
+}
+
+describe("DeviceDialog: sensibilidade de entrada e teste do microfone", () => {
+  it("engine sem a capacidade (desktop por enquanto): nada de medidor, porta ou teste", async () => {
+    setVoiceEngineFactory(() => new ProcessingEngine());
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await screen.findByRole("group", { name: "Redução de ruído" });
+    expect(screen.queryByRole("group", { name: "Sensibilidade de entrada" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Testar" })).toBeNull();
+    expect(screen.queryByRole("meter")).toBeNull();
+  });
+
+  it("sensibilidade começa desligada; Automática e Manual persistem e aplicam na engine", async () => {
+    const user = userEvent.setup();
+    const eng = new MeterEngine();
+    setVoiceEngineFactory(() => eng);
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    const group = await screen.findByRole("group", { name: "Sensibilidade de entrada" });
+    expect(within(group).getByRole("radio", { name: /^Desligada/ })).toBeChecked();
+    await user.click(within(group).getByRole("radio", { name: /^Automática/ }));
+    expect(loadAudioProcessing().inputSensitivity.mode).toBe("auto");
+    await user.click(within(group).getByRole("radio", { name: /^Manual/ }));
+    expect(eng.applied.at(-1)?.inputSensitivity.mode).toBe("manual");
+    expect(loadAudioProcessing().inputSensitivity).toEqual({ mode: "manual", thresholdDb: -50 });
+  });
+
+  it("modo manual mostra o limiar (controle deslizante com valor lido) e o salva", async () => {
+    const user = userEvent.setup();
+    setVoiceEngineFactory(() => new MeterEngine());
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await user.click(await screen.findByRole("radio", { name: /^Manual/ }));
+    const slider = await screen.findByRole("slider", { name: /Limiar/ });
+    expect(slider).toHaveAttribute("min", "-80");
+    expect(slider).toHaveAttribute("max", "-20");
+    fireEvent.change(slider, { target: { value: "-48" } });
+    expect(loadAudioProcessing().inputSensitivity.thresholdDb).toBe(-48);
+    expect(slider).toHaveAccessibleName("Limiar: -48 dB");
+  });
+
+  it("sem permissão prévia o medidor espera um clique; depois mostra o nível e a porta (e a marca do limiar no manual)", async () => {
+    const user = userEvent.setup();
+    const eng = new MeterEngine();
+    setVoiceEngineFactory(() => eng);
+    saveAudioProcessing({
+      ...DEFAULT_AUDIO_PROCESSING,
+      inputSensitivity: { mode: "manual", thresholdDb: -45 },
+    });
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    expect(eng.monitor).toEqual([]); // não pediu o microfone sozinho
+    await user.click(await screen.findByRole("button", { name: "Ativar medidor de nível" }));
+    await waitFor(() => expect(eng.monitor).toEqual([true]));
+    expect(await screen.findByRole("meter", { name: "Nível do microfone" })).toBeInTheDocument();
+    expect(screen.getByTestId("meter-threshold")).toBeInTheDocument();
+
+    act(() => useInputLevelStore.getState().set({ db: -30, gateOpen: true }));
+    const meter = screen.getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "-30");
+    expect(meter.getAttribute("aria-valuetext")).toBe("-30 dB, porta aberta");
+    expect(screen.getByTestId("gate-state")).toHaveTextContent("Porta aberta");
+    act(() => useInputLevelStore.getState().set({ db: -70, gateOpen: false }));
+    expect(screen.getByTestId("gate-state")).toHaveTextContent("Porta fechada");
+  });
+
+  it("fechar o diálogo desliga o medidor e cancela um teste em andamento", async () => {
+    const user = userEvent.setup();
+    const eng = new MeterEngine();
+    setVoiceEngineFactory(() => eng);
+    const { rerender } = render(<DeviceDialog open onOpenChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Ativar medidor de nível" }));
+    await waitFor(() => expect(eng.monitor).toEqual([true]));
+    rerender(<DeviceDialog open={false} onOpenChange={() => {}} />);
+    await waitFor(() => expect(eng.monitor).toEqual([true, false]));
+    expect(eng.cancels).toBeGreaterThan(0);
+  });
+
+  it("Testar inicia a gravação e as fases aparecem com contagem regressiva", async () => {
+    const user = userEvent.setup();
+    const eng = new MeterEngine();
+    setVoiceEngineFactory(() => eng);
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Testar" }));
+    await waitFor(() => expect(eng.tests).toBe(1));
+    const live = screen.getByText(/Pedindo acesso|Grave 5 segundos/);
+    expect(live.closest("[aria-live]")).not.toBeNull();
+
+    act(() => useMicTestStore.getState().set({ phase: "recording", remainingMs: 3200 }));
+    expect(screen.getByText("Gravando… fale agora (4 s).")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar teste" })).toBeInTheDocument();
+    act(() => useMicTestStore.getState().set({ phase: "playing", remainingMs: 2000 }));
+    expect(screen.getByText(/Reproduzindo sua gravação \(2 s\)/)).toBeInTheDocument();
+    act(() => useMicTestStore.getState().set({ phase: "done" }));
+    expect(screen.getByText(/Teste concluído/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Testar" })).toBeEnabled();
+  });
+
+  it("erros do teste são explicados (permissão negada)", async () => {
+    setVoiceEngineFactory(() => new MeterEngine());
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await screen.findByRole("button", { name: "Testar" });
+    act(() => useMicTestStore.getState().set({ phase: "error", error: "permission-denied" }));
+    expect(screen.getByText(/O navegador bloqueou o microfone/)).toBeInTheDocument();
+  });
+
+  it("Cancelar teste chama a engine", async () => {
+    const user = userEvent.setup();
+    const eng = new MeterEngine();
+    setVoiceEngineFactory(() => eng);
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await screen.findByRole("button", { name: "Testar" });
+    act(() => useMicTestStore.getState().set({ phase: "recording", remainingMs: 4000 }));
+    const before = eng.cancels;
+    await user.click(screen.getByRole("button", { name: "Cancelar teste" }));
+    expect(eng.cancels).toBe(before + 1);
+  });
+
+  it("falha da porta (status da engine) aparece na tela", async () => {
+    setVoiceEngineFactory(() => new MeterEngine());
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await screen.findByRole("group", { name: "Redução de ruído" });
+    act(() =>
+      useAudioStatusStore.getState().set({
+        level: "standard",
+        state: "idle",
+        gateError: "Não foi possível iniciar a sensibilidade de entrada.",
+      }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(/sensibilidade de entrada/);
+  });
+});
+
+describe("sensibilidade de entrada: persistência e migração", () => {
+  it("sem o campo (formato antigo) ou inválido vira 'off'; o limiar é limitado à faixa", () => {
+    expect(parseInputSensitivity(undefined)).toEqual({ mode: "off", thresholdDb: -50 });
+    expect(parseInputSensitivity("auto")).toEqual({ mode: "off", thresholdDb: -50 });
+    expect(parseInputSensitivity({ mode: "turbo", thresholdDb: "x" })).toEqual({
+      mode: "off",
+      thresholdDb: -50,
+    });
+    expect(parseInputSensitivity({ mode: "manual", thresholdDb: -200 })).toEqual({
+      mode: "manual",
+      thresholdDb: -80,
+    });
+    expect(parseInputSensitivity({ mode: "auto", thresholdDb: 5 }).thresholdDb).toBe(-20);
+  });
+
+  it("o valor salvo sobrevive a recarregar", () => {
+    saveAudioProcessing({
+      ...DEFAULT_AUDIO_PROCESSING,
+      inputSensitivity: { mode: "manual", thresholdDb: -35 },
+    });
+    expect(loadAudioProcessing().inputSensitivity).toEqual({ mode: "manual", thresholdDb: -35 });
+  });
+
+  it("dados salvos antes da porta de ruído (sem o campo) carregam com a porta desligada", () => {
+    localStorage.setItem(
+      "spook:voice-audio-processing",
+      '{"echoCancellation":true,"noiseSuppression":"strong","autoGainControl":true}',
+    );
+    expect(loadAudioProcessing()).toEqual({
+      echoCancellation: true,
+      noiseSuppression: "strong",
+      autoGainControl: true,
+      inputSensitivity: { mode: "off", thresholdDb: -50 },
+    });
   });
 });

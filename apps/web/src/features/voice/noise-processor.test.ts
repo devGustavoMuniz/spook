@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LoadMonitor, RnnoiseTrackProcessor, resetNoiseProcessorCache } from "./noise-processor";
+import { LoadMonitor, MicTrackProcessor, resetNoiseProcessorCache } from "./noise-processor";
 
 afterEach(() => {
   vi.resetModules();
@@ -59,10 +59,13 @@ describe("LoadMonitor (processamento lento demais)", () => {
   });
 });
 
-describe("RnnoiseTrackProcessor", () => {
+describe("MicTrackProcessor", () => {
   it("expõe o formato de processador de track da lib", () => {
-    const p = new RnnoiseTrackProcessor();
-    expect(p.name).toBe("spook-rnnoise");
+    const p = new MicTrackProcessor({
+      strong: true,
+      sensitivity: { mode: "off", thresholdDb: -50 },
+    });
+    expect(p.name).toBe("spook-mic");
     expect(p.processedTrack).toBeUndefined();
   });
 
@@ -70,7 +73,10 @@ describe("RnnoiseTrackProcessor", () => {
     // a lib estende `AudioWorkletNode` ao ser carregada: o jsdom não tem
     vi.stubGlobal("AudioWorkletNode", class {});
     const fetchMock = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("sem rede"));
-    const p = new RnnoiseTrackProcessor();
+    const p = new MicTrackProcessor({
+      strong: true,
+      sensitivity: { mode: "off", thresholdDb: -50 },
+    });
     await expect(p.init({ track: {} as MediaStreamTrack })).rejects.toThrow();
     const first = fetchMock.mock.calls.length;
     expect(first).toBeGreaterThan(0);
@@ -79,8 +85,90 @@ describe("RnnoiseTrackProcessor", () => {
   });
 
   it("destroy é idempotente e seguro sem init", async () => {
-    const p = new RnnoiseTrackProcessor();
+    const p = new MicTrackProcessor({
+      strong: true,
+      sensitivity: { mode: "off", thresholdDb: -50 },
+    });
     await p.destroy();
     await p.destroy();
+  });
+});
+
+describe("MicTrackProcessor: grafo da porta de ruído (sem RNNoise)", () => {
+  function stubGraph() {
+    const nodes: {
+      kind: string;
+      port?: { posted: unknown[]; onmessage: unknown; postMessage(m: unknown): void };
+    }[] = [];
+    class FakeNode {
+      port = {
+        posted: [] as unknown[],
+        onmessage: null as unknown,
+        postMessage(m: unknown) {
+          this.posted.push(m);
+        },
+      };
+      connected: unknown[] = [];
+      connect(n: unknown) {
+        this.connected.push(n);
+      }
+      disconnect() {}
+      constructor(
+        public ctx: unknown,
+        public name: string,
+        public options: unknown,
+      ) {
+        nodes.push({ kind: "worklet", port: this.port });
+      }
+    }
+    class FakeCtx {
+      sampleRate = 48_000;
+      state = "running";
+      currentTime = 0;
+      modules: string[] = [];
+      audioWorklet = { addModule: async (u: string) => void this.modules.push(u) };
+      createMediaStreamSource() {
+        return { connect() {}, disconnect() {} };
+      }
+      createMediaStreamDestination() {
+        return { stream: { getAudioTracks: () => [{ stop() {} }] } };
+      }
+      async close() {}
+      constructor() {
+        ctxs.push(this);
+      }
+    }
+    const ctxs: FakeCtx[] = [];
+    vi.stubGlobal("AudioContext", FakeCtx);
+    vi.stubGlobal("AudioWorkletNode", FakeNode);
+    vi.stubGlobal(
+      "MediaStream",
+      class {
+        constructor(public t: unknown[]) {}
+      },
+    );
+    return { nodes, ctxs };
+  }
+
+  it("monta microfone -> porta -> faixa processada, sem carregar o WASM, e repassa os níveis", async () => {
+    const { nodes, ctxs } = stubGraph();
+    const levels: unknown[] = [];
+    const p = new MicTrackProcessor({
+      strong: false,
+      sensitivity: { mode: "manual", thresholdDb: -42 },
+      onLevel: (l) => levels.push(l),
+    });
+    await p.init({ track: {} as MediaStreamTrack });
+    expect(p.processedTrack).toBeDefined();
+    expect(ctxs[0]?.modules).toHaveLength(1); // só o worklet da porta
+    const port = nodes[0]?.port;
+    (port?.onmessage as (e: { data: unknown }) => void)({
+      data: { type: "level", db: -33.5, open: true },
+    });
+    expect(levels).toEqual([{ db: -33.5, gateOpen: true }]);
+    p.configure({ mode: "auto", thresholdDb: -42 });
+    expect(port?.posted).toEqual([{ type: "config", mode: "auto", thresholdDb: -42 }]);
+    await p.destroy();
+    expect(p.processedTrack).toBeUndefined();
   });
 });

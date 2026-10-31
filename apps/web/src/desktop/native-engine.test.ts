@@ -307,35 +307,37 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
       echoCancellation: false,
       noiseSuppression: "standard",
       autoGainControl: false,
+      inputSensitivity: { mode: "off", thresholdDb: -50 },
     });
     expect(rust.named("voice_set_audio_processing")[0]?.args).toEqual({
       echoCancellation: false,
-      noiseSuppression: true,
+      noiseSuppression: "standard",
       autoGainControl: false,
     });
   });
 
-  // TODO(rust-strong-ns): quando o Rust implementar o nível Forte, este teste muda: "strong" deixa de cair
-  // para "standard", `audioCapabilities.strongNoiseSuppression` vira true e o comando passa a receber o nível.
-  it("o nível Forte ainda não existe no nativo: é declarado indisponível e enviado como Padrão", async () => {
+  it("o nível Forte existe no nativo: é declarado disponível e enviado em texto, sem cair para Padrão", async () => {
     const { rust, engine } = setup();
-    expect(engine.audioCapabilities.strongNoiseSuppression).toBe(false);
-    await engine.setAudioProcessing({
-      echoCancellation: true,
-      noiseSuppression: "strong",
-      autoGainControl: true,
-    });
-    expect(rust.named("voice_set_audio_processing")[0]?.args).toMatchObject({
-      noiseSuppression: true,
-    });
-    await engine.setAudioProcessing({
-      echoCancellation: true,
-      noiseSuppression: "off",
-      autoGainControl: true,
-    });
-    expect(rust.named("voice_set_audio_processing")[1]?.args).toMatchObject({
-      noiseSuppression: false,
-    });
+    expect(engine.audioCapabilities.strongNoiseSuppression).toBe(true);
+    expect(engine.audioCapabilities.strongUnavailableReason).toBeUndefined();
+    for (const level of ["strong", "off", "standard"] as const) {
+      await engine.setAudioProcessing({
+        echoCancellation: true,
+        noiseSuppression: level,
+        autoGainControl: true,
+        inputSensitivity: { mode: "off", thresholdDb: -50 },
+      });
+    }
+    expect(rust.named("voice_set_audio_processing").map((c) => c.args)).toEqual([
+      { echoCancellation: true, noiseSuppression: "strong", autoGainControl: true },
+      { echoCancellation: true, noiseSuppression: "off", autoGainControl: true },
+      { echoCancellation: true, noiseSuppression: "standard", autoGainControl: true },
+    ]);
+  });
+
+  it("o desktop declara que não compartilha o áudio do sistema", () => {
+    const { engine } = setup();
+    expect(engine.audioCapabilities.screenShareAudio).toBe(false);
   });
 
   it("falha do Rust vira VoiceMediaError", async () => {
@@ -348,6 +350,7 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
         echoCancellation: true,
         noiseSuppression: "standard",
         autoGainControl: true,
+        inputSensitivity: { mode: "off", thresholdDb: -50 },
       })
       .catch((x) => x);
     expect(e).toBeInstanceOf(VoiceMediaError);

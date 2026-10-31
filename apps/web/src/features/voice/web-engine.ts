@@ -9,6 +9,7 @@ import {
   type LocalAudioTrack,
   type LocalTrackPublication,
   type Participant,
+  type RemoteAudioTrack,
   type RemoteTrack,
   type RemoteTrackPublication,
   Room,
@@ -16,22 +17,27 @@ import {
   type ScreenShareCaptureOptions,
   Track,
   type TrackProcessor,
+  type TrackPublishOptions,
   type VideoTrack,
 } from "livekit-client";
-import { DEFAULT_AUDIO_PROCESSING } from "./devices";
+import { DEFAULT_AUDIO_PROCESSING, loadDevicePrefs } from "./devices";
 import {
   type AudioCapabilities,
   type AudioProcessingOptions,
   type AudioProcessingStatus,
+  type AudioSource,
   type ConnectionState,
   type ConnectParams,
   type DeviceInfo,
   type DeviceKind,
   type DisconnectReason,
   Emitter,
+  type InputLevel,
+  type InputSensitivity,
   type LinkQuality,
   type LocalMedia,
   type NoiseSuppressionLevel,
+  type ScreenShareQuality,
   type VideoKind,
   type VideoSource,
   VoiceConnectError,
@@ -39,6 +45,29 @@ import {
   type VoiceEngineEvents,
   VoiceMediaError,
 } from "./engine";
+import { MIC_TEST_DURATION_MS, MicPipeline, MicTester, type PipelineOptions } from "./mic-test";
+import type { MicTrackProcessor } from "./noise-processor";
+import { estimateUplinkKbps } from "./screen-quality";
+
+/** O navegador abre vídeo em janela flutuante (Picture-in-Picture)? */
+export function supportsPictureInPicture(): boolean {
+  try {
+    return (
+      typeof document !== "undefined" &&
+      document.pictureInPictureEnabled === true &&
+      typeof HTMLVideoElement !== "undefined" &&
+      typeof HTMLVideoElement.prototype.requestPictureInPicture === "function"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Web: o volume vai até 100% (ver SPEC 5.5: acima disso exigiria mixar pelo WebAudio e arriscaria o eco). */
+export const WEB_MAX_PARTICIPANT_VOLUME = 1;
+
+const sourceOfAudio = (s: AudioSource) =>
+  s === "screen" ? Track.Source.ScreenShareAudio : Track.Source.Microphone;
 
 /** `<video>` + `track.attach`: a implementação web de `VideoSource`. */
 function videoSourceOf(track: VideoTrack, muted: boolean): VideoSource {
@@ -139,19 +168,30 @@ export function toMediaError(err: unknown, device: "microphone" | "camera" | "sc
   }
 }
 
-/** O navegador tem o que o nível "Forte" (IA) precisa: AudioWorklet, WASM e MediaStreamDestination. */
-export function supportsStrongNoiseSuppression(): boolean {
+/** O navegador monta o grafo de áudio do microfone (AudioWorklet + MediaStreamDestination)? Base da porta de ruído. */
+export function supportsAudioGraph(): boolean {
   try {
     return (
       typeof AudioContext !== "undefined" &&
       typeof AudioWorkletNode !== "undefined" &&
-      typeof MediaStreamAudioDestinationNode !== "undefined" &&
-      typeof WebAssembly === "object"
+      typeof MediaStreamAudioDestinationNode !== "undefined"
     );
   } catch {
     return false;
   }
 }
+
+/** O navegador tem o que o nível "Forte" (IA) precisa: o grafo de áudio e WASM. */
+export function supportsStrongNoiseSuppression(): boolean {
+  try {
+    return supportsAudioGraph() && typeof WebAssembly === "object";
+  } catch {
+    return false;
+  }
+}
+
+const sameSensitivity = (a: InputSensitivity, b: InputSensitivity) =>
+  a.mode === b.mode && a.thresholdDb === b.thresholdDb;
 
 /**
  * Constraints do microfone para o nível de ruído EM EFEITO. No "Forte" o filtro do navegador fica desligado
@@ -179,8 +219,21 @@ export function micConstraints(
  * - `systemAudio` só é oferecido quando o usuário pediu áudio.
  * Navegadores que não conhecem uma opção a ignoram.
  */
-export function screenShareOptions(audio: boolean): ScreenShareCaptureOptions {
+export function screenShareOptions(
+  audio: boolean,
+  quality?: ScreenShareQuality,
+): ScreenShareCaptureOptions {
   return {
+    ...(quality
+      ? {
+          resolution: {
+            width: Math.round((quality.height * 16) / 9),
+            height: quality.height,
+            frameRate: quality.fps,
+          },
+          contentHint: quality.priority,
+        }
+      : {}),
     audio: audio
       ? ({
           echoCancellation: true,
@@ -193,6 +246,19 @@ export function screenShareOptions(audio: boolean): ScreenShareCaptureOptions {
     selfBrowserSurface: "exclude",
     systemAudio: audio ? "include" : "exclude",
     suppressLocalAudioPlayback: true,
+  };
+}
+
+/**
+ * Opções de PUBLICAÇÃO da tela para a qualidade pedida: teto de bitrate e de fps, e a prioridade do WebRTC quando
+ * a banda aperta (`detail` = mantém a resolução e derruba fps; `motion` = mantém o fps e derruba resolução).
+ * Simulcast fica no padrão da lib: o SFU escolhe a camada baixa para quem tem rede ruim (dynacast desliga as
+ * camadas que ninguém assiste), e o servidor só repassa pacotes (não recodifica).
+ */
+export function screenSharePublishOptions(q: ScreenShareQuality): TrackPublishOptions {
+  return {
+    screenShareEncoding: { maxBitrate: estimateUplinkKbps(q) * 1000, maxFramerate: q.fps },
+    degradationPreference: q.priority === "detail" ? "maintain-resolution" : "maintain-framerate",
   };
 }
 
@@ -224,9 +290,25 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   private level: NoiseSuppressionLevel = DEFAULT_AUDIO_PROCESSING.noiseSuppression;
   /** Serializa as reaplicações do microfone (troca de nível, rebaixamento) para não se atropelarem. */
   private micQueue: Promise<void> = Promise.resolve();
-  readonly audioCapabilities: AudioCapabilities = supportsStrongNoiseSuppression()
-    ? { strongNoiseSuppression: true }
-    : { strongNoiseSuppression: false, strongUnavailableReason: "indisponível neste navegador" };
+  /** Volume (0 a 1) por identidade e origem; reaplicado a cada faixa que a pessoa (re)publica. */
+  private volumes = new Map<string, Partial<Record<AudioSource, number>>>();
+  /** Processador de microfone atual da faixa publicada (porta de ruído e/ou RNNoise). */
+  private micProcessor: MicTrackProcessor | null = null;
+  /** O medidor de nível está ligado (evento `input-level`). */
+  private monitorOn = false;
+  /** Captura de teste separada (medidor fora da chamada, ou com o microfone mudo). */
+  private monitor: MicPipeline | null = null;
+  private tester = new MicTester();
+  readonly audioCapabilities: AudioCapabilities = {
+    ...(supportsStrongNoiseSuppression()
+      ? { strongNoiseSuppression: true }
+      : { strongNoiseSuppression: false, strongUnavailableReason: "indisponível neste navegador" }),
+    participantVolume: { max: WEB_MAX_PARTICIPANT_VOLUME },
+    inputSensitivity: supportsAudioGraph(),
+    micTest: supportsAudioGraph() && typeof MediaRecorder !== "undefined",
+    screenShareQuality: true,
+    pictureInPicture: supportsPictureInPicture(),
+  };
 
   get state(): ConnectionState {
     return this.room ? mapState(this.room.state) : "disconnected";
@@ -264,6 +346,8 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     void room.disconnect().catch(() => {});
     for (const el of this.audioEls.values()) el.remove();
     this.audioEls.clear();
+    this.micProcessor = null;
+    this.refreshMonitor();
   }
 
   private wire(room: Room) {
@@ -315,6 +399,10 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
       this.audioHost = this.audioHost ?? audioHostElement();
       this.audioHost.appendChild(el);
       this.audioEls.set(pub.trackSid, el);
+      // A lib reaplica o volume salvo ao assinar, mas ignora 0; por isso o valor é aplicado aqui também.
+      const source: AudioSource = pub.source === Track.Source.ScreenShareAudio ? "screen" : "voice";
+      const volume = this.volumes.get(identity)?.[source];
+      if (volume !== undefined) (track as RemoteAudioTrack).setVolume?.(volume);
       return;
     }
     const kind = kindOf(pub.source);
@@ -380,13 +468,19 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     } catch (err) {
       throw toMediaError(err, "microphone");
     }
+    this.refreshMonitor();
   }
 
   async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
     const prev = this.audio;
     const wantsStrong = options.noiseSuppression === "strong";
     const unsupported = wantsStrong && !this.audioCapabilities.strongNoiseSuppression;
-    this.audio = unsupported ? { ...options, noiseSuppression: "standard" } : { ...options };
+    const sensitivity = this.audioCapabilities.inputSensitivity
+      ? options.inputSensitivity
+      : DEFAULT_AUDIO_PROCESSING.inputSensitivity;
+    this.audio = unsupported
+      ? { ...options, noiseSuppression: "standard", inputSensitivity: sensitivity }
+      : { ...options, inputSensitivity: sensitivity };
     this.level = this.audio.noiseSuppression;
     if (unsupported)
       this.setStatus({
@@ -395,12 +489,20 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
         reason: "Este navegador não suporta a redução de ruído por IA. Usando o filtro Padrão.",
       });
     else this.setStatus({ level: this.level, state: "idle" });
-    const same =
+    const captureSame =
       prev.echoCancellation === this.audio.echoCancellation &&
       prev.autoGainControl === this.audio.autoGainControl &&
       prev.noiseSuppression === this.audio.noiseSuppression;
-    if (same) return;
+    const sensitivitySame = sameSensitivity(prev.inputSensitivity, this.audio.inputSensitivity);
+    if (captureSame && sensitivitySame) return;
+    if (captureSame) {
+      // Só a porta mudou: reconfigura o grafo em curso (ou o cria/remove) sem recapturar o microfone.
+      this.monitor?.configure(this.audio.inputSensitivity);
+      await this.enqueueMic(() => this.syncProcessor(this.micTrack()));
+      return;
+    }
     await this.enqueueMic(() => this.reapplyMic());
+    if (this.monitor) this.refreshMonitor(true);
   }
 
   private enqueueMic(job: () => Promise<void>): Promise<void> {
@@ -411,6 +513,20 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
 
   private setStatus(status: AudioProcessingStatus) {
     this.emit("audio-processing-status", status);
+  }
+
+  /** A faixa do microfone publicada (ligada ou muda), se houver. */
+  private micTrack(): LocalAudioTrack | undefined {
+    const lp = this.room?.localParticipant;
+    return lp?.getTrackPublication(Track.Source.Microphone)?.audioTrack as
+      | LocalAudioTrack
+      | undefined;
+  }
+
+  /** Há microfone ABERTO na chamada (faixa publicada e não muda)? */
+  private liveMicTrack(): LocalAudioTrack | undefined {
+    const pub = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+    return pub && !pub.isMuted ? (pub.audioTrack as LocalAudioTrack | undefined) : undefined;
   }
 
   /** O microfone ativo foi capturado com outras opções: recaptura (ligado) ou descarta o track (mudo). */
@@ -424,9 +540,12 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
         // Mudo não tem captura em andamento: descarta o track para a próxima ativação capturar já com as
         // opções novas (o mudo continua valendo: quem liga o microfone é o controlador).
         await lp.unpublishTrack(track, true);
+        this.micProcessor = null;
         return;
       }
-      if (this.level !== "strong" && track.getProcessor()) await track.stopProcessor();
+      // O RNNoise é fixo na vida do processador: trocar "Forte" por outro nível (ou o inverso) recria o grafo.
+      if (track.getProcessor() && this.micProcessor?.strong !== (this.level === "strong"))
+        await track.stopProcessor();
       await track.restartTrack(micConstraints(this.audio, this.level));
       await this.syncProcessor(track);
     } catch (err) {
@@ -434,18 +553,35 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     }
   }
 
-  /** Coloca ou tira o processador de IA do track conforme o nível em efeito. */
+  /**
+   * Coloca, reconfigura ou tira o processador do microfone conforme o que está em efeito: RNNoise (nível "Forte"),
+   * porta de ruído (sensibilidade) e/ou medição para o medidor. Os três moram no MESMO processador/grafo.
+   */
   private async syncProcessor(track: LocalAudioTrack | undefined) {
     if (!track) return;
-    if (this.level !== "strong") {
+    const strong = this.level === "strong";
+    const sensitivity = this.audio.inputSensitivity;
+    const wanted = strong || sensitivity.mode !== "off" || this.monitorOn;
+    if (!wanted) {
       if (track.getProcessor()) await track.stopProcessor();
+      this.micProcessor = null;
       return;
     }
-    if (track.getProcessor()) return;
-    this.setStatus({ level: "strong", state: "loading" });
+    if (track.getProcessor() && this.micProcessor && this.micProcessor.strong === strong) {
+      this.micProcessor.configure(sensitivity);
+      return;
+    }
+    if (track.getProcessor()) await track.stopProcessor();
+    this.micProcessor = null;
+    if (strong) this.setStatus({ level: "strong", state: "loading" });
     try {
-      const { RnnoiseTrackProcessor, LOAD_TIMEOUT_MS } = await import("./noise-processor");
-      const processor = new RnnoiseTrackProcessor({
+      const { MicTrackProcessor, LOAD_TIMEOUT_MS } = await import("./noise-processor");
+      const processor = new MicTrackProcessor({
+        strong,
+        sensitivity,
+        onLevel: (l) => {
+          if (this.monitorOn) this.emit("input-level", l);
+        },
         onLoad: (load) => this.setStatus({ level: "strong", state: "active", load }),
         onSlow: () =>
           void this.enqueueMic(() =>
@@ -459,9 +595,11 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
         LOAD_TIMEOUT_MS,
         "tempo esgotado ao carregar o modelo de IA",
       );
-      this.setStatus({ level: "strong", state: "active", load: "ok" });
+      this.micProcessor = processor;
+      if (strong) this.setStatus({ level: "strong", state: "active", load: "ok" });
     } catch (err) {
-      await this.degrade(this.reasonOf(err));
+      if (strong) await this.degrade(this.reasonOf(err));
+      else await this.dropGate(err);
     }
   }
 
@@ -470,11 +608,30 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     return `Não foi possível iniciar a redução de ruído por IA${detail}. Usando o filtro Padrão.`;
   }
 
+  /** A porta de ruído não subiu (sem AudioWorklet, p.ex.): segue sem ela e avisa. */
+  private async dropGate(err: unknown) {
+    const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
+    this.audio = {
+      ...this.audio,
+      inputSensitivity: { ...this.audio.inputSensitivity, mode: "off" },
+    };
+    this.micProcessor = null;
+    this.setStatus({
+      level: this.level,
+      state: "idle",
+      gateError: `Não foi possível iniciar a sensibilidade de entrada${detail}. Seguindo sem ela.`,
+    });
+    await this.micTrack()
+      ?.stopProcessor()
+      .catch(() => {});
+  }
+
   /** A IA não rodou (ou ficou lenta): volta para "Padrão" sem mexer na chamada e avisa. */
   private async degrade(reason: string) {
     if (this.level !== "strong") return;
     this.level = "standard";
     this.audio = { ...this.audio, noiseSuppression: "standard" };
+    this.micProcessor = null;
     this.setStatus({ level: "standard", state: "degraded", reason });
     const lp = this.room?.localParticipant;
     const track = lp?.getTrackPublication(Track.Source.Microphone)?.audioTrack as
@@ -483,11 +640,101 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     if (!track) return;
     try {
       await track.stopProcessor().catch(() => {});
-      if (!lp?.getTrackPublication(Track.Source.Microphone)?.isMuted)
+      if (!lp?.getTrackPublication(Track.Source.Microphone)?.isMuted) {
         await track.restartTrack(micConstraints(this.audio, "standard"));
+        // a porta de ruído (se ligada) continua valendo, agora sem o RNNoise
+        await this.syncProcessor(track);
+      }
     } catch (err) {
       console.warn("voz: falha ao voltar ao filtro Padrão", err);
     }
+  }
+
+  // ---- Medidor de nível e teste de microfone ----
+
+  async setInputLevelMonitor(enabled: boolean): Promise<void> {
+    this.monitorOn = enabled;
+    if (!enabled) {
+      this.monitor?.stop();
+      this.monitor = null;
+      await this.enqueueMic(() => this.syncProcessor(this.micTrack()));
+      return;
+    }
+    await this.startMonitor();
+  }
+
+  /** Reavalia a fonte do medidor (faixa da chamada ou captura de teste) quando o microfone liga/desliga. */
+  private refreshMonitor(restart = false) {
+    if (!this.monitorOn || this.tester.running) return;
+    void this.startMonitor(restart).catch(() => {});
+  }
+
+  private async startMonitor(restart = false) {
+    const live = this.liveMicTrack();
+    if (live) {
+      this.monitor?.stop();
+      this.monitor = null;
+      await this.enqueueMic(() => this.syncProcessor(live));
+      return;
+    }
+    if (this.monitor && !restart) return;
+    this.monitor?.stop();
+    this.monitor = null;
+    const pipeline = this.newPipeline();
+    this.monitor = pipeline;
+    try {
+      await pipeline.start();
+    } catch (err) {
+      if (this.monitor === pipeline) this.monitor = null;
+      throw toMediaError(err, "microphone");
+    }
+  }
+
+  /** Captura de teste com o MESMO processamento da chamada. */
+  private pipelineOptions(onLevel: (l: InputLevel) => void): PipelineOptions {
+    return {
+      constraints: {
+        echoCancellation: this.audio.echoCancellation,
+        autoGainControl: this.audio.autoGainControl,
+        noiseSuppression: this.level === "standard",
+      },
+      deviceId: loadDevicePrefs().audioinput,
+      strong: this.level === "strong",
+      sensitivity: this.audio.inputSensitivity,
+      onLevel,
+    };
+  }
+
+  private newPipeline() {
+    return new MicPipeline(
+      this.pipelineOptions((l) => {
+        if (this.monitorOn) this.emit("input-level", l);
+      }),
+    );
+  }
+
+  async startMicTest(): Promise<void> {
+    if (this.tester.running) return;
+    if (this.liveMicTrack()) {
+      // O alto-falante tocaria a gravação para a chamada inteira ouvir: a interface pede para silenciar antes.
+      this.emit("mic-test", { phase: "error", error: "in-use" });
+      return;
+    }
+    this.monitor?.stop();
+    this.monitor = null;
+    await this.tester.run(
+      {
+        ...this.pipelineOptions((l) => this.emit("input-level", l)),
+        outputDeviceId: loadDevicePrefs().audiooutput,
+        durationMs: MIC_TEST_DURATION_MS,
+      },
+      (state) => this.emit("mic-test", state),
+    );
+    this.refreshMonitor();
+  }
+
+  cancelMicTest(): void {
+    this.tester.cancel();
   }
 
   async setCameraEnabled(enabled: boolean) {
@@ -499,12 +746,16 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     }
   }
 
-  async setScreenShareEnabled(enabled: boolean, opts: { audio?: boolean } = {}) {
+  async setScreenShareEnabled(
+    enabled: boolean,
+    opts: { audio?: boolean; quality?: ScreenShareQuality } = {},
+  ) {
     const lp = this.requireRoom().localParticipant;
     try {
       await lp.setScreenShareEnabled(
         enabled,
-        enabled ? screenShareOptions(!!opts.audio) : undefined,
+        enabled ? screenShareOptions(!!opts.audio, opts.quality) : undefined,
+        enabled && opts.quality ? screenSharePublishOptions(opts.quality) : undefined,
       );
     } catch (err) {
       throw toMediaError(err, "screen");
@@ -514,6 +765,19 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   setDeafened(deafened: boolean) {
     this.deafened = deafened;
     for (const el of this.audioEls.values()) el.muted = deafened;
+  }
+
+  /**
+   * Volume local de uma pessoa (0 a 1: `HTMLMediaElement.volume` não passa de 1). É independente do deafen, que
+   * mexe em `muted`: ensurdecido continua silenciando tudo, qualquer que seja o volume.
+   */
+  setParticipantVolume(identity: string, source: AudioSource, volume: number) {
+    const v = Math.min(
+      WEB_MAX_PARTICIPANT_VOLUME,
+      Math.max(0, Number.isFinite(volume) ? volume : 1),
+    );
+    this.volumes.set(identity, { ...this.volumes.get(identity), [source]: v });
+    this.room?.remoteParticipants.get(identity)?.setVolume(v, sourceOfAudio(source));
   }
 
   async resumeAudio() {
