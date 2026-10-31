@@ -11,6 +11,12 @@ publish = false
 name = "spook_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = ["camera"]
+# Câmera nativa (nokhwa: AVFoundation, Media Foundation, V4L2). Isolada porque os backends de câmera são o
+# ponto mais frágil da build; sem a feature, `voice_set_camera_enabled(true)` responde "não suportado".
+camera = ["dep:nokhwa", "dep:image"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -24,6 +30,25 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Chaveiro do SO: Keychain (macOS), Credential Manager (Windows) e Secret Service (Linux, via libdbus).
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+# Voz, vídeo e tela nativos (Fase 7b): LiveKit Rust SDK (libwebrtc), captura/reprodução de áudio, captura de tela e JPEG.
+livekit = { version = "0.10", default-features = false, features = ["native", "rustls-tls-native-roots"] }
+libwebrtc = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+cpal = "0.15"
+scap = "0.0.8"
+jpeg-encoder = "0.7"
+thiserror = "2"
+log = "0.4"
+env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
+nokhwa = { version = "0.10", optional = true, default-features = false, features = ["input-native"] }
+image = { version = "0.25", optional = true, default-features = false, features = ["jpeg"] }
+
+[dev-dependencies]
+# Só nos testes: mintar tokens do LiveKit de dev e decodificar os JPEG gerados.
+livekit-api = { version = "0.10", default-features = false, features = ["access-token"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [profile.release]
 codegen-units = 1

@@ -2,16 +2,18 @@
 //! capacidades nativas: chaveiro do SO para o token, instância única, notificações, estado da janela
 //! e a guarda de navegação (links externos abrem no navegador do sistema).
 //!
-//! Ponto de extensão da Parte 7b (voz/tela nativas em Rust): registre os comandos novos em
-//! `invoke_handler` abaixo e crie um módulo irmão de `token`/`nav` (ex.: `voice`).
+//! Voz, vídeo e tela nativos (Parte 7b, RF12.2) ficam no módulo `voice`: LiveKit Rust SDK + cpal + scap +
+//! nokhwa, sem WebRTC no WebView.
 
 mod nav;
 mod token;
+pub mod voice;
 
 use tauri::{Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use token::{KeyringStore, TokenState, TokenVault};
+use voice::commands as vc;
 
 #[tauri::command]
 fn auth_get_token(vault: State<'_, TokenVault>) -> TokenState {
@@ -55,6 +57,11 @@ fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 }
 
 pub fn run() {
+    // Logs do núcleo de voz (nunca contêm token); `RUST_LOG=spook_desktop_lib=debug` para detalhar.
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn,spook_desktop_lib=info"),
+    )
+    .init();
     tauri::Builder::default()
         // Instância única precisa ser o primeiro plugin: a segunda execução só traz a janela à frente.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -69,10 +76,23 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(navigation_guard())
         .manage(TokenVault::new(Box::new(KeyringStore)))
+        .manage(voice::VoiceState::new())
         .invoke_handler(tauri::generate_handler![
             auth_get_token,
             auth_set_token,
-            auth_clear_token
+            auth_clear_token,
+            vc::voice_connect,
+            vc::voice_disconnect,
+            vc::voice_set_microphone,
+            vc::voice_set_deafened,
+            vc::voice_set_camera_enabled,
+            vc::voice_list_screen_sources,
+            vc::voice_set_screen_share,
+            vc::voice_list_devices,
+            vc::voice_set_device,
+            vc::voice_video_subscribe,
+            vc::voice_video_unsubscribe,
+            vc::voice_video_ack
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Spook");
