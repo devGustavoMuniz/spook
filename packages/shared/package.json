@@ -20,5 +20,9 @@
   "dependencies": {
     "@tanstack/react-query": "5.105.0",
     "zod": "4.6.7"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/gateway/test-utils.ts"
   }
 }
