@@ -1,7 +1,15 @@
 // Helpers do gateway WebSocket para os cenários k6 da Fase 3 (protocolo: SPEC 5.3).
 import http from "k6/http";
 
-export const OP = { DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, RESUME: 3, INVALID: 9, HELLO: 10, ACK: 11 };
+export const OP = {
+  DISPATCH: 0,
+  HEARTBEAT: 1,
+  IDENTIFY: 2,
+  RESUME: 3,
+  INVALID: 9,
+  HELLO: 10,
+  ACK: 11,
+};
 
 // BASE_URL http(s)://host -> ws(s)://host/api/gateway. Com TICKET=1 troca o cookie por um ticket de uso único
 // (POST /api/gateway/ticket, o caminho do desktop); o ticket consome 1 requisição REST do rate limit de IP.

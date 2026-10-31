@@ -8,7 +8,7 @@ Front-end do Spook (React 19, Vite, TanStack Router/Query/Virtual, Tailwind, com
 
 ## E2E (Playwright, RNF06)
 
-O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite.
+O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. Cada execução registra 4 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.
 
 Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
 

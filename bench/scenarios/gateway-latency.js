@@ -82,8 +82,15 @@ export function receiver() {
       const f = JSON.parse(data);
       if (f.op === OP.HELLO) {
         socket.send(frame(OP.IDENTIFY, { client: "k6" }));
-        socket.setInterval(() => socket.send(frame(OP.HEARTBEAT, null)), Number(f.d.heartbeat_interval));
-      } else if (f.op === OP.DISPATCH && f.t === "MESSAGE_CREATE" && f.d.channel_id === CHANNEL_ID) {
+        socket.setInterval(
+          () => socket.send(frame(OP.HEARTBEAT, null)),
+          Number(f.d.heartbeat_interval),
+        );
+      } else if (
+        f.op === OP.DISPATCH &&
+        f.t === "MESSAGE_CREATE" &&
+        f.d.channel_id === CHANNEL_ID
+      ) {
         const m = /^bench:(\d+):/.exec(f.d.content);
         if (m) {
           e2e.add(Date.now() - Number(m[1]));
@@ -94,10 +101,13 @@ export function receiver() {
     socket.on("close", () => {
       if (!closedByUs) unexpectedClose.add(1);
     });
-    socket.setTimeout(() => {
-      closedByUs = true;
-      socket.close();
-    }, DURATION_MS + WARMUP_MS + 5000);
+    socket.setTimeout(
+      () => {
+        closedByUs = true;
+        socket.close();
+      },
+      DURATION_MS + WARMUP_MS + 5000,
+    );
   });
   check(res, { "upgrade 101": (r) => r && r.status === 101 });
 }
