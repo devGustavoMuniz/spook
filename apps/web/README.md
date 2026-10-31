@@ -8,7 +8,7 @@ Front-end do Spook (React 19, Vite, TanStack Router/Query/Virtual, Tailwind, com
 
 ## E2E (Playwright, RNF06)
 
-O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. Cada execução registra 4 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.
+O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. A Fase 4 (`e2e/dms.spec.ts`) cobre DMs 1:1 e em grupo com 3 contas, presença (online, ausente com relógio falso e offline) e "digitando…"; ela precisa do backend com `SPOOK_PRESENCE_OFFLINE_GRACE=2s` (offline em 2 s em vez de 15 s; é só para o E2E, produção usa o padrão). Cada execução registra 7 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.
 
 Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
 
@@ -25,6 +25,7 @@ Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
          - $PWD/apps/web/dist:/web:ro
        environment:
          SPOOK_WEB_DIR: /web
+         SPOOK_PRESENCE_OFFLINE_GRACE: 2s
    YML
    docker compose --env-file .env -f deploy/docker-compose.yml -f /tmp/spook-e2e.yml up -d --build server
    ```

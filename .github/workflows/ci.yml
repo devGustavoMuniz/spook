@@ -103,6 +103,7 @@ jobs:
           SPOOK_ADDR: ":8090"
           SPOOK_DATABASE_URL: postgres://spook:spook@localhost:5432/spook?sslmode=disable
           SPOOK_WEB_DIR: ${{ github.workspace }}/apps/web/dist
+          SPOOK_PRESENCE_OFFLINE_GRACE: 2s # só o E2E: offline em 2 s em vez dos 15 s de produção
         run: |
           server/bin/spook > server.log 2>&1 &
           curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://localhost:8090/healthz
