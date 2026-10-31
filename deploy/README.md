@@ -205,7 +205,7 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
 
 ## 8. Pendências conhecidas
 - **Observabilidade em produção** (RNF02): `SPOOK_OTLP_ENDPOINT` está vazio, ou seja, sem traces em prod. Plano e critério
-  bloqueante na Fase 3 do SPEC: Grafana Cloud (plano gratuito) com só um coletor OpenTelemetry leve no VPS (e, então,
+  na Fase B do SPEC (Benchmarks e observabilidade): Grafana Cloud (plano gratuito) com só um coletor OpenTelemetry leve no VPS (e, então,
   o limite de memória dele entra na tabela 1.2). Em dev tudo funciona (`pnpm dev`).
 - **Backup** (SPEC, questão em aberto 3): não há rotina ainda. O do Postgres será por `pg_dump`; os dados vivem em
   volumes nomeados do Docker rootless (`postgres-data`, `garage-meta`, `garage-data`). Estratégia do Garage: a definir.

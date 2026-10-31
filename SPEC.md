@@ -266,6 +266,16 @@ Eventos mínimos: `READY`, `MESSAGE_CREATE`, `MESSAGE_UPDATE`, `MESSAGE_DELETE`,
 - O LiveKit envia webhooks (`participant_joined`, `participant_left`, `track_published`…) ao backend.
 - O backend mantém os voice states em memória e os distribui via `VOICE_STATE_UPDATE`.
 
+### 5.5 Decisões de implementação
+
+Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz a fase em que entrou.
+
+**Gerais (Fases 2 a 7)**
+- IDs trafegam como string no JSON; erros seguem `application/problem+json` (huma). Recurso de servidor que o usuário não pode ver responde `404` (não vaza existência); falta de permissão em recurso visível responde `403`.
+- As regras de permissão (bitflags, permissão efetiva, hierarquia) ficam em um pacote próprio, `server/internal/perm`, puro e sem dependências, usado pelos services.
+- Services publicam eventos num barramento interno (`server/internal/platform/events`); só o pacote `gateway` converte eventos em mensagens WebSocket.
+- Migrations só aditivas (o rollback de imagem não desfaz migrations).
+
 ---
 
 ## 6. Modelo de dados
@@ -474,65 +484,70 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 
 ## 8. Critérios de aceite por fase
 
-Cada fase só é concluída quando todos os critérios forem atendidos **e** o benchmark da fase estiver versionado em `bench/` com resultados registrados.
+Cada fase só é concluída quando todos os critérios forem atendidos **e** a instrumentação da fase (header `Server-Timing`, métricas e traces no código) e os cenários k6 correspondentes estiverem escritos e versionados em `bench/`. A **execução** das medições e o registro dos resultados ficam na **Fase B**, depois da Fase 7.
 
-A partir da Fase 1, as medições de cada fase são feitas contra produção no VPS.
+Os critérios marcados com `[x]` foram verificados. Os que dependem de validação manual (voz com outra pessoa, app desktop, permissões do navegador etc.) ficam desmarcados e listados em `VALIDACAO-MANUAL.md`.
 
 ### Fase 0 — Fundação
-- [ ] `pnpm dev` sobe web, backend, Postgres, Garage e LiveKit localmente com um comando.
-- [ ] CI roda lint (golangci-lint e Biome), testes e build com sucesso.
-- [ ] Traces de uma requisição aparecem no Grafana.
-- [ ] O baseline k6 do Laravel está registrado.
+- [x] `pnpm dev` sobe web, backend, Postgres, Garage e LiveKit localmente com um comando.
+- [x] CI roda lint (golangci-lint e Biome), testes e build com sucesso.
+- [x] Traces de uma requisição aparecem no Grafana.
+- [x] O baseline k6 do Laravel está registrado.
 
 ### Fase 1 — Auth, usuários e deploy no VPS
 Entrega o deploy em produção, no padrão do VPS (RNF05): Docker Compose de produção em `deploy/`, rodando como o usuário `spook` com Docker rootless; entrada por container `cloudflared` com túnel próprio para `spook.dottadigital.com`, `spook-rtc.dottadigital.com` e `spook-files.dottadigital.com`; mídia do LiveKit direto no IP público; imagens buildadas no CI e publicadas no GHCR (sem build no VPS); segredos fora do git; e deploy reproduzível por GitHub Actions via SSH (push na `main` e `workflow_dispatch`). A preparação única do servidor fica documentada em `deploy/README.md`.
 
-- [ ] Usuário se cadastra, faz login, edita o perfil e faz logout.
-- [ ] Rotas protegidas retornam 401 sem autenticação.
-- [ ] Client TypeScript gerado a partir do OpenAPI e usado pelo front.
-- [ ] Deploy reproduzível no VPS (GitHub Actions por SSH, Docker rootless, imagens do GHCR), com os três domínios acessíveis pelo túnel e segredos fora do repositório.
-- [ ] `https://spook.dottadigital.com/healthz` responde ok em produção.
-- [ ] O cenário k6 do baseline (Fase 0) roda contra o Spook em produção, com o resultado registrado em `bench/results/` ao lado do baseline do Laravel.
-- [ ] Medido: p95 de login e RAM ociosa do backend.
+- [x] Usuário se cadastra, faz login, edita o perfil e faz logout.
+- [x] Rotas protegidas retornam 401 sem autenticação.
+- [x] Client TypeScript gerado a partir do OpenAPI e usado pelo front.
+- [x] Deploy reproduzível no VPS (GitHub Actions por SSH, Docker rootless, imagens do GHCR), com os três domínios acessíveis pelo túnel e segredos fora do repositório.
+- [x] `https://spook.dottadigital.com/healthz` responde ok em produção.
+- [x] O cenário k6 do baseline (Fase 0) roda contra o Spook em produção, com o resultado registrado em `bench/results/` ao lado do baseline do Laravel.
 
 ### Fase 2 — Servidores, canais e mensagens (REST)
 - [ ] Todos os RF02 a RF06 funcionam via REST, com as regras da seção 7 aplicadas e testadas.
 - [ ] Paginação por cursor retorna páginas consistentes com 1M de mensagens no banco.
-- [ ] Medido: p95 de listar e enviar mensagens.
 
 ### Fase 3 — Gateway realtime
-**Pendência bloqueante (primeiro critério abaixo):** observabilidade em produção via Grafana Cloud (plano gratuito), com apenas um coletor OpenTelemetry leve no VPS enviando traces, métricas e logs. Prometheus, Loki e Grafana não rodam no VPS, para não pesar no servidor nem distorcer os benchmarks (o dev local continua com Tempo e Grafana via Compose). Até lá, o backend em produção roda com OTLP desligado.
-
-- [ ] Traces e métricas do backend em produção chegam ao Grafana Cloud via coletor OpenTelemetry no VPS.
 - [ ] Mensagem enviada aparece nos outros clientes sem recarregar a página.
 - [ ] Derrubar a conexão e reconectar recupera os eventos perdidos (resume).
 - [ ] Usuário sem VIEW_CHANNEL não recebe eventos daquele canal.
-- [ ] Medido: latência ponta a ponta p50/p95/p99 e conexões por GB de RAM, Spook vs Laravel Reverb.
 
 ### Fase 4 — Presença e DMs
 - [ ] Status muda em tempo real para os demais usuários.
 - [ ] "Digitando…" aparece e expira corretamente.
 - [ ] DMs 1:1 e em grupo funcionam com as regras da seção 7.4.
-- [ ] Medido: CPU e mensagens/s com N usuários conectados.
 
 ### Fase 5 — Voz, vídeo e tela (web)
 - [ ] Dois usuários conversam por voz num canal; um compartilha a tela e o outro vê.
 - [ ] A lista de participantes do canal de voz atualiza em tempo real para todo o servidor.
 - [ ] Permissões CONNECT, SPEAK e VIDEO são respeitadas.
-- [ ] Medido: CPU e banda do VPS por participante; jitter, perda e RTT.
 
 ### Fase 6 — Uploads e notificações
 - [ ] Upload de imagem gera thumbnail e aparece na mensagem.
 - [ ] Arquivos acima do limite ou de tipo inválido são rejeitados.
 - [ ] Contagem de não lidas é correta após ler e ao receber novas mensagens.
 - [ ] Web push chega quando o usuário está offline.
-- [ ] Medido: throughput de upload e tempo do job de thumbnail.
 
 ### Fase 7 — Desktop
 - [ ] O app Tauri roda no Windows, macOS e Linux com todas as funcionalidades da web.
 - [ ] Voz e compartilhamento de tela funcionam no Linux e no macOS via captura nativa.
-- [ ] Medido: RAM ociosa, RAM em call, tamanho do instalador e tempo de boot, Tauri vs Electron.
 - [ ] Versão liberada para usuários e canal de feedback definido.
+
+### Fase B — Benchmarks e observabilidade
+Reúne tudo que mede e observa, executado depois da Fase 7 (as fases só entregam a instrumentação e os cenários k6 versionados). As medições são feitas contra produção no VPS, nos dois tipos lado a lado (internet e interno, RNF03).
+
+**Observabilidade em produção:** Grafana Cloud (plano gratuito), com apenas um coletor OpenTelemetry leve no VPS enviando traces, métricas e logs. Prometheus, Loki e Grafana não rodam no VPS, para não pesar no servidor nem distorcer os benchmarks (o dev local continua com Tempo e Grafana via Compose). Até lá, o backend em produção roda com OTLP desligado.
+
+- [ ] Traces e métricas do backend em produção chegam ao Grafana Cloud via coletor OpenTelemetry no VPS.
+- [ ] Medições internas pendentes da Fase 1 rodadas e registradas: `run-internal.sh` (healthz e `me.js` nos dois sistemas) e o `Server-Timing` do Spook em produção, em `bench/results/`.
+- [ ] Fase 1: p95 de login e RAM ociosa do backend (já registrados em 30/10/2026 pela internet; repetir com o `Server-Timing` e a medição interna).
+- [ ] Fase 2: p95 de listar e enviar mensagens.
+- [ ] Fase 3: latência ponta a ponta p50/p95/p99 e conexões por GB de RAM, Spook vs Laravel Reverb.
+- [ ] Fase 4: CPU e mensagens/s com N usuários conectados.
+- [ ] Fase 5: CPU e banda do VPS por participante; jitter, perda e RTT.
+- [ ] Fase 6: throughput de upload e tempo do job de thumbnail.
+- [ ] Fase 7: RAM ociosa, RAM em call, tamanho do instalador e tempo de boot, Tauri vs Electron.
 
 ---
 

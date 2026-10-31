@@ -33,7 +33,8 @@ Monorepo pnpm + Turborepo: `apps/web`, `apps/desktop`, `packages/shared`, `packa
 - Storage é S3 genérico (Garage, fixado por tag): o código de domínio só usa `internal/platform/storage` e nunca depende do Garage. Testes de integração: `pnpm --filter @spook/server test:integration` (exige `pnpm infra:up`).
 - Config por variáveis de ambiente; segredos nunca entram no repositório (use `.env.example`).
 - Testes acompanham o código. CI roda lint, testes e build a cada push.
-- Cada fase termina com benchmark k6 versionado em `bench/`, com resultados registrados.
+- Cada fase entrega a instrumentação (`Server-Timing`, métricas e traces no código) e os cenários k6 versionados em `bench/`; a execução das medições e o registro dos resultados ficam na Fase B do SPEC.
+- Decisões tomadas durante a implementação ficam no SPEC (seção 5.5); o que só o dono consegue validar vai para `VALIDACAO-MANUAL.md`, agrupado por fase.
 - Benchmarks têm dois tipos, sempre registrados lado a lado: internet (experiência do usuário) e interno (backend, sem Cloudflare/túnel). O backend devolve `Server-Timing` em toda resposta. Cenário comparável de aplicação: GET do usuário autenticado (cookie por ambiente; o login não é comparado). Método e comandos: `bench/README.md`.
 
 ## Contrato da API (código gerado, não edite à mão)
