@@ -142,3 +142,11 @@ Front (Fase 6: anexos, não lidas, menções, avisos e push):
 - [ ] **Release rascunho:** criar a tag `desktop-v<versão>` (igual ao `package.json`) e conferir que o release aparece como rascunho com os instaladores e os `.sha256`.
 
 ## Pendências gerais de configuração
+
+- [ ] **Cache da Cloudflare no `/sw.js`:** o servidor manda `Cache-Control: no-cache`, mas a Cloudflare reescreve para `max-age=14400` nos arquivos `.js` (Browser Cache TTL). Para service workers isso não impede a atualização (os navegadores buscam o script principal ignorando o cache HTTP), mas vale ajustar: no painel, *Caching > Configuration > Browser Cache TTL = Respect Existing Headers* (ou uma Cache Rule com *Bypass cache* para `/sw.js` e `/manifest.webmanifest`).
+- [ ] **Secrets VAPID:** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` já foram criados no GitHub (por `gh secret set`, sem exibir os valores). **Não troque o par depois que alguém se inscrever no push**: as inscrições existentes ficam inválidas. Guarde uma cópia da chave privada se quiser poder restaurar o secret.
+- [ ] **Usuários de teste em produção:** ficaram os de benchmark e smoke da Fase 1 (`bench_*`, `smoke_*`) e os que você criar nos testes manuais. Não há rota de excluir conta; remoção por SQL em `bench/README.md` (seção 4).
+- [ ] **Release do desktop:** criar a tag `desktop-v<versão>` (igual ao `version` de `apps/desktop/package.json`) gera o release rascunho com os instaladores e os `.sha256`; publicar é decisão sua. Os instaladores não são assinados (SmartScreen/Gatekeeper avisam).
+- [ ] **Canal de feedback dos usuários** (SPEC, questão em aberto 4): definir onde coletar feedback antes de divulgar o desktop.
+- [ ] **Fase B (benchmarks e observabilidade):** nada foi executado. Falta a conta no Grafana Cloud (plano gratuito) com token de ingestão para o coletor OpenTelemetry do VPS, e rodar `run-alternating.sh`, `run-internal.sh` e os cenários k6 das Fases 2 a 7 (todos já escritos em `bench/`).
+- [ ] **Disco do Docker local:** a VM do Docker Desktop andou perto de 100% durante o desenvolvimento (causou falhas de Postgres e builds). Se `No space left on device` reaparecer: `docker system df`, `docker builder prune` e remover imagens e volumes de projetos que você não usa mais.

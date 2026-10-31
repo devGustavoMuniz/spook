@@ -698,9 +698,11 @@ Entrega o deploy em produção, no padrão do VPS (RNF05): Docker Compose de pro
 - [x] Web push chega quando o usuário está offline. (Envio verificado em integração contra um serviço de push de teste, com VAPID e cifra; o recebimento real em navegador/dispositivo está em `VALIDACAO-MANUAL.md`.)
 
 ### Fase 7 — Desktop
-- [ ] O app Tauri roda no Windows, macOS e Linux com todas as funcionalidades da web.
-- [ ] Voz e compartilhamento de tela funcionam no Linux e no macOS via captura nativa.
-- [ ] Versão liberada para usuários e canal de feedback definido.
+Entregue: casca Tauri 2 com login no chaveiro do SO, gateway por ticket, CORS e notificações nativas (7a); voz, câmera e tela nativas em Rust com o LiveKit SDK, sem WebRTC do WebView (7b); workflow **Desktop** que gera os instaladores nos 3 SOs (Windows x64, macOS arm64 e x64, Linux x64), verde no GitHub Actions. O que falta é **validação manual** em máquinas reais (`VALIDACAO-MANUAL.md`, Fase 7), por isso os critérios abaixo seguem abertos.
+
+- [ ] O app Tauri roda no Windows, macOS e Linux com todas as funcionalidades da web. (Instaladores compilam nos 3 SOs; instalação e uso real aguardam validação manual.)
+- [ ] Voz e compartilhamento de tela funcionam no Linux e no macOS via captura nativa. (Núcleo Rust verificado contra o LiveKit com mídia sintética no Linux; captura real de microfone, câmera e tela aguarda validação manual.)
+- [ ] Versão liberada para usuários e canal de feedback definido. (Ação do dono: tag `desktop-v<versão>` gera o release rascunho; o canal de feedback é a questão em aberto 4.)
 
 ### Fase B — Benchmarks e observabilidade
 Reúne tudo que mede e observa, executado depois da Fase 7 (as fases só entregam a instrumentação e os cenários k6 versionados). As medições são feitas contra produção no VPS, nos dois tipos lado a lado (internet e interno, RNF03).
