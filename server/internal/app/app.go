@@ -35,6 +35,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/jobs"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
@@ -303,7 +304,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
-	r.Use(middleware.RequestID, middleware.Recoverer)
+	r.Use(middleware.RequestID, httpx.LogServerErrors, middleware.Recoverer)
 	r.Use(cors.Middleware(d.Cfg.AllowedOrigins)) // antes do rate limit: o preflight não consome limite e o 429 leva CORS
 	r.Use(limitByPath(d.Cfg.RealIPHeader, authLimiter, apiLimiter, gwLimiter))
 
