@@ -38,7 +38,12 @@ pnpm biome check . >/dev/null
 if [ "${INTEGRATION:-1}" = 1 ]; then
   step "testes de integração (Postgres e Garage do Compose)"
   pnpm infra:up >/dev/null 2>&1
-  scripts/test-integration.sh 2>&1 | grep -E "^(ok|FAIL|--- FAIL|panic)" || true
-  scripts/test-integration.sh >/dev/null
+  log="$(mktemp)"
+  if ! scripts/test-integration.sh >"$log" 2>&1; then
+    grep -E "^(--- FAIL|FAIL|panic)|_test.go:[0-9]+" "$log" | head -40
+    echo "testes de integração falharam (log completo: $log)"
+    exit 1
+  fi
+  echo "integracao: $(grep -c "^ok" "$log") pacotes ok"
 fi
 printf '\nTUDO OK (equivalente ao CI, exceto o job e2e)\n'

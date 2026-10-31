@@ -43,6 +43,14 @@ Cada fase acrescenta os seus passos aqui, em ordem curta. Marque `[x]` conforme 
 - [ ] Observabilidade: com `SPOOK_OTLP_ENDPOINT` definido (Fase B), conferir as métricas `spook.presence.users`, `spook.presence.transitions`, `spook.typing.started` e `spook.dm.created` no coletor.
 - [ ] Fase B: rodar `bench/scenarios/gateway-fanout.js` (passos em `bench/README.md`) com contas/canal de **teste** para registrar CPU e mensagens/s com N usuários conectados; combinar a carga antes (o k6 divide a CPU com o app na medição interna).
 
+- [ ] Front (ausente): com a aba aberta, deixar a conta **10 minutos sem mexer** (mouse, teclado, toque) e conferir na outra conta que a bolinha vira âmbar ("Ausente"); mexer o mouse e conferir que volta a verde. Trocar de aba por 10+ min e voltar também conta como interação ao voltar. (O E2E só prova isso com relógio falso.)
+- [ ] Front (ausente + reconexão): deixar a conta ausente, desligar o Wi-Fi por ~20 s e religar; a outra conta continua vendo "Ausente" (o estado é reenviado depois do resume ou do novo READY), não "Online".
+- [ ] Front (DM em grupo com pessoas reais): criar um grupo com 3+ contas de verdade, com e sem nome, renomear, adicionar até 10 participantes, remover um (ele recebe o aviso e a conversa some da lista dele) e sair como participante; conferir o texto do erro ao tentar passar de 10 participantes e ao abrir DM com quem não divide servidor.
+- [ ] Front (indicadores em claro e escuro): conferir a legibilidade das bolinhas online/ausente/offline sobre o avatar na lista de membros, na lista de DMs e no cabeçalho, nos dois temas, inclusive o contorno que separa a bolinha do avatar.
+- [ ] Front ("digitando…"): com duas contas, o texto aparece embaixo do campo sem a lista pular, some ~8 s depois de parar e some na hora quando a pessoa envia; com 3 ou mais pessoas digitando mostra "Várias pessoas estão digitando…".
+- [ ] Front (não lida na sessão): com a aba em outro servidor, receber uma DM e conferir a bolinha no botão Início e o negrito na conversa; abrir a conversa limpa. Recarregar a página zera a marcação (a contagem de verdade é a Fase 6).
+- [ ] Front (E2E em produção): a tolerância de offline do E2E usa `SPOOK_PRESENCE_OFFLINE_GRACE=2s` só no backend de teste; **não** definir essa variável no `.env` do VPS (o padrão de 15 s é o do SPEC 7.6).
+
 ## Fase 5 — Voz, vídeo e tela
 
 ## Fase 6 — Uploads e notificações
