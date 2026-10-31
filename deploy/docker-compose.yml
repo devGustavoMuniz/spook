@@ -96,6 +96,10 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-devsecret-devsecret-devsecret-32}
       LIVEKIT_INTERNAL_URL: http://livekit:7880
+      # Web Push (Fase 6b): vazio em dev = push desligado (endpoints respondem 503).
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     ports: ["8090:8090"]
     depends_on:
       postgres: { condition: service_healthy }

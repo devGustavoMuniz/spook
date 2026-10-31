@@ -109,6 +109,9 @@ Em **Settings → Secrets and variables → Actions** (repositório). O workflow
 | `S3_SECRET_ACCESS_KEY` | `openssl rand -hex 32` |
 | `LIVEKIT_API_KEY` | ex.: `spook` |
 | `LIVEKIT_API_SECRET` | `openssl rand -hex 32` |
+| `VAPID_PUBLIC_KEY` | chave pública VAPID (base64url) do Web Push; `npx web-push generate-vapid-keys` |
+| `VAPID_PRIVATE_KEY` | chave privada VAPID (par da anterior). Gere o par uma vez e não troque: as inscrições dos navegadores ficam presas à pública |
+| `VAPID_SUBJECT` | contato do operador, sem espaços (`mailto:voce@dominio`) |
 | `CLOUDFLARE_TUNNEL_TOKEN` | token de 1.4 |
 
 **Variables** (opcionais; o padrão está entre parênteses):
@@ -218,6 +221,7 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
 | Container morto por memória (`OOMKilled`) | o serviço bateu o `mem_limit` (1.2); reveja a tabela antes de subir o limite. |
 | Deploy falha em `Host key verification failed` | `SSH_KNOWN_HOSTS` desatualizado (VPS reinstalado): refaça o `ssh-keyscan`. |
 | `docker login ghcr.io` negado | dar acesso de leitura do repositório ao pacote (item 4.3). |
+| Push responde 503 | faltam `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` no container `spook` (o push fica desligado sem as três; o log da partida avisa se só algumas foram definidas). |
 | Voz responde 503 | faltam `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` no container `spook` (a voz fica desligada sem elas). |
 | Chamada conecta mas a lista de quem está em voz não atualiza | o webhook não chega ao backend (6.2); o reconciliador (60 s) acaba corrigindo, mas confira os logs do `livekit`. |
 | Workflow termina em "healthz não respondeu ok" | túnel sem os hostnames, token errado (`logs cloudflared`) ou `spook` não healthy (`logs spook`). |
