@@ -8,6 +8,11 @@ cd "$(dirname "$0")/.."
 
 step() { printf '\n== %s\n' "$*"; }
 
+# O CI roda com .env = .env.example; um .env local diferente já escondeu falhas (ex.: lista de origens do CORS).
+if [ -f .env ] && ! diff -q <(grep -vE '^\s*(#|$)' .env.example | sort) <(grep -vE '^\s*(#|$)' .env | sort) >/dev/null; then
+  echo "AVISO: .env difere do .env.example (o CI usa o .env.example). Para reproduzir o CI: cp .env.example .env"
+fi
+
 step "pnpm install --frozen-lockfile"
 pnpm install --frozen-lockfile >/dev/null
 

@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"strings"
 	"bytes"
 	"context"
 	"errors"
@@ -118,7 +119,8 @@ func TestPresignedURLExpires(t *testing.T) {
 
 func TestBucketCORS(t *testing.T) {
 	s, cfg := newStore(t)
-	origin := env(t, "S3_CORS_ORIGINS")
+	// S3_CORS_ORIGINS é uma lista separada por vírgula; o preflight usa uma origem só (a primeira).
+	origin := strings.TrimSpace(strings.Split(env(t, "S3_CORS_ORIGINS"), ",")[0])
 	putURL, err := s.PresignPut(context.Background(), "integration/cors.bin", "image/png", 1, time.Minute)
 	if err != nil {
 		t.Fatal(err)
