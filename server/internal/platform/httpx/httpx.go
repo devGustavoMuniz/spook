@@ -29,6 +29,8 @@ func Err(err error) error {
 		return huma.Error409Conflict(e.Msg)
 	case apperr.KindGone:
 		return huma.NewError(http.StatusGone, e.Msg)
+	case apperr.KindUnavailable:
+		return huma.NewError(http.StatusServiceUnavailable, e.Msg)
 	case apperr.KindRateLimited:
 		secs := int((e.RetryAfter + 999_999_999) / 1_000_000_000) // arredonda para cima
 		if secs < 1 {

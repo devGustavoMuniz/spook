@@ -20,6 +20,17 @@ type S3 struct {
 
 func (s S3) Enabled() bool { return s.Endpoint != "" }
 
+// LiveKit reúne a configuração da voz (Fase 5). Sem URL, chave e segredo a voz fica desligada
+// (os endpoints respondem 503).
+type LiveKit struct {
+	URL         string // URL pública para o cliente (wss://… em produção, ws://localhost:7880 em dev)
+	APIKey      string
+	APISecret   string
+	InternalURL string // API server-to-server (padrão http://livekit:7880)
+}
+
+func (l LiveKit) Enabled() bool { return l.URL != "" && l.APIKey != "" && l.APISecret != "" }
+
 type Config struct {
 	Addr         string
 	Env          string
@@ -29,6 +40,7 @@ type Config struct {
 	WebDir       string // build do front servido pelo backend; vazio desliga
 	RealIPHeader string // ex.: CF-Connecting-IP atrás do Cloudflare Tunnel
 	S3           S3
+	LiveKit      LiveKit
 	// AllowedOrigins são as origens extras aceitas no handshake do gateway, além do próprio host
 	// (SPOOK_ALLOWED_ORIGINS, separadas por vírgula).
 	AllowedOrigins []string
@@ -56,6 +68,12 @@ func Load() (Config, error) {
 			Bucket:          getenv("S3_BUCKET", "spook"),
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
+		},
+		LiveKit: LiveKit{
+			URL:         os.Getenv("LIVEKIT_URL"),
+			APIKey:      os.Getenv("LIVEKIT_API_KEY"),
+			APISecret:   os.Getenv("LIVEKIT_API_SECRET"),
+			InternalURL: getenv("LIVEKIT_INTERNAL_URL", "http://livekit:7880"),
 		},
 	}
 	c.AllowedOrigins = DefaultAllowedOrigins

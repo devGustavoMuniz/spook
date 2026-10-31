@@ -21,6 +21,7 @@ func TestErrMapsKindsToStatus(t *testing.T) {
 		{apperr.Invalid("x"), 422},
 		{apperr.Conflict("x"), 409},
 		{apperr.Gone("x"), 410},
+		{apperr.Unavailable("x"), 503},
 		{apperr.RateLimited("x", time.Second), 429},
 		{fmt.Errorf("embrulhado: %w", apperr.NotFound("x")), 404},
 	}

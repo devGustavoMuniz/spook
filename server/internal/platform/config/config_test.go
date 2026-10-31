@@ -80,3 +80,27 @@ func TestLoadPresenceOfflineGrace(t *testing.T) {
 		t.Fatal("esperava erro para duração inválida")
 	}
 }
+
+func TestLiveKitConfig(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	for _, k := range []string{"LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_INTERNAL_URL"} {
+		t.Setenv(k, "")
+	}
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LiveKit.Enabled() || c.LiveKit.InternalURL != "http://livekit:7880" {
+		t.Fatalf("sem LIVEKIT_*: voz desligada e URL interna padrão, veio %+v", c.LiveKit)
+	}
+	t.Setenv("LIVEKIT_URL", "ws://localhost:7880")
+	t.Setenv("LIVEKIT_API_KEY", "devkey")
+	if c, _ = Load(); c.LiveKit.Enabled() {
+		t.Fatal("sem o segredo a voz continua desligada")
+	}
+	t.Setenv("LIVEKIT_API_SECRET", "segredo")
+	t.Setenv("LIVEKIT_INTERNAL_URL", "http://lk:7880")
+	if c, _ = Load(); !c.LiveKit.Enabled() || c.LiveKit.InternalURL != "http://lk:7880" || c.LiveKit.URL != "ws://localhost:7880" {
+		t.Fatalf("config = %+v", c.LiveKit)
+	}
+}

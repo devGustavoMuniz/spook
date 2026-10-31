@@ -16,6 +16,7 @@ const (
 	KindConflict                    // 409: conflita com o estado atual
 	KindGone                        // 410: existiu, mas não vale mais (convite expirado)
 	KindRateLimited                 // 429
+	KindUnavailable                 // 503: recurso desligado ou indisponível (ex.: voz sem LiveKit)
 )
 
 type Error struct {
@@ -32,6 +33,7 @@ func Invalid(msg string) *Error   { return &Error{Kind: KindInvalid, Msg: msg} }
 func Conflict(msg string) *Error  { return &Error{Kind: KindConflict, Msg: msg} }
 func Gone(msg string) *Error      { return &Error{Kind: KindGone, Msg: msg} }
 
+func Unavailable(msg string) *Error { return &Error{Kind: KindUnavailable, Msg: msg} }
 func RateLimited(msg string, retryAfter time.Duration) *Error {
 	return &Error{Kind: KindRateLimited, Msg: msg, RetryAfter: retryAfter}
 }
