@@ -31,6 +31,12 @@ type ContentBody struct {
 	Content string `json:"content" minLength:"1" maxLength:"2000" doc:"1 a 2000 caracteres (contados em runes), não só espaços"`
 }
 
+// SendBody é o corpo do envio: texto, anexos ou os dois.
+type SendBody struct {
+	Content       string   `json:"content,omitempty" maxLength:"2000" doc:"Até 2000 caracteres (runes); pode ser vazio se houver anexo"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty" doc:"Até 10 IDs de uploads já enviados ao storage (POST /channels/{id}/uploads); só anexos seus, deste canal, ainda sem mensagem e com menos de 1 h"`
+}
+
 type MessageOutput struct{ Body MessagePayload }
 
 type MessageListOutput struct {
@@ -50,16 +56,24 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 	}
 	forbidden, invalid := http.StatusForbidden, http.StatusUnprocessableEntity
 
-	huma.Register(api, op("sendMessage", http.MethodPost, "/api/channels/{channel_id}/messages", "Envia uma mensagem (limite: 5 a cada 5 s por canal)", http.StatusCreated, forbidden, invalid, http.StatusTooManyRequests),
+	huma.Register(api, op("sendMessage", http.MethodPost, "/api/channels/{channel_id}/messages", "Envia uma mensagem, com ou sem anexos (limite: 5 a cada 5 s por canal)", http.StatusCreated, forbidden, invalid, http.StatusTooManyRequests),
 		func(ctx context.Context, in *struct {
 			ChannelPath
-			Body ContentBody
+			Body SendBody
 		}) (*MessageOutput, error) {
 			cid, ok := httpx.ParseID(in.ChannelID)
 			if !ok {
 				return nil, httpx.BadID("canal")
 			}
-			m, err := h.svc.Send(ctx, h.userID(ctx), cid, in.Body.Content)
+			var attIDs []int64
+			for _, raw := range in.Body.AttachmentIDs {
+				id, ok := httpx.ParseID(raw)
+				if !ok {
+					return nil, huma.Error422UnprocessableEntity("attachment_ids inválido")
+				}
+				attIDs = append(attIDs, id)
+			}
+			m, err := h.svc.Send(ctx, h.userID(ctx), cid, in.Body.Content, attIDs)
 			if err != nil {
 				return nil, httpx.Err(err)
 			}

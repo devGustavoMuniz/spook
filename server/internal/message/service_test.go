@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
@@ -26,6 +28,8 @@ type fakeStore struct {
 	msgs       map[int64]Message
 	deleted    map[int64]bool
 	inserts    int
+	lastInsert InsertParams
+	insertErr  error
 	lastBefore int64
 	lastLimit  int
 }
@@ -34,11 +38,19 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{msgs: map[int64]Message{}, deleted: map[int64]bool{}}
 }
 
-func (f *fakeStore) Insert(_ context.Context, id, channelID, authorID int64, content string) (Message, error) {
+func (f *fakeStore) Insert(_ context.Context, p InsertParams) (Message, []attachment.Attachment, error) {
 	f.inserts++
-	m := Message{ID: id, ChannelID: channelID, Content: content, Author: Author{ID: authorID, Username: "u"}}
-	f.msgs[id] = m
-	return m, nil
+	f.lastInsert = p
+	if f.insertErr != nil {
+		return Message{}, nil, f.insertErr
+	}
+	m := Message{ID: p.ID, ChannelID: p.ChannelID, Content: p.Content, Author: Author{ID: p.AuthorID, Username: "u"}}
+	f.msgs[p.ID] = m
+	var atts []attachment.Attachment
+	for _, id := range p.AttachmentIDs {
+		atts = append(atts, attachment.Attachment{ID: id, Filename: "f.png", ContentType: "image/png", Size: 3})
+	}
+	return m, atts, nil
 }
 
 func (f *fakeStore) Get(_ context.Context, id, _ int64) (Message, error) {
@@ -89,6 +101,33 @@ func (f *fakeChannels) Authorize(_ context.Context, _, _ int64, need perm.Perm) 
 	return f.ch, f.member, f.err
 }
 
+func (f *fakeChannels) Get(context.Context, int64) (channel.Channel, error) { return f.ch, f.err }
+
+type fakeAtts struct {
+	verifyErr error
+	verified  [][]int64
+	byMsg     map[int64][]attachment.AttachmentPayload
+	listCalls int
+}
+
+func (f *fakeAtts) Verify(_ context.Context, _, _ int64, ids []int64) error {
+	f.verified = append(f.verified, ids)
+	return f.verifyErr
+}
+
+func (f *fakeAtts) Payloads(_ context.Context, as []attachment.Attachment) ([]attachment.AttachmentPayload, error) {
+	out := make([]attachment.AttachmentPayload, len(as))
+	for i, a := range as {
+		out[i] = attachment.AttachmentPayload{ID: strconv.FormatInt(a.ID, 10), Filename: a.Filename, URL: "http://x/" + a.Filename}
+	}
+	return out, nil
+}
+
+func (f *fakeAtts) ForMessages(_ context.Context, ids []int64) (map[int64][]attachment.AttachmentPayload, error) {
+	f.listCalls++
+	return f.byMsg, nil
+}
+
 type fakeLimiter struct {
 	ok   bool
 	wait time.Duration
@@ -108,18 +147,25 @@ type seq struct{ n int64 }
 
 func (s *seq) Next() int64 { s.n++; return 1000 + s.n }
 
+func setupAtts() (*Service, *fakeStore, *fakeChannels, *fakeAtts, *recorder) {
+	svc, st, ch, _, rec := setup()
+	fa := &fakeAtts{}
+	svc.atts = fa
+	return svc, st, ch, fa, rec
+}
+
 func setup() (*Service, *fakeStore, *fakeChannels, *fakeLimiter, *recorder) {
 	gid := int64(7)
 	st, ch, lim, rec := newFakeStore(), &fakeChannels{
 		ch:     channel.Channel{ID: 20, Type: channel.TypeText, GuildID: &gid},
 		member: perm.NewMember(1, false, perm.DefaultEveryone, 0),
 	}, &fakeLimiter{ok: true}, &recorder{}
-	return NewService(st, ch, lim, noAvatars{}, &seq{}, rec), st, ch, lim, rec
+	return NewService(st, ch, lim, noAvatars{}, &fakeAtts{}, &seq{}, rec), st, ch, lim, rec
 }
 
 func TestSendPublishesAndPersists(t *testing.T) {
 	svc, st, ch, lim, rec := setup()
-	m, err := svc.Send(context.Background(), 1, 20, "  olá  ")
+	m, err := svc.Send(context.Background(), 1, 20, "  olá  ", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +206,7 @@ func TestSendValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, st, _, _, rec := setup()
-			_, err := svc.Send(context.Background(), 1, 20, tt.content)
+			_, err := svc.Send(context.Background(), 1, 20, tt.content, nil)
 			if tt.wantErr {
 				if !apperr.IsKind(err, apperr.KindInvalid) || st.inserts != 0 || len(rec.evs) != 0 {
 					t.Fatalf("esperava erro de validação sem efeitos, veio %v (inserts=%d)", err, st.inserts)
@@ -177,13 +223,13 @@ func TestSendValidation(t *testing.T) {
 func TestSendRejectsNonTextChannelAndAuthErrors(t *testing.T) {
 	svc, st, ch, _, _ := setup()
 	ch.ch.Type = channel.TypeVoice
-	if _, err := svc.Send(context.Background(), 1, 20, "oi"); !apperr.IsKind(err, apperr.KindInvalid) {
+	if _, err := svc.Send(context.Background(), 1, 20, "oi", nil); !apperr.IsKind(err, apperr.KindInvalid) {
 		t.Fatalf("canal de voz: %v", err)
 	}
 	ch.ch.Type = channel.TypeText
 	for _, want := range []error{channel.ErrNotFound, channel.ErrForbidden} {
 		ch.err = want
-		if _, err := svc.Send(context.Background(), 1, 20, "oi"); !errors.Is(err, want) {
+		if _, err := svc.Send(context.Background(), 1, 20, "oi", nil); !errors.Is(err, want) {
 			t.Fatalf("esperava %v, veio %v", want, err)
 		}
 	}
@@ -195,7 +241,7 @@ func TestSendRejectsNonTextChannelAndAuthErrors(t *testing.T) {
 func TestSendRateLimited(t *testing.T) {
 	svc, st, _, lim, rec := setup()
 	lim.ok, lim.wait = false, 1500*time.Millisecond
-	_, err := svc.Send(context.Background(), 1, 20, "oi")
+	_, err := svc.Send(context.Background(), 1, 20, "oi", nil)
 	e, ok := apperr.As(err)
 	if !ok || e.Kind != apperr.KindRateLimited || e.RetryAfter != 1500*time.Millisecond {
 		t.Fatalf("esperava 429 com RetryAfter, veio %v", err)
@@ -300,7 +346,7 @@ func TestSendInDMPublishesWithoutGuild(t *testing.T) {
 	for _, typ := range []channel.Type{channel.TypeDM, channel.TypeGroupDM} {
 		rec.evs = nil
 		svc.channels.(*fakeChannels).ch.Type = typ
-		m, err := svc.Send(context.Background(), 1, 30, "oi")
+		m, err := svc.Send(context.Background(), 1, 30, "oi", nil)
 		if err != nil || m.Content != "oi" {
 			t.Fatalf("tipo %d: %v", typ, err)
 		}
@@ -344,5 +390,125 @@ func TestListInDMUsesAuthorization(t *testing.T) {
 	ch.err = channel.ErrNotFound // não participante
 	if _, _, err := svc.List(context.Background(), 9, 30, 0, 10); !errors.Is(err, channel.ErrNotFound) {
 		t.Fatalf("não participante lê o histórico: %v", err)
+	}
+}
+
+func TestSendWithAttachments(t *testing.T) {
+	svc, st, ch, fa, rec := setupAtts()
+	m, err := svc.Send(context.Background(), 1, 20, "", []int64{11, 12})
+	if err != nil {
+		t.Fatalf("conteúdo vazio com anexo deveria passar: %v", err)
+	}
+	if ch.need != perm.SendMessages|perm.AttachFiles {
+		t.Fatalf("com anexo exige SEND_MESSAGES e ATTACH_FILES, exigiu %b", ch.need)
+	}
+	if len(fa.verified) != 1 || len(fa.verified[0]) != 2 {
+		t.Fatalf("verify: %v", fa.verified)
+	}
+	if st.lastInsert.KeyPrefix != "attachments/20/" || len(st.lastInsert.AttachmentIDs) != 2 || st.lastInsert.Since.IsZero() {
+		t.Fatalf("insert: %+v", st.lastInsert)
+	}
+	if len(m.Attachments) != 2 {
+		t.Fatalf("anexos na mensagem: %+v", m.Attachments)
+	}
+	p := rec.evs[0].Data.(MessagePayload)
+	if len(p.Attachments) != 2 || p.Content != "" {
+		t.Fatalf("payload do evento: %+v", p)
+	}
+}
+
+func TestSendAttachmentRules(t *testing.T) {
+	ids := func(n int) []int64 {
+		out := make([]int64, n)
+		for i := range out {
+			out[i] = int64(100 + i)
+		}
+		return out
+	}
+	t.Run("10 anexos passam, 11 não", func(t *testing.T) {
+		svc, st, _, _, _ := setupAtts()
+		if _, err := svc.Send(context.Background(), 1, 20, "x", ids(10)); err != nil {
+			t.Fatal(err)
+		}
+		st.inserts = 0
+		if _, err := svc.Send(context.Background(), 1, 20, "x", ids(11)); !errors.Is(err, ErrTooManyAttachments) || st.inserts != 0 {
+			t.Fatalf("11 anexos: %v", err)
+		}
+	})
+	t.Run("sem conteúdo e sem anexo", func(t *testing.T) {
+		svc, st, _, _, _ := setupAtts()
+		if _, err := svc.Send(context.Background(), 1, 20, "  ", nil); !errors.Is(err, ErrEmptyMessage) || st.inserts != 0 {
+			t.Fatalf("vazio: %v", err)
+		}
+	})
+	t.Run("anexo repetido", func(t *testing.T) {
+		svc, st, _, _, _ := setupAtts()
+		if _, err := svc.Send(context.Background(), 1, 20, "x", []int64{5, 5}); !apperr.IsKind(err, apperr.KindInvalid) || st.inserts != 0 {
+			t.Fatalf("repetido: %v", err)
+		}
+	})
+	t.Run("anexo de outro usuário, de outro canal ou expirado", func(t *testing.T) {
+		svc, st, _, fa, rec := setupAtts()
+		fa.verifyErr = attachment.ErrInvalidAttachments
+		if _, err := svc.Send(context.Background(), 1, 20, "x", []int64{5}); !errors.Is(err, attachment.ErrInvalidAttachments) || st.inserts != 0 || len(rec.evs) != 0 {
+			t.Fatalf("inválido: %v", err)
+		}
+	})
+	t.Run("corrida: a associação na transação falha", func(t *testing.T) {
+		svc, st, _, _, rec := setupAtts()
+		st.insertErr = attachment.ErrInvalidAttachments
+		if _, err := svc.Send(context.Background(), 1, 20, "x", []int64{5}); !errors.Is(err, attachment.ErrInvalidAttachments) || len(rec.evs) != 0 {
+			t.Fatalf("corrida: %v", err)
+		}
+	})
+	t.Run("sem ATTACH_FILES não anexa mas envia texto", func(t *testing.T) {
+		svc, _, ch, _, _ := setupAtts()
+		ch.err = channel.ErrForbidden
+		if _, err := svc.Send(context.Background(), 1, 20, "x", []int64{5}); !errors.Is(err, channel.ErrForbidden) {
+			t.Fatalf("esperava 403: %v", err)
+		}
+	})
+}
+
+func TestListLoadsAttachmentsInOneBatch(t *testing.T) {
+	svc, _, _, fa, _ := setupAtts()
+	fa.byMsg = map[int64][]attachment.AttachmentPayload{3: {{ID: "9", Filename: "a.png"}}}
+	msgs, _, err := svc.List(context.Background(), 1, 20, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fa.listCalls != 1 {
+		t.Fatalf("anexos devem vir numa chamada só, vieram %d", fa.listCalls)
+	}
+	for _, m := range msgs {
+		if m.ID == 3 && len(m.Attachments) != 1 {
+			t.Fatalf("mensagem 3 sem anexo: %+v", m)
+		}
+		if m.ID != 3 && len(m.Attachments) != 0 {
+			t.Fatalf("anexo na mensagem errada: %+v", m)
+		}
+		if m.Payload().Attachments == nil {
+			t.Fatal("attachments no JSON deve ser [] e não null")
+		}
+	}
+}
+
+func TestRepublishUpdate(t *testing.T) {
+	svc, st, _, fa, rec := setupAtts()
+	st.msgs[5] = Message{ID: 5, ChannelID: 20, Content: "oi", Author: Author{ID: 1}}
+	fa.byMsg = map[int64][]attachment.AttachmentPayload{5: {{ID: "9", ThumbnailURL: "http://t"}}}
+	if err := svc.RepublishUpdate(context.Background(), 20, 5); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.evs) != 1 || rec.evs[0].Type != events.MessageUpdate || rec.evs[0].GuildID != 7 {
+		t.Fatalf("eventos: %+v", rec.evs)
+	}
+	if p := rec.evs[0].Data.(MessagePayload); len(p.Attachments) != 1 || p.Attachments[0].ThumbnailURL == "" {
+		t.Fatalf("payload: %+v", p)
+	}
+	rec.evs = nil
+	st.deleted[5] = true // apagada no meio do caminho: nada a publicar
+	if err := svc.RepublishUpdate(context.Background(), 20, 5); err != nil || len(rec.evs) != 0 {
+		t.Fatalf("apagada: %v %v", err, rec.evs)
 	}
 }

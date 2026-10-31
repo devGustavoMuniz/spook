@@ -118,6 +118,12 @@ func (s *Service) Authorize(ctx context.Context, userID, channelID int64, need p
 	return ch, m, nil
 }
 
+// Get devolve o canal sem checar acesso. É para uso interno (jobs que republicam eventos); quem
+// atende o usuário usa Authorize.
+func (s *Service) Get(ctx context.Context, channelID int64) (Channel, error) {
+	return s.store.Get(ctx, channelID)
+}
+
 // manage exige MANAGE_CHANNELS no servidor; não-membro vê o servidor como inexistente.
 func (s *Service) manage(ctx context.Context, userID, guildID int64) error {
 	m, err := s.access.Member(ctx, guildID, userID)

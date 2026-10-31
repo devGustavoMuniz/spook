@@ -70,6 +70,12 @@ func newEnvWith(t *testing.T, tweak func(*Deps)) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Registrado depois do pool: roda antes dele (cleanups são LIFO) e espera os jobs em andamento.
+	t.Cleanup(func() {
+		cctx, ccancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer ccancel()
+		_ = a.Close(cctx)
+	})
 	srv := httptest.NewServer(a.Handler)
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)

@@ -15,7 +15,10 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
+	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/dm"
@@ -29,6 +32,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/jobs"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
@@ -51,7 +55,7 @@ type Pool interface {
 type Deps struct {
 	Cfg     config.Config
 	Pool    Pool
-	Storage Storage // nil desliga o upload de avatar e de ícone
+	Storage Storage // nil desliga o upload de avatar, de ícone e de anexos (e os jobs de thumbnail)
 
 	// Opcionais (testes): barramento de eventos e limitadores.
 	Bus        *events.Bus
@@ -64,6 +68,7 @@ type Deps struct {
 	AuthLimiter    *ratelimit.Limiter // padrão: 10 tentativas por minuto por IP em /api/auth/*
 	DMLimiter      *ratelimit.Limiter // padrão: 10 DMs criadas por minuto por usuário
 	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
+	UploadLimiter  *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
 
 	// Voz (testes): substitui o adaptador do LiveKit (nulo = o da configuração, ou voz desligada
 	// sem LIVEKIT_*) e muda o intervalo do reconciliador (padrão 60 s).
@@ -78,12 +83,27 @@ type App struct {
 	Gateway  *gateway.Hub
 	Voice    *voice.Service
 	presence *presence.Service // acessado pelos testes de integração
+	jobs     *jobs.Client      // nil sem storage; parado por Close
 }
 
-// Storage é o storage S3 usado para avatares e ícones.
+// Close para o processamento de jobs: espera os em andamento terminarem (ou ctx expirar). Chame antes de
+// fechar o pool de conexões.
+func (a *App) Close(ctx context.Context) error {
+	if a.jobs == nil {
+		return nil
+	}
+	if err := a.jobs.Stop(ctx); err != nil {
+		_ = a.jobs.StopAndCancel(ctx)
+		return err
+	}
+	return nil
+}
+
+// Storage é o storage S3 usado para avatares, ícones e anexos.
 type Storage interface {
 	user.AvatarStorage
 	guild.Storage
+	attachment.Objects
 }
 
 // New monta o handler HTTP completo. ctx controla as goroutines de manutenção.
@@ -107,8 +127,9 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 
 	var avatarStorage user.AvatarStorage
 	var guildStorage guild.Storage
+	var objects attachment.Objects
 	if d.Storage != nil { // interface nil de verdade quando o storage está desligado
-		avatarStorage, guildStorage = d.Storage, d.Storage
+		avatarStorage, guildStorage, objects = d.Storage, d.Storage, d.Storage
 	}
 	bus := d.Bus
 	if bus == nil {
@@ -159,7 +180,28 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	channelSvc.SetDMs(dmSvc)
 	typingSvc := typing.NewService(channelSvc, typingLimiter, bus)
 	presenceSvc := presence.NewService(ctx, d.Presence, presence.NewStore(pool), bus, bus)
-	messageSvc := message.NewService(message.NewStore(pool), channelSvc, msgLimiter, userSvc, ids, bus)
+	uploadLimiter := d.UploadLimiter
+	if uploadLimiter == nil {
+		uploadLimiter = ratelimit.New(0.5, 30) // 30 pedidos por minuto
+	}
+	attachmentSvc := attachment.NewService(attachment.NewStore(pool), objects, channelSvc, uploadLimiter, ids)
+	thumbJobs := &attachment.Enqueuer{} // ligado ao client do River logo abaixo
+	messageSvc := message.NewService(message.NewStore(pool, thumbJobs), channelSvc, msgLimiter, userSvc, attachmentSvc, ids, bus)
+
+	// Jobs (River): thumbnails e limpeza de anexos órfãos. Só existem com storage e com o pool do pgx.
+	var jobClient *jobs.Client
+	if rp, ok := d.Pool.(*pgxpool.Pool); ok && objects != nil {
+		workers := river.NewWorkers()
+		attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
+		if jobClient, err = jobs.New(rp, workers, attachment.PeriodicJobs()); err != nil {
+			return nil, err
+		}
+		thumbJobs.Set(jobClient)
+		// Sem o cancelamento de ctx: o desligamento é explícito (App.Close), para os jobs terminarem.
+		if err := jobClient.Start(context.WithoutCancel(ctx)); err != nil {
+			return nil, err
+		}
+	}
 
 	// Voz (hexagonal): porta do LiveKit, estado em memória e permissões ligadas a guild/dm/perm.
 	var voiceProv voice.Provider
@@ -196,12 +238,13 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	if gwLimiter == nil {
 		gwLimiter = ratelimit.New(50, 200)
 	}
-	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter)
+	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
 	channelH := channel.NewHandler(channelSvc, auth.UserID)
 	messageH := message.NewHandler(messageSvc, auth.UserID)
+	attachmentH := attachment.NewHandler(attachmentSvc, auth.UserID)
 	inviteH := invite.NewHandler(inviteSvc, auth.UserID)
 	dmH := dm.NewHandler(dmSvc, auth.UserID)
 	typingH := typing.NewHandler(typingSvc, auth.UserID)
@@ -215,7 +258,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH, dmH, typingH, voiceH, gatewayH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, gatewayH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
@@ -237,13 +280,13 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
 		}))
-	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc}, nil
+	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
-		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), invite.NewHandler(nil, nil),
+		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
 	return api.OpenAPI().YAML()
 }
@@ -256,7 +299,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 }
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
-	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, inviteH *invite.Handler,
+	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
 	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, gatewayH *gateway.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
@@ -277,6 +320,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	guildH.Register(api, authed, auth.Security)
 	channelH.Register(api, authed, auth.Security)
 	messageH.Register(api, authed, auth.Security)
+	attachmentH.Register(api, authed, auth.Security)
 	inviteH.Register(api, authed, auth.Security)
 	dmH.Register(api, authed, auth.Security)
 	typingH.Register(api, authed, auth.Security)

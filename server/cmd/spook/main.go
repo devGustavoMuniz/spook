@@ -137,5 +137,9 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}
+	// Espera os jobs em andamento (thumbnails) antes de fechar o pool.
+	if err := a.Close(shutdownCtx); err != nil {
+		log.Warn("jobs não encerraram a tempo", "err", err)
+	}
 	return shutdownTelemetry(shutdownCtx)
 }

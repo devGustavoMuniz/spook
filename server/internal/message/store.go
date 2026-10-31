@@ -1,21 +1,35 @@
 package message
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
 )
 
-type PGStore struct{ q *dbgen.Queries }
+// ThumbnailEnqueuer enfileira os jobs de thumbnail na transação que cria a mensagem (River).
+type ThumbnailEnqueuer interface {
+	EnqueueThumbnails(ctx context.Context, tx pgx.Tx, attachmentIDs []int64) error
+}
 
-func NewStore(d db.DB) *PGStore { return &PGStore{q: dbgen.New(d)} }
+type PGStore struct {
+	d    db.DB
+	q    *dbgen.Queries
+	jobs ThumbnailEnqueuer // nil = sem thumbnails
+}
+
+func NewStore(d db.DB, jobs ThumbnailEnqueuer) *PGStore {
+	return &PGStore{d: d, q: dbgen.New(d), jobs: jobs}
+}
 
 func edited(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
@@ -31,12 +45,58 @@ func build(id, channelID, authorID int64, content string, editedAt pgtype.Timest
 	}
 }
 
-func (s *PGStore) Insert(ctx context.Context, id, channelID, authorID int64, content string) (Message, error) {
-	r, err := s.q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: id, ChannelID: channelID, AuthorID: authorID, Content: content})
-	if err != nil {
-		return Message{}, fmt.Errorf("gravar mensagem: %w", err)
+func (s *PGStore) Insert(ctx context.Context, p InsertParams) (Message, []attachment.Attachment, error) {
+	if len(p.AttachmentIDs) == 0 {
+		r, err := s.q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content})
+		if err != nil {
+			return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
+		}
+		return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.Username, r.DisplayName, r.AvatarKey), nil, nil
 	}
-	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.Username, r.DisplayName, r.AvatarKey), nil
+	return s.insertWithAttachments(ctx, p)
+}
+
+// insertWithAttachments grava a mensagem, associa os anexos e enfileira os thumbnails na MESMA transação:
+// ou tudo acontece, ou nada (um anexo que deixou de ser válido desfaz a mensagem inteira).
+func (s *PGStore) insertWithAttachments(ctx context.Context, p InsertParams) (Message, []attachment.Attachment, error) {
+	tx, err := s.d.Begin(ctx)
+	if err != nil {
+		return Message{}, nil, fmt.Errorf("abrir transação: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+
+	r, err := q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content})
+	if err != nil {
+		return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
+	}
+	rows, err := q.ClaimAttachments(ctx, dbgen.ClaimAttachmentsParams{
+		MessageID: &p.ID, Ids: p.AttachmentIDs, UploaderID: p.AuthorID, Since: pgtype.Timestamptz{Time: p.Since, Valid: true}, KeyPrefix: p.KeyPrefix,
+	})
+	if err != nil {
+		return Message{}, nil, fmt.Errorf("associar anexos: %w", err)
+	}
+	if len(rows) != len(p.AttachmentIDs) { // outro envio levou algum, ou expirou no meio do caminho
+		return Message{}, nil, attachment.ErrInvalidAttachments
+	}
+	atts := make([]attachment.Attachment, len(rows))
+	var thumbs []int64
+	for i, row := range rows {
+		atts[i] = attachment.FromRow(row)
+		if attachment.IsImage(row.ContentType) {
+			thumbs = append(thumbs, row.ID)
+		}
+	}
+	slices.SortFunc(atts, func(a, b attachment.Attachment) int { return cmp.Compare(a.ID, b.ID) })
+	if s.jobs != nil && len(thumbs) > 0 {
+		if err := s.jobs.EnqueueThumbnails(ctx, tx, thumbs); err != nil {
+			return Message{}, nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Message{}, nil, fmt.Errorf("confirmar mensagem: %w", err)
+	}
+	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.Username, r.DisplayName, r.AvatarKey), atts, nil
 }
 
 func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
@@ -81,9 +82,21 @@ func buildFixtures(t *testing.T) map[string]any {
 		ID: "901", ChannelID: "300", Content: "Olá, Spook!", CreatedAt: at,
 		Author: message.AuthorPayload{ID: "10", Username: "gustavo"},
 	}
+	msg.Attachments = []attachment.AttachmentPayload{
+		{ID: "950", Filename: "foto.jpg", ContentType: "image/jpeg", Size: 123456, URL: "https://files.spook.example/attachments/300/950/foto.jpg?X-Amz-Signature=abc"},
+		{ID: "951", Filename: "notas.pdf", ContentType: "application/pdf", Size: 2048, URL: "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"},
+	}
 	edited := msg
 	edited.Content = "Olá, Spook! (editada)"
 	edited.EditedAt = ptr(at.Add(time.Minute))
+	// MESSAGE_UPDATE depois do job de thumbnail: o anexo de imagem ganha thumbnail_url e dimensões.
+	edited.Attachments = []attachment.AttachmentPayload{
+		{
+			ID: "950", Filename: "foto.jpg", ContentType: "image/jpeg", Size: 123456, URL: "https://files.spook.example/attachments/300/950/foto.jpg?X-Amz-Signature=abc",
+			ThumbnailURL: "https://files.spook.example/thumbnails/950.jpg?X-Amz-Signature=abc", Width: ptr(int32(4032)), Height: ptr(int32(3024)),
+		},
+		msg.Attachments[1],
+	}
 	member := guild.MemberPayload{
 		GuildID: "100", UserID: "11", Nickname: ptr("Gu"), JoinedAt: at, Username: "gustavo",
 		DisplayName: "Gustavo", RoleIDs: []string{"400"},
