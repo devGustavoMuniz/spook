@@ -45,6 +45,11 @@ env_logger = { version = "0.11", default-features = false, features = ["humantim
 nokhwa = { version = "0.10", optional = true, default-features = false, features = ["input-native"] }
 image = { version = "0.25", optional = true, default-features = false, features = ["jpeg"] }
 
+# O `scap` 0.0.8 foi escrito para o `Settings::new` de 5 argumentos do windows-capture 1.3/1.4; a 1.5.0 passou a
+# exigir 8 e quebra a build no Windows. Fixado na última 1.4.x (não é usado diretamente por nós).
+[target.'cfg(windows)'.dependencies]
+windows-capture = "=1.4.4"
+
 [dev-dependencies]
 # Só nos testes: mintar tokens do LiveKit de dev e decodificar os JPEG gerados.
 livekit-api = { version = "0.10", default-features = false, features = ["access-token"] }
