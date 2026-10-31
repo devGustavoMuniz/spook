@@ -26,6 +26,7 @@ medição interna do k6.
 | `messages.js` | só o Spook | `GET /api/channels/{id}/messages` (histórico por cursor, 2 páginas por iteração) e `POST` (envio, ≤ 0,8 msg/s por causa do limite de 5/5 s) | **não** (o antrax não tem este fluxo equivalente) |
 | `gateway-connections.js` | só o Spook | N conexões WebSocket ociosas (handshake, IDENTIFY→READY, heartbeats) | **não** (ver Fase 3 abaixo) |
 | `gateway-latency.js` | só o Spook | latência ponta a ponta: envio por REST → `MESSAGE_CREATE` no WebSocket | **não** |
+| `gateway-fanout.js` | só o Spook | fan-out com N usuários conectados (Fase 4): entregas/s, perdas e latência (insumo de "CPU e mensagens/s com N usuários") | **não** |
 | `login.js` | só o Spook | `POST /api/auth/login` (cadastra 1 usuário de teste por execução) | **não** (ver abaixo) |
 
 Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatória), `RATE`/`DURATION` (padrão 5 req/s por 60 s),
@@ -62,7 +63,7 @@ mais que 1/s gera 429, contado em `send_rate_limited`), `DURATION`, `PAGE_SIZE` 
   `COOKIE='spook_session=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id> /bench/scenarios/messages.js`
 - A execução contra produção e o registro dos resultados são da Fase B.
 
-### `gateway-connections.js` e `gateway-latency.js`: o gateway WebSocket (Fase 3)
+### `gateway-connections.js`, `gateway-latency.js` e `gateway-fanout.js`: o gateway WebSocket (Fases 3 e 4)
 Só o Spook. Os dois falam o protocolo da SPEC 5.3 (HELLO → IDENTIFY → READY, heartbeat no intervalo informado) com `k6/ws`.
 Autenticam com o cookie de sessão (`COOKIE`, header Cookie inteiro) ou, com `TICKET=1`, trocam o cookie por um ticket de uso único
 (`POST /api/gateway/ticket`, o caminho do desktop). **Nunca contra produção sem combinar a carga** (Fase B).
@@ -70,6 +71,7 @@ Autenticam com o cookie de sessão (`COOKIE`, header Cookie inteiro) ou, com `TI
 | Cenário | Mede | Variáveis |
 | --- | --- | --- |
 | `gateway-connections.js` | N conexões ociosas: handshake (`ws_connecting`), IDENTIFY→READY (`gw_identify_ms`), heartbeats com ACK (`gw_heartbeat_ack`) e quedas inesperadas (`gw_unexpected_close`, deve ser 0) | `BASE_URL`, `COOKIE` ou `MULTI_COOKIES` (`c1\|c2\|…`), `CONNECTIONS` (100), `RAMP` (30s), `HOLD` (60s), `TICKET`, `HEARTBEAT_MS` |
+| `gateway-fanout.js` | fan-out com N usuários (Fase 4): N sockets no mesmo canal e poucos remetentes a taxa fixa; mede entregas/s (`gw_received`), perdas (`gw_expected` - `gw_received`) e latência ponta a ponta | `BASE_URL`, `CHANNEL_ID`, `MULTI_COOKIES` (receptores, ≥ N/20 contas), `SENDER_COOKIES`, `RECEIVERS` (100), `RAMP` (30s), `DURATION` (60s), `SEND_RATE` (até 2/s no total; ≤ 0,8/s por remetente), `TICKET` |
 | `gateway-latency.js` | latência ponta a ponta: um remetente envia por REST `bench:<epoch ms>:<n>` e `RECEIVERS` sockets registram `now - ts` em `gw_e2e_latency_ms` (meta p95 < 100 ms, RNF01; o remetente e os receptores estão no mesmo k6, então o relógio é o mesmo) | `BASE_URL`, `COOKIE` (remetente), `CHANNEL_ID`, `MULTI_COOKIES` (receptores), `RECEIVERS` (10), `SEND_RATE` (0,8/s), `DURATION` (60s), `TICKET` |
 
 - **Limites do servidor que afetam a carga:** até **20 sessões por usuário** (para mais conexões, passe `MULTI_COOKIES` com várias contas de teste,
@@ -84,6 +86,15 @@ Autenticam com o cookie de sessão (`COOKIE`, header Cookie inteiro) ou, com `TI
   (`1 GB / custo marginal` = conexões por GB só de conexões). Repita para N crescente (500, 2.000, 5.000, 10.000) e registre a curva. O gauge
   `spook.gateway.connections` (OTLP) confirma quantas conexões o servidor viu. Atenção ao ulimit de arquivos do container do k6 e do backend (um socket por conexão)
   e ao slice de 3 GB/1 CPU do VPS, que o k6 divide com o app na medição interna.
+- **`gateway-fanout.js` (Fase 4) e "CPU e mensagens/s com N usuários conectados".** Cria N conexões (ao longo de `RAMP`), espera 5 s e envia `SEND_RATE`
+  mensagens/s pelos remetentes durante `DURATION`; cada mensagem deve chegar aos N sockets (esperado = enviadas × N). O resumo final imprime entregas/s, perdas e
+  o p95 ponta a ponta. Receita: (1) deixe o backend ocioso e meça a CPU base (`docker-stats.sh`, seção 6); (2) rode o cenário com `RECEIVERS=N`; (3) durante o envio
+  (depois de `RAMP` + 5 s), rode `docker-stats.sh 5 5` e pegue a mediana de CPU do container `spook`; (4) registre `CPU(N)`, entregas/s e perda para N crescente
+  (100, 500, 2.000, 5.000). Como o limite é de 5 mensagens a cada 5 s por usuário e canal, aumente o fan-out com mais destinatários, não com mais envio por conta;
+  para mais entregas/s use mais remetentes (`SENDER_COOKIES`). **O cenário escreve mensagens**: canal e contas de **teste**, e nunca contra produção sem combinar a carga (Fase B).
+  Exemplo local: `docker run --rm -i -e MULTI_COOKIES -e SENDER_COOKIES -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id> -e RECEIVERS=200 -e RAMP=10s -e DURATION=30s /bench/scenarios/gateway-fanout.js`.
+- Métricas do backend da Fase 4 (OTLP): `spook.presence.users{status=online|idle}` (gauge), `spook.presence.transitions{status}` (contador), `spook.typing.started` (contador de TYPING_START
+  publicados, depois do throttle) e `spook.dm.created{kind=dm|group}`; spans `presence.transition`, `presence.member_joined`, `presence.snapshot`, `typing.Start` e `dm.*`.
 - Métricas do backend (OTLP, `SPOOK_OTLP_ENDPOINT`): `spook.gateway.connections`, `spook.gateway.sessions`, `spook.gateway.events.dispatched`, `spook.gateway.resumes`,
   `spook.gateway.invalid_sessions`, `spook.gateway.slow_consumer_closes`, `spook.gateway.publish_to_write.duration` (publicação → escrita no socket) e as métricas de runtime do Go.
 
