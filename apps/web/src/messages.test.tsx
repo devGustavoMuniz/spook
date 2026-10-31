@@ -123,6 +123,39 @@ describe("envio", () => {
     expect(box).toHaveValue("");
   });
 
+  it("o campo é limpo no momento do envio e o que se digita durante o envio pendente NÃO é apagado", async () => {
+    const user = userEvent.setup();
+    const { state } = await renderApp(path, { signedIn: true, seed: seed() });
+    state.sendDelayMs = 400;
+    const box = await screen.findByLabelText("Mensagem em #geral");
+    await user.type(box, "primeira{Enter}");
+    expect(box).toHaveValue(""); // otimista: limpou antes de o POST responder
+    expect(state.requests.filter((r) => r.method === "POST")).toHaveLength(1);
+    await user.type(box, "segunda, digitada com o envio pendente"); // POST ainda em voo
+    expect(await within(await log()).findByText("primeira")).toBeInTheDocument(); // o POST respondeu
+    expect(box).toHaveValue("segunda, digitada com o envio pendente"); // nada foi apagado
+    await user.type(box, "{Enter}");
+    expect(await within(await log()).findByText(/segunda, digitada/)).toBeInTheDocument();
+    expect(box).toHaveValue("");
+  });
+
+  it("se o envio falha, o texto volta ao campo, junto com o que foi digitado depois", async () => {
+    const user = userEvent.setup();
+    const { state } = await renderApp(path, { signedIn: true, seed: seed() });
+    state.sendDelayMs = 400;
+    state.sendError = { status: 500, detail: "x" };
+    const box = await screen.findByLabelText("Mensagem em #geral");
+    await user.type(box, "vai falhar{Enter}");
+    expect(box).toHaveValue("");
+    await user.type(box, "extra");
+    await waitFor(() => expect(box).toHaveValue("vai falhar\nextra"));
+    // sem texto novo: o enviado volta sozinho
+    state.sendError = { status: 500, detail: "x" };
+    await user.clear(box);
+    await user.type(box, "outra{Enter}");
+    await waitFor(() => expect(box).toHaveValue("outra"));
+  });
+
   it("sem SEND_MESSAGES não há composer", async () => {
     await renderApp(path, {
       signedIn: true,

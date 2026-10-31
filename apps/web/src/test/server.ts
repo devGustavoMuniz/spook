@@ -53,6 +53,10 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     /** Quantos envios seguintes devolvem 429 (com Retry-After). */
     rateLimited: 0,
     retryAfter: 1,
+    /** Atraso (ms) da resposta do POST de mensagens, para testar o que acontece enquanto o envio está pendente. */
+    sendDelayMs: 0,
+    /** Se definido, o POST de mensagens falha com este status. */
+    sendError: null as null | { status: number; detail: string },
     requests: [] as { method: string; path: string; search: string; body?: unknown }[],
     nextId: 5000,
     /** Não lidas (Fase 6): resposta do GET e os acks recebidos (`PUT /channels/{id}/ack`). */
@@ -439,6 +443,18 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       http.post("*/api/channels/:channelId/messages", async ({ params, request }) => {
         const b = (await request.json()) as { content: string; attachment_ids?: string[] | null };
         track(request, b);
+        if (state.sendDelayMs > 0) await new Promise((r) => setTimeout(r, state.sendDelayMs));
+        if (state.sendError) {
+          return HttpResponse.json(
+            {
+              title: "erro",
+              status: state.sendError.status,
+              detail: state.sendError.detail,
+              errors: [],
+            },
+            { status: state.sendError.status },
+          );
+        }
         if (state.rateLimited > 0) {
           state.rateLimited--;
           return HttpResponse.json(

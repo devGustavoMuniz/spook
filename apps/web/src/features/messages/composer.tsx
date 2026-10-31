@@ -69,16 +69,24 @@ export function MessageComposer({
 
   async function submit() {
     if (!canSubmit) return;
+    // Envio otimista: o campo é limpo AGORA, não quando o POST responde. Assim o que a pessoa digita enquanto o envio
+    // está pendente não é apagado junto. O texto enviado fica guardado para voltar ao campo só se o envio falhar.
+    const sentText = text;
+    const sentFiles = items.map((i) => i.id);
+    const sentIds = hasFiles ? queue.uploadIds() : [];
+    setText("");
+    typing.reset();
     try {
       const msg = await send.mutateAsync({
         channelId,
-        data: { content: text, ...(hasFiles ? { attachment_ids: queue.uploadIds() } : {}) },
+        data: { content: sentText, ...(hasFiles ? { attachment_ids: sentIds } : {}) },
       });
       addMessage(qc, channelId, msg);
-      typing.reset();
-      setText("");
-      queue.clear();
+      // Remove só os anexos que foram nesta mensagem; os que a pessoa adicionou durante o envio continuam na fila.
+      for (const id of sentFiles) queue.remove(id);
     } catch (e) {
+      // Falhou: devolve o texto, sem perder o que foi digitado depois do envio.
+      setText((current) => (current ? `${sentText}\n${current}` : sentText));
       if (isApiError(e) && e.status === 429) setCooldown(Math.max(1, Math.ceil(e.retryAfter ?? 1)));
       else if (isApiError(e) && e.status === 422 && hasFiles) {
         toast.error(e.detail ? `Anexo recusado: ${e.detail}` : appMessage(e));
