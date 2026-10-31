@@ -293,6 +293,24 @@ describe("menções e avisos", () => {
     );
   });
 
+  it("o @usuário na PRÓPRIA mensagem também é destacado, sem destacar a linha (não notifica a si mesmo)", async () => {
+    const { sock, state } = await open(`/channels/g1/${GEN}`);
+    const list = await screen.findByRole("log", { name: "Mensagens de geral" });
+    await within(list).findByText("mensagem 1001");
+    // o servidor não coloca o autor em mention_ids
+    const own = msg(GEN, "1101", {
+      content: "testando @ana na minha mensagem",
+      author: { id: ME, username: "ana" },
+      mention_ids: [],
+    });
+    state.messages[GEN] = [...(state.messages[GEN] ?? []), own];
+    serverSends(sock, "MESSAGE_CREATE", 2, own);
+    const text = await within(list).findByText(/na minha mensagem/);
+    const article = text.closest("article") as HTMLElement;
+    expect(within(article).getByText("@ana").tagName).toBe("MARK");
+    expect(article).not.toHaveAttribute("data-mention");
+  });
+
   it("DM em canal que não está aberto gera toast que leva à conversa", async () => {
     const user = userEvent.setup();
     const { sock, router } = await open(`/channels/g1/${GEN}`);

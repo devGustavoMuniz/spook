@@ -30,6 +30,8 @@ export type MessageRowProps = {
 export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   const { message: m } = p;
   const name = m.author.display_name || m.author.username;
+  // mention_ids traz quem deve ser NOTIFICADO (o servidor exclui o próprio autor). Só ele destaca a linha;
+  // o "@usuário" no texto é destacado sempre que cita você, inclusive numa mensagem sua.
   const mentionsMe = (m.mention_ids ?? []).includes(p.myId);
   return (
     <article
@@ -88,7 +90,7 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
             <>
               {m.content ? (
                 <p className="text-sm leading-6 break-words whitespace-pre-wrap">
-                  {mentionsMe ? highlightMention(m.content, p.myUsername) : m.content}
+                  {m.content.includes("@") ? highlightMention(m.content, p.myUsername) : m.content}
                   {m.edited_at ? (
                     <span
                       className="ml-1 text-[11px] text-muted-foreground"
