@@ -27,6 +27,7 @@ medição interna do k6.
 | `gateway-connections.js` | só o Spook | N conexões WebSocket ociosas (handshake, IDENTIFY→READY, heartbeats) | **não** (ver Fase 3 abaixo) |
 | `gateway-latency.js` | só o Spook | latência ponta a ponta: envio por REST → `MESSAGE_CREATE` no WebSocket | **não** |
 | `gateway-fanout.js` | só o Spook | fan-out com N usuários conectados (Fase 4): entregas/s, perdas e latência (insumo de "CPU e mensagens/s com N usuários") | **não** |
+| `upload.js` | só o Spook | fluxo de anexo (Fase 6): pedido da URL, PUT direto no storage (throughput) e envio da mensagem com o anexo | **não** |
 | `login.js` | só o Spook | `POST /api/auth/login` (cadastra 1 usuário de teste por execução) | **não** (ver abaixo) |
 
 Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatória), `RATE`/`DURATION` (padrão 5 req/s por 60 s),
@@ -117,6 +118,20 @@ Duas medições complementares, **só escritas e versionadas aqui; a execução 
   `SERVER_CONTAINER=spook-livekit-1` (local) e pegue a mediana das amostras depois da rampa (`N / NUM_PER_SECOND` s); (3) custo por participante = `(CPU(N) − CPU_base) / N` (idem para banda);
   (4) repita para N crescente (10, 25, 50, 100) e registre a curva. Em produção a mídia sai pelo IP público (7891/tcp, 7892/udp) e o container tem teto de 0,5 CPU/512M: rode o
   cli de fora do VPS. O script recusa URLs `*.dottadigital.com` sem `I_KNOW_THIS_IS_PRODUCTION=yes`.
+
+### Uploads (Fase 6): `upload.js` e o tempo do job de thumbnail
+**Só escrito e versionado aqui; a execução e o registro dos resultados são da Fase B** (nunca contra produção sem combinar a carga).
+
+- **O que o cenário faz.** Em cada iteração: `POST /api/channels/{id}/uploads` (`name=upload_request`), `PUT` do arquivo direto na URL pré-assinada do storage, **sem cookie** (`name=upload_put`), e `POST /api/channels/{id}/messages` com `attachment_ids` (`name=upload_send`; o servidor confere o objeto no storage e grava mensagem + anexo numa transação). Mede também `upload_put_throughput_mbps` (MB/s do PUT por arquivo), `upload_bytes`, `upload_rate_limited` (429 do limite de 30 pedidos/min), `send_rate_limited` e `upload_flow_failed` (deve ser 0).
+- **Variáveis.** `BASE_URL`, `COOKIE` e `CHANNEL_ID` (canal de texto ou DM com ATTACH_FILES) obrigatórias; `KIND` (`zip`, padrão, ou `png`), `FILE_KB` (tamanho do zip, 512; até 25600), `IMG_WIDTH`/`IMG_HEIGHT` (PNG, 1600x1200 ≈ 5,5 MB), `UPLOADS_PER_MIN` (12), `DURATION` (60s), `HOST_HEADER`, `FORWARDED_PROTO`. Os arquivos são gerados no próprio script (o PNG é válido, RGB com deflate "stored", para o job de thumbnail ter o que decodificar). **Escreve** anexos, mensagens e objetos: use conta, servidor e canal de **teste**.
+- **Exemplo local** (com `pnpm infra:up` e o backend em `:8090`): `COOKIE='spook_session=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id> -e KIND=png -e IMG_WIDTH=3000 -e IMG_HEIGHT=2000 /bench/scenarios/upload.js` (o `S3_ENDPOINT` do servidor precisa ser alcançável pelo k6, pois a URL de PUT aponta para ele).
+- **Throughput.** `upload_put_throughput_mbps` (e `http_req_duration{name:upload_put}`) mede a rede até o storage; o backend não está no caminho. A latência do backend é `upload_request` e `upload_send` (+ `server_timing_app`/`server_timing_db`). Varie `FILE_KB` (256, 1024, 4096, 16384, 25600) e registre a curva MB/s × tamanho.
+- **Tempo do job de thumbnail** (não aparece nas métricas do k6, porque é assíncrono; use o backend):
+  1. *Métricas (OTLP/Prometheus):* `spook.thumbnail.job.duration` (histograma em segundos, com `result=ok|discarded|error`) é o tempo do job (download do original, decodificação, redimensionamento, upload e gravação); `spook.thumbnail.jobs{result}` conta; `spook.jobs.queue.size{queue="thumbnail"}` é a fila esperando (cresce se `UPLOADS_PER_MIN` passar do que 2 workers aguentam). A latência "envio da mensagem → thumbnail visível" é essa duração + a espera na fila (+ ≤ 1 s do polling do River); no gateway, é o intervalo entre `MESSAGE_CREATE` e o `MESSAGE_UPDATE` da mesma mensagem (`gateway-latency.js` pode ser estendido).
+  2. *Logs:* cada job termina com `thumbnail gerado attachment=<id> ms=<duração>` (nível INFO); falhas são `thumbnail falhou` (retentável) ou `thumbnail descartado` (sem retentativa).
+  3. *Traces:* span `attachment.thumbnail` (com `job.result`, `job.attempt`) e filhos `.download`, `.resize` e `.upload`, que mostram onde o tempo vai (a decodificação/CatmullRom domina em fotos grandes).
+  4. *Banco:* `select (finalized_at - attempted_at) from river_job where kind = 'thumbnail' order by id desc limit 50;` dá a duração por job e `attempted_at - scheduled_at` a espera na fila.
+  Receita: `KIND=png` com `IMG_WIDTH×IMG_HEIGHT` crescentes (800x600, 1600x1200, 3000x2000, 4000x3000 = 12 MP, o máximo aceito), `UPLOADS_PER_MIN=12`; leia a mediana e o p95 de `spook.thumbnail.job.duration` e a memória do container `spook` (`docker stats`) durante a rampa para validar o teto de 512M com 2 workers.
 
 ### Login: não é comparado (achado registrado)
 A latência do login é dominada por **política**, não pelo framework: o custo de hash escolhido e o `Timebox` do Fortify. Por isso
