@@ -33,6 +33,9 @@ export const messagePayloadSchema = z.object({
   created_at: z.string(),
   // Sempre presente ([] sem anexos).
   attachments: z.array(attachmentPayloadSchema),
+  // Fase 6b: quem foi mencionado com @username (resolvido no envio). O servidor sempre manda array;
+  // o `default` tolera um servidor anterior à 6b.
+  mention_ids: z.array(z.string()).default([]),
 });
 
 export const recipientPayloadSchema = z.object({
@@ -120,6 +123,16 @@ export const voiceStatePayloadSchema = z.object({
 /** Voice state de um usuário (READY e VOICE_STATE_UPDATE); `channel_id: null` = saiu da voz. */
 export type VoiceStatePayload = z.infer<typeof voiceStatePayloadSchema>;
 
+/** Estado de leitura de um canal (READY.read_states e GET /api/users/@me/read-states). */
+export const readStatePayloadSchema = z.object({
+  channel_id: z.string(),
+  guild_id: z.string().optional(),
+  last_read_message_id: z.string(),
+  mention_count: z.number().int().nonnegative(),
+  // Limitado a 100 pelo servidor (100 = "100 ou mais", a UI mostra 99+).
+  unread_count: z.number().int().nonnegative(),
+});
+
 export const readyDataSchema = z.object({
   session_id: z.string(),
   user: z.object({ id: z.string() }),
@@ -130,6 +143,8 @@ export const readyDataSchema = z.object({
   presences: z.array(z.object({ user_id: z.string(), status: presenceStatusSchema })).default([]),
   // Fase 5: quem está em voz agora (servidores que o usuário vê e as DMs dele); sempre array.
   voice_states: z.array(voiceStatePayloadSchema).nullable().default([]),
+  // Fase 6b: só canais com não lidas ou menções (canal ausente = zero); o servidor sempre manda array.
+  read_states: z.array(readStatePayloadSchema).nullable().optional(),
 });
 
 export const resumedDataSchema = z.object({

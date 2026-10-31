@@ -90,6 +90,7 @@ export function messages(
     created_at: new Date(Date.UTC(2026, 9, 30, 12, 0, 0) + i * 60_000).toISOString(),
     edited_at: null,
     attachments: [],
+    mention_ids: [],
   }));
 }
 

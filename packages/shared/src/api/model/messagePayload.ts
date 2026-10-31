@@ -17,4 +17,6 @@ export interface MessagePayload {
   /** @nullable */
   edited_at: string | null;
   id: string;
+  /** IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20) */
+  mention_ids: string[];
 }

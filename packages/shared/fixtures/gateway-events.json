@@ -222,6 +222,9 @@
             "size": 2048,
             "url": "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"
           }
+        ],
+        "mention_ids": [
+          "11"
         ]
       }
     },
@@ -267,6 +270,9 @@
             "size": 2048,
             "url": "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"
           }
+        ],
+        "mention_ids": [
+          "11"
         ]
       }
     },
@@ -533,6 +539,21 @@
           "self_deaf": false,
           "self_video": true,
           "self_screen": false
+        }
+      ],
+      "read_states": [
+        {
+          "channel_id": "300",
+          "guild_id": "100",
+          "last_read_message_id": "890",
+          "mention_count": 2,
+          "unread_count": 12
+        },
+        {
+          "channel_id": "500",
+          "last_read_message_id": "880",
+          "mention_count": 0,
+          "unread_count": 100
         }
       ]
     }

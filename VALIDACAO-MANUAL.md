@@ -90,6 +90,16 @@ Backend (6a: fila de jobs, uploads e thumbnails):
 - [ ] Limpeza de órfãos: pedir um upload sem enviar a mensagem, esperar mais de 1 h (+ até 10 min) e conferir que a linha em `attachments` e o objeto no bucket sumiram (`docker compose ... exec postgres psql -c "select count(*) from attachments where message_id is null"`).
 - [ ] Observabilidade (Fase B): com `SPOOK_OTLP_ENDPOINT` definido, conferir `spook.uploads.requested`, `spook.thumbnail.jobs{result}`, `spook.thumbnail.job.duration` e `spook.jobs.queue.size`; rodar `bench/scenarios/upload.js` (passos em `bench/README.md`) com conta/canal de **teste**, combinando a carga.
 
+Backend (6b: não lidas, menções e Web Push):
+
+- [ ] **Secrets VAPID:** os três (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) já foram criados no GitHub (Settings → Secrets → Actions). Depois do primeiro deploy conferir que `GET /api/push/vapid-public-key` (logado) devolve a chave (200, não 503) e que os logs da partida **não** trazem "Web Push desligado". O par VAPID não pode ser trocado depois (as inscrições dos navegadores ficam presas à chave pública).
+- [ ] **Permissão de notificação no navegador:** o front pede `Notification.requestPermission()` por gesto do usuário; conferir o fluxo conceder / negar / bloquear nas configurações do site (negado: nada é inscrito e a UI explica como liberar).
+- [ ] **Push real em dispositivo com a aba fechada:** inscrever um navegador (Chrome ou Firefox no desktop e no Android), **fechar a aba e o navegador** (para o gateway cair e a presença virar offline após 15 s), pedir a outra conta para mandar uma DM e depois uma menção `@usuario` num servidor: a notificação aparece no sistema (título com o autor e `#canal · servidor`, corpo truncado), o clique abre `/channels/...` no canal certo e uma mensagem comum em servidor **não** notifica. Com a aba aberta nada deve chegar por push.
+- [ ] **iOS/Safari:** Web Push só funciona com o PWA **instalado na Tela de Início** (iOS 16.4+); testar em iPhone real (adicionar à Tela de Início, abrir pelo ícone, conceder a permissão e repetir o teste acima). Conferir o `manifest` e o service worker.
+- [ ] **Serviços de push reais:** FCM (`fcm.googleapis.com`), Mozilla (`updates.push.services.mozilla.com`) e Apple (`web.push.apple.com`) precisam passar pela validação anti-SSRF (https, porta 443, IP público) e aceitar o cabeçalho VAPID; um 404/410 deve apagar a inscrição (`select count(*) from push_subscriptions`).
+- [ ] **Não lidas na prática:** com duas contas, conferir as bolinhas e o "99+" (o servidor limita a contagem em 100), o zerar ao abrir o canal, a sincronia entre duas abas/dispositivos (`READ_STATE_UPDATE`) e que entrar num servidor antigo **não** mostra o histórico anterior como não lido.
+- [ ] Observabilidade (Fase B): `spook.readstate.query.duration`, `spook.readstate.acks`, `spook.mentions.detected`, `spook.push.jobs{result}`, `spook.push.job.duration` e `spook.jobs.queue.size{queue="push"}`; rodar `bench/scenarios/read-states.js` com conta de **teste**, combinando a carga.
+
 ## Fase 7 — Desktop
 
 ## Pendências gerais de configuração

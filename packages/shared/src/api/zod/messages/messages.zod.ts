@@ -54,6 +54,11 @@ export const ListMessagesResponse = zod.object({
         created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
         edited_at: zod.iso.datetime({ offset: true }).nullable(),
         id: zod.string(),
+        mention_ids: zod
+          .array(zod.string())
+          .describe(
+            "IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)",
+          ),
       }),
     )
     .nullable()
@@ -112,6 +117,9 @@ export const SendMessageResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
   edited_at: zod.iso.datetime({ offset: true }).nullable(),
   id: zod.string(),
+  mention_ids: zod
+    .array(zod.string())
+    .describe("IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"),
 });
 
 /**
@@ -171,6 +179,9 @@ export const EditMessageResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
   edited_at: zod.iso.datetime({ offset: true }).nullable(),
   id: zod.string(),
+  mention_ids: zod
+    .array(zod.string())
+    .describe("IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"),
 });
 
 /**
