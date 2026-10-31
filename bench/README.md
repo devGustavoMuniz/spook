@@ -39,7 +39,7 @@ O `setup` cadastra um usuário de teste (`bench-…@bench.spook.invalid`). Para 
 como usuário `spook` (com `DOCKER_HOST` apontando para o Docker rootless, ver `deploy/README.md`):
 
 ```sh
-cd ~/spook && docker compose --env-file .env -f deploy/docker-compose.prod.yml exec postgres \
+cd /srv/spook/prod && docker compose --env-file .env -f deploy/docker-compose.prod.yml exec postgres \
   psql -U spook -d spook -c "DELETE FROM users WHERE email LIKE '%@bench.spook.invalid'"
 ```
 
