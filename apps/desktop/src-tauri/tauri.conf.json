@@ -1,0 +1,87 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Spook",
+  "version": "../package.json",
+  "identifier": "com.dottadigital.spook",
+  "build": {
+    "frontendDist": "../../web/dist-desktop",
+    "devUrl": "http://localhost:5180",
+    "beforeDevCommand": "pnpm --filter @spook/web dev",
+    "beforeBuildCommand": "pnpm --filter @spook/web build:desktop"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Spook",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 940,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "img-src": "'self' data: blob: https://spook-files.dottadigital.com",
+        "media-src": "'self' blob: https://spook-files.dottadigital.com",
+        "connect-src": "'self' ipc: http://ipc.localhost https://spook.dottadigital.com wss://spook.dottadigital.com https://spook-files.dottadigital.com wss://spook-rtc.dottadigital.com",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'",
+        "frame-src": "'none'"
+      },
+      "devCsp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-inline'",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "img-src": "'self' data: blob: http://localhost:3900 https://spook-files.dottadigital.com",
+        "media-src": "'self' blob: http://localhost:3900 https://spook-files.dottadigital.com",
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:* ws://localhost:* https://spook.dottadigital.com wss://spook.dottadigital.com https://spook-files.dottadigital.com wss://spook-rtc.dottadigital.com",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "frame-src": "'none'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "SocialNetworking",
+    "shortDescription": "Spook: chat, voz e vídeo",
+    "longDescription": "Spook é um clone do Discord feito para estudo: servidores, canais, mensagens, voz, vídeo e compartilhamento de tela.",
+    "copyright": "Dotta Digital",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["PortugueseBR"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "entitlements": "entitlements.plist",
+      "hardenedRuntime": true,
+      "signingIdentity": "-"
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  }
+}
