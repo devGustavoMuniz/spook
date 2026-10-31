@@ -7,3 +7,8 @@ rtc:
   use_external_ip: false
 keys:
   devkey: devsecret-devsecret-devsecret-32
+# Webhooks para o backend (rede do Compose): estado de voz do Spook (Fase 5). A chave é a de `keys` acima.
+webhook:
+  api_key: devkey
+  urls:
+    - http://server:8090/api/livekit/webhook

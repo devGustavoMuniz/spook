@@ -1,0 +1,18 @@
+# TEMPLATE do LiveKit de produção. O deploy/deploy.sh o renderiza (sed) para livekit.prod.yaml, que é o arquivo
+# montado pelo compose (não versionado), trocando __LIVEKIT_API_KEY__ pelo LIVEKIT_API_KEY do .env do servidor.
+# As chaves NÃO ficam aqui: vêm da variável LIVEKIT_KEYS ("<key>: <secret>"),
+# montada pelo compose a partir de LIVEKIT_API_KEY / LIVEKIT_API_SECRET.
+# A sinalização (7880) só é alcançada pelo túnel (spook-rtc.dottadigital.com); a mídia vai direto
+# pelo IP público do VPS (--node-ip no compose) em 7891/tcp e 7892/udp. Sem TURN por enquanto.
+port: 7880
+rtc:
+  tcp_port: 7891
+  udp_port: 7892
+  use_external_ip: false
+# Webhooks para o backend pela rede interna do Compose (o serviço `spook`). O LiveKit assina cada chamada com o
+# segredo da chave abaixo, que precisa ser a mesma de LIVEKIT_KEYS (LIVEKIT_API_KEY). A chave NÃO é segredo (o
+# segredo é o LIVEKIT_API_SECRET), mas o valor vem do .env do servidor e não está no git.
+webhook:
+  api_key: __LIVEKIT_API_KEY__
+  urls:
+    - http://spook:8090/api/livekit/webhook

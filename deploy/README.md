@@ -12,6 +12,8 @@ push na main ─▶ CI (ci.yml) ─▶ build/push GHCR ─▶ ssh (chave de CI) 
                                                   ├▶ livekit:7880 (sinalização)          spook-rtc.dottadigital.com
                                                   └▶ garage:3900  (S3, URLs pré-assinadas) spook-files.dottadigital.com
  navegador ─▶ 187.127.26.46:7891/tcp e :7892/udp ─▶ livekit      (mídia, direto; sem TURN)
+ livekit ─▶ http://spook:8090/api/livekit/webhook   (estado de voz; rede interna do Compose, assinado com a API key)
+ spook ─▶ http://livekit:7880                       (API de administração: expulsar, listar, permissões)
 ```
 
 > ✅ = pode ser validado sem o servidor. 🔒 = **só o dono consegue validar** (precisa do VPS, da Cloudflare ou do GitHub).
@@ -136,6 +138,15 @@ O `receive-deploy` troca `deploy/` por um diretório novo; um container com arqu
 `livekit.prod.yaml`) continuaria com o arquivo antigo. Por isso o `deploy.sh` calcula um hash dessas configs
 (`CONFIG_HASH`), usado como label dos dois serviços: se a config muda, o Compose recria o container.
 
+**Config do LiveKit renderizada (Fase 5).** O LiveKit precisa avisar o backend por webhook (`http://spook:8090/api/livekit/webhook`),
+assinado com uma API key que tem de ser a `LIVEKIT_API_KEY` do `.env` do servidor (a chave não é segredo, mas o valor não está no git).
+Por isso `deploy/livekit/livekit.prod.yaml.tmpl` (versionado, com o placeholder `__LIVEKIT_API_KEY__`) é renderizado pelo `deploy.sh`,
+com `sed`, para `deploy/livekit/livekit.prod.yaml` (arquivo montado pelo compose; não versionado, ignorado pelo git). O hash
+(`CONFIG_HASH`) é calculado **depois** da renderização, então trocar a `LIVEKIT_API_KEY` também recria o container. O deploy aborta se a
+chave faltar no `.env` ou tiver caracteres fora de `[A-Za-z0-9_-]`. O serviço `spook` recebe `LIVEKIT_URL=wss://spook-rtc.dottadigital.com`
+(a URL que o navegador usa), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (os mesmos do `.env`, escritos pelo `write-env` a partir dos secrets) e
+`LIVEKIT_INTERNAL_URL=http://livekit:7880`. Sem essas variáveis a voz fica desligada (os endpoints respondem 503).
+
 Segredos nunca entram no git: só existem nos GitHub Secrets e no `/srv/spook/prod/.env` do servidor (600).
 `deploy/.env.prod.example` documenta as chaves sem valores. Migrations rodam no boot do backend e são **aditivas**.
 
@@ -176,7 +187,9 @@ o próprio host `spook.dottadigital.com` é sempre aceito). O padrão serve à p
 Teste: `websocat -H "Cookie: spook_session=<token>" wss://spook.dottadigital.com/api/gateway` deve mostrar o `{"op":10,...}` (HELLO).
 
 ### 6.2 LiveKit
-Sinalização: `curl -s https://spook-rtc.dottadigital.com` deve responder `OK`. Mídia (a partir da Fase 5): as portas
+Sinalização: `curl -s https://spook-rtc.dottadigital.com` deve responder `OK`. Webhook (Fase 5): numa chamada, `docker compose ... logs livekit | grep webhook`
+deve mostrar `sent webhook` com `"status": "200 OK"` para `http://spook:8090/api/livekit/webhook` (401 = chave/segredo diferentes entre `spook` e `livekit`;
+`connection refused` = `spook` fora do ar) e o arquivo renderizado deve ter `webhook.api_key` igual à `LIVEKIT_API_KEY` do `.env`. Mídia (a partir da Fase 5): as portas
 `7891/tcp` e `7892/udp` precisam estar alcançáveis em `187.127.26.46`:
 ```sh
 nc -vz 187.127.26.46 7891          # de fora do VPS
@@ -205,6 +218,8 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
 | Container morto por memória (`OOMKilled`) | o serviço bateu o `mem_limit` (1.2); reveja a tabela antes de subir o limite. |
 | Deploy falha em `Host key verification failed` | `SSH_KNOWN_HOSTS` desatualizado (VPS reinstalado): refaça o `ssh-keyscan`. |
 | `docker login ghcr.io` negado | dar acesso de leitura do repositório ao pacote (item 4.3). |
+| Voz responde 503 | faltam `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` no container `spook` (a voz fica desligada sem elas). |
+| Chamada conecta mas a lista de quem está em voz não atualiza | o webhook não chega ao backend (6.2); o reconciliador (60 s) acaba corrigindo, mas confira os logs do `livekit`. |
 | Workflow termina em "healthz não respondeu ok" | túnel sem os hostnames, token errado (`logs cloudflared`) ou `spook` não healthy (`logs spook`). |
 | Upload do avatar: `SignatureDoesNotMatch` | o túnel está reescrevendo o Host (6.3), ou `S3_ENDPOINT` ≠ hostname público. |
 | Upload do avatar: erro de CORS | `S3_CORS_ORIGINS` diferente da origem real; rode `deploy/deploy.sh` de novo (reaplica o CORS). |
@@ -228,7 +243,11 @@ docker compose --env-file deploy/.env.prod.example -f deploy/docker-compose.prod
 docker run --rm -v "$PWD":/mnt koalaman/shellcheck-alpine:stable shellcheck -x /mnt/deploy/deploy.sh /mnt/deploy/garage-init.sh
 docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:latest
 ```
-Smoke do `deploy.sh` com segredos falsos (sem `cloudflared`), simulando a raiz do servidor numa pasta temporária:
+Smoke do `deploy.sh` com segredos falsos (sem `cloudflared`), simulando a raiz do servidor numa pasta temporária (o `.env` falso precisa de
+`LIVEKIT_API_KEY` alfanumérico: o deploy renderiza o `livekit.prod.yaml` a partir dele). Para ver o webhook de ponta a ponta, depois do smoke rode um
+participante simulado na rede do projeto e olhe os logs do livekit:
+`docker run --rm --network spookprodsmoke_default -e LIVEKIT_URL=ws://livekit:7880 -e LIVEKIT_API_KEY=<chave> -e LIVEKIT_API_SECRET=<segredo> livekit/livekit-cli:latest load-test --room 12345 --duration 6s --audio-publishers 1 --subscribers 1`
+e `docker logs spookprodsmoke-livekit-1 | grep webhook` (esperado: `200 OK`).
 ```sh
 R=$(mktemp -d); mkdir "$R/deploy"; tar -C deploy -cz . | tar -xz -C "$R/deploy"
 cp deploy/.env.prod.example "$R/.env"        # preencha com valores falsos; LIVEKIT_NODE_IP=127.0.0.1

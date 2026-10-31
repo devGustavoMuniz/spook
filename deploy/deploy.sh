@@ -27,8 +27,19 @@ if [ -n "${GHCR_USER:-}" ] && [ -n "$token" ]; then
 fi
 unset token
 
-# 1b. Hash das configs montadas (força recriar o container quando mudam, já que o receive-deploy troca
-#     deploy/ por um diretório novo e o container manteria o arquivo antigo)
+# 1b. Renderiza a config do LiveKit: o template tem __LIVEKIT_API_KEY__ (a chave da API vem do .env do servidor e
+#     não está no git); o webhook do LiveKit para o backend precisa dela. O arquivo renderizado é o que o compose monta.
+lk_key="$(grep -E '^LIVEKIT_API_KEY=' "$COMPOSE_ENV_FILE" | tail -n1 | cut -d= -f2- || true)"
+case "$lk_key" in
+  ""|*[!A-Za-z0-9_-]*) echo "erro: LIVEKIT_API_KEY ausente ou com caracteres fora de [A-Za-z0-9_-] no $COMPOSE_ENV_FILE" >&2; exit 1 ;;
+esac
+sed "s/__LIVEKIT_API_KEY__/$lk_key/g" deploy/livekit/livekit.prod.yaml.tmpl > deploy/livekit/livekit.prod.yaml.tmp
+mv deploy/livekit/livekit.prod.yaml.tmp deploy/livekit/livekit.prod.yaml
+unset lk_key
+
+# 1c. Hash das configs montadas (força recriar o container quando mudam, já que o receive-deploy troca
+#     deploy/ por um diretório novo e o container manteria o arquivo antigo). Cobre o arquivo RENDERIZADO do LiveKit:
+#     trocar a LIVEKIT_API_KEY no .env também recria o container.
 if command -v sha256sum >/dev/null 2>&1; then hasher="sha256sum"; else hasher="shasum -a 256"; fi
 # shellcheck disable=SC2086
 CONFIG_HASH="$(cat deploy/garage/garage.toml deploy/livekit/livekit.prod.yaml | $hasher | cut -c1-16)"
