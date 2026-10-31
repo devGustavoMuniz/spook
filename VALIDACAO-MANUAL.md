@@ -114,4 +114,20 @@ Front (Fase 6: anexos, não lidas, menções, avisos e push):
 
 ## Fase 7 — Desktop
 
+> Parte 7a (casca Tauri, login, mensagens, notificações). A voz e a tela nativas são da 7b (hoje o desktop recusa entrar em chamadas). Os instaladores saem do workflow **Desktop** (artefatos da execução ou release rascunho de uma tag `desktop-v<versão>`); não são assinados.
+
+- [ ] **Windows:** instalar o `Spook-<versão>-windows-x64.exe`. O SmartScreen mostra "O Windows protegeu o computador" (aplicativo sem assinatura): clicar em "Mais informações" → "Executar assim mesmo". O app abre, aparece no menu Iniciar com o ícone do Spook, e desinstalar pelo Painel de Controle funciona.
+- [ ] **macOS (Apple Silicon e Intel):** abrir o `.dmg` e arrastar para Aplicativos. O Gatekeeper bloqueia na primeira abertura ("não pode ser aberto porque não foi possível verificar o desenvolvedor"): clique direito → Abrir, ou Ajustes do Sistema → Privacidade e Segurança → "Abrir mesmo assim". Se aparecer "está danificado", rodar `xattr -dr com.apple.quarantine /Applications/Spook.app`. Conferir que o build x64 também foi gerado (job experimental) e roda em um Mac Intel.
+- [ ] **Linux:** `sudo apt install ./Spook-<versão>-linux-x64.deb` (ou `chmod +x` e executar o `.AppImage`) e abrir o app. Conferir o ícone no menu de aplicativos.
+- [ ] **Login e sessão:** entrar com uma conta de teste e conferir servidores, canais e mensagens; fechar e abrir o app: continua logado (token no chaveiro: Keychain/Credenciais do Windows/Secret Service). Sair da conta e reabrir: pede login. Pelo gerenciador de chaveiros do SO, conferir o item "Spook" (e que some ao sair).
+- [ ] **Linux sem chaveiro:** em uma sessão sem Secret Service (ex.: sem `gnome-keyring`), entrar e conferir o aviso de que será preciso entrar de novo ao reabrir; reabrir mesmo e confirmar que pede login (o token não pode ficar em arquivo).
+- [ ] **Mensagens em tempo real:** com a web aberta em outra conta, trocar mensagens com o desktop (envio, edição, exclusão, digitando, presença). Reiniciar a rede (desligar/ligar o Wi-Fi) e conferir que o gateway reconecta.
+- [ ] **Notificações nativas:** com a janela do desktop sem foco (outra janela na frente), receber uma DM e uma menção: aparece a notificação do sistema (aceitar a permissão no primeiro aviso; no macOS conferir Ajustes → Notificações → Spook). Com a janela em foco aparece o toast. Em `/settings/notifications` deve estar escrito "Este app usa notificações nativas do sistema" (sem botão de push).
+- [ ] **Links externos:** enviar uma mensagem com `https://example.com` e clicar: abre no navegador do sistema e o app continua na mesma tela (nunca navega dentro do webview). Conferir também um link `mailto:`.
+- [ ] **Anexos e avatar:** enviar imagem e arquivo, e trocar o avatar (valida o CORS do bucket para as origens do Tauri; no Windows a origem é `http://tauri.localhost`). Depois do deploy com o novo `S3_CORS_ORIGINS`, conferir no DevTools do app (`tauri dev`) que não há erro de CORS.
+- [ ] **Instância única e janela:** abrir o app duas vezes: a segunda só traz a primeira à frente. Redimensionar, mover e fechar; ao reabrir, a janela volta no mesmo lugar e tamanho.
+- [ ] **Deep link / recarregar:** em `Ctrl/Cmd+R` numa rota interna (`/channels/...`) o app recarrega a mesma tela sem erro.
+- [ ] **Voz (esperado na 7a):** clicar num canal de voz mostra "Voz no desktop ainda não disponível nesta versão", sem erro e sem aparecer na lista de conectados.
+- [ ] **Release rascunho:** criar a tag `desktop-v<versão>` (igual ao `package.json`) e conferir que o release aparece como rascunho com os instaladores e os `.sha256`.
+
 ## Pendências gerais de configuração

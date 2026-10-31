@@ -116,7 +116,7 @@ Em **Settings → Secrets and variables → Actions** (repositório). O workflow
 
 **Variables** (opcionais; o padrão está entre parênteses):
 `PUBLIC_URL` (`https://spook.dottadigital.com`), `GARAGE_CAPACITY` (`50GB`), `LIVEKIT_NODE_IP` (`187.127.26.46`),
-`S3_ENDPOINT` (`https://spook-files.dottadigital.com`), `S3_CORS_ORIGINS` (`https://spook.dottadigital.com`).
+`S3_ENDPOINT` (`https://spook-files.dottadigital.com`), `S3_CORS_ORIGINS` (`https://spook.dottadigital.com,tauri://localhost,http://tauri.localhost`: a web e o app desktop).
 
 `GITHUB_TOKEN` (automático) publica a imagem e segue pelo stdin do comando `deploy` para o `docker login` no GHCR; o
 `deploy.sh` faz `docker logout` ao terminar. Nada de PAT.
@@ -188,6 +188,20 @@ conexões **sem tráfego por 100 s**: o servidor manda heartbeat a cada 41 s). V
 o próprio host `spook.dottadigital.com` é sempre aceito). O padrão serve à produção, então ela **não** está no
 `docker-compose.prod.yml`; defina-a no `.env` só se precisar de outra origem. Handshake limitado a 50/s por IP (rajada de 200).
 Teste: `websocat -H "Cookie: spook_session=<token>" wss://spook.dottadigital.com/api/gateway` deve mostrar o `{"op":10,...}` (HELLO).
+
+### 6.1.2 CORS da API e do storage para o app desktop (Fase 7a)
+O webview do Tauri tem origem `tauri://localhost` (macOS/Linux) ou `http://tauri.localhost` (Windows), diferente de
+`spook.dottadigital.com`; por isso a API passou a responder CORS **só** para as origens de `SPOOK_ALLOWED_ORIGINS` (a mesma
+lista do handshake do gateway, padrão `tauri://localhost,http://tauri.localhost`, então não há nada a configurar em produção):
+- Vale para `/api/*`. O preflight (`OPTIONS` com `Access-Control-Request-Method`) responde `204` **antes** do rate limit.
+- Origem permitida recebe `Access-Control-Allow-Origin: <origem>`, `Vary: Origin`, `Allow-Methods`, `Allow-Headers`
+  (`Authorization, Content-Type, X-Spook-Client`), `Max-Age` e `Expose-Headers` (`Retry-After, Server-Timing`), inclusive nas
+  respostas de erro (401, 429). **Sem `Access-Control-Allow-Credentials`**: o desktop usa `Authorization: Bearer`, nunca cookie.
+- Origem fora da lista (e a web same-origin) não recebe nenhum cabeçalho CORS. Lista vazia (`SPOOK_ALLOWED_ORIGINS=`) desliga o CORS.
+- Teste: `curl -si -X OPTIONS https://spook.dottadigital.com/api/users/me -H 'Origin: tauri://localhost' -H 'Access-Control-Request-Method: GET'`
+  deve dar `204` com `Access-Control-Allow-Origin: tauri://localhost`; com `-H 'Origin: https://outro.com'` não pode haver cabeçalho CORS.
+- Storage: o bucket também só libera origens da lista `S3_CORS_ORIGINS`, agora com as do Tauri (upload de anexos/avatares e
+  leitura das miniaturas direto do `spook-files`). Depois de mudar a lista, rode o deploy de novo (o `garage-init.sh` reaplica o CORS).
 
 ### 6.2 LiveKit
 Sinalização: `curl -s https://spook-rtc.dottadigital.com` deve responder `OK`. Webhook (Fase 5): numa chamada, `docker compose ... logs livekit | grep webhook`

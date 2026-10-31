@@ -4,6 +4,9 @@
     "includes": [
       "**",
       "!**/dist",
+      "!**/dist-desktop",
+      "!**/target",
+      "!apps/desktop/src-tauri/gen",
       "!**/node_modules",
       "!**/.turbo",
       "!packages/brand/assets",

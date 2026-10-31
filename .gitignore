@@ -11,3 +11,4 @@ apps/web/e2e/report
 
 # Config do LiveKit renderizada pelo deploy.sh (a partir do .tmpl)
 deploy/livekit/livekit.prod.yaml
+apps/web/dist-desktop
