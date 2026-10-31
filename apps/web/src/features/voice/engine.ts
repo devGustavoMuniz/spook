@@ -63,6 +63,8 @@ export class VoiceMediaError extends Error {
     readonly code: MediaErrorCode,
     readonly device: "microphone" | "camera" | "screen",
     message?: string,
+    /** Mensagem pronta para o usuário (pt-br), quando a engine já sabe o que dizer (ex.: instruções do SO). */
+    readonly userMessage?: string,
   ) {
     super(message ?? `${device}: ${code}`);
     this.name = "VoiceMediaError";

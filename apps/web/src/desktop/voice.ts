@@ -1,13 +1,13 @@
-// Voz no desktop (RF12.2): NUNCA usa o WebRTC do WebView. Enquanto a engine nativa em Rust não existe
-// (Parte 7b), recusa entrar com uma mensagem clara. A 7b chama `registerNativeVoiceEngine(...)` no seu
-// próprio módulo (importado por `bootstrap.ts`) e nada mais precisa mudar.
+// Voz no desktop (RF12.2): NUNCA usa o WebRTC do WebView. `bootstrapDesktop()` registra a engine nativa
+// (`native-engine.ts`: Rust + LiveKit SDK). Se por algum motivo nenhuma engine estiver registrada, a fábrica
+// recusa com uma mensagem clara em vez de cair no WebRTC do navegador.
 import type { VoiceEngine } from "@/features/voice/engine";
 
 export const VOICE_UNAVAILABLE_MESSAGE = "Voz no desktop ainda não disponível nesta versão";
 
 let nativeFactory: (() => VoiceEngine) | null = null;
 
-/** Ponto de extensão da 7b: registra a engine de voz nativa (Rust + LiveKit SDK). */
+/** Registra a engine de voz nativa (Rust + LiveKit SDK). */
 export function registerNativeVoiceEngine(factory: (() => VoiceEngine) | null) {
   nativeFactory = factory;
 }

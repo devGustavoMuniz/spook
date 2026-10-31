@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { bootstrapDesktop } from "@/desktop/bootstrap";
+import { ScreenSourceDialog } from "@/desktop/screen-source-dialog";
 import { setupServiceWorker } from "@/features/push/sw-client";
 import { createQueryClient } from "@/lib/query";
 import { createAppRouter } from "@/router";
@@ -23,6 +24,7 @@ function start(desktop: boolean) {
         <QueryClientProvider client={queryClient}>
           <RouterProvider router={router} />
           <Toaster />
+          {desktop ? <ScreenSourceDialog /> : null}
         </QueryClientProvider>
       </ThemeProvider>
     </StrictMode>,

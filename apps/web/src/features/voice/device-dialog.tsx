@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { isTauri } from "@/desktop/runtime";
 import { chooseDevice, listDevices } from "./controller";
 import { loadDevicePrefs } from "./devices";
 import type { DeviceInfo, DeviceKind } from "./engine";
@@ -45,8 +46,9 @@ export function DeviceDialog({
         <DialogHeader>
           <DialogTitle>Dispositivos de áudio e vídeo</DialogTitle>
           <DialogDescription>
-            A escolha fica salva neste navegador. Os nomes só aparecem depois que o navegador
-            liberar o acesso ao microfone ou à câmera.
+            {isTauri()
+              ? "A escolha fica salva neste computador e vale na chamada em curso."
+              : "A escolha fica salva neste navegador. Os nomes só aparecem depois que o navegador liberar o acesso ao microfone ou à câmera."}
           </DialogDescription>
         </DialogHeader>
         {FIELDS.map(({ kind, label }) => {

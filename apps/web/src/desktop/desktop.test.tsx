@@ -17,6 +17,7 @@ import { server } from "@/test/server";
 import { bootstrapDesktop } from "./bootstrap";
 import { gatewayConnection } from "./connection";
 import * as ipc from "./ipc";
+import { NativeVoiceEngine } from "./native-engine";
 import { resetNativeNotifier, sendNativeNotification } from "./notifier";
 import {
   clearSessionToken,
@@ -309,16 +310,23 @@ describe("tela de notificações no desktop", () => {
 });
 
 describe("voz no desktop (RF12.2)", () => {
-  it("sem engine nativa recusa com mensagem clara e nunca cai no WebRTC do WebView", async () => {
+  it("o bootstrap instala a engine NATIVA (nunca a do WebRTC do WebView)", async () => {
     await bootstrapDesktop();
+    const engine = createVoiceEngine();
+    expect(engine).toBeInstanceOf(NativeVoiceEngine);
+    expect(engine.state).toBe("disconnected");
+  });
+
+  it("sem engine registrada recusa com mensagem clara e nunca cai no WebRTC do WebView", () => {
+    setVoiceEngineFactory(desktopVoiceEngineFactory);
     expect(() => createVoiceEngine()).toThrow(VOICE_UNAVAILABLE_MESSAGE);
     expect(() => desktopVoiceEngineFactory()).toThrow(
       "Voz no desktop ainda não disponível nesta versão",
     );
   });
 
-  it("entrar numa chamada mostra o aviso e não pede token ao servidor", async () => {
-    await bootstrapDesktop();
+  it("sem engine registrada, entrar numa chamada mostra o aviso e não pede token ao servidor", async () => {
+    setVoiceEngineFactory(desktopVoiceEngineFactory);
     let tokenRequests = 0;
     server.use(
       http.post("*/api/channels/:id/voice/token", () => {
@@ -337,7 +345,38 @@ describe("voz no desktop (RF12.2)", () => {
     expect(tokenRequests).toBe(0);
   });
 
-  it("a 7b registra a engine nativa pelo ponto de extensão", () => {
+  it("entrar numa chamada no desktop pede o token e conecta pelo núcleo Rust", async () => {
+    const calls: string[] = [];
+    vi.spyOn(ipc, "invoke").mockImplementation((async (cmd: string) => {
+      calls.push(cmd);
+      return undefined;
+    }) as never);
+    vi.spyOn(ipc, "createChannel").mockImplementation((async (onmessage: unknown) => ({
+      onmessage,
+    })) as never);
+    server.use(
+      http.post("*/api/channels/:id/voice/token", () =>
+        HttpResponse.json({
+          token: "aaa.bbb.ccc",
+          url: "wss://spook-rtc.dottadigital.com",
+          can_publish: true,
+        }),
+      ),
+    );
+    await bootstrapDesktop();
+    const ok = await joinVoice({
+      channelId: "c1",
+      guildId: "g1",
+      channelName: "Geral",
+      canSpeak: true,
+    });
+    expect(ok).toBe(true);
+    expect(calls).toContain("voice_connect");
+    expect(calls).toContain("voice_set_microphone");
+    await resetVoiceController();
+  });
+
+  it("registerNativeVoiceEngine continua sendo o ponto de extensão", () => {
     const native = { state: "disconnected" } as never;
     registerNativeVoiceEngine(() => native);
     expect(desktopVoiceEngineFactory()).toBe(native);

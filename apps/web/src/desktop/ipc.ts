@@ -6,3 +6,13 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   const core = await import("@tauri-apps/api/core");
   return core.invoke<T>(cmd, args);
 }
+
+/** Canal Rust → webview (`tauri::ipc::Channel`). O handler recebe JSON ou, no vídeo, bytes crus. */
+export type IpcChannel<T> = { onmessage: (message: T) => void };
+
+export async function createChannel<T>(onmessage: (message: T) => void): Promise<IpcChannel<T>> {
+  const core = await import("@tauri-apps/api/core");
+  const channel = new core.Channel<T>();
+  channel.onmessage = onmessage;
+  return channel;
+}
