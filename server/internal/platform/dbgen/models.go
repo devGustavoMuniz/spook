@@ -8,6 +8,67 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Channel struct {
+	ID            int64
+	Type          int16
+	GuildID       *int64
+	ParentID      *int64
+	Name          *string
+	Position      int32
+	OwnerID       *int64
+	LastMessageID *int64
+	CreatedAt     pgtype.Timestamptz
+}
+
+type Guild struct {
+	ID        int64
+	Name      string
+	IconKey   *string
+	OwnerID   int64
+	CreatedAt pgtype.Timestamptz
+}
+
+type GuildMember struct {
+	GuildID  int64
+	UserID   int64
+	Nickname *string
+	JoinedAt pgtype.Timestamptz
+}
+
+type Invite struct {
+	Code      string
+	GuildID   int64
+	CreatorID int64
+	MaxUses   *int32
+	Uses      int32
+	ExpiresAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
+type MemberRole struct {
+	GuildID int64
+	UserID  int64
+	RoleID  int64
+}
+
+type Message struct {
+	ID        int64
+	ChannelID int64
+	AuthorID  int64
+	Content   string
+	EditedAt  pgtype.Timestamptz
+	DeletedAt pgtype.Timestamptz
+}
+
+type Role struct {
+	ID          int64
+	GuildID     int64
+	Name        string
+	Color       *int32
+	Position    int32
+	Permissions int64
+}
+
 type Session struct {
 	ID        int64
 	UserID    int64
