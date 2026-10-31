@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type S3 struct {
@@ -31,6 +32,10 @@ type Config struct {
 	// AllowedOrigins são as origens extras aceitas no handshake do gateway, além do próprio host
 	// (SPOOK_ALLOWED_ORIGINS, separadas por vírgula).
 	AllowedOrigins []string
+	// PresenceOfflineGrace é a tolerância antes de declarar offline quem perdeu a última sessão
+	// (SPOOK_PRESENCE_OFFLINE_GRACE, duration do Go; zero = padrão de 15 s). Existe para o E2E usar
+	// um valor curto; em produção deixe sem definir.
+	PresenceOfflineGrace time.Duration
 }
 
 // DefaultAllowedOrigins são as origens do app desktop (Tauri) no macOS/Linux e no Windows.
@@ -66,6 +71,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("SPOOK_NODE_ID inválido: %w", err)
 		}
 		c.NodeID = n
+	}
+	if v := os.Getenv("SPOOK_PRESENCE_OFFLINE_GRACE"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return Config{}, fmt.Errorf("SPOOK_PRESENCE_OFFLINE_GRACE inválido: %q", v)
+		}
+		c.PresenceOfflineGrace = d
 	}
 	if c.S3.Enabled() && (c.S3.AccessKeyID == "" || c.S3.SecretAccessKey == "") {
 		return Config{}, errors.New("S3_ENDPOINT definido sem S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY")

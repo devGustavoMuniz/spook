@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadRequiresDatabaseURL(t *testing.T) {
 	t.Setenv("SPOOK_DATABASE_URL", "")
@@ -59,5 +62,21 @@ func TestLoadAllowedOrigins(t *testing.T) {
 	t.Setenv("SPOOK_ALLOWED_ORIGINS", "")
 	if c, _ = Load(); len(c.AllowedOrigins) != 0 {
 		t.Fatalf("vazio explícito desliga as origens extras: %v", c.AllowedOrigins)
+	}
+}
+
+func TestLoadPresenceOfflineGrace(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	c, err := Load()
+	if err != nil || c.PresenceOfflineGrace != 0 {
+		t.Fatalf("padrão = %v, %v", c.PresenceOfflineGrace, err)
+	}
+	t.Setenv("SPOOK_PRESENCE_OFFLINE_GRACE", "2s")
+	if c, err = Load(); err != nil || c.PresenceOfflineGrace != 2*time.Second {
+		t.Fatalf("2s = %v, %v", c.PresenceOfflineGrace, err)
+	}
+	t.Setenv("SPOOK_PRESENCE_OFFLINE_GRACE", "abc")
+	if _, err = Load(); err == nil {
+		t.Fatal("esperava erro para duração inválida")
 	}
 }

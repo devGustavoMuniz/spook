@@ -22,6 +22,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/migrate"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/storage"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/telemetry"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
 )
 
 func main() {
@@ -106,7 +107,7 @@ func run() error {
 		avatars = s
 	}
 
-	a, err := app.Build(ctx, app.Deps{Cfg: cfg, Pool: pool, Storage: avatars})
+	a, err := app.Build(ctx, app.Deps{Cfg: cfg, Pool: pool, Storage: avatars, Presence: presence.Config{OfflineGrace: cfg.PresenceOfflineGrace}})
 	if err != nil {
 		return err
 	}

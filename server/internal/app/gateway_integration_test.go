@@ -528,7 +528,9 @@ func TestGatewayDropDoesNotAffectOthers(t *testing.T) {
 func TestGatewaySlowConsumerIsCut(t *testing.T) {
 	e := newEnvWith(t, func(d *Deps) {
 		gwCfg(d)
-		d.Gateway = gateway.Config{SendQueue: 16, BufferSize: 64, ResumeWindow: 30 * time.Second}
+		// Fila folgada o bastante para o consumidor RÁPIDO nunca estourá-la por um atraso do próprio teste (8 produtores
+		// em rajada); o LENTO é cortado porque o volume (~19 MB) excede os buffers TCP do loopback (~10 MB) + a fila.
+		d.Gateway = gateway.Config{SendQueue: 128, BufferSize: 64, ResumeWindow: 30 * time.Second}
 	})
 	owner, slow, fast := e.newActor(t, "dono"), e.newActor(t, "lento"), e.newActor(t, "rapido")
 	g := owner.createGuild(t, "Lentos")
@@ -551,8 +553,8 @@ func TestGatewaySlowConsumerIsCut(t *testing.T) {
 	fc := fast.connect(t)
 	fc.identify()
 
-	const total = 1200
-	big := strings.Repeat("💥", 1500) // ~6 KB por mensagem
+	const total = 2400
+	big := strings.Repeat("💥", 2000) // ~8 KB por mensagem (máximo de 2.000 caracteres)
 	var wg sync.WaitGroup
 	for w := 0; w < 8; w++ {
 		wg.Add(1)
