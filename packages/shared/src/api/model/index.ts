@@ -37,6 +37,7 @@ export * from "./requestGuildIconUploadRequestContentType";
 export * from "./requestGuildIconUploadResponse";
 export * from "./rolePayload";
 export * from "./sessionBody";
+export * from "./ticketBody";
 export * from "./transferGuildRequest";
 export * from "./updateChannelInputBody";
 export * from "./updateGuildRequest";

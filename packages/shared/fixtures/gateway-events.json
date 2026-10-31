@@ -1,0 +1,443 @@
+{
+  "ack": {
+    "op": 11,
+    "t": null,
+    "s": null,
+    "d": null
+  },
+  "close_codes": {
+    "already_identified": 4005,
+    "going_away": 1001,
+    "heartbeat_timeout": 4009,
+    "identify_timeout": 4006,
+    "invalid_op": 4001,
+    "not_identified": 4003,
+    "rate_limited": 4029,
+    "session_taken_over": 4002,
+    "slow_consumer": 4008,
+    "unknown": 4000
+  },
+  "dispatch": {
+    "CHANNEL_CREATE": {
+      "op": 0,
+      "t": "CHANNEL_CREATE",
+      "s": 11,
+      "d": {
+        "id": "300",
+        "type": 0,
+        "guild_id": "100",
+        "parent_id": "200",
+        "name": "geral",
+        "position": 0,
+        "last_message_id": "900",
+        "created_at": "2026-10-31T12:00:00Z"
+      }
+    },
+    "CHANNEL_DELETE": {
+      "op": 0,
+      "t": "CHANNEL_DELETE",
+      "s": 13,
+      "d": {
+        "id": "300",
+        "type": 0,
+        "guild_id": "100",
+        "parent_id": "200",
+        "name": "geral",
+        "position": 0,
+        "last_message_id": "900",
+        "created_at": "2026-10-31T12:00:00Z"
+      }
+    },
+    "CHANNEL_UPDATE": {
+      "op": 0,
+      "t": "CHANNEL_UPDATE",
+      "s": 12,
+      "d": {
+        "id": "300",
+        "type": 0,
+        "guild_id": "100",
+        "parent_id": "200",
+        "name": "geral",
+        "position": 0,
+        "last_message_id": "900",
+        "created_at": "2026-10-31T12:00:00Z"
+      }
+    },
+    "GUILD_CREATE": {
+      "op": 0,
+      "t": "GUILD_CREATE",
+      "s": 5,
+      "d": {
+        "id": "100",
+        "name": "Spook HQ",
+        "icon_key": null,
+        "owner_id": "10",
+        "created_at": "2026-10-31T12:00:00Z",
+        "roles": [
+          {
+            "id": "400",
+            "guild_id": "100",
+            "name": "Moderador",
+            "color": 16746496,
+            "position": 1,
+            "permissions": 320,
+            "is_everyone": false
+          },
+          {
+            "id": "100",
+            "guild_id": "100",
+            "name": "@everyone",
+            "color": null,
+            "position": 0,
+            "permissions": 7904,
+            "is_everyone": true
+          }
+        ],
+        "channels": [
+          {
+            "id": "200",
+            "type": 2,
+            "guild_id": "100",
+            "parent_id": null,
+            "name": "Canais",
+            "position": 0,
+            "last_message_id": null,
+            "created_at": "2026-10-31T12:00:00Z"
+          },
+          {
+            "id": "300",
+            "type": 0,
+            "guild_id": "100",
+            "parent_id": "200",
+            "name": "geral",
+            "position": 0,
+            "last_message_id": "900",
+            "created_at": "2026-10-31T12:00:00Z"
+          },
+          {
+            "id": "301",
+            "type": 1,
+            "guild_id": "100",
+            "parent_id": "200",
+            "name": "Geral",
+            "position": 1,
+            "last_message_id": null,
+            "created_at": "2026-10-31T12:00:00Z"
+          }
+        ],
+        "permissions": 7904,
+        "is_owner": false,
+        "my_role_ids": [
+          "400"
+        ]
+      }
+    },
+    "GUILD_DELETE": {
+      "op": 0,
+      "t": "GUILD_DELETE",
+      "s": 7,
+      "d": {
+        "id": "100"
+      }
+    },
+    "GUILD_MEMBER_ADD": {
+      "op": 0,
+      "t": "GUILD_MEMBER_ADD",
+      "s": 8,
+      "d": {
+        "guild_id": "100",
+        "user_id": "11",
+        "nickname": "Gu",
+        "joined_at": "2026-10-31T12:00:00Z",
+        "username": "gustavo",
+        "display_name": "Gustavo",
+        "role_ids": [
+          "400"
+        ]
+      }
+    },
+    "GUILD_MEMBER_REMOVE": {
+      "op": 0,
+      "t": "GUILD_MEMBER_REMOVE",
+      "s": 10,
+      "d": {
+        "guild_id": "100",
+        "user_id": "11"
+      }
+    },
+    "GUILD_MEMBER_UPDATE": {
+      "op": 0,
+      "t": "GUILD_MEMBER_UPDATE",
+      "s": 9,
+      "d": {
+        "guild_id": "100",
+        "user_id": "11",
+        "nickname": "Gu",
+        "joined_at": "2026-10-31T12:00:00Z",
+        "username": "gustavo",
+        "display_name": "Gustavo",
+        "role_ids": [
+          "400"
+        ]
+      }
+    },
+    "GUILD_UPDATE": {
+      "op": 0,
+      "t": "GUILD_UPDATE",
+      "s": 6,
+      "d": {
+        "id": "100",
+        "name": "Spook HQ",
+        "icon_key": null,
+        "owner_id": "10",
+        "created_at": "2026-10-31T12:00:00Z"
+      }
+    },
+    "MESSAGE_CREATE": {
+      "op": 0,
+      "t": "MESSAGE_CREATE",
+      "s": 2,
+      "d": {
+        "id": "901",
+        "channel_id": "300",
+        "author": {
+          "id": "10",
+          "username": "gustavo"
+        },
+        "content": "Olá, Spook!",
+        "edited_at": null,
+        "created_at": "2026-10-31T12:00:00Z"
+      }
+    },
+    "MESSAGE_DELETE": {
+      "op": 0,
+      "t": "MESSAGE_DELETE",
+      "s": 4,
+      "d": {
+        "id": "901",
+        "channel_id": "300",
+        "guild_id": "100"
+      }
+    },
+    "MESSAGE_UPDATE": {
+      "op": 0,
+      "t": "MESSAGE_UPDATE",
+      "s": 3,
+      "d": {
+        "id": "901",
+        "channel_id": "300",
+        "author": {
+          "id": "10",
+          "username": "gustavo"
+        },
+        "content": "Olá, Spook! (editada)",
+        "edited_at": "2026-10-31T12:01:00Z",
+        "created_at": "2026-10-31T12:00:00Z"
+      }
+    },
+    "PRESENCE_UPDATE": {
+      "op": 0,
+      "t": "PRESENCE_UPDATE",
+      "s": 18,
+      "d": {
+        "user_id": "11",
+        "status": "online"
+      }
+    },
+    "READ_STATE_UPDATE": {
+      "op": 0,
+      "t": "READ_STATE_UPDATE",
+      "s": 20,
+      "d": {
+        "channel_id": "300",
+        "last_read_message_id": "901",
+        "mention_count": 2
+      }
+    },
+    "ROLE_CREATE": {
+      "op": 0,
+      "t": "ROLE_CREATE",
+      "s": 14,
+      "d": {
+        "id": "400",
+        "guild_id": "100",
+        "name": "Moderador",
+        "color": 16746496,
+        "position": 1,
+        "permissions": 320,
+        "is_everyone": false
+      }
+    },
+    "ROLE_DELETE": {
+      "op": 0,
+      "t": "ROLE_DELETE",
+      "s": 16,
+      "d": {
+        "guild_id": "100",
+        "role_id": "400"
+      }
+    },
+    "ROLE_UPDATE": {
+      "op": 0,
+      "t": "ROLE_UPDATE",
+      "s": 15,
+      "d": {
+        "id": "400",
+        "guild_id": "100",
+        "name": "Moderador",
+        "color": 16746496,
+        "position": 1,
+        "permissions": 320,
+        "is_everyone": false
+      }
+    },
+    "TYPING_START": {
+      "op": 0,
+      "t": "TYPING_START",
+      "s": 17,
+      "d": {
+        "channel_id": "300",
+        "guild_id": "100",
+        "user_id": "11",
+        "timestamp": 1793448000
+      }
+    },
+    "VOICE_STATE_UPDATE": {
+      "op": 0,
+      "t": "VOICE_STATE_UPDATE",
+      "s": 19,
+      "d": {
+        "guild_id": "100",
+        "channel_id": "301",
+        "user_id": "11",
+        "self_mute": true,
+        "self_deaf": false,
+        "self_video": true,
+        "self_screen": false
+      }
+    }
+  },
+  "heartbeat": {
+    "op": 1,
+    "t": null,
+    "s": null,
+    "d": 42
+  },
+  "hello": {
+    "op": 10,
+    "t": null,
+    "s": null,
+    "d": {
+      "heartbeat_interval": 41000
+    }
+  },
+  "identify": {
+    "op": 2,
+    "t": null,
+    "s": null,
+    "d": {
+      "client": "web"
+    }
+  },
+  "invalid_session": {
+    "op": 9,
+    "t": null,
+    "s": null,
+    "d": false
+  },
+  "ready": {
+    "op": 0,
+    "t": "READY",
+    "s": 1,
+    "d": {
+      "session_id": "c2Vzc2lvbi1pZA",
+      "user": {
+        "id": "11"
+      },
+      "guilds": [
+        {
+          "id": "100",
+          "name": "Spook HQ",
+          "icon_key": null,
+          "owner_id": "10",
+          "created_at": "2026-10-31T12:00:00Z",
+          "roles": [
+            {
+              "id": "400",
+              "guild_id": "100",
+              "name": "Moderador",
+              "color": 16746496,
+              "position": 1,
+              "permissions": 320,
+              "is_everyone": false
+            },
+            {
+              "id": "100",
+              "guild_id": "100",
+              "name": "@everyone",
+              "color": null,
+              "position": 0,
+              "permissions": 7904,
+              "is_everyone": true
+            }
+          ],
+          "channels": [
+            {
+              "id": "200",
+              "type": 2,
+              "guild_id": "100",
+              "parent_id": null,
+              "name": "Canais",
+              "position": 0,
+              "last_message_id": null,
+              "created_at": "2026-10-31T12:00:00Z"
+            },
+            {
+              "id": "300",
+              "type": 0,
+              "guild_id": "100",
+              "parent_id": "200",
+              "name": "geral",
+              "position": 0,
+              "last_message_id": "900",
+              "created_at": "2026-10-31T12:00:00Z"
+            },
+            {
+              "id": "301",
+              "type": 1,
+              "guild_id": "100",
+              "parent_id": "200",
+              "name": "Geral",
+              "position": 1,
+              "last_message_id": null,
+              "created_at": "2026-10-31T12:00:00Z"
+            }
+          ],
+          "permissions": 7904,
+          "is_owner": false,
+          "my_role_ids": [
+            "400"
+          ]
+        }
+      ]
+    }
+  },
+  "resume": {
+    "op": 3,
+    "t": null,
+    "s": null,
+    "d": {
+      "session_id": "c2Vzc2lvbi1pZA",
+      "seq": 42
+    }
+  },
+  "resumed": {
+    "op": 0,
+    "t": "RESUMED",
+    "s": null,
+    "d": {
+      "session_id": "c2Vzc2lvbi1pZA",
+      "replayed": 3
+    }
+  }
+}

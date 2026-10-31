@@ -167,6 +167,14 @@ servidor. (O `deploy.sh` ainda aceita stdin vazio, que só pula o login; o workf
 O backend usa `CF-Connecting-IP` (`SPOOK_REAL_IP_HEADER`) para o rate limit por IP: confirme que **não** é o IP do
 cloudflared, repetindo 12 logins errados seguidos de uma máquina e vendo o `429`, enquanto outra rede continua OK.
 
+### 6.1.1 Gateway WebSocket (Fase 3)
+`GET /api/gateway` faz upgrade para WebSocket pelo mesmo túnel (o Cloudflare aceita WebSocket sem configuração e derruba
+conexões **sem tráfego por 100 s**: o servidor manda heartbeat a cada 41 s). Variável nova: `SPOOK_ALLOWED_ORIGINS`
+(origens extras aceitas no handshake, separadas por vírgula; padrão `tauri://localhost,http://tauri.localhost`, as do app desktop;
+o próprio host `spook.dottadigital.com` é sempre aceito). O padrão serve à produção, então ela **não** está no
+`docker-compose.prod.yml`; defina-a no `.env` só se precisar de outra origem. Handshake limitado a 50/s por IP (rajada de 200).
+Teste: `websocat -H "Cookie: spook_session=<token>" wss://spook.dottadigital.com/api/gateway` deve mostrar o `{"op":10,...}` (HELLO).
+
 ### 6.2 LiveKit
 Sinalização: `curl -s https://spook-rtc.dottadigital.com` deve responder `OK`. Mídia (a partir da Fase 5): as portas
 `7891/tcp` e `7892/udp` precisam estar alcançáveis em `187.127.26.46`:

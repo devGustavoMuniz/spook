@@ -9,7 +9,8 @@
       "!packages/brand/assets",
       "!server",
       "!apps/web/src/styles.css",
-      "!bench/results/raw"
+      "!bench/results/raw",
+      "!packages/shared/fixtures"
     ]
   },
   "formatter": {

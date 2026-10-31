@@ -17,6 +17,15 @@ Cada fase acrescenta os seus passos aqui, em ordem curta. Marque `[x]` conforme 
 
 ## Fase 3 — Gateway realtime
 
+- [ ] Depois do deploy: abrir o app em **dois navegadores/dispositivos** com contas diferentes no mesmo servidor e conferir que a mensagem enviada por um aparece no outro **sem recarregar**; atrás do Cloudflare, deixar a aba ociosa por mais de 2 minutos e conferir que a conexão **não cai** (o heartbeat de 41 s evita o corte de 100 s do Cloudflare).
+- [ ] Atrás do Cloudflare Tunnel: o upgrade para WebSocket em `wss://spook.dottadigital.com/api/gateway` funciona (DevTools > Network > WS mostra HELLO e READY). Se o Cloudflare recusar o upgrade, conferir se **WebSockets** está ligado em Network no painel da zona (vem ligado por padrão).
+- [ ] Resume na prática: com a aba aberta, desligar o Wi-Fi por ~20 s e religar; as mensagens enviadas nesse intervalo devem aparecer sozinhas (sessão sobrevive 60 s). Passando de 60 s o cliente refaz o IDENTIFY e recarrega os dados.
+- [ ] Permissão: com uma segunda conta, tirar o cargo que dá `VIEW_CHANNEL` dela (ou tirar a permissão do `@everyone`) e conferir que ela para de receber mensagens do canal na hora.
+- [ ] Desktop (Fase 7): o Tauri não manda headers no WebSocket; usar `POST /api/gateway/ticket` e conectar com `?ticket=`. A origem do webview (`tauri://localhost` no macOS/Linux, `http://tauri.localhost` no Windows) já é aceita por padrão; se o app usar outra origem, defina `SPOOK_ALLOWED_ORIGINS` no `.env` do VPS.
+- [ ] Observabilidade em produção: `SPOOK_OTLP_ENDPOINT` segue vazio (métricas e traces do gateway ficam no-op). Para a Fase B, decidir onde roda o coletor OTLP (ver `deploy/README.md`, seção 8); em dev as métricas saem em `http://localhost:8889/metrics` (coletor, formato Prometheus).
+- [ ] Fase B: rodar `bench/scenarios/gateway-connections.js` e `gateway-latency.js` (passos e cuidados em `bench/README.md`, Fase 3) com contas/canal de **teste**, medindo conexões por GB de RAM com `docker stats`. Combinar a carga antes: 10.000 conexões saturam o VPS de 2 vCPU.
+- [ ] Ambiente Docker local sem espaço (`No space left on device` no Postgres derruba testes de integração): `docker builder prune` e `docker system df` liberam espaço.
+
 ## Fase 4 — Presença e DMs
 
 ## Fase 5 — Voz, vídeo e tela
