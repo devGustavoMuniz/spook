@@ -9,7 +9,10 @@ import (
 )
 
 // Handler serve arquivos de dir. Rotas sem arquivo caem em index.html (roteamento no cliente),
-// exceto caminhos de API, que continuam 404. Assets com hash no nome são cacheados para sempre.
+// exceto caminhos de API, que continuam 404. Assets com hash no nome (/assets/) são cacheados para
+// sempre; todo o resto (index.html, sw.js, manifest, ícones) revalida a cada uso — em especial o
+// service worker, que o navegador só atualiza se enxergar o arquivo novo (um sw.js "imutável" prenderia
+// os usuários na versão antiga).
 func Handler(dir string) http.Handler {
 	files := http.FileServer(http.Dir(dir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +29,12 @@ func Handler(dir string) http.Handler {
 		}
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		if strings.HasSuffix(r.URL.Path, ".webmanifest") {
+			// O Go não conhece a extensão; sem isso o manifest sairia como text/plain.
+			w.Header().Set("Content-Type", "application/manifest+json")
 		}
 		files.ServeHTTP(w, r)
 	})
