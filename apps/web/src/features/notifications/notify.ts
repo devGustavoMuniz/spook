@@ -1,4 +1,6 @@
 import { toast } from "sonner";
+import { sendNativeNotification } from "@/desktop/notifier";
+import { isTauri } from "@/desktop/runtime";
 import type { InAppNotification } from "./in-app";
 
 export type NotifyDeps = {
@@ -14,6 +16,19 @@ export type NotifyDeps = {
   };
   focusWindow: () => void;
   toast: (n: InAppNotification, open: () => void) => void;
+  /**
+   * Só no desktop (Tauri): sem Web Push nem `Notification` do navegador, os avisos com a janela sem foco
+   * usam o plugin de notificações nativas do SO. Ausente na web.
+   */
+  desktop?: {
+    focused: () => boolean;
+    send: (n: InAppNotification) => Promise<boolean>;
+  };
+};
+
+const desktopNotifier = {
+  focused: () => document.hasFocus(),
+  send: sendNativeNotification,
 };
 
 export const browserNotifyDeps: NotifyDeps = {
@@ -21,6 +36,9 @@ export const browserNotifyDeps: NotifyDeps = {
   permission: () => (typeof Notification === "undefined" ? "unsupported" : Notification.permission),
   createNotification: (title, opts) => new Notification(title, opts),
   focusWindow: () => window.focus(),
+  get desktop() {
+    return isTauri() ? desktopNotifier : undefined;
+  },
   toast: (n, open) =>
     toast(n.title, {
       // Um toast por canal: a próxima mensagem atualiza o mesmo em vez de empilhar.
@@ -32,7 +50,8 @@ export const browserNotifyDeps: NotifyDeps = {
 };
 
 /**
- * Aviso de DM ou menção em canal que não está à vista. Aba oculta com permissão concedida usa a
+ * Aviso de DM ou menção em canal que não está à vista. No desktop: notificação nativa se a janela está
+ * sem foco, senão toast. Na web, aba oculta com permissão concedida usa a
  * notificação do navegador (o push não chega enquanto há sessão ativa, então não duplica); nos demais
  * casos, toast. `open` leva ao canal.
  */
@@ -42,6 +61,18 @@ export function showInAppNotification(
   deps: NotifyDeps = browserNotifyDeps,
 ) {
   const go = () => open(n.url);
+  if (deps.desktop) {
+    // Janela sem foco: notificação nativa (no desktop o clique só traz o app à frente; não há callback).
+    // Com foco, o aviso é o toast de sempre. Se o SO recusar a notificação, o toast cobre.
+    if (!deps.desktop.focused()) {
+      void deps.desktop.send(n).then((ok) => {
+        if (!ok) deps.toast(n, go);
+      });
+      return;
+    }
+    deps.toast(n, go);
+    return;
+  }
   if (deps.hidden() && deps.permission() === "granted") {
     try {
       const note = deps.createNotification(n.title, {

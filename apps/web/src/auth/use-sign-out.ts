@@ -2,6 +2,8 @@ import { getGetMeQueryKey, isApiError, useLogout } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { isTauri } from "@/desktop/runtime";
+import { clearSessionToken } from "@/desktop/token";
 import { detachPushFromAccount } from "@/features/push/push";
 
 export function useSignOut() {
@@ -12,7 +14,7 @@ export function useSignOut() {
   async function signOut() {
     // Este navegador deixa de receber push desta conta (a sessão ainda vale para o DELETE); nunca trava a saída.
     await Promise.race([
-      detachPushFromAccount().catch(() => {}),
+      isTauri() ? Promise.resolve() : detachPushFromAccount().catch(() => {}),
       new Promise((r) => setTimeout(r, 2000)),
     ]);
     try {
@@ -24,6 +26,7 @@ export function useSignOut() {
         return;
       }
     }
+    await clearSessionToken();
     qc.removeQueries({ queryKey: getGetMeQueryKey() });
     qc.clear();
     await navigate({ to: "/login" });

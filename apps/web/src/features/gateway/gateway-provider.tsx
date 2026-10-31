@@ -1,8 +1,9 @@
-import { GatewayClient, type GatewayEvent, gatewayUrl } from "@spook/shared";
+import { GatewayClient, type GatewayEvent } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { toast } from "sonner";
+import { gatewayConnection } from "@/desktop/connection";
 import { showInAppNotification } from "../notifications/notify";
 import { useReadStateStore } from "../notifications/read-state";
 import { cancelReloadReadStates } from "../notifications/sync";
@@ -62,8 +63,7 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
     };
 
     const client = new GatewayClient({
-      url: gatewayUrl(window.location.origin),
-      client: "web",
+      ...gatewayConnection(),
       socketFactory: gatewaySocketFactory(),
       onStatusChange: (s) => useGatewayStore.getState().setStatus(s),
       onReady: (ready) => {

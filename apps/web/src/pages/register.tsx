@@ -9,6 +9,7 @@ import { describedBy, Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { persistSessionToken } from "@/desktop/token";
 import { applyServerError, messageFor } from "@/lib/errors";
 import { type RegisterForm, registerSchema } from "@/lib/schemas";
 
@@ -31,6 +32,7 @@ export function RegisterPage() {
   const onSubmit = handleSubmit(async (data) => {
     try {
       const res = await registerUser.mutateAsync({ data });
+      await persistSessionToken(res.token);
       qc.setQueryData(getGetMeQueryKey(), res.user);
       if (redirect) router.history.push(redirect);
       else await navigate({ to: "/" });

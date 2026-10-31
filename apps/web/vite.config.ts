@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     port: 5180,
     strictPort: true,
-    proxy: { "/api": backend, "/healthz": backend },
+    proxy: { "/api": { target: backend, ws: true }, "/healthz": backend },
   },
   build: {
     rollupOptions: {

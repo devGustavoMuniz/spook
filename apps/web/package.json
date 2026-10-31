@@ -8,6 +8,7 @@
     "lint": "biome check . && tsc --noEmit",
     "test": "vitest run",
     "build": "tsc --noEmit && vite build",
+    "build:desktop": "tsc --noEmit && vite build --mode desktop --outDir dist-desktop --emptyOutDir",
     "e2e": "playwright test"
   },
   "dependencies": {
@@ -28,6 +29,8 @@
     "@tanstack/react-query": "5.105.0",
     "@tanstack/react-router": "1.170.46",
     "@tanstack/react-virtual": "3.14.24",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-notification": "2.8.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "date-fns": "4.4.0",

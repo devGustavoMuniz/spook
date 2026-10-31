@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { isTauri } from "@/desktop/runtime";
 import { useNotificationPrefs } from "@/features/notifications/prefs";
 import type { PushStatus } from "@/features/push/push";
 import { usePushSettings } from "@/features/push/use-push";
@@ -12,7 +13,7 @@ export function NotificationsPage() {
   return (
     <div className="flex flex-col gap-6">
       <InAppCard />
-      <PushCard />
+      {isTauri() ? <NativeCard /> : <PushCard />}
     </div>
   );
 }
@@ -33,11 +34,27 @@ function InAppCard() {
         <Label htmlFor="mute-notifications" className="flex flex-col gap-1">
           Silenciar notificações
           <span className="text-xs font-normal text-muted-foreground">
-            Vale só neste navegador. As contagens de não lidas continuam aparecendo.
+            Vale só neste navegador ou app. As contagens de não lidas continuam aparecendo.
           </span>
         </Label>
         <Switch id="mute-notifications" checked={muted} onCheckedChange={setMuted} />
       </CardContent>
+    </Card>
+  );
+}
+
+/** No app desktop não há Web Push: os avisos saem como notificações nativas do sistema. */
+function NativeCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Notificações do sistema</CardTitle>
+        <CardDescription>
+          Este app usa notificações nativas do sistema. Quando o Spook não está em foco, mensagens
+          diretas e menções aparecem como notificações do seu sistema operacional. Para ajustar ou
+          bloquear, use as configurações de notificações do sistema.
+        </CardDescription>
+      </CardHeader>
     </Card>
   );
 }

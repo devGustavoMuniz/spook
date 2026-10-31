@@ -4,6 +4,7 @@
 export * from "./api/endpoints/auth/auth";
 export * from "./api/endpoints/channels/channels";
 export * from "./api/endpoints/dms/dms";
+export * from "./api/endpoints/gateway/gateway";
 export * from "./api/endpoints/guilds/guilds";
 export * from "./api/endpoints/invites/invites";
 export * from "./api/endpoints/messages/messages";
@@ -15,5 +16,13 @@ export * from "./api/model";
 export * as schemas from "./api/zod/index.zod";
 export * from "./gateway";
 export type { ApiFieldError } from "./http";
-export { ApiError, isApiError, shouldRetry } from "./http";
+export {
+  ApiError,
+  apiUrl,
+  getApiBaseUrl,
+  isApiError,
+  setApiBaseUrl,
+  setRequestHeaders,
+  shouldRetry,
+} from "./http";
 export * from "./permissions";

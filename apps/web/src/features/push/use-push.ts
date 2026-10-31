@@ -1,5 +1,6 @@
 import { isApiError } from "@spook/shared";
 import { useCallback, useEffect, useState } from "react";
+import { isTauri } from "@/desktop/runtime";
 import {
   detectPushStatus,
   disablePush,
@@ -64,6 +65,7 @@ export function usePushSettings() {
 /** Ao entrar na área autenticada, reenvia a inscrição que o navegador já tem (sem pedir nada). */
 export function usePushSync() {
   useEffect(() => {
+    if (isTauri()) return; // desktop: notificações nativas, sem Web Push
     void syncPushSubscription().catch(() => {});
   }, []);
 }

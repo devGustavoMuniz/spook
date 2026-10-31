@@ -6,12 +6,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm infra:up && turbo run dev --parallel",
+    "dev": "pnpm infra:up && turbo run dev --parallel --filter='!@spook/desktop'",
     "infra:up": "docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait postgres garage livekit otel-collector tempo grafana && deploy/garage-init.sh",
     "infra:down": "docker compose --env-file .env -f deploy/docker-compose.yml down",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "build": "turbo run build",
+    "build": "turbo run build --filter='!@spook/desktop'",
     "format": "biome format --write ."
   },
   "devDependencies": {

@@ -111,6 +111,10 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       state.user = { ...sampleUser, email: b.email, username: b.username };
       return HttpResponse.json({ user: state.user }, { status: 201 });
     }),
+    // Desktop: o gateway pede um ticket antes do WebSocket (o socket em si é falso nos testes).
+    http.post("*/api/gateway/ticket", () =>
+      HttpResponse.json({ ticket: "ticket-teste", expires_in: 30 }),
+    ),
     http.post("*/api/auth/logout", () => {
       state.logouts++;
       state.signedIn = false;

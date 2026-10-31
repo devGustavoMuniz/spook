@@ -29,8 +29,8 @@ pnpm --filter @spook/shared generate >/dev/null
 [ "$before" = "$(hash_dir packages/shared/src/api)" ] || { echo "orval gerou diferenças em packages/shared/src/api (rode e commite)"; exit 1; }
 
 step "lint, testes e build (turbo)"
-pnpm turbo run lint test build --force 2>&1 | grep -E "Tasks:|FAIL|ERROR|error TS|issues" || true
-pnpm turbo run lint test build >/dev/null
+pnpm turbo run lint test build --force --filter='!@spook/desktop' 2>&1 | grep -E "Tasks:|FAIL|ERROR|error TS|issues" || true
+pnpm turbo run lint test build --filter='!@spook/desktop' >/dev/null
 
 step "Biome"
 pnpm biome check . >/dev/null
