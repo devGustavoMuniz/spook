@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use libwebrtc::audio_source::native::NativeAudioSource;
@@ -16,7 +16,7 @@ use libwebrtc::prelude::{
 };
 use libwebrtc::video_source::native::NativeVideoSource;
 use libwebrtc::video_stream::native::NativeVideoStream;
-use livekit::options::{TrackPublishOptions, VideoEncoding};
+use livekit::options::{DegradationPreference, TrackPublishOptions, VideoEncoding};
 use livekit::prelude::*;
 use serde::Deserialize;
 use tokio::sync::mpsc;
@@ -30,7 +30,9 @@ use super::error::{classify_connect_message, connect_message, MediaCode, MediaDe
 use super::events::{map_disconnect_reason, map_quality, VoiceEvent};
 use super::frames::encode_jpeg;
 use super::limits::{self, clamp_fps};
-use super::mixer::Mixer;
+use super::mictest::{Feeder, Recorder, RECORD_MS};
+use super::mixer::{AudioSource, Mixer};
+use super::quality::ScreenQuality;
 use super::router::{FrameSink, VideoRouter, ViewParams};
 use super::screen;
 use super::synth::{self, SyntheticInputs, ToneTask};
@@ -72,6 +74,8 @@ pub struct ScreenOptions {
     pub source_id: String,
     /// Áudio do sistema: sem suporte nesta versão (aceito e ignorado).
     pub audio: bool,
+    /// Qualidade (altura, fps, prioridade, bitrate). Ausente = 1080p, 15 fps, nitidez (o que sempre foi).
+    pub quality: Option<ScreenQuality>,
 }
 
 /// Configuração opcional do vídeo mostrado no webview.
@@ -100,6 +104,14 @@ struct Shared {
     closing: AtomicBool,
 }
 
+/// Código tipado (`"in-use"`, `"permission-denied"`...) de um erro de dispositivo, para o evento `mic-test`.
+fn error_code(e: &VoiceError) -> &'static str {
+    match e {
+        VoiceError::Media { code, .. } => code.as_str(),
+        _ => "unknown",
+    }
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -111,6 +123,26 @@ enum MicInput {
     Device(MicCapture),
     Synthetic(ToneTask),
 }
+
+/// Captura de PRÉVIA do microfone (medidor de nível fora da chamada): passa pela mesma cadeia AEC/NS/porta, mas o
+/// áudio nunca é publicado nem tocado. Soltar = parar.
+struct Preview {
+    _capture: MicInput,
+    pump: JoinHandle<()>,
+}
+
+impl Drop for Preview {
+    fn drop(&mut self) {
+        self.pump.abort();
+    }
+}
+
+/// Intervalo do medidor de nível (~20 por segundo).
+const METER_INTERVAL: Duration = Duration::from_millis(50);
+/// Intervalo dos avisos de andamento do teste de microfone.
+const TEST_TICK: Duration = Duration::from_millis(100);
+/// Antecedência com que a gravação do teste é entregue ao alto-falante (o mixer guarda no máximo 200 ms).
+const TEST_LEAD_MS: u64 = 60;
 
 struct MicState {
     track: LocalAudioTrack,
@@ -166,6 +198,12 @@ pub struct VoiceCore {
     next_id: AtomicU64,
     synthetic: Mutex<Option<SyntheticInputs>>,
     apm: Arc<ApmBridge>,
+    /// Canal de eventos do medidor e do teste de microfone (independente do da sala: valem fora de chamada).
+    aux_emit: Arc<Mutex<Option<Emit>>>,
+    monitor_on: AtomicBool,
+    meter: Mutex<Option<JoinHandle<()>>>,
+    preview: Mutex<Option<Preview>>,
+    mic_test: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Default for VoiceCore {
@@ -185,6 +223,11 @@ impl VoiceCore {
             next_id: AtomicU64::new(1),
             synthetic: Mutex::new(None),
             apm: Arc::new(ApmBridge::new(AudioProcessingSettings::default())),
+            aux_emit: Arc::new(Mutex::new(None)),
+            monitor_on: AtomicBool::new(false),
+            meter: Mutex::new(None),
+            preview: Mutex::new(None),
+            mic_test: Mutex::new(None),
         }
     }
 
@@ -244,8 +287,12 @@ impl VoiceCore {
             known: Mutex::new(HashSet::new()),
             closing: AtomicBool::new(false),
         });
-        lock(&self.mixer).clear();
-        lock(&self.mixer).set_deafened(self.deafened.load(Ordering::SeqCst));
+        {
+            let mut mixer = lock(&self.mixer);
+            mixer.clear();
+            mixer.clear_gains(); // os volumes por pessoa valem só enquanto ela está na sala; o web reenvia
+            mixer.set_deafened(self.deafened.load(Ordering::SeqCst));
+        }
 
         // Quem já estava na sala.
         for (identity, _) in room.remote_participants() {
@@ -348,6 +395,8 @@ impl VoiceCore {
         let room = s.room.clone();
         drop(s);
         let _ = room.close().await;
+        // Sem a captura da chamada, o medidor (se ligado) volta a usar a prévia.
+        let _ = self.refresh_preview(false).await;
     }
 
     pub async fn is_connected(&self) -> bool {
@@ -368,6 +417,7 @@ impl VoiceCore {
                 mic.track.mute();
             }
             s.emit_local_media();
+            let _ = self.refresh_preview(false).await;
             return Ok(());
         }
         self.start_mic_locked(s).await?;
@@ -379,6 +429,9 @@ impl VoiceCore {
         if s.mic.as_ref().is_some_and(|m| m.capture.is_some()) {
             return Ok(());
         }
+        // A captura da chamada passa a alimentar o medidor: a prévia e o teste de microfone cedem o dispositivo.
+        self.abort_mic_test();
+        self.stop_preview();
         let device = self.prefs().input;
         let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
         let probe = self.apm.probe();
@@ -450,6 +503,302 @@ impl VoiceCore {
         self.apm.settings()
     }
 
+    // ----- volume por pessoa -----
+
+    /// Volume local (1,0 = 100%, até 2,0) de uma pessoa e origem. Vale para as faixas de agora e as que ela
+    /// publicar depois, enquanto estiver na sala.
+    pub fn set_participant_volume(&self, identity: &str, source: AudioSource, volume: f32) {
+        lock(&self.mixer).set_participant_gain(identity, source, volume);
+    }
+
+    // ----- medidor de nível, prévia e teste do microfone -----
+
+    fn aux_emitter(&self) -> Arc<Mutex<Option<Emit>>> {
+        self.aux_emit.clone()
+    }
+
+    /// Liga/desliga o medidor (evento `input-level`). Em chamada com o microfone aberto mede a captura real;
+    /// fora dela (ou com o microfone mudo) abre uma captura de PRÉVIA com a mesma cadeia, sem publicar nada.
+    pub async fn set_input_level_monitor(
+        &self,
+        enabled: bool,
+        events: Option<Emit>,
+    ) -> Result<(), VoiceError> {
+        if let Some(e) = events {
+            *lock(&self.aux_emit) = Some(e);
+        }
+        self.monitor_on.store(enabled, Ordering::SeqCst);
+        if !enabled {
+            self.stop_preview();
+            self.update_meter();
+            return Ok(());
+        }
+        self.update_meter();
+        let call_mic = self.call_mic_open().await;
+        match self.refresh_preview(call_mic).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.monitor_on.store(false, Ordering::SeqCst);
+                self.update_meter();
+                Err(e)
+            }
+        }
+    }
+
+    async fn call_mic_open(&self) -> bool {
+        self.session
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|s| s.mic.as_ref())
+            .is_some_and(|m| m.capture.is_some())
+    }
+
+    fn mic_test_running(&self) -> bool {
+        lock(&self.mic_test).is_some()
+    }
+
+    fn stop_preview(&self) {
+        // Soltar o `Preview` aborta a bomba e solta o dispositivo (a luz do SO apaga).
+        let old = lock(&self.preview).take();
+        drop(old);
+    }
+
+    /// Garante que a prévia só exista quando o medidor está ligado e ninguém mais usa o microfone.
+    /// `call_mic`: a captura da chamada está aberta (ela mesma alimenta o medidor).
+    async fn refresh_preview(&self, call_mic: bool) -> Result<(), VoiceError> {
+        if !self.monitor_on.load(Ordering::SeqCst) || call_mic || self.mic_test_running() {
+            self.stop_preview();
+            return Ok(());
+        }
+        if lock(&self.preview).is_some() {
+            return Ok(());
+        }
+        let device = self.prefs().input;
+        let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
+        let probe = self.apm.probe();
+        let capture = match self.synthetic() {
+            Some(syn) => MicInput::Synthetic(synth::start_tone(syn.tone_hz, tx)),
+            None => MicInput::Device(
+                tokio::task::spawn_blocking(move || audio::start_mic(device, tx, Some(probe)))
+                    .await
+                    .map_err(|e| VoiceError::other(e.to_string()))??,
+            ),
+        };
+        let apm = self.apm.clone();
+        let pump = tokio::spawn(async move {
+            while let Some(mut pcm) = rx.recv().await {
+                apm.process_near(&mut pcm);
+            }
+        });
+        *lock(&self.preview) = Some(Preview {
+            _capture: capture,
+            pump,
+        });
+        // Outra chamada concorrente pode ter desligado o medidor enquanto o dispositivo abria.
+        if !self.monitor_on.load(Ordering::SeqCst) {
+            self.stop_preview();
+        }
+        Ok(())
+    }
+
+    /// Mantém a tarefa do medidor viva só enquanto há medidor ligado ou teste de microfone em curso.
+    fn update_meter(&self) {
+        let wanted = self.monitor_on.load(Ordering::SeqCst) || self.mic_test_running();
+        let mut slot = lock(&self.meter);
+        if !wanted {
+            if let Some(h) = slot.take() {
+                h.abort();
+            }
+            return;
+        }
+        if slot.is_some() {
+            return;
+        }
+        let apm = self.apm.clone();
+        let emit = self.aux_emitter();
+        *slot = Some(tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(METER_INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut seen = apm.level().1;
+            loop {
+                ticker.tick().await;
+                let (level, frames) = apm.level();
+                // Sem quadros novos = nenhuma captura ativa: nada de valores velhos.
+                if frames == seen {
+                    continue;
+                }
+                seen = frames;
+                let emit = lock(&emit).clone();
+                if let Some(emit) = emit {
+                    emit(VoiceEvent::InputLevel {
+                        db: level.db,
+                        gate_open: level.gate_open,
+                    });
+                }
+            }
+        }));
+    }
+
+    fn emit_aux(&self, event: VoiceEvent) {
+        let emit = lock(&self.aux_emit).clone();
+        if let Some(emit) = emit {
+            emit(event);
+        }
+    }
+
+    /// Teste de microfone: grava ~5 s do microfone já processado e toca no alto-falante escolhido (nunca ao vivo).
+    /// Recusa com o microfone aberto na chamada (a gravação tocaria no alto-falante com a chamada ouvindo o mesmo
+    /// áudio e geraria realimentação). O andamento sai pelo evento `mic-test`.
+    pub async fn start_mic_test(self: &Arc<Self>, events: Option<Emit>) -> Result<(), VoiceError> {
+        if let Some(e) = events {
+            *lock(&self.aux_emit) = Some(e);
+        }
+        if self.mic_test_running() {
+            return Ok(());
+        }
+        if self.call_mic_open().await {
+            return Err(VoiceError::media(MediaCode::InUse, MediaDevice::Microphone));
+        }
+        // O teste usa o dispositivo: a prévia cede.
+        self.stop_preview();
+        {
+            let mut slot = lock(&self.mic_test);
+            if slot.is_some() {
+                return Ok(());
+            }
+            let core = self.clone();
+            *slot = Some(tokio::spawn(async move {
+                core.run_mic_test().await;
+                // Fim natural: libera o espaço (soltar o handle só o desanexa, a tarefa já acabou).
+                drop(lock(&core.mic_test).take());
+                core.update_meter();
+                let call_mic = core.call_mic_open().await;
+                let _ = core.refresh_preview(call_mic).await;
+            }));
+        }
+        self.update_meter();
+        Ok(())
+    }
+
+    /// Aborta o teste em curso (se houver) e emite `done`, como o web. Devolve se havia um teste.
+    fn abort_mic_test(&self) -> bool {
+        let handle = lock(&self.mic_test).take();
+        let Some(h) = handle else { return false };
+        h.abort(); // solta o microfone e o alto-falante (as capturas morrem com a tarefa)
+        self.emit_aux(VoiceEvent::MicTest {
+            phase: "done",
+            remaining_ms: None,
+            error: None,
+        });
+        self.update_meter();
+        true
+    }
+
+    /// Interrompe o teste de microfone (idempotente) e devolve a prévia, se o medidor estiver ligado.
+    pub async fn cancel_mic_test(&self) {
+        if self.abort_mic_test() {
+            let call_mic = self.call_mic_open().await;
+            let _ = self.refresh_preview(call_mic).await;
+        }
+    }
+
+    async fn run_mic_test(self: &Arc<Self>) {
+        let phase =
+            |phase: &'static str, remaining_ms: Option<u32>, error: Option<&'static str>| {
+                self.emit_aux(VoiceEvent::MicTest {
+                    phase,
+                    remaining_ms,
+                    error,
+                });
+            };
+        phase("requesting", None, None);
+
+        // ---- gravando ----
+        let device = self.prefs().input;
+        let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
+        let probe = self.apm.probe();
+        let capture = match self.synthetic() {
+            Some(syn) => Ok(MicInput::Synthetic(synth::start_tone(syn.tone_hz, tx))),
+            None => {
+                match tokio::task::spawn_blocking(move || audio::start_mic(device, tx, Some(probe)))
+                    .await
+                {
+                    Ok(Ok(c)) => Ok(MicInput::Device(c)),
+                    Ok(Err(e)) => Err(e),
+                    Err(e) => Err(VoiceError::other(e.to_string())),
+                }
+            }
+        };
+        let capture = match capture {
+            Ok(c) => c,
+            Err(e) => {
+                phase("error", None, Some(error_code(&e)));
+                return;
+            }
+        };
+        let mut rec = Recorder::new(RECORD_MS);
+        phase("recording", Some(rec.remaining_ms()), None);
+        let mut last = Instant::now();
+        loop {
+            // Sem quadros por 3 s = o dispositivo travou: avisa em vez de ficar "gravando" para sempre.
+            let mut pcm = match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
+                Ok(Some(p)) => p,
+                _ => {
+                    phase("error", None, Some("unknown"));
+                    return;
+                }
+            };
+            self.apm.process_near(&mut pcm);
+            let full = rec.push(&pcm);
+            if full {
+                break;
+            }
+            if last.elapsed() >= TEST_TICK {
+                last = Instant::now();
+                phase("recording", Some(rec.remaining_ms()), None);
+            }
+        }
+        drop(capture); // fecha o microfone ANTES de tocar: nunca ao vivo
+        let samples = rec.into_samples();
+
+        // ---- reproduzindo no alto-falante escolhido ----
+        let mixer = Arc::new(Mutex::new(Mixer::new()));
+        let output = self.prefs().output;
+        let playback = match audio::start_playback(output, mixer.clone(), None) {
+            Ok(p) => p,
+            Err(e) => {
+                phase("error", None, Some(error_code(&e)));
+                return;
+            }
+        };
+        let mut feeder = Feeder::new(samples);
+        let total = feeder.total_ms();
+        phase("playing", Some(total), None);
+        let started = Instant::now();
+        let mut ticker = tokio::time::interval(Duration::from_millis(10));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last = Instant::now();
+        loop {
+            ticker.tick().await;
+            let elapsed = started.elapsed().as_millis() as u64;
+            let chunk = feeder.due(elapsed + TEST_LEAD_MS);
+            if !chunk.is_empty() {
+                lock(&mixer).push("mic-test", chunk);
+            }
+            if last.elapsed() >= TEST_TICK {
+                last = Instant::now();
+                phase("playing", Some(feeder.remaining_ms(elapsed)), None);
+            }
+            // Deixa o que sobrou na fila (até 200 ms) terminar de sair antes de fechar.
+            if feeder.all_sent() && elapsed >= u64::from(total) + 250 {
+                break;
+            }
+        }
+        drop(playback);
+        phase("done", None, None);
+    }
+
     /// Ensurdecer: para de tocar o áudio remoto (o microfone é decisão do controlador da UI).
     pub fn set_deafened(&self, deafened: bool) {
         self.deafened.store(deafened, Ordering::SeqCst);
@@ -484,6 +833,15 @@ impl VoiceCore {
             }
         }
         let mut guard = self.session.lock().await;
+        if kind == DeviceKind::AudioInput && lock(&self.preview).is_some() {
+            // O medidor usa o microfone novo: reabre a prévia.
+            self.stop_preview();
+            let call_mic = guard
+                .as_ref()
+                .and_then(|s| s.mic.as_ref())
+                .is_some_and(|m| m.capture.is_some());
+            self.refresh_preview(call_mic).await?;
+        }
         let Some(s) = guard.as_mut() else {
             return Ok(());
         };
@@ -631,8 +989,10 @@ impl VoiceCore {
         if opts.audio {
             log::info!("áudio do sistema não é suportado nesta versão; compartilhando só o vídeo");
         }
-        let fps = limits::SHARE_FPS;
-        let max = limits::SHARE_MAX;
+        // Sem `quality` vale o que sempre foi: 1080p, 15 fps, nitidez, 2,5 Mbps.
+        let quality = opts.quality.unwrap_or_default().normalized();
+        let fps = quality.fps;
+        let max = quality.max_size();
         let source = NativeVideoSource::new(
             VideoResolution {
                 width: max.0,
@@ -640,12 +1000,13 @@ impl VoiceCore {
             },
             true,
         );
-        let out = VideoOut::new(
+        let out = VideoOut::with_fps_cap(
             source.clone(),
             self.router.clone(),
             LOCAL_SCREEN_ID.into(),
             fps,
             max,
+            limits::MAX_SHARE_FPS,
         );
         let capture: VideoInput = match self.synthetic() {
             Some(syn) => Box::new(synth::start_video(out, syn).map_err(VoiceError::other)?),
@@ -656,8 +1017,14 @@ impl VoiceCore {
             source: TrackSource::Screenshare,
             simulcast: false,
             video_encoding: Some(VideoEncoding {
-                max_bitrate: 2_500_000,
+                max_bitrate: quality.max_bitrate_bps(),
                 max_framerate: fps as f64,
+            }),
+            // Nitidez = manter a resolução (descarta quadros se faltar banda); fluidez = manter os quadros.
+            degradation_preference: Some(if quality.keeps_resolution() {
+                DegradationPreference::MaintainResolution
+            } else {
+                DegradationPreference::MaintainFramerate
             }),
             ..Default::default()
         };
@@ -821,8 +1188,12 @@ fn spawn_remote_video(
 fn spawn_remote_audio(
     mixer: Arc<Mutex<Mixer>>,
     sid: String,
+    identity: String,
+    source: AudioSource,
     track: RemoteAudioTrack,
 ) -> JoinHandle<()> {
+    // Liga a fila à pessoa e à origem: o volume dela (voz ou áudio da tela) passa a valer nesta faixa.
+    lock(&mixer).bind(&sid, &identity, source);
     tokio::spawn(async move {
         let mut stream = NativeAudioStream::with_options(
             track.rtc_track(),
@@ -862,6 +1233,7 @@ async fn run_events(
             RoomEvent::ParticipantDisconnected(p) => {
                 let id = p.identity().to_string();
                 lock(&shared.known).remove(&id);
+                lock(&shared.mixer).forget_participant(&id);
                 emit(VoiceEvent::ParticipantLeft { identity: id });
             }
             RoomEvent::ActiveSpeakersChanged { speakers } => {
@@ -877,7 +1249,18 @@ async fn run_events(
                 let sid = publication.sid().to_string();
                 match track {
                     RemoteTrack::Audio(t) => {
-                        let task = spawn_remote_audio(shared.mixer.clone(), sid.clone(), t);
+                        // O áudio da tela vem como `ScreenshareAudio`; o resto é voz.
+                        let source = match publication.source() {
+                            TrackSource::ScreenshareAudio => AudioSource::Screen,
+                            _ => AudioSource::Voice,
+                        };
+                        let task = spawn_remote_audio(
+                            shared.mixer.clone(),
+                            sid.clone(),
+                            participant.identity().to_string(),
+                            source,
+                            t,
+                        );
                         if let Some(old) = lock(&shared.remote_audio).insert(sid, task) {
                             old.abort();
                         }

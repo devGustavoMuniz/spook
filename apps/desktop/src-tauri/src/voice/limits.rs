@@ -13,6 +13,8 @@ pub const CAMERA_FPS: u32 = 24;
 pub const VIEW_FPS: u32 = 15;
 pub const MIN_FPS: u32 = 5;
 pub const MAX_FPS: u32 = 30;
+/// Teto de fps da tela compartilhada (o preset "Fluidez" do web chega a 60).
+pub const MAX_SHARE_FPS: u32 = 60;
 pub const JPEG_QUALITY: u8 = 70;
 /// Quadros enviados ao webview sem confirmação (`voice_video_ack`) antes de começar a descartar.
 pub const MAX_IN_FLIGHT: u32 = 2;
@@ -46,7 +48,12 @@ pub struct FpsLimiter {
 
 impl FpsLimiter {
     pub fn new(fps: u32) -> Self {
-        let fps = clamp_fps(fps);
+        Self::with_max(fps, MAX_FPS)
+    }
+
+    /// Como `new`, mas com outro teto de fps (a tela compartilhada pode ir a 60).
+    pub fn with_max(fps: u32, max_fps: u32) -> Self {
+        let fps = fps.clamp(MIN_FPS, max_fps.max(MIN_FPS));
         Self {
             interval: Duration::from_micros(1_000_000 / fps as u64),
             last: None,

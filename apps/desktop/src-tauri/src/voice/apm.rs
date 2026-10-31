@@ -22,6 +22,7 @@
 //! configuração em execução, então mudar AEC/AGC/Padrão recria o módulo (o AEC reconverge em ~1 s). Ligar ou
 //! desligar o Forte NÃO recria o APM (só liga/desliga o RNNoise, com crossfade).
 
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use libwebrtc::native::apm::AudioProcessingModule;
@@ -29,6 +30,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::audio::{FRAME_SAMPLES, SAMPLE_RATE};
 use super::delay::{DelayEstimator, LatencyProbe, DEFAULT_DELAY_MS};
+use super::gate::{GateLevel, InputSensitivity, NoiseGate};
 use super::rnnoise::Denoiser;
 
 /// Dica de atraso padrão (sem timestamps do cpal).
@@ -71,12 +73,14 @@ impl<'de> Deserialize<'de> for NoiseSuppressionLevel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AudioProcessingSettings {
     pub echo_cancellation: bool,
     pub noise_suppression: NoiseSuppressionLevel,
     pub auto_gain_control: bool,
+    /// Porta de ruído (depois do NS/RNNoise). Ausente = desligada (formato antigo continua válido).
+    pub input_sensitivity: InputSensitivity,
 }
 
 impl Default for AudioProcessingSettings {
@@ -86,6 +90,7 @@ impl Default for AudioProcessingSettings {
             echo_cancellation: true,
             noise_suppression: NoiseSuppressionLevel::Standard,
             auto_gain_control: true,
+            input_sensitivity: InputSensitivity::default(),
         }
     }
 }
@@ -116,6 +121,7 @@ struct Inner {
     settings: AudioProcessingSettings,
     apm: Option<AudioProcessingModule>,
     denoiser: Denoiser,
+    gate: NoiseGate,
     delay_ms: i32,
     estimator: DelayEstimator,
     frames_since_delay_update: u32,
@@ -141,6 +147,10 @@ pub struct ApmBridge {
     inner: Mutex<Inner>,
     /// Latências medidas nos callbacks do cpal (átomos; ver `delay.rs`).
     probe: Arc<LatencyProbe>,
+    /// Último nível medido depois de toda a cadeia (átomos: o medidor lê sem tocar no `Mutex` do áudio).
+    level_db: AtomicU32,
+    level_open: AtomicBool,
+    level_frames: AtomicU64,
 }
 
 impl ApmBridge {
@@ -152,6 +162,7 @@ impl ApmBridge {
                 settings,
                 apm: build(settings),
                 denoiser,
+                gate: NoiseGate::new(SAMPLE_RATE, settings.input_sensitivity),
                 delay_ms: DEFAULT_STREAM_DELAY_MS,
                 estimator: DelayEstimator::new(),
                 frames_since_delay_update: 0,
@@ -159,6 +170,9 @@ impl ApmBridge {
                 far_frames: 0,
             }),
             probe: Arc::new(LatencyProbe::new()),
+            level_db: AtomicU32::new((-100f32).to_bits()),
+            level_open: AtomicBool::new(false),
+            level_frames: AtomicU64::new(0),
         }
     }
 
@@ -184,7 +198,20 @@ impl ApmBridge {
         }
         g.denoiser
             .set_enabled(settings.noise_suppression == NoiseSuppressionLevel::Strong);
+        g.gate.configure(settings.input_sensitivity);
         g.settings = settings;
+    }
+
+    /// Último nível (dBFS, depois da supressão e da porta) e quantos quadros já foram medidos no total
+    /// (o medidor só emite quando esse contador anda: sem captura, nada de valores velhos).
+    pub fn level(&self) -> (GateLevel, u64) {
+        (
+            GateLevel {
+                db: f32::from_bits(self.level_db.load(Ordering::Relaxed)),
+                gate_open: self.level_open.load(Ordering::Relaxed),
+            },
+            self.level_frames.load(Ordering::Relaxed),
+        )
     }
 
     /// Define a dica de atraso à mão (e a mantém até a próxima estimativa).
@@ -222,6 +249,12 @@ impl ApmBridge {
         }
         // 2) RNNoise (Forte), por último, logo antes do NativeAudioSource.
         processed |= g.denoiser.process(frame);
+        // 3) Porta de ruído (sensibilidade de entrada), depois de qualquer supressão; também mede o nível.
+        let level = g.gate.process(frame);
+        drop(g);
+        self.level_db.store(level.db.to_bits(), Ordering::Relaxed);
+        self.level_open.store(level.gate_open, Ordering::Relaxed);
+        self.level_frames.fetch_add(1, Ordering::Relaxed);
         processed
     }
 
@@ -262,6 +295,7 @@ impl ApmBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::voice::gate::GateMode;
 
     /// Ruído branco determinístico (LCG), amplitude `amp`, `n` amostras.
     fn noise(n: usize, amp: f32, seed: u32) -> Vec<i16> {
@@ -315,6 +349,7 @@ mod tests {
             echo_cancellation: true,
             noise_suppression: NoiseSuppressionLevel::Off,
             auto_gain_control: false,
+            ..Default::default()
         }
     }
 
@@ -327,6 +362,7 @@ mod tests {
                 echo_cancellation: false,
                 noise_suppression: NoiseSuppressionLevel::Off,
                 auto_gain_control: false,
+                ..Default::default()
             },
             1920,
             0.5,
@@ -372,6 +408,7 @@ mod tests {
             echo_cancellation: false,
             noise_suppression: NoiseSuppressionLevel::Off,
             auto_gain_control: false,
+            ..Default::default()
         };
         let b = ApmBridge::new(off);
         let mut q = vec![123i16; FRAME_SAMPLES];
@@ -394,6 +431,7 @@ mod tests {
             echo_cancellation: false,
             noise_suppression: NoiseSuppressionLevel::Off,
             auto_gain_control: false,
+            ..Default::default()
         });
         assert!(!b.process_near(&mut q));
         b.configure(aec_only());
@@ -474,6 +512,7 @@ mod tests {
             echo_cancellation: aec,
             noise_suppression: NoiseSuppressionLevel::Strong,
             auto_gain_control: agc,
+            ..Default::default()
         }
     }
 
@@ -530,5 +569,68 @@ mod tests {
             b.process_near(&mut q);
         }
         assert_eq!(b.stream_delay_ms(), 120);
+    }
+
+    fn gate_only(mode: GateMode, threshold_db: f32) -> AudioProcessingSettings {
+        AudioProcessingSettings {
+            echo_cancellation: false,
+            noise_suppression: NoiseSuppressionLevel::Off,
+            auto_gain_control: false,
+            input_sensitivity: InputSensitivity { mode, threshold_db },
+        }
+    }
+
+    fn run_frames(b: &ApmBridge, x: &[i16]) -> Vec<i16> {
+        let mut out = Vec::new();
+        for c in x.chunks(FRAME_SAMPLES) {
+            let mut q = c.to_vec();
+            b.process_near(&mut q);
+            out.extend(q);
+        }
+        out
+    }
+
+    #[test]
+    fn gate_closes_on_quiet_noise_and_opens_on_loud_signal_after_the_suppression() {
+        let b = ApmBridge::new(gate_only(GateMode::Manual, -30.0));
+        let quiet = run_frames(&b, &noise(100 * FRAME_SAMPLES, 0.01, 3));
+        assert!(quiet[quiet.len() - 20 * FRAME_SAMPLES..]
+            .iter()
+            .all(|&s| s == 0));
+        let (lvl, frames) = b.level();
+        assert_eq!(frames, 100);
+        assert!(!lvl.gate_open && lvl.db < -30.0, "{lvl:?}");
+        let loud = run_frames(&b, &noise(100 * FRAME_SAMPLES, 0.5, 4));
+        assert!(loud[loud.len() - 20 * FRAME_SAMPLES..]
+            .iter()
+            .any(|&s| s != 0));
+        let (lvl, frames) = b.level();
+        assert_eq!(frames, 200);
+        assert!(lvl.gate_open && lvl.db > -30.0, "{lvl:?}");
+    }
+
+    #[test]
+    fn gate_off_is_transparent_but_the_meter_keeps_counting() {
+        let b = ApmBridge::new(gate_only(GateMode::Off, -50.0));
+        let x = noise(50 * FRAME_SAMPLES, 0.2, 9);
+        let y = run_frames(&b, &x);
+        assert_eq!(x, y);
+        assert_eq!(b.level().1, 50);
+        // ligar a porta na hora (sem recriar o APM) passa a valer
+        b.configure(gate_only(GateMode::Manual, -10.0));
+        let z = run_frames(&b, &noise(100 * FRAME_SAMPLES, 0.05, 10));
+        assert!(z[z.len() - 10 * FRAME_SAMPLES..].iter().all(|&s| s == 0));
+    }
+
+    #[test]
+    fn input_sensitivity_json_is_optional_and_camel_case() {
+        let s: AudioProcessingSettings =
+            serde_json::from_str(r#"{"inputSensitivity":{"mode":"auto","thresholdDb":-50}}"#)
+                .unwrap();
+        assert_eq!(s.input_sensitivity.mode, GateMode::Auto);
+        let d: AudioProcessingSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(d.input_sensitivity.mode, GateMode::Off);
+        let v = serde_json::to_value(s).unwrap();
+        assert_eq!(v["inputSensitivity"]["mode"], "auto");
     }
 }

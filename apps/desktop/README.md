@@ -121,7 +121,7 @@ Não há certificado de assinatura nem notarização, e não há auto-update. Na
   gravação de tela. A permissão de **Gravação de Tela e Áudio do Sistema** é por identidade do binário (TCC): depois de permitir, feche e
   abra o Spook; como a assinatura é *ad-hoc*, o macOS pode pedir de novo a cada build/instalação nova (remova o Spook da lista e adicione
   de novo, ou `tccutil reset ScreenCapture com.dottadigital.spook`).
-- No desktop, clicar numa notificação nativa só traz o app à frente (o plugin não tem callback de clique).
+- O plugin de notificação do desktop não tem callback de clique; o Spook usa uma heurística de foco para abrir o canal certo (veja "Casca do app").
 
 ## Voz, vídeo e tela nativos (Fase 7b)
 
@@ -149,6 +149,55 @@ alto-falante), `scap` (tela e janela) e `nokhwa` (câmera). A interface fala com
   atualizados ao plugar/desplugar durante a chamada (reabra o diálogo); o `.deb`/AppImage pedem glibc >= 2.39 (build em Ubuntu 24.04) e
   `libasound2`, `libpipewire-0.3-0`, `libgbm1`, `libdrm2` e `libdbus-1-3` instalados.
 
+## Volume por pessoa, porta de ruído, teste de microfone e qualidade da tela (desktop)
+
+Contrato definido pelo web (`apps/web/src/features/voice/engine.ts`); resumo da API Rust↔web:
+
+| Comando / evento | O que faz |
+| --- | --- |
+| `voice_set_participant_volume({ identity, source: "voice" \| "screen", volume })` | Ganho local por pessoa e origem, 0 a 2,0 (200%; `0` = silenciada só para mim). Vive no mixer (`voice/mixer.rs`): soma com saturação e rampa linear de 10 ms (sem estalo). Vale para as faixas de agora e as que a pessoa republicar, enquanto ela estiver na sala (o web reenvia ao entrar). O áudio da tela é a faixa `ScreenshareAudio` (hoje o desktop não a publica, mas ouve a de quem publica). |
+| `voice_set_audio_processing({ ..., inputSensitivity?: { mode: "off" \| "auto" \| "manual", thresholdDb } })` | Porta de ruído (`voice/gate.rs`, porta fiel do `gate-worklet.js`) DEPOIS do AEC/NS/RNNoise, em qualquer nível de supressão. Ausente = desligada (formato antigo continua válido). Desligada, o áudio passa intacto, sem atraso; ligada, adiciona 10 ms de lookahead. |
+| `voice_set_input_level_monitor({ enabled, events? })` | Medidor de nível: evento `{ type: "input-level", db, gateOpen }` ~20x por segundo (dBFS depois da supressão e da porta). Fora de chamada abre uma captura de PRÉVIA do microfone (mesma cadeia, sem publicar, sem far-end); ao abrir o microfone na chamada a prévia cede e a captura da chamada alimenta o medidor; com o microfone mudo na chamada a prévia volta. |
+| `voice_start_mic_test({ events? })` / `voice_cancel_mic_test()` | Grava ~5 s do microfone já processado (buffer fixo de 240 mil amostras) e toca no alto-falante escolhido; nunca toca o microfone ao vivo. Eventos `{ type: "mic-test", phase: "requesting" \| "recording" \| "playing" \| "done" \| "error", remainingMs?, error? }`. Com o microfone aberto na chamada o comando recusa com o erro tipado `media/in-use` (o web mostra o aviso). Cancelar emite `done`. |
+| `voice_set_screen_share({ on, options: { sourceId, audio, quality?: { height, fps, priority, maxBitrateKbps? } } })` | Qualidade (`voice/quality.rs`): `height` 720/1080/1440, `fps` 15/30/60 (o limitador de quadros da tela passou a aceitar 60), `priority` `detail`/`motion` (vira `degradation_preference` do LiveKit: manter resolução ou manter fps), teto de bitrate igual à tabela de `screen-quality.ts` (1080p15 = 2,5 Mbps). Sem `quality`: 1080p, 15 fps, nitidez, como sempre foi. A captura (`scap`) roda em `fps` e o funil reduz o quadro para a caixa 16:9 da altura (nunca amplia). PiP segue indisponível. |
+
+`events` é opcional porque o medidor e o teste valem FORA de chamada (não há canal da sala): o `native-engine.ts` cria um canal próprio e o
+reutiliza. Testes sem hardware: `mixer`, `gate`, `quality` e `mictest` são módulos puros (`cargo test --lib mixer:: gate:: quality:: mictest::`).
+
+## Casca do app: bandeja, início com o sistema, contador e clique na notificação
+
+Código em `src-tauri/src/shell.rs` (cola com o Tauri) e `settings.rs`/`badge.rs` (lógica pura, testada).
+
+- **Bandeja** (`tray-icon` do Tauri): ícone da marca, tooltip "Spook" (ou "Spook (3)" com não lidas), menu **Abrir Spook** e **Sair**; clique
+  esquerdo alterna mostrar/ocultar a janela. **Sair** desconecta a voz (espera até 3 s) e encerra de fato; Cmd+Q/último fechamento também.
+  Abrir o app uma segunda vez traz a janela de volta (instância única); no macOS, clicar no Dock com a janela escondida também.
+- **Fechar vai para a bandeja** (padrão LIGADO): a janela é escondida, a voz continua. Na primeira vez uma notificação avisa "O Spook continua
+  rodando na bandeja" (uma só vez, guardado no mesmo arquivo de configurações).
+- **Iniciar com o sistema** (`tauri-plugin-autostart`, padrão DESLIGADO) e **Iniciar minimizado** (padrão DESLIGADO). O item de início passa
+  `--autostart`; "minimizado" só vale nessas aberturas (ou com `--minimized` na linha de comando, para testar): abrir o app pelo ícone mostra a
+  janela sempre. A posição/tamanho da janela é restaurada, mas a visibilidade não.
+- **Configurações** (`/settings/app`, só no desktop; link "Aplicativo" no cabeçalho das configurações): comandos `app_get_settings` e
+  `app_set_settings({ settings: { closeToTray, startWithSystem, startMinimized } })`. Ficam em `app-settings.json` no diretório de
+  configuração do app (nada sensível; o token continua no chaveiro). O autostart é aplicado antes de gravar: se o SO recusar, nada muda e a
+  página mostra o erro.
+- **Contador no ícone** (`app_set_badge({ count })`, com o mesmo número do título `(N) Spook`: menções + DMs não lidas; o web envia com debounce de 250 ms):
+
+  | SO | O que aparece |
+  | --- | --- |
+  | macOS | Número no ícone do Dock (`set_badge_count`) e tooltip da barra de menus. |
+  | Windows | Ícone sobreposto na barra de tarefas (círculo vermelho com o número, gerado em código; "99+" acima de 99) e tooltip da bandeja. |
+  | Linux | Contador do lançador só onde o desktop oferece (Unity/Dash to Dock com libunity); o tooltip da bandeja não existe no AppIndicator, então o número vai no título do ícone onde o painel o mostra. Em geral, só o título da janela `(N) Spook`. |
+
+- **Clicar na notificação abre o canal certo.** O plugin de notificação do desktop não entrega o clique. Heurística: `notifier.ts` guarda
+  `{ url, at }` da última notificação nativa; quando a janela ganha foco (evento de foco da janela do Tauri) ou o Rust a traz à frente
+  (evento `app://activated`: bandeja "Abrir", segunda instância, Dock) em até `NOTIFICATION_CLICK_WINDOW_MS` (10 s, constante em
+  `apps/web/src/desktop/notifier.ts`) e ela ainda não foi usada, o app navega para o canal UMA vez e esquece a notificação.
+  **Limitação:** um alt-tab para o Spook dentro desses 10 s também navega, mesmo sem clicar na notificação.
+- **Linux:** o ícone depende de um host de StatusNotifier/AppIndicator. KDE, XFCE, Cinnamon e MATE têm; o **GNOME precisa da extensão
+  "AppIndicator and KStatusNotifierItem Support"**. Sem ela o app esconde a janela e não há ícone para reabri-la: desligue "Fechar vai para a
+  bandeja" ou abra o Spook de novo (a segunda instância traz a janela). No Linux o clique esquerdo no ícone não chega ao app (limitação do
+  AppIndicator): use o menu. O `.deb` depende de `libayatana-appindicator3-1 | libappindicator3-1`; no build, `libayatana-appindicator3-dev`.
+
 ## Estrutura
 
 ```
@@ -159,6 +208,8 @@ src-tauri/
   src/lib.rs                  plugins, comandos e montagem do app
   src/token.rs                TokenVault + trait TokenStore (chaveiro com fallback em memória) e testes
   src/nav.rs                  guarda de navegação (links externos) e testes
-  src/voice/                  voz, vídeo e tela nativos (core, commands, audio, screen, camera, mixer, router, frames, wire…)
+  src/shell.rs                bandeja, fechar para a bandeja, autostart, contador no ícone, sair (voz desconectada)
+  src/settings.rs  src/badge.rs   configurações em JSON e ícone/rótulo do contador (puros, testados)
+  src/voice/                  voz, vídeo e tela nativos (core, commands, audio, screen, camera, mixer, gate, quality, mictest, router, frames, wire…)
   tests/livekit_integration.rs  integração (#[ignore]) contra o LiveKit de dev
 ```

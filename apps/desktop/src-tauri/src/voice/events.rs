@@ -5,7 +5,7 @@ use livekit::prelude::ConnectionQuality;
 use livekit::DisconnectReason;
 use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(
     tag = "type",
     rename_all = "kebab-case",
@@ -48,6 +48,20 @@ pub enum VoiceEvent {
     /// `client` | `removed` | `network` | `unknown`.
     Disconnected {
         reason: &'static str,
+    },
+    /// Medidor de nível do microfone (~20 por segundo): dBFS depois da supressão e da porta de ruído.
+    InputLevel {
+        db: f32,
+        gate_open: bool,
+    },
+    /// Andamento do teste de microfone. `phase`: `requesting` | `recording` | `playing` | `done` | `error`;
+    /// `error` (só em `error`): `permission-denied` | `not-found` | `in-use` | `unsupported` | `unknown`...
+    MicTest {
+        phase: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        remaining_ms: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<&'static str>,
     },
 }
 
@@ -143,6 +157,32 @@ mod tests {
             serde_json::to_value(VoiceEvent::DevicesChanged).unwrap()["type"],
             "devices-changed"
         );
+        let v = serde_json::to_value(VoiceEvent::InputLevel {
+            db: -42.5,
+            gate_open: true,
+        })
+        .unwrap();
+        assert_eq!(v["type"], "input-level");
+        assert_eq!(v["db"], -42.5);
+        assert_eq!(v["gateOpen"], true);
+        let v = serde_json::to_value(VoiceEvent::MicTest {
+            phase: "recording",
+            remaining_ms: Some(3200),
+            error: None,
+        })
+        .unwrap();
+        assert_eq!(v["type"], "mic-test");
+        assert_eq!(v["phase"], "recording");
+        assert_eq!(v["remainingMs"], 3200);
+        assert!(v.get("error").is_none());
+        let v = serde_json::to_value(VoiceEvent::MicTest {
+            phase: "error",
+            remaining_ms: None,
+            error: Some("in-use"),
+        })
+        .unwrap();
+        assert_eq!(v["error"], "in-use");
+        assert!(v.get("remainingMs").is_none());
         assert_eq!(
             serde_json::to_value(VoiceEvent::SpeakersChanged {
                 identities: vec!["1".into()]

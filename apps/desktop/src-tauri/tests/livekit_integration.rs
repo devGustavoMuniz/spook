@@ -255,6 +255,7 @@ async fn core_publishes_synthetic_audio_and_video_to_another_participant() {
         ScreenOptions {
             source_id: "x".into(),
             audio: true,
+            quality: None,
         },
     )
     .await

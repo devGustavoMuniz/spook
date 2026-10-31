@@ -2,10 +2,16 @@
 //! capacidades nativas: chaveiro do SO para o token, instância única, notificações, estado da janela
 //! e a guarda de navegação (links externos abrem no navegador do sistema).
 //!
+//! A bandeja, o fechar-para-a-bandeja, o início com o sistema e o contador no ícone ficam em `shell`
+//! (lógica pura em `settings` e `badge`).
+//!
 //! Voz, vídeo e tela nativos (Parte 7b, RF12.2) ficam no módulo `voice`: LiveKit Rust SDK + cpal + scap +
 //! nokhwa, sem WebRTC no WebView.
 
+mod badge;
 mod nav;
+mod settings;
+mod shell;
 mod token;
 pub mod voice;
 
@@ -65,28 +71,48 @@ pub fn run() {
     tauri::Builder::default()
         // Instância única precisa ser o primeiro plugin: a segunda execução só traz a janela à frente.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            shell::show_main(app);
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // A visibilidade NÃO é restaurada: quem decide se a janela nasce escondida é `shell::setup`
+        // ("iniciar minimizado"); senão sair com a janela na bandeja faria o app abrir escondido para sempre.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
+        // Início com o sistema (padrão desligado; ligado em `/settings/app`). O argumento marca a abertura automática.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(settings::AUTOSTART_ARG)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(navigation_guard())
         .manage(TokenVault::new(Box::new(KeyringStore)))
         .manage(voice::VoiceState::new())
+        .setup(shell::setup)
+        .on_window_event(shell::on_window_event)
         .invoke_handler(tauri::generate_handler![
             auth_get_token,
             auth_set_token,
             auth_clear_token,
+            shell::app_get_settings,
+            shell::app_set_settings,
+            shell::app_set_badge,
             vc::voice_connect,
             vc::voice_disconnect,
             vc::voice_set_microphone,
             vc::voice_set_deafened,
             vc::voice_set_audio_processing,
             vc::voice_get_audio_processing,
+            vc::voice_set_participant_volume,
+            vc::voice_set_input_level_monitor,
+            vc::voice_start_mic_test,
+            vc::voice_cancel_mic_test,
             vc::voice_set_camera_enabled,
             vc::voice_list_screen_sources,
             vc::voice_set_screen_share,
@@ -96,6 +122,7 @@ pub fn run() {
             vc::voice_video_unsubscribe,
             vc::voice_video_ack
         ])
-        .run(tauri::generate_context!())
-        .expect("erro ao iniciar o Spook");
+        .build(tauri::generate_context!())
+        .expect("erro ao iniciar o Spook")
+        .run(|app, event| shell::on_run_event(app, &event));
 }

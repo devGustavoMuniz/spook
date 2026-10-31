@@ -5,6 +5,7 @@
 import {
   type AudioCapabilities,
   type AudioProcessingOptions,
+  type AudioSource,
   type ConnectionState,
   type ConnectParams,
   type DeviceInfo,
@@ -13,6 +14,9 @@ import {
   Emitter,
   type LinkQuality,
   type LocalMedia,
+  type MediaErrorCode,
+  type MicTestPhase,
+  type ScreenShareQuality,
   type VideoKind,
   type VideoSource,
   VoiceConnectError,
@@ -21,7 +25,7 @@ import {
   VoiceMediaError,
 } from "@/features/voice/engine";
 import { decodeFrame } from "./frame-wire";
-import { createChannel, invoke } from "./ipc";
+import { createChannel, type IpcChannel, invoke } from "./ipc";
 import { toConnectError, toMediaError } from "./native-errors";
 import { pickScreenSource, type ScreenSource } from "./screen-picker";
 
@@ -36,7 +40,12 @@ export type NativeEvent =
   | { type: "link-quality"; quality: LinkQuality }
   | ({ type: "local-media" } & LocalMedia)
   | { type: "devices-changed" }
-  | { type: "disconnected"; reason: DisconnectReason };
+  | { type: "disconnected"; reason: DisconnectReason }
+  | { type: "input-level"; db: number; gateOpen: boolean }
+  | { type: "mic-test"; phase: MicTestPhase; remainingMs?: number; error?: MediaErrorCode };
+
+/** Maior volume por pessoa no desktop (200%): o mixer do Rust só multiplica com saturação. */
+export const NATIVE_MAX_PARTICIPANT_VOLUME = 2;
 
 export type NativeDeps = {
   invoke: typeof invoke;
@@ -176,6 +185,11 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   /** Cada conexão tem um número; eventos de canais antigos são ignorados. */
   private generation = 0;
   private views = new Map<string, TrackView>();
+  /**
+   * Canal de eventos do medidor de nível e do teste de microfone. É separado do canal da sala porque ambos
+   * valem FORA de chamada (o Rust abre uma prévia do microfone). Criado na primeira necessidade.
+   */
+  private aux: Promise<IpcChannel<NativeEvent>> | null = null;
 
   constructor(private readonly deps: NativeDeps = defaultDeps()) {
     super();
@@ -238,7 +252,10 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     }
   }
 
-  async setScreenShareEnabled(enabled: boolean, opts: { audio?: boolean } = {}) {
+  async setScreenShareEnabled(
+    enabled: boolean,
+    opts: { audio?: boolean; quality?: ScreenShareQuality } = {},
+  ) {
     this.requireRoom();
     try {
       if (!enabled) {
@@ -249,9 +266,14 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
       const sourceId = await this.deps.pickScreenSource(sources);
       if (!sourceId) throw new VoiceMediaError("cancelled", "screen");
       // O áudio do sistema ainda não é capturado no desktop (limitação documentada); o Rust ignora o pedido.
+      // `quality` ausente = o padrão do Rust (1080p, 15 fps, nitidez), o mesmo de antes do ajuste.
       await this.deps.invoke("voice_set_screen_share", {
         on: true,
-        options: { sourceId, audio: !!opts.audio },
+        options: {
+          sourceId,
+          audio: !!opts.audio,
+          ...(opts.quality ? { quality: opts.quality } : {}),
+        },
       });
     } catch (err) {
       throw toMediaError(err, "screen");
@@ -268,16 +290,16 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   /**
    * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust). O desktop ainda não captura o áudio do sistema
    * ao compartilhar a tela (limitação documentada): a interface não oferece "Incluir áudio" e explica o porquê.
+   * Volume por pessoa (até 200%), porta de ruído, medidor, teste de microfone e qualidade da tela são do Rust.
+   * O vídeo é um <canvas>: sem PiP confiável nos WebViews.
    */
   readonly audioCapabilities: AudioCapabilities = {
     strongNoiseSuppression: true,
     screenShareAudio: false,
-    // Contrato "volume por pessoa / teste de microfone / qualidade da tela / PiP": desligado até o Rust
-    // implementar (ver SPEC 5.5, "Adicional: volume por pessoa, teste de microfone e qualidade da tela").
-    // `participantVolume` ausente = sem volume por pessoa. O vídeo é um <canvas>: sem PiP confiável.
-    inputSensitivity: false,
-    micTest: false,
-    screenShareQuality: false,
+    participantVolume: { max: NATIVE_MAX_PARTICIPANT_VOLUME },
+    inputSensitivity: true,
+    micTest: true,
+    screenShareQuality: true,
     pictureInPicture: false,
   };
 
@@ -288,10 +310,53 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
         echoCancellation: options.echoCancellation,
         noiseSuppression: options.noiseSuppression,
         autoGainControl: options.autoGainControl,
+        // Porta de ruído (depois do NS/RNNoise). Ausente = desligada no Rust.
+        inputSensitivity: options.inputSensitivity,
       });
     } catch (err) {
       throw toMediaError(err, "microphone");
     }
+  }
+
+  /** Volume local de uma pessoa (0 a 200%). O Rust guarda por identidade e origem e reaplica quando ela republica. */
+  setParticipantVolume(identity: string, source: AudioSource, volume: number) {
+    const v = Math.min(
+      NATIVE_MAX_PARTICIPANT_VOLUME,
+      Math.max(0, Number.isFinite(volume) ? volume : 1),
+    );
+    void this.deps
+      .invoke("voice_set_participant_volume", { identity, source, volume: v })
+      .catch(() => {});
+  }
+
+  private auxChannel(): Promise<IpcChannel<NativeEvent>> {
+    // Sem checagem de geração: valem fora e dentro da chamada.
+    this.aux ??= this.deps.createChannel<NativeEvent>((e) => this.onEvent(e));
+    return this.aux;
+  }
+
+  async setInputLevelMonitor(enabled: boolean): Promise<void> {
+    try {
+      await this.deps.invoke("voice_set_input_level_monitor", {
+        enabled,
+        ...(enabled ? { events: await this.auxChannel() } : {}),
+      });
+    } catch (err) {
+      throw toMediaError(err, "microphone");
+    }
+  }
+
+  async startMicTest(): Promise<void> {
+    try {
+      await this.deps.invoke("voice_start_mic_test", { events: await this.auxChannel() });
+    } catch (err) {
+      // Recusado (microfone aberto na chamada, permissão...): o andamento é sempre pelo evento `mic-test`.
+      this.emit("mic-test", { phase: "error", error: toMediaError(err, "microphone").code });
+    }
+  }
+
+  cancelMicTest(): void {
+    void this.deps.invoke("voice_cancel_mic_test").catch(() => {});
   }
 
   async listDevices(kind: DeviceKind): Promise<DeviceInfo[]> {
@@ -367,6 +432,16 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
         break;
       case "devices-changed":
         this.emit("devices-changed", {});
+        break;
+      case "input-level":
+        this.emit("input-level", { db: e.db, gateOpen: e.gateOpen });
+        break;
+      case "mic-test":
+        this.emit("mic-test", {
+          phase: e.phase,
+          ...(e.remainingMs !== undefined ? { remainingMs: e.remainingMs } : {}),
+          ...(e.error !== undefined ? { error: e.error } : {}),
+        });
         break;
       case "disconnected":
         // O Rust já derrubou a sala (servidor, rede…): limpa e avisa. O nosso próprio `disconnect()` já invalidou a geração.

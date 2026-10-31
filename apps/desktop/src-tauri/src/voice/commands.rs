@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-use tauri::ipc::{Channel, InvokeResponseBody};
+use tauri::ipc::{Channel, InvokeResponseBody, JavaScriptChannelId};
 use tauri::State;
 
 use super::apm::{AudioProcessingSettings, NoiseSuppressionLevel};
@@ -12,6 +12,8 @@ use super::audio::DeviceInfo;
 use super::core::{DeviceKind, Emit, ScreenOptions, ViewOptions, VoiceCore};
 use super::error::{ConnectCode, VoiceError};
 use super::events::VoiceEvent;
+use super::gate::InputSensitivity;
+use super::mixer::AudioSource;
 use super::screen::ScreenSource;
 
 pub struct VoiceState(pub Arc<VoiceCore>);
@@ -67,10 +69,7 @@ pub async fn voice_connect(
     events: Channel<VoiceEvent>,
 ) -> Result<(), VoiceError> {
     validate_connect(&url, &token)?;
-    let emit: Emit = Arc::new(move |e| {
-        let _ = events.send(e);
-    });
-    state.0.connect(&url, &token, emit).await
+    state.0.connect(&url, &token, emitter(events)).await
 }
 
 #[tauri::command]
@@ -99,12 +98,65 @@ pub fn voice_set_audio_processing(
     // Texto (`off|standard|strong`); o booleano das interfaces antigas também é aceito (true = standard).
     noise_suppression: NoiseSuppressionLevel,
     auto_gain_control: bool,
+    // Porta de ruído (`{ mode: "off" | "auto" | "manual", thresholdDb }`); ausente = desligada (formato antigo).
+    input_sensitivity: Option<InputSensitivity>,
 ) {
     state.0.set_audio_processing(AudioProcessingSettings {
         echo_cancellation,
         noise_suppression,
         auto_gain_control,
+        input_sensitivity: input_sensitivity.unwrap_or_default(),
     });
+}
+
+/// Volume local de uma pessoa (1,0 = 100%, até 2,0 = 200%; 0 = silenciada só para mim). `source`: `voice` ou
+/// `screen` (áudio da tela). Vale para as faixas de agora e as que a pessoa republicar enquanto estiver na sala.
+#[tauri::command]
+pub fn voice_set_participant_volume(
+    state: State<'_, VoiceState>,
+    identity: String,
+    source: AudioSource,
+    volume: f32,
+) {
+    state.0.set_participant_volume(&identity, source, volume);
+}
+
+/// Liga/desliga o medidor de nível (evento `input-level` no canal `events`). Fora de chamada abre uma prévia do
+/// microfone (mesma cadeia, sem publicar).
+#[tauri::command]
+pub async fn voice_set_input_level_monitor(
+    state: State<'_, VoiceState>,
+    webview: tauri::Webview,
+    enabled: bool,
+    events: Option<JavaScriptChannelId>,
+) -> Result<(), VoiceError> {
+    // `Channel` só vira argumento obrigatório; opcional, recebemos o id e montamos o canal na janela que chamou.
+    let emit = events.map(|id| emitter(id.channel_on(webview)));
+    state.0.set_input_level_monitor(enabled, emit).await
+}
+
+/// Teste de microfone: grava ~5 s e toca no alto-falante escolhido. Recusa (`in-use`) com o microfone aberto na
+/// chamada. O andamento sai pelo evento `mic-test` do canal `events`.
+#[tauri::command]
+pub async fn voice_start_mic_test(
+    state: State<'_, VoiceState>,
+    webview: tauri::Webview,
+    events: Option<JavaScriptChannelId>,
+) -> Result<(), VoiceError> {
+    let emit = events.map(|id| emitter(id.channel_on(webview)));
+    state.0.start_mic_test(emit).await
+}
+
+#[tauri::command]
+pub async fn voice_cancel_mic_test(state: State<'_, VoiceState>) -> Result<(), VoiceError> {
+    state.0.cancel_mic_test().await;
+    Ok(())
+}
+
+fn emitter(events: Channel<VoiceEvent>) -> Emit {
+    Arc::new(move |e| {
+        let _ = events.send(e);
+    })
 }
 
 #[tauri::command]
@@ -257,6 +309,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(old.noise_suppression, NoiseSuppressionLevel::Off);
+    }
+
+    #[test]
+    fn audio_processing_payload_accepts_the_input_sensitivity() {
+        let s: AudioProcessingSettings = serde_json::from_str(
+            r#"{"echoCancellation":true,"noiseSuppression":"strong","autoGainControl":true,
+                "inputSensitivity":{"mode":"manual","thresholdDb":-42}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            s.input_sensitivity.mode,
+            crate::voice::gate::GateMode::Manual
+        );
+        assert_eq!(s.input_sensitivity.threshold_db, -42.0);
+        // sem o campo (interface antiga) a porta fica desligada
+        let old: AudioProcessingSettings =
+            serde_json::from_str(r#"{"echoCancellation":true}"#).unwrap();
+        assert_eq!(
+            old.input_sensitivity.mode,
+            crate::voice::gate::GateMode::Off
+        );
+    }
+
+    #[test]
+    fn screen_options_carry_the_quality() {
+        let s: ScreenOptions = serde_json::from_str(
+            r#"{"sourceId":"display:1","audio":false,
+                "quality":{"height":1440,"fps":30,"priority":"detail","maxBitrateKbps":6000}}"#,
+        )
+        .unwrap();
+        let q = s.quality.unwrap();
+        assert_eq!(
+            (q.height, q.fps, q.max_bitrate_kbps),
+            (1440, 30, Some(6000))
+        );
+        let d: ScreenOptions = serde_json::from_str(r#"{"sourceId":"x"}"#).unwrap();
+        assert!(d.quality.is_none());
     }
 
     #[test]

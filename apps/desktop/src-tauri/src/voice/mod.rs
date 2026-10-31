@@ -3,7 +3,7 @@
 //! O vídeo remoto vira JPEG e viaja ao webview por `tauri::ipc::Channel` binário.
 //!
 //! Camadas: lógica pura e testável (`limits`, `mixer`, `resample`, `rnnoise`, `delay`, `wire`, `error`, `frames`, `router`,
-//! `events`) → dispositivos (`audio`, `screen`, `camera`, `capture`) → `core` (sala) → `commands` (Tauri).
+//! `events`, `gate`, `quality`, `mictest`) → dispositivos (`audio`, `screen`, `camera`, `capture`) → `core` (sala) → `commands` (Tauri).
 
 pub mod apm;
 pub mod audio;
@@ -15,8 +15,11 @@ pub mod delay;
 pub mod error;
 pub mod events;
 pub mod frames;
+pub mod gate;
 pub mod limits;
+pub mod mictest;
 pub mod mixer;
+pub mod quality;
 pub mod resample;
 pub mod rnnoise;
 pub mod router;

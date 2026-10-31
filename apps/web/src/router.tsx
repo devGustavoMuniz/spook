@@ -12,6 +12,7 @@ import { PageShell } from "@/components/app-shell";
 import { AuthedLayout } from "@/components/authed-layout";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
+import { AppSettingsPage } from "@/pages/app-settings";
 import { DmIndex, DmLayout, DmPage } from "@/pages/dms";
 import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
 import { HomePage } from "@/pages/home";
@@ -97,6 +98,13 @@ const notificationsRoute = createRoute({
   component: NotificationsPage,
 });
 
+// Só tem efeito no desktop (bandeja, início com o sistema); na web a página apenas explica.
+const appSettingsRoute = createRoute({
+  getParentRoute: () => pageRoute,
+  path: "/settings/app",
+  component: AppSettingsPage,
+});
+
 const guildRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/channels/$guildId",
@@ -142,7 +150,7 @@ const routeTree = rootRoute.addChildren([
   registerRoute,
   authedRoute.addChildren([
     homeRoute,
-    pageRoute.addChildren([profileRoute, notificationsRoute]),
+    pageRoute.addChildren([profileRoute, notificationsRoute, appSettingsRoute]),
     dmRoute.addChildren([dmIndexRoute, dmChannelRoute]),
     guildRoute.addChildren([guildIndexRoute, channelRoute]),
     inviteRoute,

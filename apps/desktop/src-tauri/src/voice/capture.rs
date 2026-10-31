@@ -11,7 +11,7 @@ use libwebrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use libwebrtc::video_source::native::NativeVideoSource;
 
 use super::frames::{encode_jpeg, fit_i420};
-use super::limits::{FpsLimiter, JPEG_QUALITY};
+use super::limits::{self, FpsLimiter, JPEG_QUALITY};
 use super::router::VideoRouter;
 
 /// Entrega os quadros capturados: limita fps e resolução, publica no LiveKit e alimenta a prévia local.
@@ -31,11 +31,23 @@ impl VideoOut {
         fps: u32,
         max: (u32, u32),
     ) -> Self {
+        Self::with_fps_cap(source, router, track_id, fps, max, limits::MAX_FPS)
+    }
+
+    /// Como `new`, com outro teto de fps (tela compartilhada: até 60).
+    pub fn with_fps_cap(
+        source: NativeVideoSource,
+        router: Arc<VideoRouter>,
+        track_id: String,
+        fps: u32,
+        max: (u32, u32),
+        fps_cap: u32,
+    ) -> Self {
         Self {
             source,
             router,
             track_id,
-            limiter: FpsLimiter::new(fps),
+            limiter: FpsLimiter::with_max(fps, fps_cap),
             max,
         }
     }

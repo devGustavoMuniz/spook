@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,9 +55,15 @@ function NativeCard() {
         <CardDescription>
           Este app usa notificações nativas do sistema. Quando o Spook não está em foco, mensagens
           diretas e menções aparecem como notificações do seu sistema operacional. Para ajustar ou
-          bloquear, use as configurações de notificações do sistema.
+          bloquear, use as configurações de notificações do sistema. Ao clicar numa notificação, o
+          Spook volta à frente e abre a conversa dela.
         </CardDescription>
       </CardHeader>
+      <CardContent>
+        <Button asChild variant="outline" size="sm">
+          <Link to="/settings/app">Bandeja e início com o sistema</Link>
+        </Button>
+      </CardContent>
     </Card>
   );
 }

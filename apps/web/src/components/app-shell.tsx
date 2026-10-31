@@ -7,6 +7,7 @@ import { useSignOut } from "@/auth/use-sign-out";
 import { Lettering } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { isTauri } from "@/desktop/runtime";
 
 /** Páginas "comuns" (perfil): cabeçalho com marca e menu, conteúdo central. */
 export function PageShell() {
@@ -24,6 +25,11 @@ export function PageShell() {
           <Button asChild variant="ghost" size="sm">
             <Link to="/settings/notifications">Notificações</Link>
           </Button>
+          {isTauri() ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/settings/app">Aplicativo</Link>
+            </Button>
+          ) : null}
           <ThemeToggle />
           <Button variant="outline" size="sm" onClick={signOut} disabled={pending}>
             <LogOut /> Sair

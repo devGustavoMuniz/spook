@@ -25,6 +25,20 @@ pub enum MediaCode {
     Unknown,
 }
 
+impl MediaCode {
+    /// O mesmo texto que o JSON usa (`"permission-denied"`, `"in-use"`...), para os eventos do teste de microfone.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MediaCode::PermissionDenied => "permission-denied",
+            MediaCode::Cancelled => "cancelled",
+            MediaCode::NotFound => "not-found",
+            MediaCode::InUse => "in-use",
+            MediaCode::Unsupported => "unsupported",
+            MediaCode::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConnectCode {

@@ -83,6 +83,8 @@ function setup() {
     "audio-blocked",
     "devices-changed",
     "disconnected",
+    "input-level",
+    "mic-test",
   ] as const) {
     engine.on(k, (p) => {
       // biome-ignore lint/suspicious/noExplicitAny: coletor genérico de eventos de teste
@@ -92,6 +94,8 @@ function setup() {
   }
   return { rust, engine, seen };
 }
+
+const OFF = { mode: "off", thresholdDb: -50 } as const;
 
 const params = { url: "wss://spook-rtc.dottadigital.com", token: "a.b.c" };
 
@@ -313,6 +317,7 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
       echoCancellation: false,
       noiseSuppression: "standard",
       autoGainControl: false,
+      inputSensitivity: { mode: "off", thresholdDb: -50 },
     });
   });
 
@@ -329,9 +334,24 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
       });
     }
     expect(rust.named("voice_set_audio_processing").map((c) => c.args)).toEqual([
-      { echoCancellation: true, noiseSuppression: "strong", autoGainControl: true },
-      { echoCancellation: true, noiseSuppression: "off", autoGainControl: true },
-      { echoCancellation: true, noiseSuppression: "standard", autoGainControl: true },
+      {
+        echoCancellation: true,
+        noiseSuppression: "strong",
+        autoGainControl: true,
+        inputSensitivity: OFF,
+      },
+      {
+        echoCancellation: true,
+        noiseSuppression: "off",
+        autoGainControl: true,
+        inputSensitivity: OFF,
+      },
+      {
+        echoCancellation: true,
+        noiseSuppression: "standard",
+        autoGainControl: true,
+        inputSensitivity: OFF,
+      },
     ]);
   });
 
@@ -588,5 +608,166 @@ describe("NativeVoiceEngine: vídeo remoto em <canvas>", () => {
     await engine.disconnect();
     await tick();
     expect(rust.named("voice_video_unsubscribe")).toHaveLength(1);
+  });
+});
+
+describe("NativeVoiceEngine: capacidades do contrato adicional", () => {
+  it("declara volume até 200%, porta, teste de microfone e qualidade da tela; PiP segue desligado", () => {
+    const { engine } = setup();
+    expect(engine.audioCapabilities).toEqual({
+      strongNoiseSuppression: true,
+      screenShareAudio: false,
+      participantVolume: { max: 2 },
+      inputSensitivity: true,
+      micTest: true,
+      screenShareQuality: true,
+      pictureInPicture: false,
+    });
+  });
+});
+
+describe("NativeVoiceEngine: volume por pessoa", () => {
+  it("envia identidade, origem e volume ao Rust", () => {
+    const { rust, engine } = setup();
+    engine.setParticipantVolume("7", "voice", 1.5);
+    engine.setParticipantVolume("7", "screen", 0);
+    expect(rust.named("voice_set_participant_volume").map((c) => c.args)).toEqual([
+      { identity: "7", source: "voice", volume: 1.5 },
+      { identity: "7", source: "screen", volume: 0 },
+    ]);
+  });
+
+  it("limita a 0..200% e trata valor inválido como 100%", () => {
+    const { rust, engine } = setup();
+    engine.setParticipantVolume("7", "voice", 9);
+    engine.setParticipantVolume("7", "voice", -1);
+    engine.setParticipantVolume("7", "voice", Number.NaN);
+    expect(rust.named("voice_set_participant_volume").map((c) => c.args?.volume)).toEqual([
+      2, 0, 1,
+    ]);
+  });
+
+  it("falha do Rust não derruba a interface", async () => {
+    const { rust, engine } = setup();
+    rust.on("voice_set_participant_volume", () => {
+      throw new Error("x");
+    });
+    expect(() => engine.setParticipantVolume("7", "voice", 1)).not.toThrow();
+    await tick();
+  });
+});
+
+describe("NativeVoiceEngine: porta de ruído e medidor", () => {
+  it("envia a sensibilidade de entrada junto com o processamento", async () => {
+    const { rust, engine } = setup();
+    await engine.setAudioProcessing({
+      echoCancellation: true,
+      noiseSuppression: "standard",
+      autoGainControl: true,
+      inputSensitivity: { mode: "manual", thresholdDb: -42 },
+    });
+    expect(rust.named("voice_set_audio_processing")[0]?.args).toMatchObject({
+      inputSensitivity: { mode: "manual", thresholdDb: -42 },
+    });
+  });
+
+  it("liga o medidor com um canal próprio (vale fora de chamada) e traduz input-level", async () => {
+    const { rust, engine, seen } = setup();
+    await engine.setInputLevelMonitor(true);
+    const call = rust.named("voice_set_input_level_monitor")[0];
+    expect(call?.args).toMatchObject({ enabled: true });
+    expect(call?.args?.events).toBeDefined();
+    // sem sala: o canal da sala nem existe, o do medidor é o único
+    expect(rust.channels).toHaveLength(1);
+    rust.emit({ type: "input-level", db: -37.5, gateOpen: true });
+    expect(seen["input-level"]).toEqual([{ db: -37.5, gateOpen: true }]);
+    // desligar não cria outro canal
+    await engine.setInputLevelMonitor(false);
+    expect(rust.named("voice_set_input_level_monitor")[1]?.args).toEqual({ enabled: false });
+    expect(rust.channels).toHaveLength(1);
+  });
+
+  it("o mesmo canal serve ao medidor e ao teste, e continua valendo depois de entrar na chamada", async () => {
+    const { rust, engine, seen } = setup();
+    await engine.setInputLevelMonitor(true);
+    await engine.connect(params);
+    expect(rust.channels).toHaveLength(2);
+    rust.emit({ type: "input-level", db: -20, gateOpen: false }, 0);
+    expect(seen["input-level"]).toEqual([{ db: -20, gateOpen: false }]);
+    await engine.disconnect();
+    rust.emit({ type: "input-level", db: -21, gateOpen: false }, 0);
+    expect(seen["input-level"]).toHaveLength(2);
+  });
+
+  it("erro do Rust ao abrir o microfone vira VoiceMediaError", async () => {
+    const { rust, engine } = setup();
+    rust.on("voice_set_input_level_monitor", () => {
+      throw { kind: "media", code: "permission-denied", device: "microphone", message: "Libere." };
+    });
+    const e = await engine.setInputLevelMonitor(true).catch((x) => x);
+    expect(e).toBeInstanceOf(VoiceMediaError);
+    expect(e.code).toBe("permission-denied");
+  });
+});
+
+describe("NativeVoiceEngine: teste de microfone", () => {
+  it("inicia pelo Rust e traduz as fases", async () => {
+    const { rust, engine, seen } = setup();
+    await engine.startMicTest();
+    expect(rust.named("voice_start_mic_test")).toHaveLength(1);
+    rust.emit({ type: "mic-test", phase: "requesting" });
+    rust.emit({ type: "mic-test", phase: "recording", remainingMs: 4000 });
+    rust.emit({ type: "mic-test", phase: "playing", remainingMs: 2000 });
+    rust.emit({ type: "mic-test", phase: "done" });
+    rust.emit({ type: "mic-test", phase: "error", error: "not-found" });
+    expect(seen["mic-test"]).toEqual([
+      { phase: "requesting" },
+      { phase: "recording", remainingMs: 4000 },
+      { phase: "playing", remainingMs: 2000 },
+      { phase: "done" },
+      { phase: "error", error: "not-found" },
+    ]);
+  });
+
+  it("recusa com o microfone aberto na chamada: erro tipado vira evento mic-test in-use", async () => {
+    const { rust, engine, seen } = setup();
+    rust.on("voice_start_mic_test", () => {
+      throw { kind: "media", code: "in-use", device: "microphone", message: "Em uso." };
+    });
+    await engine.startMicTest();
+    expect(seen["mic-test"]).toEqual([{ phase: "error", error: "in-use" }]);
+  });
+
+  it("cancelar chama o Rust e nunca lança", async () => {
+    const { rust, engine } = setup();
+    rust.on("voice_cancel_mic_test", () => {
+      throw new Error("x");
+    });
+    expect(() => engine.cancelMicTest()).not.toThrow();
+    await tick();
+    expect(rust.named("voice_cancel_mic_test")).toHaveLength(1);
+  });
+});
+
+describe("NativeVoiceEngine: qualidade da tela", () => {
+  it("envia a qualidade escolhida junto com a fonte", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    const quality = { height: 1440, fps: 30, priority: "detail", maxBitrateKbps: 6000 } as const;
+    await engine.setScreenShareEnabled(true, { quality });
+    expect(rust.named("voice_set_screen_share")[0]?.args).toEqual({
+      on: true,
+      options: { sourceId: "display:1", audio: false, quality },
+    });
+  });
+
+  it("sem qualidade, o Rust usa o padrão (o campo nem vai)", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true);
+    expect(rust.named("voice_set_screen_share")[0]?.args).toEqual({
+      on: true,
+      options: { sourceId: "display:1", audio: false },
+    });
   });
 });
