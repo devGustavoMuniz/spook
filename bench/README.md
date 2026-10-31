@@ -98,6 +98,26 @@ Autenticam com o cookie de sessão (`COOKIE`, header Cookie inteiro) ou, com `TI
 - Métricas do backend (OTLP, `SPOOK_OTLP_ENDPOINT`): `spook.gateway.connections`, `spook.gateway.sessions`, `spook.gateway.events.dispatched`, `spook.gateway.resumes`,
   `spook.gateway.invalid_sessions`, `spook.gateway.slow_consumer_closes`, `spook.gateway.publish_to_write.duration` (publicação → escrita no socket) e as métricas de runtime do Go.
 
+### Voz (Fase 5): `voice-token.js` e `livekit-load-test.sh`
+Duas medições complementares, **só escritas e versionadas aqui; a execução e o registro dos resultados são da Fase B** (nunca contra produção sem combinar a carga).
+
+| Ferramenta | Mede | Variáveis |
+| --- | --- | --- |
+| `scenarios/voice-token.js` | latência do `POST /api/channels/{id}/voice/token` (autorização do canal + assinatura do JWT): `http_req_duration{name:voice_token}`, `server_timing_app`, 429 em `voice_token_rate_limited` e tokens malformados em `voice_token_invalid` (deve ser 0) | `BASE_URL`, `COOKIE`, `CHANNEL_ID` (canal de voz com CONNECT ou DM da conta), `RATE` (5), `DURATION` (60s) |
+| `scripts/livekit-load-test.sh` | CPU, memória e banda do **LiveKit** por participante, com publicadores e assinantes simulados pelo `lk load-test` (imagem `livekit/livekit-cli`); amostra o container do servidor com `docker stats` e grava um CSV | `LK_URL`, `LK_API_KEY`, `LK_API_SECRET`, `AUDIO_PUBLISHERS`, `VIDEO_PUBLISHERS`, `SUBSCRIBERS`, `NUM_PER_SECOND`, `DURATION`, `SERVER_CONTAINER`, `STATS_OUT` (lista completa no cabeçalho do script) |
+
+- **`voice-token.js`** exige voz ligada no servidor (`LIVEKIT_*`); sem isso o `setup` falha com "voz desligada" (503). Cada token cria uma intenção pendente de 30 s em memória e, se a
+  conta já estiver em outro canal de voz, tira-a de lá: use **conta e canal de teste**. Exemplo local:
+  `COOKIE='spook_session=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id do canal de voz> /bench/scenarios/voice-token.js`.
+  Métricas do backend (OTLP): `spook.voice.token.duration` (histograma, s), `spook.voice.tokens.issued{kind=guild|dm}`, `spook.voice.tokens.denied{reason}`,
+  `spook.voice.webhooks{type}`, `spook.voice.participants{channel_type=guild|dm}` (gauge), `spook.voice.evictions` e `spook.voice.reconcile.orphans`; spans `voice.IssueToken`, `voice.Leave`,
+  `voice.SetSelfState`, `voice.Webhook`, `voice.Reevaluate` e `voice.Reconcile`.
+- **`livekit-load-test.sh`** não passa pelo backend: o `lk` entra direto no LiveKit com uma sala própria (`bench-<epoch>`), então não toca em canais nem usuários do Spook e também não mede
+  token nem webhook. Receita de **CPU/banda por participante**: (1) amostre o container ocioso (`AUDIO_PUBLISHERS=0 SUBSCRIBERS=0 DURATION=20s`); (2) rode com N participantes e
+  `SERVER_CONTAINER=spook-livekit-1` (local) e pegue a mediana das amostras depois da rampa (`N / NUM_PER_SECOND` s); (3) custo por participante = `(CPU(N) − CPU_base) / N` (idem para banda);
+  (4) repita para N crescente (10, 25, 50, 100) e registre a curva. Em produção a mídia sai pelo IP público (7891/tcp, 7892/udp) e o container tem teto de 0,5 CPU/512M: rode o
+  cli de fora do VPS. O script recusa URLs `*.dottadigital.com` sem `I_KNOW_THIS_IS_PRODUCTION=yes`.
+
 ### Login: não é comparado (achado registrado)
 A latência do login é dominada por **política**, não pelo framework: o custo de hash escolhido e o `Timebox` do Fortify. Por isso
 o login **não** entra na comparação entre os sistemas; o `login.js` mede só o Spook (p95 do critério da Fase 1 e `argon2` do
