@@ -13,6 +13,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
+	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
@@ -82,6 +83,7 @@ func buildFixtures(t *testing.T) map[string]any {
 		ID: "901", ChannelID: "300", Content: "Olá, Spook!", CreatedAt: at,
 		Author: message.AuthorPayload{ID: "10", Username: "gustavo"},
 	}
+	msg.MentionIDs = []string{"11"}
 	msg.Attachments = []attachment.AttachmentPayload{
 		{ID: "950", Filename: "foto.jpg", ContentType: "image/jpeg", Size: 123456, URL: "https://files.spook.example/attachments/300/950/foto.jpg?X-Amz-Signature=abc"},
 		{ID: "951", Filename: "notas.pdf", ContentType: "application/pdf", Size: 2048, URL: "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"},
@@ -143,6 +145,10 @@ func buildFixtures(t *testing.T) map[string]any {
 			PrivateChannels: []channel.ChannelPayload{dm},
 			Presences:       []presence.UpdatePayload{{UserID: "12", Status: presence.StatusOnline}, {UserID: "13", Status: presence.StatusIdle}},
 			VoiceStates:     []voicepkg.StatePayload{{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "12", SelfVideo: true}},
+			ReadStates: []notification.ReadStatePayload{
+				{ChannelID: "300", GuildID: "100", LastReadMessageID: "890", MentionCount: 2, UnreadCount: 12},
+				{ChannelID: "500", LastReadMessageID: "880", UnreadCount: 100},
+			},
 		}),
 		"set_presence":      control(t, OpPresence, "", SetPresence{Status: presence.StatusIdle}),
 		"dm_channel_create": dispatch(t, 2, events.ChannelCreate, dm),

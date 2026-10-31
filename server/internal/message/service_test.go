@@ -44,7 +44,7 @@ func (f *fakeStore) Insert(_ context.Context, p InsertParams) (Message, []attach
 	if f.insertErr != nil {
 		return Message{}, nil, f.insertErr
 	}
-	m := Message{ID: p.ID, ChannelID: p.ChannelID, Content: p.Content, Author: Author{ID: p.AuthorID, Username: "u"}}
+	m := Message{ID: p.ID, ChannelID: p.ChannelID, Content: p.Content, MentionIDs: p.MentionIDs, Author: Author{ID: p.AuthorID, Username: "u"}}
 	f.msgs[p.ID] = m
 	var atts []attachment.Attachment
 	for _, id := range p.AttachmentIDs {
@@ -510,5 +510,68 @@ func TestRepublishUpdate(t *testing.T) {
 	st.deleted[5] = true // apagada no meio do caminho: nada a publicar
 	if err := svc.RepublishUpdate(context.Background(), 20, 5); err != nil || len(rec.evs) != 0 {
 		t.Fatalf("apagada: %v %v", err, rec.evs)
+	}
+}
+
+type fakeMentions struct {
+	ids  []int64
+	err  error
+	seen []string
+}
+
+func (f *fakeMentions) Resolve(_ context.Context, _ channel.Channel, _ int64, content string) ([]int64, error) {
+	f.seen = append(f.seen, content)
+	return f.ids, f.err
+}
+
+func TestSendResolvesMentionsIntoPayload(t *testing.T) {
+	svc, st, _, _, rec := setup()
+	fm := &fakeMentions{ids: []int64{5, 9}}
+	svc.SetMentions(fm)
+	m, err := svc.Send(context.Background(), 1, 20, " oi @a @b ", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fm.seen) != 1 || fm.seen[0] != "oi @a @b" {
+		t.Fatalf("resolveu o texto já sem espaços: %v", fm.seen)
+	}
+	if len(st.lastInsert.MentionIDs) != 2 || len(m.MentionIDs) != 2 {
+		t.Fatalf("mention_ids deve ser gravado: %+v", st.lastInsert.MentionIDs)
+	}
+	p := rec.evs[0].Data.(MessagePayload)
+	if len(p.MentionIDs) != 2 || p.MentionIDs[0] != "5" || p.MentionIDs[1] != "9" {
+		t.Fatalf("payload: %+v", p.MentionIDs)
+	}
+}
+
+func TestSendPayloadAlwaysHasMentionIDsArray(t *testing.T) {
+	svc, _, _, _, rec := setup() // sem Mentions ligado
+	if _, err := svc.Send(context.Background(), 1, 20, "oi", nil); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(rec.evs[0].Data)
+	if !strings.Contains(string(b), `"mention_ids":[]`) {
+		t.Fatalf("mention_ids deve ser [] e não null: %s", b)
+	}
+}
+
+func TestSendSurvivesMentionResolutionFailure(t *testing.T) {
+	svc, st, _, _, _ := setup()
+	svc.SetMentions(&fakeMentions{err: errors.New("banco fora")})
+	m, err := svc.Send(context.Background(), 1, 20, "oi @alguem", nil)
+	if err != nil || st.inserts != 1 || len(m.MentionIDs) != 0 {
+		t.Fatalf("a mensagem sai sem destaque: %v %+v", err, m)
+	}
+}
+
+func TestSendWithoutTextSkipsMentionResolution(t *testing.T) {
+	svc, _, _, _, _ := setupAtts()
+	fm := &fakeMentions{}
+	svc.SetMentions(fm)
+	if _, err := svc.Send(context.Background(), 1, 20, "", []int64{3}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fm.seen) != 0 {
+		t.Fatal("só anexo não tem menção para resolver")
 	}
 }

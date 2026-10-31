@@ -77,6 +77,12 @@ func run() error {
 	}
 	log := logger.New(cfg.Env)
 	slog.SetDefault(log)
+	switch {
+	case cfg.VAPID.Partial():
+		log.Warn("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT precisam estar todas definidas: Web Push desligado")
+	case !cfg.VAPID.Enabled():
+		log.Info("Web Push desligado (sem VAPID_*)")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

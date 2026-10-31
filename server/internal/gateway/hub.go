@@ -19,6 +19,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
+	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
@@ -65,6 +66,12 @@ type Voice interface {
 	Snapshot(guildIDs, dmChannelIDs []int64) []voice.StatePayload
 }
 
+// ReadStates é o que o gateway pede às notificações (implementada por notification.Service): os canais com
+// não lidas ou menções do usuário, para o READY.
+type ReadStates interface {
+	ReadyStates(ctx context.Context, userID int64) ([]notification.ReadStatePayload, error)
+}
+
 // Option liga uma dependência opcional do Hub.
 type Option func(*Hub)
 
@@ -76,6 +83,9 @@ func WithPresence(p Presence) Option { return func(h *Hub) { h.pres = p } }
 
 // WithVoice liga os voice_states do READY.
 func WithVoice(v Voice) Option { return func(h *Hub) { h.voice = v } }
+
+// WithReadStates liga os read_states do READY.
+func WithReadStates(r ReadStates) Option { return func(h *Hub) { h.reads = r } }
 
 // Bus é o que o gateway precisa do barramento de eventos.
 type Bus interface {
@@ -89,6 +99,7 @@ type Hub struct {
 	dms   DMs
 	pres  Presence
 	voice Voice
+	reads ReadStates
 	met   *metrics
 	tk    *tickets
 

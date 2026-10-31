@@ -17,6 +17,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
+	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
 	"github.com/devGustavoMuniz/spook/server/internal/voice"
@@ -279,13 +280,23 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		}
 	}
 
+	readStates := []notification.ReadStatePayload{}
+	if h.reads != nil {
+		// Complementar como a presença: sem o snapshot o READY sai com [] e os eventos seguem valendo.
+		if rs, rerr := h.reads.ReadyStates(ctx, c.userID); rerr != nil {
+			slog.Warn("gateway: read_states indisponíveis para o READY", "user", c.userID, "err", rerr)
+		} else if rs != nil {
+			readStates = rs
+		}
+	}
+
 	payloads := make([]guild.DetailPayload, len(details))
 	for i, g := range details {
 		payloads[i] = g.Payload()
 	}
 	ready, err := json.Marshal(Ready{
 		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
-		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates,
+		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates, ReadStates: readStates,
 	})
 	if err != nil {
 		h.dropSession(s)

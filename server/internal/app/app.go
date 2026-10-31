@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/SherClockHolmes/webpush-go"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -27,6 +28,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/health"
 	"github.com/devGustavoMuniz/spook/server/internal/invite"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
+	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
@@ -69,11 +71,22 @@ type Deps struct {
 	DMLimiter      *ratelimit.Limiter // padrão: 10 DMs criadas por minuto por usuário
 	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
 	UploadLimiter  *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
+	PushLimiter    *ratelimit.Limiter // padrão: 30 requisições por minuto por usuário nos endpoints de push
+
+	// Push (testes): AllowPrivate relaxa o anti-SSRF (o "serviço de push" do teste fica em 127.0.0.1) e
+	// HTTPClient substitui o cliente do envio (para confiar no certificado do servidor de teste).
+	Push PushOptions
 
 	// Voz (testes): substitui o adaptador do LiveKit (nulo = o da configuração, ou voz desligada
 	// sem LIVEKIT_*) e muda o intervalo do reconciliador (padrão 60 s).
 	VoiceProvider       voice.Provider
 	VoiceReconcileEvery time.Duration
+}
+
+// PushOptions ajusta o envio de Web Push (só os testes mexem).
+type PushOptions struct {
+	AllowPrivate bool
+	HTTPClient   webpush.HTTPClient
 }
 
 // App é a aplicação montada: o handler HTTP e o gateway, que precisa de um desligamento próprio
@@ -83,12 +96,16 @@ type App struct {
 	Gateway  *gateway.Hub
 	Voice    *voice.Service
 	presence *presence.Service // acessado pelos testes de integração
-	jobs     *jobs.Client      // nil sem storage; parado por Close
+	jobs     *jobs.Client      // nil sem storage nem push; parado por Close
+	notify   *notification.Service
 }
 
 // Close para o processamento de jobs: espera os em andamento terminarem (ou ctx expirar). Chame antes de
 // fechar o pool de conexões.
 func (a *App) Close(ctx context.Context) error {
+	if a.notify != nil {
+		a.notify.Stop() // antes dos jobs: o que ainda está na fila pode enfileirar push
+	}
 	if a.jobs == nil {
 		return nil
 	}
@@ -188,15 +205,48 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	thumbJobs := &attachment.Enqueuer{} // ligado ao client do River logo abaixo
 	messageSvc := message.NewService(message.NewStore(pool, thumbJobs), channelSvc, msgLimiter, userSvc, attachmentSvc, ids, bus)
 
-	// Jobs (River): thumbnails e limpeza de anexos órfãos. Só existem com storage e com o pool do pgx.
+	// Notificações (Fase 6b): não lidas, menções e Web Push. Assina MESSAGE_CREATE; message só conhece a
+	// interface de menções.
+	pushLimiter := d.PushLimiter
+	if pushLimiter == nil {
+		pushLimiter = ratelimit.New(0.5, 30) // 30 requisições por minuto
+	}
+	pushCfg := notification.PushConfig{PublicKey: d.Cfg.VAPID.PublicKey, PrivateKey: d.Cfg.VAPID.PrivateKey, Subject: d.Cfg.VAPID.Subject}
+	policy := notification.EndpointPolicy{AllowPrivate: d.Push.AllowPrivate}
+	notifDeps := notification.Deps{
+		Store: notification.NewStore(pool), Channels: channelSvc, Presence: presenceSvc, Pub: bus, IDs: ids,
+		Limiter: pushLimiter, Policy: policy,
+	}
+	pushJobs := &notification.Enqueuer{} // ligado ao client do River logo abaixo
+	if pushCfg.Enabled() {
+		sender, err := notification.NewWebPushSender(pushCfg, policy, d.Push.HTTPClient)
+		if err != nil {
+			return nil, err
+		}
+		notifDeps.Push, notifDeps.Sender, notifDeps.Queue = pushCfg, sender, pushJobs
+	}
+	notifySvc := notification.NewService(notifDeps)
+	messageSvc.SetMentions(notifySvc)
+	notifySvc.Start(ctx, bus)
+
+	// Jobs (River): thumbnails, limpeza de anexos órfãos e Web Push. Só existem com o pool do pgx e com
+	// storage ou push ligados.
 	var jobClient *jobs.Client
-	if rp, ok := d.Pool.(*pgxpool.Pool); ok && objects != nil {
+	if rp, ok := d.Pool.(*pgxpool.Pool); ok && (objects != nil || notifySvc.PushEnabled()) {
 		workers := river.NewWorkers()
-		attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
-		if jobClient, err = jobs.New(rp, workers, attachment.PeriodicJobs()); err != nil {
+		var periodic []*river.PeriodicJob
+		if objects != nil {
+			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
+			periodic = attachment.PeriodicJobs()
+		}
+		if notifySvc.PushEnabled() {
+			notification.RegisterWorkers(workers, notifySvc)
+		}
+		if jobClient, err = jobs.New(rp, workers, periodic); err != nil {
 			return nil, err
 		}
 		thumbJobs.Set(jobClient)
+		pushJobs.Set(jobClient)
 		// Sem o cancelamento de ctx: o desligamento é explícito (App.Close), para os jobs terminarem.
 		if err := jobClient.Start(context.WithoutCancel(ctx)); err != nil {
 			return nil, err
@@ -232,13 +282,13 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		gwCfg.AllowedOrigins = d.Cfg.AllowedOrigins
 	}
 	gwCfg.Dev = d.Cfg.IsDev()
-	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc))
+	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc), gateway.WithReadStates(notifySvc))
 	gatewayH := gateway.NewHandler(hub, authSvc, auth.UserID)
 	gwLimiter := d.GatewayLimiter
 	if gwLimiter == nil {
 		gwLimiter = ratelimit.New(50, 200)
 	}
-	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter)
+	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
@@ -248,6 +298,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	inviteH := invite.NewHandler(inviteSvc, auth.UserID)
 	dmH := dm.NewHandler(dmSvc, auth.UserID)
 	typingH := typing.NewHandler(typingSvc, auth.UserID)
+	notifyH := notification.NewHandler(notifySvc, auth.UserID)
 
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
@@ -258,7 +309,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, gatewayH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, gatewayH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
@@ -280,14 +331,14 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
 		}))
-	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient}, nil
+	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient, notify: notifySvc}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
 	return api.OpenAPI().YAML()
 }
 
@@ -300,7 +351,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
-	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, gatewayH *gateway.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, gatewayH *gateway.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -325,6 +376,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	dmH.Register(api, authed, auth.Security)
 	typingH.Register(api, authed, auth.Security)
 	voiceH.Register(api, authed, auth.Security)
+	notifyH.Register(api, authed, auth.Security)
 	gatewayH.Register(api, authed, auth.Security)
 	return api
 }

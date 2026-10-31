@@ -38,6 +38,8 @@ type Message struct {
 	Author    Author
 	Content   string
 	EditedAt  *time.Time
+	// MentionIDs são os usuários mencionados (@username) resolvidos no envio.
+	MentionIDs []int64
 	// Attachments é preenchido pelo service (com as URLs de leitura) antes de montar o payload.
 	Attachments []attachment.AttachmentPayload
 }
@@ -59,6 +61,8 @@ type MessagePayload struct {
 	CreatedAt time.Time     `json:"created_at" doc:"Derivado do ID Snowflake"`
 	// Attachments vem sempre (vazio quando não há); thumbnail_url aparece depois por MESSAGE_UPDATE.
 	Attachments []attachment.AttachmentPayload `json:"attachments" nullable:"false"`
+	// MentionIDs vem sempre ([] sem menções): quem recebeu @username, resolvido no envio entre quem vê o canal.
+	MentionIDs []string `json:"mention_ids" nullable:"false" doc:"IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"`
 }
 
 // DeletePayload é o dado do evento MESSAGE_DELETE.
@@ -79,6 +83,6 @@ func (m Message) Payload() MessagePayload {
 	}
 	return MessagePayload{
 		ID: httpx.ID(m.ID), ChannelID: httpx.ID(m.ChannelID), Author: a, Content: m.Content,
-		EditedAt: m.EditedAt, CreatedAt: snowflake.Time(m.ID), Attachments: atts,
+		EditedAt: m.EditedAt, CreatedAt: snowflake.Time(m.ID), Attachments: atts, MentionIDs: httpx.IDs(m.MentionIDs),
 	}
 }

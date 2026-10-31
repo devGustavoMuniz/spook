@@ -10,6 +10,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
+	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
 	"github.com/devGustavoMuniz/spook/server/internal/voice"
@@ -61,7 +62,7 @@ const (
 	EventTypingStart      = events.TypingStart
 	EventPresenceUpdate   = events.PresenceUpdate
 	EventVoiceStateUpdate = "VOICE_STATE_UPDATE"
-	EventReadStateUpdate  = "READ_STATE_UPDATE"
+	EventReadStateUpdate  = events.ReadStateUpdate
 )
 
 // Hello é o d do op 10.
@@ -91,12 +92,13 @@ type SetPresence struct {
 // participantes); Presences, os usuários não-offline que compartilham servidor ou DM com quem
 // conectou.
 type Ready struct {
-	SessionID       string                   `json:"session_id"`
-	User            ReadyUser                `json:"user"`
-	Guilds          []guild.DetailPayload    `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
-	PrivateChannels []channel.ChannelPayload `json:"private_channels" doc:"DMs com participantes, da atividade mais recente para a mais antiga"`
-	Presences       []presence.UpdatePayload `json:"presences" doc:"Snapshot de presença (só online e idle)"`
-	VoiceStates     []voice.StatePayload     `json:"voice_states" doc:"Quem está em voz agora nos servidores que o usuário vê e nas DMs dele"`
+	SessionID       string                          `json:"session_id"`
+	User            ReadyUser                       `json:"user"`
+	Guilds          []guild.DetailPayload           `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
+	PrivateChannels []channel.ChannelPayload        `json:"private_channels" doc:"DMs com participantes, da atividade mais recente para a mais antiga"`
+	Presences       []presence.UpdatePayload        `json:"presences" doc:"Snapshot de presença (só online e idle)"`
+	VoiceStates     []voice.StatePayload            `json:"voice_states" doc:"Quem está em voz agora nos servidores que o usuário vê e nas DMs dele"`
+	ReadStates      []notification.ReadStatePayload `json:"read_states" doc:"Canais com não lidas ou menções (mesmo formato de GET /api/users/@me/read-states); canal ausente = zero"`
 }
 
 // ReadyUser é o usuário autenticado no READY.
@@ -117,12 +119,9 @@ type Resumed struct {
 // e a emissão ficam em internal/voice.
 type VoiceStateUpdate = voice.StatePayload
 
-// ReadStateUpdate: o estado de leitura de um canal mudou (Fase 6); só vai ao próprio usuário.
-type ReadStateUpdate struct {
-	ChannelID         string `json:"channel_id"`
-	LastReadMessageID string `json:"last_read_message_id"`
-	MentionCount      int    `json:"mention_count"`
-}
+// ReadStateUpdate: o estado de leitura de um canal mudou (Fase 6); só vai ao próprio usuário (tópico
+// user:<id>, todas as sessões). O tipo e a emissão ficam em internal/notification.
+type ReadStateUpdate = notification.UpdatePayload
 
 // Config reúne os tempos e limites do gateway (os testes usam valores menores).
 type Config struct {

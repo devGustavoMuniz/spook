@@ -3,6 +3,7 @@ package message
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,7 @@ type Store interface {
 type InsertParams struct {
 	ID, ChannelID, AuthorID int64
 	Content                 string
+	MentionIDs              []int64
 	AttachmentIDs           []int64
 	KeyPrefix               string    // prefixo de chave do canal (prende os anexos ao canal)
 	Since                   time.Time // só vale anexo criado depois disto (janela de 1 h)
@@ -67,6 +69,13 @@ type Channels interface {
 	Get(ctx context.Context, channelID int64) (channel.Channel, error)
 }
 
+// Mentions resolve as menções (@username) de um texto para os usuários que podem ver o canal. Quem
+// implementa é a feature de notificações (que também assina MESSAGE_CREATE); a interface evita que
+// message dependa dela. Nil = sem menções.
+type Mentions interface {
+	Resolve(ctx context.Context, ch channel.Channel, authorID int64, content string) ([]int64, error)
+}
+
 // Limiter limita o envio (5 mensagens a cada 5 s por usuário e canal).
 type Limiter interface {
 	Take(key string) (ok bool, retryAfter time.Duration)
@@ -86,8 +95,12 @@ type Service struct {
 	atts     Attachments
 	ids      IDGenerator
 	pub      events.Publisher
+	mentions Mentions
 	now      func() time.Time
 }
+
+// SetMentions liga a resolução de menções (feita na montagem do app, depois de criar as notificações).
+func (s *Service) SetMentions(m Mentions) { s.mentions = m }
 
 func NewService(store Store, channels Channels, limiter Limiter, avatars Avatars, atts Attachments, ids IDGenerator, pub events.Publisher) *Service {
 	return &Service{store: store, channels: channels, limiter: limiter, avatars: avatars, atts: atts, ids: ids, pub: pub, now: time.Now}
@@ -149,9 +162,18 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 		}
 	}
 
+	var mentionIDs []int64
+	if s.mentions != nil && text != "" {
+		// Falha ao resolver menções não impede a mensagem: ela sai sem destaque.
+		if mentionIDs, err = s.mentions.Resolve(ctx, ch, userID, text); err != nil {
+			slog.Warn("menções não resolvidas", "channel", channelID, "err", err)
+			mentionIDs = nil
+		}
+	}
+
 	_, insSpan := tracer.Start(ctx, "message.insert")
 	m, atts, err := s.store.Insert(ctx, InsertParams{
-		ID: s.ids.Next(), ChannelID: channelID, AuthorID: userID, Content: text, AttachmentIDs: attachmentIDs,
+		ID: s.ids.Next(), ChannelID: channelID, AuthorID: userID, Content: text, AttachmentIDs: attachmentIDs, MentionIDs: mentionIDs,
 		KeyPrefix: attachment.KeyPrefix(channelID), Since: s.now().Add(-attachment.ClaimWindow),
 	})
 	insSpan.End()
