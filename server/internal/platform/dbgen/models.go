@@ -77,12 +77,29 @@ type MemberRole struct {
 }
 
 type Message struct {
+	ID         int64
+	ChannelID  int64
+	AuthorID   int64
+	Content    string
+	EditedAt   pgtype.Timestamptz
+	DeletedAt  pgtype.Timestamptz
+	MentionIds []int64
+}
+
+type PushSubscription struct {
 	ID        int64
-	ChannelID int64
-	AuthorID  int64
-	Content   string
-	EditedAt  pgtype.Timestamptz
-	DeletedAt pgtype.Timestamptz
+	UserID    int64
+	Endpoint  string
+	P256dh    string
+	Auth      string
+	CreatedAt pgtype.Timestamptz
+}
+
+type ReadState struct {
+	UserID            int64
+	ChannelID         int64
+	LastReadMessageID int64
+	MentionCount      int32
 }
 
 type Role struct {

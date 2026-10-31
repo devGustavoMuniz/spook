@@ -104,3 +104,25 @@ func TestLiveKitConfig(t *testing.T) {
 		t.Fatalf("config = %+v", c.LiveKit)
 	}
 }
+
+func TestLoadVAPIDAllOrNothing(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	for _, k := range []string{"VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT"} {
+		t.Setenv(k, "")
+	}
+	c, err := Load()
+	if err != nil || c.VAPID.Enabled() || c.VAPID.Partial() {
+		t.Fatalf("sem VAPID: push desligado e sem aviso (%+v, %v)", c.VAPID, err)
+	}
+	t.Setenv("VAPID_PUBLIC_KEY", " pub ")
+	c, _ = Load()
+	if c.VAPID.Enabled() || !c.VAPID.Partial() || c.VAPID.PublicKey != "pub" {
+		t.Fatalf("só uma variável: desligado e parcial (%+v)", c.VAPID)
+	}
+	t.Setenv("VAPID_PRIVATE_KEY", "priv")
+	t.Setenv("VAPID_SUBJECT", "mailto:a@b.c")
+	c, _ = Load()
+	if !c.VAPID.Enabled() || c.VAPID.Partial() {
+		t.Fatalf("as três: ligado (%+v)", c.VAPID)
+	}
+}

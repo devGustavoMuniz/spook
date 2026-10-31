@@ -31,6 +31,26 @@ type LiveKit struct {
 
 func (l LiveKit) Enabled() bool { return l.URL != "" && l.APIKey != "" && l.APISecret != "" }
 
+// VAPID reúne as chaves do Web Push (Fase 6b). Sem as três o push fica desligado (os endpoints respondem 503).
+type VAPID struct {
+	PublicKey  string // VAPID_PUBLIC_KEY (base64url, ponto P-256 não comprimido)
+	PrivateKey string // VAPID_PRIVATE_KEY (base64url, 32 bytes)
+	Subject    string // VAPID_SUBJECT (mailto: ou https: de contato)
+}
+
+func (v VAPID) Enabled() bool { return v.PublicKey != "" && v.PrivateKey != "" && v.Subject != "" }
+
+// Partial diz que alguma variável VAPID foi definida mas não todas (push desligado por engano).
+func (v VAPID) Partial() bool {
+	n := 0
+	for _, s := range []string{v.PublicKey, v.PrivateKey, v.Subject} {
+		if s != "" {
+			n++
+		}
+	}
+	return n > 0 && n < 3
+}
+
 type Config struct {
 	Addr         string
 	Env          string
@@ -41,6 +61,7 @@ type Config struct {
 	RealIPHeader string // ex.: CF-Connecting-IP atrás do Cloudflare Tunnel
 	S3           S3
 	LiveKit      LiveKit
+	VAPID        VAPID
 	// AllowedOrigins são as origens extras aceitas no handshake do gateway, além do próprio host
 	// (SPOOK_ALLOWED_ORIGINS, separadas por vírgula).
 	AllowedOrigins []string
@@ -68,6 +89,11 @@ func Load() (Config, error) {
 			Bucket:          getenv("S3_BUCKET", "spook"),
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
+		},
+		VAPID: VAPID{
+			PublicKey:  strings.TrimSpace(os.Getenv("VAPID_PUBLIC_KEY")),
+			PrivateKey: strings.TrimSpace(os.Getenv("VAPID_PRIVATE_KEY")),
+			Subject:    strings.TrimSpace(os.Getenv("VAPID_SUBJECT")),
 		},
 		LiveKit: LiveKit{
 			URL:         os.Getenv("LIVEKIT_URL"),

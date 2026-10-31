@@ -12,7 +12,7 @@ import (
 )
 
 const getMessage = `-- name: GetMessage :one
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.id = $1 AND m.channel_id = $2 AND m.deleted_at IS NULL
@@ -29,6 +29,7 @@ type GetMessageRow struct {
 	AuthorID    int64
 	Content     string
 	EditedAt    pgtype.Timestamptz
+	MentionIds  []int64
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -43,6 +44,7 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 		&i.AuthorID,
 		&i.Content,
 		&i.EditedAt,
+		&i.MentionIds,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -52,21 +54,22 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 
 const insertMessage = `-- name: InsertMessage :one
 WITH m AS (
-    INSERT INTO messages (id, channel_id, author_id, content) VALUES ($1, $2, $3, $4)
-    RETURNING id, channel_id, author_id, content, edited_at
+    INSERT INTO messages (id, channel_id, author_id, content, mention_ids) VALUES ($1, $2, $3, $4, $5::bigint[])
+    RETURNING id, channel_id, author_id, content, edited_at, mention_ids
 ), c AS (
     UPDATE channels SET last_message_id = $1 WHERE id = $2 AND (last_message_id IS NULL OR last_message_id < $1)
 )
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids,
        u.username, u.display_name, u.avatar_key
 FROM m JOIN users u ON u.id = m.author_id
 `
 
 type InsertMessageParams struct {
-	ID        int64
-	ChannelID int64
-	AuthorID  int64
-	Content   string
+	ID         int64
+	ChannelID  int64
+	AuthorID   int64
+	Content    string
+	MentionIds []int64
 }
 
 type InsertMessageRow struct {
@@ -75,6 +78,7 @@ type InsertMessageRow struct {
 	AuthorID    int64
 	Content     string
 	EditedAt    pgtype.Timestamptz
+	MentionIds  []int64
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -87,6 +91,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		arg.ChannelID,
 		arg.AuthorID,
 		arg.Content,
+		arg.MentionIds,
 	)
 	var i InsertMessageRow
 	err := row.Scan(
@@ -95,6 +100,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		&i.AuthorID,
 		&i.Content,
 		&i.EditedAt,
+		&i.MentionIds,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -103,7 +109,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 }
 
 const listMessages = `-- name: ListMessages :many
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.id < $2 AND m.deleted_at IS NULL
@@ -123,6 +129,7 @@ type ListMessagesRow struct {
 	AuthorID    int64
 	Content     string
 	EditedAt    pgtype.Timestamptz
+	MentionIds  []int64
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -143,6 +150,7 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.AuthorID,
 			&i.Content,
 			&i.EditedAt,
+			&i.MentionIds,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,

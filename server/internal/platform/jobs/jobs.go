@@ -21,10 +21,14 @@ import (
 // inteira na memória).
 const QueueThumbnail = "thumbnail"
 
+// QueuePush entrega as notificações Web Push; poucos workers (cada envio é uma requisição de rede curta).
+const QueuePush = "push"
+
 // Concorrência por fila (pequena, de propósito: o container tem pouca RAM e 1 CPU).
 const (
 	DefaultWorkers   = 2
 	ThumbnailWorkers = 2
+	PushWorkers      = 2
 )
 
 // Client é o client do River sobre pgx.
@@ -48,6 +52,7 @@ func New(pool *pgxpool.Pool, workers *river.Workers, periodic []*river.PeriodicJ
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: DefaultWorkers},
 			QueueThumbnail:     {MaxWorkers: ThumbnailWorkers},
+			QueuePush:          {MaxWorkers: PushWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,
@@ -65,7 +70,7 @@ func registerQueueGauge(pool *pgxpool.Pool) {
 	_, _ = otel.Meter("spook/jobs").Int64ObservableGauge("spook.jobs.queue.size",
 		metric.WithDescription("Jobs aguardando execução, por fila"),
 		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
-			counts := map[string]int64{river.QueueDefault: 0, QueueThumbnail: 0}
+			counts := map[string]int64{river.QueueDefault: 0, QueueThumbnail: 0, QueuePush: 0}
 			rows, err := pool.Query(ctx, `SELECT queue, count(*) FROM river_job WHERE state IN ('available', 'scheduled', 'retryable') GROUP BY queue`)
 			if err != nil {
 				return nil // o gauge é opcional; erro de consulta não deve derrubar a exportação
