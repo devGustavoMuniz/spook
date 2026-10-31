@@ -20,6 +20,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/migrate"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/storage"
 )
 
@@ -362,5 +363,51 @@ func TestServerTimingHeader(t *testing.T) {
 	status(t, resp, b, 401)
 	if resp.Header.Get("Server-Timing") == "" {
 		t.Fatal("respostas de erro também devem ter Server-Timing")
+	}
+}
+
+func TestCORSForDesktopOrigin(t *testing.T) {
+	const tauri = "tauri://localhost"
+	e := newEnvWith(t, func(d *Deps) {
+		d.Cfg.AllowedOrigins = []string{tauri}
+		d.AuthLimiter = ratelimit.New(0.001, 3) // estoura logo para provar o CORS na resposta 429
+	})
+
+	// Preflight: 204 com os cabeçalhos, sem credenciais, e sem consumir o limite de /api/auth/*.
+	for range 10 {
+		resp, b := e.do(t, "OPTIONS", "/api/auth/login", nil, map[string]string{
+			"Origin": tauri, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-spook-client",
+		})
+		status(t, resp, b, 204)
+		if resp.Header.Get("Access-Control-Allow-Origin") != tauri || resp.Header.Get("Access-Control-Allow-Credentials") != "" ||
+			!strings.Contains(resp.Header.Get("Access-Control-Allow-Headers"), "X-Spook-Client") {
+			t.Fatalf("preflight headers = %v", resp.Header)
+		}
+	}
+
+	// 401 de rota protegida leva CORS e Server-Timing exposto.
+	resp, b := e.do(t, "GET", "/api/users/me", nil, map[string]string{"Origin": tauri})
+	status(t, resp, b, 401)
+	if resp.Header.Get("Access-Control-Allow-Origin") != tauri || !strings.Contains(resp.Header.Get("Access-Control-Expose-Headers"), "Retry-After") {
+		t.Fatalf("401 sem CORS: %v", resp.Header)
+	}
+
+	// 429 também leva CORS (o navegador precisa ler Retry-After).
+	var last *http.Response
+	for range 10 {
+		last, _ = e.do(t, "POST", "/api/auth/login", map[string]string{"email": "nao@existe.spook", "password": "x"}, map[string]string{"Origin": tauri})
+		if last.StatusCode == http.StatusTooManyRequests {
+			break
+		}
+	}
+	if last.StatusCode != http.StatusTooManyRequests || last.Header.Get("Access-Control-Allow-Origin") != tauri || last.Header.Get("Retry-After") == "" {
+		t.Fatalf("429 = %d headers = %v", last.StatusCode, last.Header)
+	}
+
+	// Origem não permitida: nenhum cabeçalho CORS.
+	resp, b = e.do(t, "GET", "/api/users/me", nil, map[string]string{"Origin": "https://evil.example"})
+	status(t, resp, b, 401)
+	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("origem não permitida recebeu CORS: %v", resp.Header)
 	}
 }
