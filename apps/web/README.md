@@ -8,7 +8,7 @@ Front-end do Spook (React 19, Vite, TanStack Router/Query/Virtual, Tailwind, com
 
 ## E2E (Playwright, RNF06)
 
-O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. A Fase 4 (`e2e/dms.spec.ts`) cobre DMs 1:1 e em grupo com 3 contas, presença (online, ausente com relógio falso e offline) e "digitando…"; ela precisa do backend com `SPOOK_PRESENCE_OFFLINE_GRACE=2s` (offline em 2 s em vez de 15 s; é só para o E2E, produção usa o padrão). Cada execução registra 8 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.
+O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. A Fase 4 (`e2e/dms.spec.ts`) cobre DMs 1:1 e em grupo com 3 contas, presença (online, ausente com relógio falso e offline) e "digitando…"; ela precisa do backend com `SPOOK_PRESENCE_OFFLINE_GRACE=2s` (offline em 2 s em vez de 15 s; é só para o E2E, produção usa o padrão). A Fase 6 (`e2e/attachments-notifications.spec.ts`) cobre anexos com thumbnail, não lidas, menções, avisos in-app e a inscrição de push com `serviceWorker`/`PushManager` simulados (push real não dá para receber no Playwright: fica em `VALIDACAO-MANUAL.md`). Cada execução registra 10 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.
 
 Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
 
@@ -39,6 +39,13 @@ Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
    ```
 
 4. Para encerrar: `docker compose --env-file .env -f deploy/docker-compose.yml stop server`.
+
+### Anexos no E2E (Garage e River)
+
+O teste de anexos envia arquivos de verdade ao storage por URL pré-assinada e espera o `MESSAGE_UPDATE` do worker de thumbnails (River), então o backend precisa de Garage e o **navegador precisa alcançar o endpoint S3 que o backend assina**:
+
+- No Docker (passo 2 acima), acrescente `S3_ENDPOINT: http://host.docker.internal:3900` ao `environment` do override (o container do backend e o do Playwright alcançam o Garage publicado no host) e libere a origem do front no CORS do bucket, uma vez: `COMPOSE_ENV_FILE=.env.e2e deploy/garage-init.sh`, onde `.env.e2e` é uma cópia do `.env` com `S3_CORS_ORIGINS=http://localhost:5180,http://localhost:8090,http://host.docker.internal:8090` (o script aceita lista separada por vírgulas; apague o arquivo depois). Atenção: `pnpm infra:up` (e o `scripts/verify.sh`) roda o `garage-init.sh` com o `.env` e **volta o CORS ao padrão**; refaça o passo antes do E2E. Também pare o `server` do override antes de rodar os testes de integração: o worker do River dele disputa os jobs (push e thumbnail) com o do teste.
+- No CI o job `e2e` sobe o Garage pelo Compose, roda `deploy/garage-init.sh` com a origem `http://localhost:8090` e passa as variáveis `S3_*` ao backend.
 
 ### Com Playwright instalado (CI)
 
