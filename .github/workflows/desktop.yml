@@ -24,7 +24,8 @@ jobs:
   build:
     name: ${{ matrix.os_name }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    # A 1ª build (sem cache) compila o libwebrtc/LiveKit SDK, cpal, scap e nokhwa além do Tauri: pode passar de 40 min.
+    timeout-minutes: 90
     # macOS x64 é cross-compilado no runner arm64: se falhar, não derruba as demais plataformas.
     continue-on-error: ${{ matrix.experimental == true }}
     strategy:
@@ -47,7 +48,10 @@ jobs:
             bundles: dmg
             target: x86_64-apple-darwin
             experimental: true
-          - runner: ubuntu-22.04
+          # 24.04 (e não 22.04): o `scap` usa pipewire-rs 0.8, que exige libpipewire/libspa >= 0.3.5x (a 22.04 tem
+          # 0.3.48 e a build falha em libspa-sys). Efeito: o .deb/AppImage exigem glibc >= 2.39 (Ubuntu 24.04+,
+          # Debian 13+, Fedora 40+).
+          - runner: ubuntu-24.04
             os_name: linux
             arch: x64
             bundles: deb,appimage
@@ -55,6 +59,9 @@ jobs:
     env:
       # AppImage sem FUSE (runners e contêineres não têm).
       APPIMAGE_EXTRACT_AND_RUN: "1"
+      CARGO_TERM_COLOR: never
+      # Menos mensagens e builds mais enxutas (a CI não precisa de debuginfo).
+      CARGO_INCREMENTAL: "0"
     defaults:
       run:
         shell: bash
@@ -76,8 +83,28 @@ jobs:
         if: matrix.os_name == 'linux'
         run: |
           sudo apt-get update
+          # Tauri (webkit/gtk/tray/keyring) + voz nativa: ALSA (cpal), PipeWire/SPA e GBM/DRM/X11 (scap e o
+          # captor de tela do libwebrtc), V4L2 (nokhwa), glib/gio (headers do webrtc-sys).
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libssl-dev libxdo-dev libdbus-1-dev patchelf build-essential curl wget file
+            librsvg2-dev libssl-dev libxdo-dev libdbus-1-dev patchelf build-essential curl wget file gnupg \
+            libasound2-dev libpipewire-0.3-dev libspa-0.2-dev libgbm-dev libdrm-dev libv4l-dev \
+            libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev \
+            libx11-dev libxext-dev libxrandr-dev libxdamage-dev libxfixes-dev libxcomposite-dev libxtst-dev \
+            protobuf-compiler
+      - name: Clang 21 (Linux)
+        if: matrix.os_name == 'linux'
+        run: |
+          # O libwebrtc é compilado com o libc++ "hermético" do Chromium e o webrtc-sys exige clang >= 21 (o
+          # clang do Ubuntu 24.04 é o 18). O bindgen (libspa-sys) também usa o libclang.
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm21.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-21 libclang-21-dev
+          {
+            echo "CC=clang-21"
+            echo "CXX=clang++-21"
+            echo "LIBCLANG_PATH=/usr/lib/llvm-21/lib"
+          } >> "$GITHUB_ENV"
       - run: pnpm install --frozen-lockfile
       - name: Versão do package.json igual à do Cargo.toml
         run: |
