@@ -28,6 +28,7 @@ medição interna do k6.
 | `gateway-latency.js` | só o Spook | latência ponta a ponta: envio por REST → `MESSAGE_CREATE` no WebSocket | **não** |
 | `gateway-fanout.js` | só o Spook | fan-out com N usuários conectados (Fase 4): entregas/s, perdas e latência (insumo de "CPU e mensagens/s com N usuários") | **não** |
 | `upload.js` | só o Spook | fluxo de anexo (Fase 6): pedido da URL, PUT direto no storage (throughput) e envio da mensagem com o anexo | **não** |
+| `read-states.js` | só o Spook | não lidas (Fase 6b): `GET /api/users/@me/read-states` (consulta por canal, teto de 100) e `PUT /api/channels/{id}/ack` | **não** |
 | `login.js` | só o Spook | `POST /api/auth/login` (cadastra 1 usuário de teste por execução) | **não** (ver abaixo) |
 
 Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatória), `RATE`/`DURATION` (padrão 5 req/s por 60 s),
@@ -132,6 +133,15 @@ Duas medições complementares, **só escritas e versionadas aqui; a execução 
   3. *Traces:* span `attachment.thumbnail` (com `job.result`, `job.attempt`) e filhos `.download`, `.resize` e `.upload`, que mostram onde o tempo vai (a decodificação/CatmullRom domina em fotos grandes).
   4. *Banco:* `select (finalized_at - attempted_at) from river_job where kind = 'thumbnail' order by id desc limit 50;` dá a duração por job e `attempted_at - scheduled_at` a espera na fila.
   Receita: `KIND=png` com `IMG_WIDTH×IMG_HEIGHT` crescentes (800x600, 1600x1200, 3000x2000, 4000x3000 = 12 MP, o máximo aceito), `UPLOADS_PER_MIN=12`; leia a mediana e o p95 de `spook.thumbnail.job.duration` e a memória do container `spook` (`docker stats`) durante a rampa para validar o teto de 512M com 2 workers.
+
+### Não lidas e ack (Fase 6b): `read-states.js`
+**Só escrito e versionado aqui; a execução e o registro dos resultados são da Fase B** (nunca contra produção sem combinar a carga).
+
+- **O que o cenário faz.** Dois cenários em paralelo, ambos `constant-arrival-rate`: `GET /api/users/@me/read-states` a `RATE` req/s (`name=read_states`) e `PUT /api/channels/{CHANNEL_ID}/ack` a `ACK_RATE` req/s (`name=ack`). O `setup` lê a última mensagem do canal e o ack a usa; depois do primeiro ele não muda o estado (a leitura nunca regride), então mede o caminho do upsert. Mede também `read_states_channels` (quantos canais cada GET devolveu), `read_states_capped` (canais no teto de 100 não lidas), `ack_failed` (deve ser 0) e o `Server-Timing` (`server_timing_app`/`server_timing_db`).
+- **Variáveis.** `BASE_URL`, `COOKIE` e `CHANNEL_ID` (canal de texto ou DM da conta) obrigatórias; `RATE` (5), `ACK_RATE` (2), `DURATION` (60s), `HOST_HEADER`, `FORWARDED_PROTO`. Use uma conta **descartável** (o ack escreve em `read_states`).
+- **Exemplo local:** `COOKIE='spook_session=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id> /bench/scenarios/read-states.js`.
+- **Como o custo escala.** O GET é **uma consulta** por requisição, qualquer que seja o número de canais (um teste de integração prova que o número de idas ao banco não cresce com os canais). Cada canal só paga a contagem quando `channels.last_message_id > last_read`, e a contagem para em 100 (`LIMIT 100` sobre o índice `(channel_id, id DESC)`). Para a curva realista, rode com contas em 10, 50 e 200 canais com mensagens não lidas e registre p50/p95 × nº de canais.
+- **No backend:** `spook.readstate.query.duration` (histograma, s) é o tempo da consulta de não lidas; `spook.readstate.acks` conta os acks; `spook.mentions.detected` conta os mencionados; `spook.push.jobs{result=sent|removed|failed|skipped}` e `spook.push.job.duration` medem o Web Push; `spook.jobs.queue.size{queue="push"}` é a fila; `spook.notification.dropped{reason}` indica `MESSAGE_CREATE` descartados (fila de 4.096 cheia ou erro). Spans: `notification.ReadStates`, `notification.Ack`, `notification.OnMessage`, `notification.ResolveMentions`, `notification.push`.
 
 ### Login: não é comparado (achado registrado)
 A latência do login é dominada por **política**, não pelo framework: o custo de hash escolhido e o `Timebox` do Fortify. Por isso
