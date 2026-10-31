@@ -86,3 +86,12 @@ O navegador do container precisa alcançar o LiveKit e o backend pela rede do Co
 
    O projeto usa `channel: "chromium"` e `--unsafely-treat-insecure-origin-as-secure=$E2E_BASE_URL`: `http://server:8090` não é um contexto seguro e, sem isso, o navegador esconde `getUserMedia`.
 4. Ao terminar, volte o backend ao normal (`docker compose --env-file .env -f deploy/docker-compose.yml up -d server`) ou pare-o: `docker compose --env-file .env -f deploy/docker-compose.yml stop server`.
+
+## Ruído e eco no microfone (voz, web)
+
+O diálogo "Dispositivos de áudio e vídeo" tem a seção "Qualidade do microfone": redução de ruído em três níveis (Desligada, Padrão, Forte com IA), cancelamento de eco e ajuste automático de volume. Decisões e comparação em `SPEC.md` 5.5 ("Adicional: ruído e eco (web)").
+
+- **Forte (IA)** usa o RNNoise em WASM num `AudioWorklet`, de `@sapphi-red/web-noise-suppressor` 0.4.1 (licença **MIT**; o RNNoise é BSD-3-Clause e o `rnnoise-wasm` embutido é Apache-2.0). Os arquivos de modelo (worklet e WASM, ~220 kB) saem do próprio pacote npm e são emitidos pelo build do Vite em `dist/assets/` (`?url`): **nenhum CDN em runtime**. Só são baixados quando alguém escolhe o nível Forte (`import()` em `src/features/voice/noise-processor.ts`).
+- Sem `AudioWorklet`/WASM, com falha de download ou com processamento lento, a engine volta sozinha para "Padrão" e avisa.
+- O teste `src/features/voice/noise-dsp.test.ts` roda o worklet e o WASM reais em Node (contexto `vm`), sem navegador: `pnpm --filter @spook/web exec vitest run src/features/voice/noise-dsp.test.ts`.
+- O compartilhamento de tela abre antes um diálogo com "Incluir áudio" desligado por padrão (evita eco); `getDisplayMedia` usa `selfBrowserSurface: "exclude"`, `suppressLocalAudioPlayback` e `restrictOwnAudio`.

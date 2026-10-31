@@ -47,11 +47,42 @@ export type VideoTrackInfo = {
 export type DeviceKind = "audioinput" | "audiooutput" | "videoinput";
 export type DeviceInfo = { id: string; label: string };
 
-/** Processamento do microfone feito pela engine (só o desktop nativo): eco, ruído e ganho. */
+/**
+ * Nível de supressão de ruído do microfone:
+ * - `off`: nenhum filtro;
+ * - `standard`: o filtro embutido do navegador (web) ou do WebRTC (desktop);
+ * - `strong`: modelo de IA gratuito (RNNoise) processando o áudio antes de publicar. Só vale onde a engine
+ *   declara `audioCapabilities.strongNoiseSuppression`.
+ */
+export type NoiseSuppressionLevel = "off" | "standard" | "strong";
+
+/** Processamento do microfone: eco, ruído (3 níveis) e ganho. Mesmo modelo na web e no desktop. */
 export type AudioProcessingOptions = {
   echoCancellation: boolean;
-  noiseSuppression: boolean;
+  noiseSuppression: NoiseSuppressionLevel;
   autoGainControl: boolean;
+};
+
+/** O que a engine sabe fazer no processamento de áudio (a interface se adapta a isto, não ao ambiente). */
+export type AudioCapabilities = {
+  /** Nível "Forte" (IA) disponível nesta engine/navegador. */
+  strongNoiseSuppression: boolean;
+  /** Por que o "Forte" não está disponível (texto curto em pt-br para a interface; ex.: "em breve no app"). */
+  strongUnavailableReason?: string;
+};
+
+/**
+ * Estado real do processamento do microfone, para a interface ser honesta com o usuário:
+ * `level` é o nível EM EFEITO (pode diferir do pedido se houve rebaixamento).
+ */
+export type AudioProcessingStatus = {
+  level: NoiseSuppressionLevel;
+  /** `loading`: baixando/iniciando o modelo; `active`: funcionando; `degraded`: IA rebaixada para "Padrão". */
+  state: "idle" | "loading" | "active" | "degraded";
+  /** Motivo do rebaixamento (pt-br), só em `degraded`. */
+  reason?: string;
+  /** Carga do processamento de IA: `high` quando o áudio está atrasando (ainda não rebaixou). */
+  load?: "ok" | "high";
 };
 
 export type LocalMedia = { microphone: boolean; camera: boolean; screenShare: boolean };
@@ -108,6 +139,8 @@ export type VoiceEngineEvents = {
   /** O navegador bloqueou a reprodução automática de áudio: chame `resumeAudio()` num gesto do usuário. */
   "audio-blocked": { blocked: boolean };
   "devices-changed": Record<string, never>;
+  /** O processamento do microfone mudou de estado (carregando a IA, ativa, rebaixada). Só a engine web emite. */
+  "audio-processing-status": AudioProcessingStatus;
   /** A sala foi encerrada. Depois disso `connect()` pode ser chamado de novo. */
   disconnected: { reason: DisconnectReason };
 };
@@ -132,10 +165,13 @@ export interface VoiceEngine {
   resumeAudio(): Promise<void>;
 
   /**
-   * Opcional: só a engine que processa o áudio por conta própria (desktop nativo, com cancelamento de eco)
-   * implementa. A web deixa isso com o navegador (`getUserMedia` já aplica AEC/NS/AGC).
+   * Eco, ruído e ganho do microfone. A web aplica por constraints do `getUserMedia` (reiniciando só a captura
+   * do microfone) e, no nível "strong", por um processador de IA no track; o desktop usa o APM do libwebrtc.
+   * Opcional: a engine que não processa áudio não implementa.
    */
   setAudioProcessing?(options: AudioProcessingOptions): Promise<void>;
+  /** Capacidades de áudio; ausente = nada além do básico. */
+  readonly audioCapabilities?: AudioCapabilities;
 
   listDevices(kind: DeviceKind): Promise<DeviceInfo[]>;
   /** Troca o dispositivo ativo (e o lembra para as próximas capturas). */

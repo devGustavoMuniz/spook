@@ -305,7 +305,7 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
     const { rust, engine } = setup();
     await engine.setAudioProcessing({
       echoCancellation: false,
-      noiseSuppression: true,
+      noiseSuppression: "standard",
       autoGainControl: false,
     });
     expect(rust.named("voice_set_audio_processing")[0]?.args).toEqual({
@@ -315,13 +315,40 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
     });
   });
 
+  // TODO(rust-strong-ns): quando o Rust implementar o nível Forte, este teste muda: "strong" deixa de cair
+  // para "standard", `audioCapabilities.strongNoiseSuppression` vira true e o comando passa a receber o nível.
+  it("o nível Forte ainda não existe no nativo: é declarado indisponível e enviado como Padrão", async () => {
+    const { rust, engine } = setup();
+    expect(engine.audioCapabilities.strongNoiseSuppression).toBe(false);
+    await engine.setAudioProcessing({
+      echoCancellation: true,
+      noiseSuppression: "strong",
+      autoGainControl: true,
+    });
+    expect(rust.named("voice_set_audio_processing")[0]?.args).toMatchObject({
+      noiseSuppression: true,
+    });
+    await engine.setAudioProcessing({
+      echoCancellation: true,
+      noiseSuppression: "off",
+      autoGainControl: true,
+    });
+    expect(rust.named("voice_set_audio_processing")[1]?.args).toMatchObject({
+      noiseSuppression: false,
+    });
+  });
+
   it("falha do Rust vira VoiceMediaError", async () => {
     const { rust, engine } = setup();
     rust.on("voice_set_audio_processing", () => {
       throw { kind: "other", message: "x" };
     });
     const e = await engine
-      .setAudioProcessing({ echoCancellation: true, noiseSuppression: true, autoGainControl: true })
+      .setAudioProcessing({
+        echoCancellation: true,
+        noiseSuppression: "standard",
+        autoGainControl: true,
+      })
       .catch((x) => x);
     expect(e).toBeInstanceOf(VoiceMediaError);
   });

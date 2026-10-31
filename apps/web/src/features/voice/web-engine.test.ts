@@ -29,6 +29,34 @@ const lk = vi.hoisted(() => {
       super(m);
     }
   }
+  /** Track de microfone local mínimo: registra recapturas e o processador de IA. */
+  function fakeAudioTrack() {
+    return {
+      restarts: [] as unknown[],
+      processor: undefined as undefined | { name: string },
+      failSetProcessor: null as Error | null,
+      failRestart: null as Error | null,
+      async restartTrack(opts: unknown) {
+        if (this.failRestart) throw this.failRestart;
+        this.restarts.push(opts);
+      },
+      getProcessor() {
+        return this.processor;
+      },
+      async setProcessor(p: { name: string }) {
+        if (this.failSetProcessor) throw this.failSetProcessor;
+        this.processor = p;
+      },
+      async stopProcessor() {
+        this.processor = undefined;
+      },
+    };
+  }
+  /** Processador de IA simulado (o módulo real exige AudioWorklet/WASM, ausentes no jsdom). */
+  const noise = {
+    created: [] as { hooks: { onLoad?: (l: string) => void; onSlow?: () => void } }[],
+    timeout: 20_000,
+  };
   class FakeRoom {
     static last: FakeRoom;
     static seed: string[] = [];
@@ -46,9 +74,28 @@ const lk = vi.hoisted(() => {
       isScreenShareEnabled: false,
       calls: [] as unknown[],
       fail: null as Error | null,
-      async setMicrophoneEnabled(on: boolean) {
+      micCalls: [] as [boolean, unknown][],
+      micPub: null as null | {
+        source: string;
+        isMuted: boolean;
+        audioTrack: ReturnType<typeof fakeAudioTrack>;
+      },
+      unpublished: [] as unknown[],
+      async setMicrophoneEnabled(on: boolean, opts?: unknown) {
         if (this.fail) throw this.fail;
+        this.micCalls.push([on, opts]);
         this.isMicrophoneEnabled = on;
+        if (on && !this.micPub)
+          this.micPub = { source: "microphone", isMuted: false, audioTrack: fakeAudioTrack() };
+        else if (this.micPub) this.micPub.isMuted = !on;
+        return this.micPub ?? undefined;
+      },
+      getTrackPublication(source: string) {
+        return source === "microphone" ? (this.micPub ?? undefined) : undefined;
+      },
+      async unpublishTrack(track: unknown) {
+        this.unpublished.push(track);
+        this.micPub = null;
       },
       async setCameraEnabled(on: boolean) {
         if (this.fail) throw this.fail;
@@ -89,6 +136,7 @@ const lk = vi.hoisted(() => {
     }
   }
   return {
+    noise,
     Room: FakeRoom,
     RoomEvent,
     ConnectionError,
@@ -127,8 +175,26 @@ const lk = vi.hoisted(() => {
   };
 });
 vi.mock("livekit-client", () => lk);
+vi.mock("./noise-processor", () => ({
+  get LOAD_TIMEOUT_MS() {
+    return lk.noise.timeout;
+  },
+  RnnoiseTrackProcessor: class {
+    name = "spook-rnnoise";
+    constructor(public hooks: { onLoad?: (l: string) => void; onSlow?: () => void }) {
+      lk.noise.created.push(this);
+    }
+  },
+}));
 
-import { createWebVoiceEngine, mapDisconnectReason, toMediaError } from "./web-engine";
+import type { AudioProcessingOptions, AudioProcessingStatus } from "./engine";
+import {
+  createWebVoiceEngine,
+  mapDisconnectReason,
+  micConstraints,
+  screenShareOptions,
+  toMediaError,
+} from "./web-engine";
 
 const room = () => lk.Room.last;
 const URL = { url: "ws://x", token: "t" };
@@ -152,6 +218,23 @@ function track(kind: "audio" | "video") {
 
 beforeEach(() => {
   document.body.innerHTML = "";
+  lk.noise.created.length = 0;
+  lk.noise.timeout = 20_000;
+  vi.unstubAllGlobals();
+});
+
+/** jsdom não tem AudioWorklet nem WASM de áudio: declara que o navegador os tem (a engine só confere a existência). */
+function stubAudioWorklet() {
+  vi.stubGlobal("AudioContext", class {});
+  vi.stubGlobal("AudioWorkletNode", class {});
+  vi.stubGlobal("MediaStreamAudioDestinationNode", class {});
+}
+
+const opts = (over: Partial<AudioProcessingOptions> = {}): AudioProcessingOptions => ({
+  echoCancellation: true,
+  noiseSuppression: "standard",
+  autoGainControl: true,
+  ...over,
 });
 
 describe("conexão", () => {
@@ -322,7 +405,9 @@ describe("mídia local", () => {
     e.on("video-track-added", (t) => tracks.push(t));
     await e.setMicrophoneEnabled(true);
     await e.setScreenShareEnabled(true, { audio: true });
-    expect(room().localParticipant.calls).toEqual([["screen", true, { audio: true }]]);
+    expect(room().localParticipant.calls).toMatchObject([
+      ["screen", true, { audio: { suppressLocalAudioPlayback: true }, systemAudio: "include" }],
+    ]);
     room().emit(
       lk.RoomEvent.LocalTrackPublished,
       { trackSid: "L1", source: "camera", track: track("video") },
@@ -342,7 +427,7 @@ describe("mídia local", () => {
       media = m;
     });
     room().localParticipant.isScreenShareEnabled = false;
-    room().emit(lk.RoomEvent.LocalTrackUnpublished, { trackSid: "L2" });
+    room().emit(lk.RoomEvent.LocalTrackUnpublished, { trackSid: "L2", source: "screen_share" });
     expect(removed).toEqual(["L2"]);
     expect(media).toMatchObject({ screenShare: false });
   });
@@ -379,5 +464,247 @@ describe("dispositivos", () => {
     await e.connect(URL);
     await e.setDevice("audiooutput", "spk");
     expect(room().switched).toEqual([["audiooutput", "spk"]]);
+  });
+});
+
+describe("microfone: constraints por nível", () => {
+  it.each([
+    ["off", { noiseSuppression: false, voiceIsolation: false }],
+    ["standard", { noiseSuppression: true, voiceIsolation: true }],
+    ["strong", { noiseSuppression: false, voiceIsolation: false }],
+  ] as const)("nível %s", (level, expected) => {
+    expect(micConstraints(opts({ noiseSuppression: level }), level)).toMatchObject({
+      echoCancellation: true,
+      autoGainControl: true,
+      ...expected,
+    });
+  });
+
+  it("eco e ganho seguem os interruptores, independentes do ruído", () => {
+    expect(
+      micConstraints(opts({ echoCancellation: false, autoGainControl: false }), "standard"),
+    ).toMatchObject({ echoCancellation: false, autoGainControl: false, noiseSuppression: true });
+  });
+
+  it("o microfone é aberto com as constraints do que foi pedido", async () => {
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "off", echoCancellation: false }));
+    await e.setMicrophoneEnabled(true);
+    expect(room().localParticipant.micCalls[0]).toEqual([
+      true,
+      {
+        echoCancellation: false,
+        autoGainControl: true,
+        noiseSuppression: false,
+        voiceIsolation: false,
+      },
+    ]);
+  });
+});
+
+describe("microfone: troca de nível durante a chamada", () => {
+  async function inCall(level: AudioProcessingOptions["noiseSuppression"] = "standard") {
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: level }));
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    if (!mic) throw new Error("sem track de microfone");
+    return { e, mic };
+  }
+
+  it("recaptura só o microfone, sem desconectar nem republicar", async () => {
+    const { e, mic } = await inCall();
+    const disconnected: unknown[] = [];
+    e.on("disconnected", (d) => disconnected.push(d));
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "off" }));
+    expect(mic.restarts).toEqual([
+      {
+        echoCancellation: true,
+        autoGainControl: true,
+        noiseSuppression: false,
+        voiceIsolation: false,
+      },
+    ]);
+    expect(room().disconnected).toBe(0);
+    expect(disconnected).toEqual([]);
+    expect(room().localParticipant.unpublished).toEqual([]);
+  });
+
+  it("ligar/desligar eco recaptura; repetir o mesmo valor não faz nada", async () => {
+    const { e, mic } = await inCall();
+    await e.setAudioProcessing?.(opts());
+    expect(mic.restarts).toHaveLength(0);
+    await e.setAudioProcessing?.(opts({ echoCancellation: false }));
+    expect(mic.restarts).toHaveLength(1);
+    expect(mic.restarts[0]).toMatchObject({ echoCancellation: false });
+  });
+
+  it("mudo: descarta o track (sem capturar) e a próxima ativação já usa o nível novo", async () => {
+    const { e, mic } = await inCall();
+    await e.setMicrophoneEnabled(false);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "off" }));
+    expect(mic.restarts).toHaveLength(0); // não reabriu o microfone enquanto mudo
+    expect(room().localParticipant.unpublished).toEqual([mic]);
+    await e.setMicrophoneEnabled(true);
+    expect(room().localParticipant.micCalls.at(-1)).toEqual([
+      true,
+      expect.objectContaining({ noiseSuppression: false }),
+    ]);
+  });
+});
+
+describe("microfone: nível Forte (IA)", () => {
+  it("anuncia a capacidade conforme o navegador", () => {
+    expect(createWebVoiceEngine().audioCapabilities).toMatchObject({
+      strongNoiseSuppression: false,
+      strongUnavailableReason: expect.any(String),
+    });
+    stubAudioWorklet();
+    expect(createWebVoiceEngine().audioCapabilities).toEqual({ strongNoiseSuppression: true });
+  });
+
+  it("liga o processador no track com o filtro do navegador desligado", async () => {
+    stubAudioWorklet();
+    const e = createWebVoiceEngine();
+    const statuses: AudioProcessingStatus[] = [];
+    e.on("audio-processing-status", (s) => statuses.push(s));
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    expect(mic?.processor?.name).toBe("spook-rnnoise");
+    expect(room().localParticipant.micCalls[0]?.[1]).toMatchObject({
+      noiseSuppression: false,
+      voiceIsolation: false,
+      echoCancellation: true,
+    });
+    expect(statuses.map((s) => s.state)).toEqual(["idle", "loading", "active"]);
+    expect(statuses.at(-1)).toEqual({ level: "strong", state: "active", load: "ok" });
+  });
+
+  it("padrão -> forte durante a chamada: recaptura sem o filtro e acopla o processador", async () => {
+    stubAudioWorklet();
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts());
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
+    expect(mic?.restarts.at(-1)).toMatchObject({ noiseSuppression: false });
+    expect(mic?.processor?.name).toBe("spook-rnnoise");
+    // e de volta: tira o processador e devolve o filtro do navegador
+    await e.setAudioProcessing?.(opts());
+    expect(mic?.processor).toBeUndefined();
+    expect(mic?.restarts.at(-1)).toMatchObject({ noiseSuppression: true });
+    expect(room().disconnected).toBe(0);
+  });
+
+  it("sem AudioWorklet/WASM: cai para Padrão com aviso, sem processador", async () => {
+    const e = createWebVoiceEngine();
+    const statuses: AudioProcessingStatus[] = [];
+    e.on("audio-processing-status", (s) => statuses.push(s));
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
+    await e.setMicrophoneEnabled(true);
+    expect(statuses[0]).toMatchObject({ level: "standard", state: "degraded" });
+    expect(statuses[0]?.reason).toMatch(/não suporta/);
+    expect(room().localParticipant.micPub?.audioTrack.processor).toBeUndefined();
+    expect(room().localParticipant.micCalls[0]?.[1]).toMatchObject({ noiseSuppression: true });
+  });
+
+  it("falha ao carregar o modelo: volta para Padrão com aviso e recaptura com o filtro", async () => {
+    stubAudioWorklet();
+    const e = createWebVoiceEngine();
+    const statuses: AudioProcessingStatus[] = [];
+    e.on("audio-processing-status", (s) => statuses.push(s));
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "standard" }));
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    if (!mic) throw new Error("sem track");
+    mic.failSetProcessor = new Error("falha de rede");
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
+    const last = statuses.at(-1);
+    expect(last).toMatchObject({ level: "standard", state: "degraded" });
+    expect(last?.reason).toMatch(/falha de rede/);
+    expect(mic.processor).toBeUndefined();
+    expect(mic.restarts.at(-1)).toMatchObject({ noiseSuppression: true });
+  });
+
+  it("modelo que não carrega a tempo: rebaixa", async () => {
+    stubAudioWorklet();
+    lk.noise.timeout = 5;
+    const e = createWebVoiceEngine();
+    const statuses: AudioProcessingStatus[] = [];
+    e.on("audio-processing-status", (s) => statuses.push(s));
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts());
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    if (!mic) throw new Error("sem track");
+    mic.setProcessor = () => new Promise(() => {}); // nunca resolve
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
+    expect(statuses.at(-1)).toMatchObject({ state: "degraded" });
+    expect(statuses.at(-1)?.reason).toMatch(/tempo esgotado/);
+  });
+
+  it("processamento lento demais (aviso do monitor) rebaixa para Padrão", async () => {
+    stubAudioWorklet();
+    const e = createWebVoiceEngine();
+    const statuses: AudioProcessingStatus[] = [];
+    e.on("audio-processing-status", (s) => statuses.push(s));
+    await e.connect(URL);
+    await e.setAudioProcessing?.(opts({ noiseSuppression: "strong" }));
+    await e.setMicrophoneEnabled(true);
+    const mic = room().localParticipant.micPub?.audioTrack;
+    lk.noise.created[0]?.hooks.onLoad?.("high");
+    expect(statuses.at(-1)).toMatchObject({ state: "active", load: "high" });
+    lk.noise.created[0]?.hooks.onSlow?.();
+    await vi.waitFor(() => expect(statuses.at(-1)?.state).toBe("degraded"));
+    expect(statuses.at(-1)?.reason).toMatch(/lento demais/);
+    expect(mic?.processor).toBeUndefined();
+    expect(mic?.restarts.at(-1)).toMatchObject({ noiseSuppression: true });
+  });
+});
+
+describe("compartilhamento de tela: opções contra eco", () => {
+  it("sem áudio (padrão): nada de áudio de sistema, sem a própria aba, reprodução local suprimida", () => {
+    expect(screenShareOptions(false)).toEqual({
+      audio: false,
+      selfBrowserSurface: "exclude",
+      systemAudio: "exclude",
+      suppressLocalAudioPlayback: true,
+    });
+  });
+
+  it("com áudio: áudio de sistema, sem eco de reprodução e sem o som da própria aba", () => {
+    expect(screenShareOptions(true)).toMatchObject({
+      selfBrowserSurface: "exclude",
+      systemAudio: "include",
+      suppressLocalAudioPlayback: true,
+      audio: {
+        suppressLocalAudioPlayback: true,
+        restrictOwnAudio: true,
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+  });
+
+  it("setScreenShareEnabled sem opts não pede áudio; desligar não manda opções", async () => {
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    await e.setScreenShareEnabled(true);
+    await e.setScreenShareEnabled(false);
+    const calls = room().localParticipant.calls;
+    expect(calls[0]).toMatchObject([
+      "screen",
+      true,
+      { audio: false, selfBrowserSurface: "exclude" },
+    ]);
+    expect(calls[1]).toEqual(["screen", false, undefined]);
   });
 });

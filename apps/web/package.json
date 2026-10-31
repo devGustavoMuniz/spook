@@ -23,6 +23,7 @@
     "@radix-ui/react-switch": "1.4.1",
     "@radix-ui/react-tabs": "1.2.1",
     "@radix-ui/react-tooltip": "1.4.1",
+    "@sapphi-red/web-noise-suppressor": "0.4.1",
     "@spook/brand": "workspace:*",
     "@spook/shared": "workspace:*",
     "@tailwindcss/vite": "4.3.3",

@@ -1,6 +1,6 @@
 import type { VoiceStatePayload } from "@spook/shared";
 import { create } from "zustand";
-import type { LinkQuality, VideoTrackInfo } from "./engine";
+import type { AudioProcessingStatus, LinkQuality, VideoTrackInfo } from "./engine";
 
 // ---- Sessão local: a chamada em que EU estou ----
 
@@ -124,3 +124,16 @@ export function participantsOf(
     .filter((s) => s.channel_id === channelId)
     .sort((a, b) => a.user_id.length - b.user_id.length || a.user_id.localeCompare(b.user_id));
 }
+
+// ---- Estado do processamento do microfone (o que está de fato em efeito) ----
+
+type AudioStatusStore = {
+  /** `null` = a engine não informou nada (desktop, ou antes de entrar na chamada). */
+  status: AudioProcessingStatus | null;
+  set: (s: AudioProcessingStatus | null) => void;
+};
+
+export const useAudioStatusStore = create<AudioStatusStore>()((set) => ({
+  status: null,
+  set: (status) => set({ status }),
+}));

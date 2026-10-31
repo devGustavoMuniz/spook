@@ -130,7 +130,10 @@ describe("entrar e a barra de controle", () => {
 
     await user.click(within(bar).getByRole("button", { name: "Ligar câmera" }));
     await user.click(within(bar).getByRole("button", { name: "Compartilhar tela" }));
-    expect(fake.camera && fake.screen).toBe(true);
+    // o diálogo de compartilhar vem antes do seletor do navegador; o áudio começa desligado
+    await user.click(await screen.findByRole("button", { name: "Compartilhar" }));
+    await waitFor(() => expect(fake.camera && fake.screen).toBe(true));
+    expect(fake.calls).toContain("screen:true:mudo");
     expect(within(bar).getByRole("button", { name: "Desligar câmera" })).toBeInTheDocument();
     expect(
       within(bar).getByRole("button", { name: "Parar de compartilhar a tela" }),
@@ -211,6 +214,7 @@ describe("erros", () => {
     await within(bar).findByText("Voz conectada");
     fake.failScreen = new VoiceMediaError("cancelled", "screen");
     await user.click(within(bar).getByRole("button", { name: "Compartilhar tela" }));
+    await user.click(await screen.findByRole("button", { name: "Compartilhar" }));
     expect(await screen.findByText("Compartilhamento de tela cancelado.")).toBeInTheDocument();
     expect(within(bar).getByRole("button", { name: "Compartilhar tela" })).toBeInTheDocument();
   });

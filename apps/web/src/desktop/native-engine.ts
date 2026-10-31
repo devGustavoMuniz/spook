@@ -3,6 +3,7 @@
 // `getUserMedia`, `getDisplayMedia` nem `RTCPeerConnection`: o áudio é capturado/tocado no Rust, e o vídeo
 // remoto chega como JPEG que desenhamos num `<canvas>`.
 import {
+  type AudioCapabilities,
   type AudioProcessingOptions,
   type ConnectionState,
   type ConnectParams,
@@ -264,9 +265,20 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   /** O áudio é tocado pelo Rust: nunca há bloqueio de reprodução automática como no navegador. */
   async resumeAudio() {}
 
+  /** O APM nativo ainda não tem o nível "Forte" (IA): `audioCapabilities` o declara indisponível. */
+  readonly audioCapabilities: AudioCapabilities = {
+    strongNoiseSuppression: false,
+    strongUnavailableReason: "em breve no app",
+  };
+
   async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
     try {
-      await this.deps.invoke("voice_set_audio_processing", { ...options });
+      // TODO(rust-strong-ns): o comando Rust ainda recebe `noiseSuppression` booleano. "strong" cai para
+      // "standard" (true) até o agente do Rust implementar o nível Forte; trocar `audioCapabilities` junto.
+      await this.deps.invoke("voice_set_audio_processing", {
+        ...options,
+        noiseSuppression: options.noiseSuppression !== "off",
+      });
     } catch (err) {
       throw toMediaError(err, "microphone");
     }

@@ -27,6 +27,7 @@ import {
 import { DeviceDialog } from "./device-dialog";
 import type { LinkQuality } from "./engine";
 import { voicePermissions } from "./permissions";
+import { ScreenShareDialog } from "./screen-share-dialog";
 import { useVoiceStore } from "./store";
 
 const qualityLabel: Record<LinkQuality, string> = {
@@ -85,6 +86,7 @@ export function VoiceBar() {
   const s = useVoiceStore();
   const guilds = useListGuilds();
   const [devices, setDevices] = useState(false);
+  const [shareDialog, setShareDialog] = useState(false);
   if (s.status === "idle" || !s.channelId) return null;
 
   const guild = s.guildId ? guilds.data?.find((g) => g.id === s.guildId) : null;
@@ -170,7 +172,7 @@ export function VoiceBar() {
           pressed={s.screen}
           disabled={videoBlocked || !live}
           reason={videoBlocked ? "Você não tem permissão para usar vídeo neste canal." : undefined}
-          onClick={() => void toggleScreenShare()}
+          onClick={() => (s.screen ? void toggleScreenShare() : setShareDialog(true))}
         >
           {s.screen ? <Monitor /> : <MonitorOff />}
         </BarButton>
@@ -188,6 +190,11 @@ export function VoiceBar() {
         </Button>
       </div>
       <DeviceDialog open={devices} onOpenChange={setDevices} />
+      <ScreenShareDialog
+        open={shareDialog}
+        onOpenChange={setShareDialog}
+        onConfirm={(opts) => void toggleScreenShare(opts)}
+      />
     </section>
   );
 }

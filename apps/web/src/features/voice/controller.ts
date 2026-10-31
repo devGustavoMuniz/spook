@@ -12,11 +12,15 @@ import { voiceMessage } from "@/lib/app-errors";
 import {
   loadAudioProcessing,
   loadDevicePrefs,
+  loadScreenSharePrefs,
   saveAudioProcessing,
   saveDevicePref,
+  saveScreenSharePrefs,
 } from "./devices";
 import {
+  type AudioCapabilities,
   type AudioProcessingOptions,
+  type AudioProcessingStatus,
   type DeviceKind,
   type DisconnectReason,
   type Unsubscribe,
@@ -25,7 +29,7 @@ import {
 } from "./engine";
 import { createVoiceEngine } from "./engine-provider";
 import { mediaMessage } from "./media-errors";
-import { useVoiceStatesStore, useVoiceStore } from "./store";
+import { useAudioStatusStore, useVoiceStatesStore, useVoiceStore } from "./store";
 
 export type JoinTarget = {
   channelId: string;
@@ -69,13 +73,30 @@ function ensureEngine(): VoiceEngine {
       session().patch({ camera: m.camera, screen: m.screenShare });
     }),
     e.on("audio-blocked", ({ blocked }) => session().patch({ audioBlocked: blocked })),
+    e.on("audio-processing-status", onAudioProcessingStatus),
     e.on("disconnected", ({ reason }) => onDisconnected(reason)),
   ];
   return e;
 }
 
+/**
+ * A engine informou o estado do processamento do microfone. Se a IA foi rebaixada para "Padrão" (sem suporte,
+ * download que falhou, processamento lento), grava o nível novo (para não tentar e falhar a cada chamada) e avisa.
+ */
+function onAudioProcessingStatus(status: AudioProcessingStatus) {
+  useAudioStatusStore.getState().set(status);
+  if (status.state !== "degraded") return;
+  const saved = loadAudioProcessing();
+  if (saved.noiseSuppression === "strong")
+    saveAudioProcessing({ ...saved, noiseSuppression: status.level });
+  toast.warning(
+    status.reason ?? "A redução de ruído por IA foi desativada. Usando o filtro Padrão.",
+  );
+}
+
 /** Só para testes: solta a engine, os timers e o estado. */
 export function resetVoiceController() {
+  useAudioStatusStore.getState().set(null);
   generation++;
   clearTimeout(rejoinTimer);
   for (const u of unsubs) u();
@@ -183,6 +204,7 @@ export async function leaveCall() {
   clearTimeout(rejoinTimer);
   const eng = engine;
   session().clear();
+  useAudioStatusStore.getState().set(null);
   await eng?.disconnect();
   try {
     await leaveVoice();
@@ -245,11 +267,18 @@ export async function toggleCamera() {
   }
 }
 
-export async function toggleScreenShare() {
+/**
+ * Liga/desliga o compartilhamento de tela. O áudio do compartilhamento é DESLIGADO por padrão: ele costuma
+ * carregar a voz dos outros da chamada e eles se ouviriam de volta (eco). Quem decide é o diálogo de
+ * compartilhar (`audio`), que também guarda a escolha.
+ */
+export async function toggleScreenShare(opts?: { audio?: boolean }) {
   if (session().status === "idle" || !engine) return;
   const on = !session().screen;
+  const audio = on && (opts?.audio ?? loadScreenSharePrefs().audio);
+  if (on && opts?.audio !== undefined) saveScreenSharePrefs({ audio: opts.audio });
   try {
-    await engine.setScreenShareEnabled(on, { audio: true });
+    await engine.setScreenShareEnabled(on, { audio });
     session().patch({ screen: on });
   } catch (err) {
     toast.error(mediaMessage(err));
@@ -270,7 +299,7 @@ export async function chooseDevice(kind: DeviceKind, deviceId: string) {
   }
 }
 
-/** A engine atual processa o áudio (eco/ruído/ganho)? Só o desktop nativo. */
+/** A engine atual processa o áudio (eco/ruído/ganho)? Web (constraints + IA) e desktop (APM nativo). */
 export function supportsAudioProcessing(): boolean {
   try {
     return typeof ensureEngine().setAudioProcessing === "function";
@@ -286,6 +315,15 @@ export async function chooseAudioProcessing(options: AudioProcessingOptions) {
     await engine?.setAudioProcessing?.(options);
   } catch (err) {
     toast.error(mediaMessage(err));
+  }
+}
+
+/** O que a engine atual sabe fazer com o áudio (a interface se adapta a isto). */
+export function audioCapabilities(): AudioCapabilities {
+  try {
+    return ensureEngine().audioCapabilities ?? { strongNoiseSuppression: false };
+  } catch {
+    return { strongNoiseSuppression: false };
   }
 }
 
@@ -333,6 +371,7 @@ function forcedOut(message: string) {
   generation++;
   clearTimeout(rejoinTimer);
   session().clear();
+  useAudioStatusStore.getState().set(null);
   void engine?.disconnect();
   toast.info(message);
 }

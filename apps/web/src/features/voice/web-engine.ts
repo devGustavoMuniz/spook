@@ -1,19 +1,28 @@
 // Engine web: livekit-client (WebRTC do navegador). Único arquivo que conhece a lib (ver engine.ts).
 import {
+  type AudioCaptureOptions,
+  type AudioProcessorOptions,
   ConnectionError,
   ConnectionQuality,
   ConnectionState as LkConnectionState,
   DisconnectReason as LkDisconnectReason,
+  type LocalAudioTrack,
   type LocalTrackPublication,
   type Participant,
   type RemoteTrack,
   type RemoteTrackPublication,
   Room,
   RoomEvent,
+  type ScreenShareCaptureOptions,
   Track,
+  type TrackProcessor,
   type VideoTrack,
 } from "livekit-client";
+import { DEFAULT_AUDIO_PROCESSING } from "./devices";
 import {
+  type AudioCapabilities,
+  type AudioProcessingOptions,
+  type AudioProcessingStatus,
   type ConnectionState,
   type ConnectParams,
   type DeviceInfo,
@@ -22,6 +31,7 @@ import {
   Emitter,
   type LinkQuality,
   type LocalMedia,
+  type NoiseSuppressionLevel,
   type VideoKind,
   type VideoSource,
   VoiceConnectError,
@@ -129,6 +139,79 @@ export function toMediaError(err: unknown, device: "microphone" | "camera" | "sc
   }
 }
 
+/** O navegador tem o que o nível "Forte" (IA) precisa: AudioWorklet, WASM e MediaStreamDestination. */
+export function supportsStrongNoiseSuppression(): boolean {
+  try {
+    return (
+      typeof AudioContext !== "undefined" &&
+      typeof AudioWorkletNode !== "undefined" &&
+      typeof MediaStreamAudioDestinationNode !== "undefined" &&
+      typeof WebAssembly === "object"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Constraints do microfone para o nível de ruído EM EFEITO. No "Forte" o filtro do navegador fica desligado
+ * (a IA já limpa o sinal; processar duas vezes distorce a voz). `voiceIsolation` (isolamento de voz, mais forte
+ * que `noiseSuppression`) só entra no "Padrão" e é best-effort: navegador que não conhece a constraint a ignora.
+ */
+export function micConstraints(
+  o: AudioProcessingOptions,
+  level: NoiseSuppressionLevel,
+): AudioCaptureOptions {
+  return {
+    echoCancellation: o.echoCancellation,
+    autoGainControl: o.autoGainControl,
+    noiseSuppression: level === "standard",
+    voiceIsolation: level === "standard",
+  };
+}
+
+/**
+ * Opções do `getDisplayMedia` (Chrome) pensadas para não gerar eco:
+ * - `selfBrowserSurface: "exclude"`: não oferece a própria aba do Spook (realimentaria a chamada);
+ * - `suppressLocalAudioPlayback`: o áudio capturado deixa de tocar nas caixas locais (a lib não repassa a opção
+ *   do nível superior, por isso ela vai também dentro de `audio`);
+ * - `restrictOwnAudio`: tira do áudio capturado o som que a própria aba (a chamada) toca;
+ * - `systemAudio` só é oferecido quando o usuário pediu áudio.
+ * Navegadores que não conhecem uma opção a ignoram.
+ */
+export function screenShareOptions(audio: boolean): ScreenShareCaptureOptions {
+  return {
+    audio: audio
+      ? ({
+          echoCancellation: true,
+          noiseSuppression: false,
+          autoGainControl: false,
+          suppressLocalAudioPlayback: true,
+          restrictOwnAudio: true,
+        } as AudioCaptureOptions)
+      : false,
+    selfBrowserSurface: "exclude",
+    systemAudio: audio ? "include" : "exclude",
+    suppressLocalAudioPlayback: true,
+  };
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(message)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceEngine {
   private room: Room | null = null;
   private deafened = false;
@@ -136,6 +219,14 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   private audioHost: HTMLElement | null = null;
   /** Evita emitir `disconnected` duas vezes (por `disconnect()` e pelo evento da lib). */
   private closing = false;
+  /** Eco/ruído/ganho pedidos; `level` é o nível de ruído EM EFEITO (pode estar rebaixado para "standard"). */
+  private audio: AudioProcessingOptions = { ...DEFAULT_AUDIO_PROCESSING };
+  private level: NoiseSuppressionLevel = DEFAULT_AUDIO_PROCESSING.noiseSuppression;
+  /** Serializa as reaplicações do microfone (troca de nível, rebaixamento) para não se atropelarem. */
+  private micQueue: Promise<void> = Promise.resolve();
+  readonly audioCapabilities: AudioCapabilities = supportsStrongNoiseSuppression()
+    ? { strongNoiseSuppression: true }
+    : { strongNoiseSuppression: false, strongUnavailableReason: "indisponível neste navegador" };
 
   get state(): ConnectionState {
     return this.room ? mapState(this.room.state) : "disconnected";
@@ -195,7 +286,8 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
         this.emitLocalMedia();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
-        if (pub.trackSid) this.emit("video-track-removed", { id: pub.trackSid });
+        if (pub.trackSid && kindOf(pub.source))
+          this.emit("video-track-removed", { id: pub.trackSid });
         this.emitLocalMedia();
       })
       .on(RoomEvent.TrackMuted, () => this.emitLocalMedia())
@@ -280,9 +372,121 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   async setMicrophoneEnabled(enabled: boolean) {
     const lp = this.requireRoom().localParticipant;
     try {
-      await lp.setMicrophoneEnabled(enabled);
+      const pub = await lp.setMicrophoneEnabled(
+        enabled,
+        enabled ? micConstraints(this.audio, this.level) : undefined,
+      );
+      if (enabled) await this.syncProcessor(pub?.audioTrack as LocalAudioTrack | undefined);
     } catch (err) {
       throw toMediaError(err, "microphone");
+    }
+  }
+
+  async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
+    const prev = this.audio;
+    const wantsStrong = options.noiseSuppression === "strong";
+    const unsupported = wantsStrong && !this.audioCapabilities.strongNoiseSuppression;
+    this.audio = unsupported ? { ...options, noiseSuppression: "standard" } : { ...options };
+    this.level = this.audio.noiseSuppression;
+    if (unsupported)
+      this.setStatus({
+        level: "standard",
+        state: "degraded",
+        reason: "Este navegador não suporta a redução de ruído por IA. Usando o filtro Padrão.",
+      });
+    else this.setStatus({ level: this.level, state: "idle" });
+    const same =
+      prev.echoCancellation === this.audio.echoCancellation &&
+      prev.autoGainControl === this.audio.autoGainControl &&
+      prev.noiseSuppression === this.audio.noiseSuppression;
+    if (same) return;
+    await this.enqueueMic(() => this.reapplyMic());
+  }
+
+  private enqueueMic(job: () => Promise<void>): Promise<void> {
+    const run = this.micQueue.then(job, job);
+    this.micQueue = run.catch(() => {});
+    return run;
+  }
+
+  private setStatus(status: AudioProcessingStatus) {
+    this.emit("audio-processing-status", status);
+  }
+
+  /** O microfone ativo foi capturado com outras opções: recaptura (ligado) ou descarta o track (mudo). */
+  private async reapplyMic() {
+    const lp = this.room?.localParticipant;
+    const pub = lp?.getTrackPublication(Track.Source.Microphone);
+    const track = pub?.audioTrack as LocalAudioTrack | undefined;
+    if (!lp || !pub || !track) return;
+    try {
+      if (pub.isMuted) {
+        // Mudo não tem captura em andamento: descarta o track para a próxima ativação capturar já com as
+        // opções novas (o mudo continua valendo: quem liga o microfone é o controlador).
+        await lp.unpublishTrack(track, true);
+        return;
+      }
+      if (this.level !== "strong" && track.getProcessor()) await track.stopProcessor();
+      await track.restartTrack(micConstraints(this.audio, this.level));
+      await this.syncProcessor(track);
+    } catch (err) {
+      await this.degrade(this.reasonOf(err));
+    }
+  }
+
+  /** Coloca ou tira o processador de IA do track conforme o nível em efeito. */
+  private async syncProcessor(track: LocalAudioTrack | undefined) {
+    if (!track) return;
+    if (this.level !== "strong") {
+      if (track.getProcessor()) await track.stopProcessor();
+      return;
+    }
+    if (track.getProcessor()) return;
+    this.setStatus({ level: "strong", state: "loading" });
+    try {
+      const { RnnoiseTrackProcessor, LOAD_TIMEOUT_MS } = await import("./noise-processor");
+      const processor = new RnnoiseTrackProcessor({
+        onLoad: (load) => this.setStatus({ level: "strong", state: "active", load }),
+        onSlow: () =>
+          void this.enqueueMic(() =>
+            this.degrade("O processamento por IA ficou lento demais neste computador."),
+          ),
+      });
+      await withTimeout(
+        track.setProcessor(
+          processor as unknown as TrackProcessor<Track.Kind.Audio, AudioProcessorOptions>,
+        ),
+        LOAD_TIMEOUT_MS,
+        "tempo esgotado ao carregar o modelo de IA",
+      );
+      this.setStatus({ level: "strong", state: "active", load: "ok" });
+    } catch (err) {
+      await this.degrade(this.reasonOf(err));
+    }
+  }
+
+  private reasonOf(err: unknown): string {
+    const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
+    return `Não foi possível iniciar a redução de ruído por IA${detail}. Usando o filtro Padrão.`;
+  }
+
+  /** A IA não rodou (ou ficou lenta): volta para "Padrão" sem mexer na chamada e avisa. */
+  private async degrade(reason: string) {
+    if (this.level !== "strong") return;
+    this.level = "standard";
+    this.audio = { ...this.audio, noiseSuppression: "standard" };
+    this.setStatus({ level: "standard", state: "degraded", reason });
+    const lp = this.room?.localParticipant;
+    const track = lp?.getTrackPublication(Track.Source.Microphone)?.audioTrack as
+      | LocalAudioTrack
+      | undefined;
+    if (!track) return;
+    try {
+      await track.stopProcessor().catch(() => {});
+      if (!lp?.getTrackPublication(Track.Source.Microphone)?.isMuted)
+        await track.restartTrack(micConstraints(this.audio, "standard"));
+    } catch (err) {
+      console.warn("voz: falha ao voltar ao filtro Padrão", err);
     }
   }
 
@@ -298,7 +502,10 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   async setScreenShareEnabled(enabled: boolean, opts: { audio?: boolean } = {}) {
     const lp = this.requireRoom().localParticipant;
     try {
-      await lp.setScreenShareEnabled(enabled, enabled ? { audio: !!opts.audio } : undefined);
+      await lp.setScreenShareEnabled(
+        enabled,
+        enabled ? screenShareOptions(!!opts.audio) : undefined,
+      );
     } catch (err) {
       throw toMediaError(err, "screen");
     }

@@ -14,11 +14,12 @@ import {
   toggleMute,
   toggleScreenShare,
 } from "./controller";
-import { VoiceConnectError, VoiceMediaError } from "./engine";
+import { loadAudioProcessing, saveAudioProcessing } from "./devices";
+import { type AudioProcessingOptions, VoiceConnectError, VoiceMediaError } from "./engine";
 import { setVoiceEngineFactory } from "./engine-provider";
-import { useVoiceStatesStore, useVoiceStore } from "./store";
+import { useAudioStatusStore, useVoiceStatesStore, useVoiceStore } from "./store";
 
-const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn() }));
+const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toasts }));
 
 const ME = "1";
@@ -48,6 +49,8 @@ beforeEach(() => {
   server.use(...backend.handlers);
   toasts.error.mockClear();
   toasts.info.mockClear();
+  toasts.warning.mockClear();
+  localStorage.clear();
   localStorage.clear();
   REJOIN_DELAYS_MS.splice(0, REJOIN_DELAYS_MS.length, 0, 0, 0);
 });
@@ -198,16 +201,33 @@ describe("mudo e surdo", () => {
 });
 
 describe("câmera e tela", () => {
-  it("liga e desliga a câmera; a tela pede o áudio do sistema", async () => {
+  it("liga e desliga a câmera; a tela começa SEM áudio (evita eco)", async () => {
     await joined();
     await toggleCamera();
     await toggleScreenShare();
     expect(fake.camera).toBe(true);
     expect(fake.screen).toBe(true);
-    expect(fake.calls).toContain("screen:true:audio");
+    expect(fake.calls).toContain("screen:true:mudo");
+    expect(fake.calls).not.toContain("screen:true:audio");
     expect(s()).toMatchObject({ camera: true, screen: true });
     await toggleCamera();
     expect(s().camera).toBe(false);
+  });
+
+  it("áudio da tela só com escolha explícita, que fica lembrada para a próxima vez", async () => {
+    await joined();
+    await toggleScreenShare({ audio: true });
+    expect(fake.calls).toContain("screen:true:audio");
+    await toggleScreenShare(); // desligar
+    expect(fake.calls).toContain("screen:false:mudo");
+    await toggleScreenShare(); // religar sem opção: usa a escolha guardada
+    expect(fake.calls.filter((c) => c === "screen:true:audio")).toHaveLength(2);
+    await toggleScreenShare();
+    await toggleScreenShare({ audio: false });
+    expect(fake.calls.at(-1)).toBe("screen:true:mudo");
+    expect(JSON.parse(localStorage.getItem("spook:voice-screen-share") ?? "{}")).toEqual({
+      audio: false,
+    });
   });
 
   it("seleção de tela cancelada: aviso amigável e nada fica ligado", async () => {
@@ -363,5 +383,66 @@ describe("reconciliação com o gateway", () => {
     await joinVoice(A);
     reconcileVoiceSnapshot(ME, []);
     expect(s().status).toBe("connected");
+  });
+});
+
+describe("processamento do microfone", () => {
+  class AudioEngine extends FakeVoiceEngine {
+    applied: AudioProcessingOptions[] = [];
+    async setAudioProcessing(o: AudioProcessingOptions) {
+      this.applied.push(o);
+    }
+  }
+
+  it("reaplica o que está salvo ao entrar na chamada, antes de abrir o microfone", async () => {
+    const eng = new AudioEngine();
+    setVoiceEngineFactory(() => eng);
+    resetVoiceController();
+    saveAudioProcessing({
+      echoCancellation: false,
+      noiseSuppression: "strong",
+      autoGainControl: true,
+    });
+    await joinVoice(A);
+    expect(eng.applied).toEqual([
+      { echoCancellation: false, noiseSuppression: "strong", autoGainControl: true },
+    ]);
+  });
+
+  it("IA rebaixada pela engine: grava Padrão (não insiste a cada chamada), avisa e guarda o estado", async () => {
+    await joined();
+    saveAudioProcessing({ ...loadAudioProcessing(), noiseSuppression: "strong" });
+    fake.fire("audio-processing-status", {
+      level: "standard",
+      state: "degraded",
+      reason: "Não foi possível iniciar a IA.",
+    });
+    expect(loadAudioProcessing().noiseSuppression).toBe("standard");
+    expect(toasts.warning).toHaveBeenCalledWith("Não foi possível iniciar a IA.");
+    expect(useAudioStatusStore.getState().status).toMatchObject({ state: "degraded" });
+    await leaveCall();
+    expect(useAudioStatusStore.getState().status).toBeNull();
+  });
+
+  it("rebaixamento não mexe nas escolhas de eco e ganho", async () => {
+    await joined();
+    saveAudioProcessing({
+      echoCancellation: false,
+      noiseSuppression: "strong",
+      autoGainControl: false,
+    });
+    fake.fire("audio-processing-status", { level: "standard", state: "degraded" });
+    expect(loadAudioProcessing()).toEqual({
+      echoCancellation: false,
+      noiseSuppression: "standard",
+      autoGainControl: false,
+    });
+  });
+
+  it("estados normais (carregando/ativa) só atualizam o estado, sem aviso", async () => {
+    await joined();
+    fake.fire("audio-processing-status", { level: "strong", state: "loading" });
+    expect(toasts.warning).not.toHaveBeenCalled();
+    expect(useAudioStatusStore.getState().status).toEqual({ level: "strong", state: "loading" });
   });
 });
