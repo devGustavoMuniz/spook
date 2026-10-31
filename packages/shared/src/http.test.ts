@@ -36,6 +36,17 @@ describe("http", () => {
     expect((err as ApiError).errors).toHaveLength(1);
   });
 
+  it("expõe o Retry-After do 429 em segundos", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "devagar" }), {
+        status: 429,
+        headers: { "Retry-After": "3" },
+      }),
+    );
+    const err = await http("/x").catch((e) => e);
+    expect(err).toMatchObject({ status: 429, retryAfter: 3 });
+  });
+
   it("não faz retry em 4xx, mas tenta de novo em 5xx", () => {
     expect(shouldRetry(0, new ApiError(401, "x"))).toBe(false);
     expect(shouldRetry(0, new ApiError(500, "x"))).toBe(true);

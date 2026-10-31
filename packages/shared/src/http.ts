@@ -7,6 +7,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly detail: string,
     public readonly errors: ApiFieldError[] = [],
+    /** Segundos do cabeçalho Retry-After (429), quando presente. */
+    public readonly retryAfter?: number,
   ) {
     super(detail);
     this.name = "ApiError";
@@ -26,9 +28,20 @@ export async function http<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const p = (data ?? {}) as { detail?: string; title?: string; errors?: ApiFieldError[] };
-    throw new ApiError(res.status, p.detail ?? p.title ?? res.statusText, p.errors ?? []);
+    throw new ApiError(
+      res.status,
+      p.detail ?? p.title ?? res.statusText,
+      p.errors ?? [],
+      parseRetryAfter(res.headers.get("Retry-After")),
+    );
   }
   return data as T;
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 function safeJson(text: string): unknown {
