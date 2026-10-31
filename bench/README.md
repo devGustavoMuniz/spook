@@ -43,15 +43,40 @@ cd /srv/spook/prod && docker compose --env-file .env -f deploy/docker-compose.pr
   psql -U spook -d spook -c "DELETE FROM users WHERE email LIKE '%@bench.spook.invalid'"
 ```
 
-## Fase 1 — RAM ociosa do backend
+## Fase 1 — RAM ociosa (mediana de N amostras)
 
-No VPS, como usuário `spook`, com o sistema sem tráfego há alguns minutos (depois de remover o usuário de
-teste e esperar o GC assentar):
+`scripts/docker-stats.sh [amostras=10] [intervalo=5] [filtro-regex=.]` coleta N amostras de `docker stats --no-stream`,
+converte para MiB e imprime a **mediana por container** e a soma da stack (`STATS_CSV=1` despeja as amostras brutas em
+stderr). Rode com o sistema sem tráfego (sem k6 nem deploy em andamento).
+
+O Docker é rootless por usuário, então o script precisa rodar como o dono do daemon. Do seu computador, **como `gustavo`**,
+sem copiar nada para o servidor (o script vai por stdin):
 
 ```sh
-docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' | grep spook-spook
+# Spook (10 amostras, uma a cada 5 s)
+ssh gustavo@<vps> "sudo -iu spook bash -s -- 10 5" < bench/scripts/docker-stats.sh
+
+# Antrax, para comparar (mesmo comando, outro usuário)
+ssh gustavo@<vps> "sudo -iu antrax bash -s -- 10 5" < bench/scripts/docker-stats.sh
 ```
 
-Registre o valor do container `spook-spook-1` (meta do SPEC, RNF01: < 100 MB).
+(Se o `sudo` pedir senha ou terminal, use `ssh -t` ou entre no servidor e rode `sudo -iu spook`, colando o script.)
+Registre o container `spook-spook-1` (meta do SPEC, RNF01: < 100 MB) e a soma da stack. Para o backend do antrax, some
+`app + reverb + queue + scheduler`.
 
-Resultados e modelo: `results/fase-1-spook-producao.md`.
+## Rodando tudo contra produção (3 rodadas alternadas)
+
+```sh
+bench/scripts/run-alternating.sh /tmp/bench-$(date +%F) 3          # healthz antrax/Spook alternados + login do Spook
+node bench/scripts/summarize.mjs /tmp/bench-$(date +%F)            # tabelas Markdown com a mediana das rodadas
+node scripts/smoke-prod.mjs https://spook.dottadigital.com         # smoke da API + avatar direto no storage
+```
+
+`run-alternating.sh` leva ~25 min (6 execuções de 60 s e 3 de 5 min) e aceita `RATE`, `DURATION`, `LOGIN_RATE_PER_MIN`,
+`LOGIN_DURATION`, `ANTRAX_URL`, `SPOOK_URL`, `PAUSE`. Cada execução grava `<nome>.json` (summary do k6) e `<nome>.log`.
+Os dados brutos da primeira medição estão em `results/raw/2026-10-30-producao/`.
+
+**Cada execução do `login.js` cadastra um usuário de teste e o `smoke-prod.mjs` cria um usuário descartável; não há rota de
+excluir conta.** Os usernames aparecem no log do k6 (`usuario_de_teste ...`) e na saída do smoke.
+
+Resultados e modelos: `results/fase-0-laravel-baseline.md` e `results/fase-1-spook-producao.md`.

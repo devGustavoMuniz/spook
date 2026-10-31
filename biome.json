@@ -8,7 +8,8 @@
       "!**/.turbo",
       "!packages/brand/assets",
       "!server",
-      "!apps/web/src/styles.css"
+      "!apps/web/src/styles.css",
+      "!bench/results/raw"
     ]
   },
   "formatter": {

@@ -42,10 +42,14 @@ export function setup() {
     username: `bench_${id}`.slice(0, 32),
     password: `bench-${id}-senha`,
   };
-  const res = http.post(`${BASE_URL}/api/auth/register`, JSON.stringify(user), { headers: HEADERS });
+  const res = http.post(`${BASE_URL}/api/auth/register`, JSON.stringify(user), {
+    headers: HEADERS,
+  });
   if (res.status !== 201) {
     throw new Error(`cadastro do usuário de teste falhou: ${res.status} ${res.body}`);
   }
+  // Registra qual usuário de teste ficou em produção (não há rota de excluir conta). Sem a senha.
+  console.log(`usuario_de_teste username=${user.username} email=${user.email}`);
   return user;
 }
 
