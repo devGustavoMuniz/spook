@@ -1,5 +1,6 @@
-// Package channel cuida dos canais de servidor: texto, voz e categorias (RF05).
-// Canais de DM (tipos 3 e 4) pertencem à Fase 4.
+// Package channel cuida dos canais de servidor: texto, voz e categorias (RF05). Os canais de DM
+// (tipos 3 e 4) são criados e geridos pelo pacote dm; aqui só entram a autorização de acesso
+// (Service.Authorize, usada pelas mensagens) e o formato do payload, que é o mesmo.
 package channel
 
 import (
@@ -33,25 +34,68 @@ type Channel struct {
 	Position      int32
 	LastMessageID *int64
 	CreatedAt     time.Time
+
+	// Só em DMs: o dono da DM em grupo e os participantes (todos, inclusive quem consulta).
+	OwnerID    *int64
+	Recipients []Recipient
+}
+
+// IsDM diz se é uma DM 1:1 ou em grupo.
+func (c Channel) IsDM() bool { return c.Type == TypeDM || c.Type == TypeGroupDM }
+
+// Recipient é um participante de DM.
+type Recipient struct {
+	ID          int64
+	Username    string
+	DisplayName *string
+	AvatarKey   *string
+	AvatarURL   string
+}
+
+// RecipientPayload é o participante nos payloads de DM.
+type RecipientPayload struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+}
+
+func (r Recipient) Payload() RecipientPayload {
+	p := RecipientPayload{ID: httpx.ID(r.ID), Username: r.Username, AvatarURL: r.AvatarURL}
+	if r.DisplayName != nil {
+		p.DisplayName = *r.DisplayName
+	}
+	return p
 }
 
 // ChannelPayload é o canal na API e nos eventos CHANNEL_*.
 type ChannelPayload struct {
 	ID            string    `json:"id"`
-	Type          int       `json:"type" doc:"0 texto, 1 voz, 2 categoria"`
+	Type          int       `json:"type" doc:"0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"`
 	GuildID       *string   `json:"guild_id"`
 	ParentID      *string   `json:"parent_id" doc:"Categoria que contém o canal"`
 	Name          string    `json:"name"`
 	Position      int32     `json:"position"`
 	LastMessageID *string   `json:"last_message_id"`
 	CreatedAt     time.Time `json:"created_at"`
+	// Só em DMs (omitidos nos canais de servidor).
+	OwnerID    *string            `json:"owner_id,omitempty" doc:"Dono da DM em grupo"`
+	Recipients []RecipientPayload `json:"recipients,omitempty" doc:"Participantes da DM (todos, inclusive você)"`
 }
 
 func (c Channel) Payload() ChannelPayload {
-	return ChannelPayload{
+	p := ChannelPayload{
 		ID: httpx.ID(c.ID), Type: int(c.Type), GuildID: httpx.IDPtr(c.GuildID), ParentID: httpx.IDPtr(c.ParentID),
 		Name: c.Name, Position: c.Position, LastMessageID: httpx.IDPtr(c.LastMessageID), CreatedAt: c.CreatedAt,
 	}
+	if c.IsDM() {
+		p.OwnerID = httpx.IDPtr(c.OwnerID)
+		p.Recipients = make([]RecipientPayload, len(c.Recipients))
+		for i, r := range c.Recipients {
+			p.Recipients[i] = r.Payload()
+		}
+	}
+	return p
 }
 
 func Payloads(cs []Channel) []ChannelPayload {

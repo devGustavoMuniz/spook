@@ -102,12 +102,12 @@ type rig struct {
 
 // newRig sobe o gateway atrás dos mesmos middlewares da aplicação (servertiming + otelhttp),
 // o que também prova que o upgrade passa por eles.
-func newRig(t *testing.T, cfg Config) *rig {
+func newRig(t *testing.T, cfg Config, opts ...Option) *rig {
 	t.Helper()
 	dir := newFakeDir()
 	bus := events.NewBus(4096)
 	ctx, cancel := context.WithCancel(context.Background())
-	hub := NewHub(ctx, cfg, dir, bus)
+	hub := NewHub(ctx, cfg, dir, bus, opts...)
 	h := NewHandler(hub, fakeAuth{"tok-1": 1, "tok-2": 2, "tok-3": 3}, nil)
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware)

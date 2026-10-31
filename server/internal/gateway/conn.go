@@ -15,8 +15,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
 
+	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
 )
 
 // maxFrameBytes é o maior frame aceito do cliente (IDENTIFY, RESUME e heartbeat são minúsculos).
@@ -195,6 +197,14 @@ func (c *conn) serve(parent context.Context) {
 			if !c.resume(ctx, f.D) {
 				return
 			}
+		case OpPresence:
+			if c.sess == nil {
+				c.fail(CloseNotIdentified, "identifique-se primeiro")
+				return
+			}
+			if !c.setPresence(f.D) {
+				return
+			}
 		default:
 			if c.sess == nil {
 				c.fail(CloseNotIdentified, "identifique-se primeiro")
@@ -227,6 +237,24 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		c.fail(websocket.StatusInternalError, "erro interno")
 		return false
 	}
+	var dmList []channel.Channel
+	if h.dms != nil {
+		if dmList, err = h.dms.List(ctx, c.userID); err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			slog.Error("gateway: falha ao listar as DMs para o READY", "user", c.userID, "err", err)
+			c.fail(websocket.StatusInternalError, "erro interno")
+			return false
+		}
+	}
+	presences := []presence.UpdatePayload{}
+	if h.pres != nil {
+		// A presença é complementar: se falhar, o READY sai sem o snapshot (os eventos seguem valendo).
+		if p, perr := h.pres.Snapshot(ctx, c.userID); perr != nil {
+			slog.Warn("gateway: snapshot de presença indisponível", "user", c.userID, "err", perr)
+		} else if p != nil {
+			presences = p
+		}
+	}
 	s, okReg := h.register(c.userID)
 	if !okReg {
 		c.fail(CloseRateLimited, "muitas sessões")
@@ -237,7 +265,10 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	for i, g := range details {
 		payloads[i] = g.Payload()
 	}
-	ready, err := json.Marshal(Ready{SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads})
+	ready, err := json.Marshal(Ready{
+		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
+		PrivateChannels: channel.Payloads(dmList), Presences: presences,
+	})
 	if err != nil {
 		h.dropSession(s)
 		c.fail(websocket.StatusInternalError, "erro interno")
@@ -260,7 +291,24 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		}
 		s.setGuild(g.Guild.ID, g.Member.Has(perm.ViewChannel), ids)
 	}
+	for _, d := range dmList {
+		s.dmAdded(d.ID)
+	}
 	h.met.identifyTime.Record(ctx, time.Since(start).Seconds())
+	return true
+}
+
+// setPresence trata o op 12: valida o status e avisa a presença (idle por sessão). Sem presença
+// ligada, o op é aceito e ignorado.
+func (c *conn) setPresence(d json.RawMessage) bool {
+	var p SetPresence
+	if err := json.Unmarshal(d, &p); err != nil || (p.Status != presence.StatusOnline && p.Status != presence.StatusIdle) {
+		c.fail(CloseUnknown, "status de presença inválido")
+		return false
+	}
+	if c.hub.pres != nil {
+		c.hub.pres.SetIdle(c.userID, c.sess.id, p.Status == presence.StatusIdle)
+	}
 	return true
 }
 

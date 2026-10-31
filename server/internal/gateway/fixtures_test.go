@@ -13,6 +13,8 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/typing"
 )
 
 var update = flag.Bool("update", false, "regrava packages/shared/fixtures/gateway-events.json")
@@ -68,6 +70,12 @@ func buildFixtures(t *testing.T) map[string]any {
 		GuildPayload: g, Roles: []guild.RolePayload{mod, everyone}, Channels: []channel.ChannelPayload{cat, ch, voice},
 		Permissions: 7904, IsOwner: false, MyRoleIDs: []string{"400"},
 	}
+	dm := channel.ChannelPayload{
+		ID: "500", Type: 4, Name: "Estudo de Go", CreatedAt: at, LastMessageID: ptr("901"), OwnerID: ptr("11"),
+		Recipients: []channel.RecipientPayload{
+			{ID: "11", Username: "gustavo", DisplayName: "Gustavo"}, {ID: "12", Username: "maria"}, {ID: "13", Username: "joao"},
+		},
+	}
 	msg := message.MessagePayload{
 		ID: "901", ChannelID: "300", Content: "Olá, Spook!", CreatedAt: at,
 		Author: message.AuthorPayload{ID: "10", Username: "gustavo"},
@@ -99,8 +107,8 @@ func buildFixtures(t *testing.T) map[string]any {
 		{events.RoleCreate, mod},
 		{events.RoleUpdate, mod},
 		{events.RoleDelete, guild.RoleDeletePayload{GuildID: "100", RoleID: "400"}},
-		{EventTypingStart, TypingStart{ChannelID: "300", GuildID: ptr("100"), UserID: "11", Timestamp: at.Unix()}},
-		{EventPresenceUpdate, PresenceUpdate{UserID: "11", Status: StatusOnline}},
+		{EventTypingStart, typing.StartPayload{ChannelID: "300", GuildID: ptr("100"), UserID: "11", Timestamp: at.Unix()}},
+		{EventPresenceUpdate, presence.UpdatePayload{UserID: "11", Status: presence.StatusOnline}},
 		{EventVoiceStateUpdate, VoiceStateUpdate{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "11", SelfMute: true, SelfVideo: true}},
 		{EventReadStateUpdate, ReadStateUpdate{ChannelID: "300", LastReadMessageID: "901", MentionCount: 2}},
 	}
@@ -118,9 +126,13 @@ func buildFixtures(t *testing.T) map[string]any {
 		"resume":          control(t, OpResume, "", Resume{SessionID: "c2Vzc2lvbi1pZA", Seq: 42}),
 		"ready": dispatch(t, 1, EventReady, Ready{
 			SessionID: "c2Vzc2lvbi1pZA", User: ReadyUser{ID: "11"}, Guilds: []guild.DetailPayload{detail},
+			PrivateChannels: []channel.ChannelPayload{dm},
+			Presences:       []presence.UpdatePayload{{UserID: "12", Status: presence.StatusOnline}, {UserID: "13", Status: presence.StatusIdle}},
 		}),
-		"resumed":  control(t, OpDispatch, EventResumed, Resumed{SessionID: "c2Vzc2lvbi1pZA", Replayed: 3}),
-		"dispatch": disp,
+		"set_presence":      control(t, OpPresence, "", SetPresence{Status: presence.StatusIdle}),
+		"dm_channel_create": dispatch(t, 2, events.ChannelCreate, dm),
+		"resumed":           control(t, OpDispatch, EventResumed, Resumed{SessionID: "c2Vzc2lvbi1pZA", Replayed: 3}),
+		"dispatch":          disp,
 		"close_codes": map[string]int{
 			"going_away": CloseGoingAway, "unknown": CloseUnknown, "invalid_op": CloseInvalidOp,
 			"session_taken_over": CloseSessionTakenOver, "not_identified": CloseNotIdentified,

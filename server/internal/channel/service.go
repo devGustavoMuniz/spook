@@ -34,6 +34,13 @@ type Access interface {
 	Member(ctx context.Context, guildID, userID int64) (perm.Member, error)
 }
 
+// DMs é o que channel precisa das DMs (implementada pelo dm.Service): quem participa de uma DM
+// e o renomear de uma DM em grupo.
+type DMs interface {
+	IsRecipient(ctx context.Context, channelID, userID int64) (bool, error)
+	Rename(ctx context.Context, userID, channelID int64, name string) (Channel, error)
+}
+
 type IDGenerator interface{ Next() int64 }
 
 type Service struct {
@@ -41,7 +48,11 @@ type Service struct {
 	access Access
 	ids    IDGenerator
 	pub    events.Publisher
+	dms    DMs
 }
+
+// SetDMs liga o suporte a DMs (feito na montagem; sem isso, DMs são "canais inexistentes").
+func (s *Service) SetDMs(d DMs) { s.dms = d }
 
 func NewService(store Store, access Access, ids IDGenerator, pub events.Publisher) *Service {
 	return &Service{store: store, access: access, ids: ids, pub: pub}
@@ -71,16 +82,28 @@ func (s *Service) List(ctx context.Context, userID, guildID int64) ([]Channel, e
 	return s.store.ListByGuild(ctx, guildID)
 }
 
-// Authorize devolve o canal de servidor se o usuário é membro e tem as permissões need
-// (VIEW_CHANNEL é sempre exigida). Não-membro e canal inexistente dão ErrNotFound; membro
-// sem permissão dá ErrForbidden. Usado pelas mensagens.
+// Authorize devolve o canal se o usuário pode acessá-lo. Canal de servidor: membro com as
+// permissões need (VIEW_CHANNEL é sempre exigida); não-membro e canal inexistente dão
+// ErrNotFound, membro sem permissão dá ErrForbidden. DM: basta ser participante (sem cargos;
+// need é ignorada, o membro devolvido é vazio); quem não participa recebe ErrNotFound.
+// Usado pelas mensagens e pelo "digitando".
 func (s *Service) Authorize(ctx context.Context, userID, channelID int64, need perm.Perm) (Channel, perm.Member, error) {
 	ch, err := s.store.Get(ctx, channelID)
 	if err != nil {
 		return Channel{}, perm.Member{}, err
 	}
 	if ch.GuildID == nil {
-		return Channel{}, perm.Member{}, ErrNotFound // DMs entram na Fase 4
+		if !ch.IsDM() || s.dms == nil {
+			return Channel{}, perm.Member{}, ErrNotFound
+		}
+		ok, err := s.dms.IsRecipient(ctx, channelID, userID)
+		if err != nil {
+			return Channel{}, perm.Member{}, err
+		}
+		if !ok {
+			return Channel{}, perm.Member{}, ErrNotFound
+		}
+		return ch, perm.Member{}, nil
 	}
 	m, err := s.access.Member(ctx, *ch.GuildID, userID)
 	if errors.Is(err, perm.ErrNotMember) {
@@ -182,6 +205,9 @@ type UpdateParams struct {
 func (s *Service) Update(ctx context.Context, userID, channelID int64, in UpdateParams) (Channel, error) {
 	ctx, span := tracer.Start(ctx, "channel.Update")
 	defer span.End()
+	if c, err := s.store.Get(ctx, channelID); err == nil && c.GuildID == nil {
+		return s.updateDM(ctx, userID, c, in)
+	}
 	cur, err := s.guildChannel(ctx, userID, channelID)
 	if err != nil {
 		return Channel{}, err
@@ -206,6 +232,30 @@ func (s *Service) Update(ctx context.Context, userID, channelID int64, in Update
 	}
 	s.publish(events.ChannelUpdate, c)
 	return c, nil
+}
+
+// updateDM trata o PATCH de uma DM: só a DM em grupo tem nome, e só o dono o altera.
+func (s *Service) updateDM(ctx context.Context, userID int64, c Channel, in UpdateParams) (Channel, error) {
+	if s.dms == nil || !c.IsDM() {
+		return Channel{}, ErrNotFound
+	}
+	ok, err := s.dms.IsRecipient(ctx, c.ID, userID)
+	if err != nil {
+		return Channel{}, err
+	}
+	if !ok {
+		return Channel{}, ErrNotFound
+	}
+	if c.Type != TypeGroupDM {
+		return Channel{}, apperr.Invalid("DMs 1:1 não têm nome nem posição")
+	}
+	if in.Position != nil {
+		return Channel{}, apperr.Invalid("a posição não se aplica a DMs")
+	}
+	if in.Name == nil {
+		return Channel{}, apperr.Invalid("informe o novo nome da DM em grupo")
+	}
+	return s.dms.Rename(ctx, userID, c.ID, *in.Name)
 }
 
 func (s *Service) Delete(ctx context.Context, userID, channelID int64) error {

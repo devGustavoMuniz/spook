@@ -1,4 +1,4 @@
-// Package message cuida das mensagens de texto dos canais de servidor (RF06).
+// Package message cuida das mensagens de texto dos canais de servidor e DMs (RF06 e RF07).
 package message
 
 import (
@@ -57,7 +57,7 @@ type MessagePayload struct {
 type DeletePayload struct {
 	ID        string `json:"id"`
 	ChannelID string `json:"channel_id"`
-	GuildID   string `json:"guild_id"`
+	GuildID   string `json:"guild_id,omitempty" doc:"Omitido em DMs"`
 }
 
 func (m Message) Payload() MessagePayload {

@@ -88,6 +88,7 @@ func (s *Session) attach(c *conn) (old *conn) {
 	defer s.mu.Unlock()
 	old, s.conn = s.conn, c
 	s.detachedAt = time.Time{}
+	s.hub.presenceConnect(s) // sob s.mu: a ordem Connect/Disconnect da sessão fica garantida
 	return old
 }
 
@@ -98,6 +99,7 @@ func (s *Session) detach(c *conn) {
 	if s.conn == c {
 		s.conn = nil
 		s.detachedAt = time.Now()
+		s.hub.presenceDisconnect(s)
 	}
 }
 
@@ -114,6 +116,7 @@ func (s *Session) tryResume(c *conn, seq int64) (old *conn, upTo int64, ok bool)
 	}
 	old, s.conn = s.conn, c
 	s.detachedAt = time.Time{}
+	s.hub.presenceConnect(s)
 	return old, s.seq, true
 }
 
@@ -192,6 +195,13 @@ func (s *Session) setGuild(gid int64, view bool, channels []int64) {
 			s.subLocked(channelTopic(ch))
 		}
 	}
+}
+
+// dmAdded inscreve a sessão no canal de uma DM de que o usuário participa.
+func (s *Session) dmAdded(ch int64) {
+	s.stMu.Lock()
+	s.subLocked(channelTopic(ch))
+	s.stMu.Unlock()
 }
 
 // dropGuild remove o servidor e todos os seus tópicos (saiu, foi expulso ou o servidor foi excluído).

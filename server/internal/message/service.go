@@ -29,7 +29,9 @@ type Store interface {
 	Delete(ctx context.Context, id, channelID int64) error // soft delete
 }
 
-// Channels é o que message precisa de channel: autorização de acesso ao canal.
+// Channels é o que message precisa de channel: autorização de acesso ao canal. Cobre canais de
+// servidor (permissões por cargo) e DMs (ser participante; o perm.Member devolvido é vazio e
+// ch.GuildID é nil).
 type Channels interface {
 	Authorize(ctx context.Context, userID, channelID int64, need perm.Perm) (channel.Channel, perm.Member, error)
 }
@@ -85,8 +87,8 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 	if err != nil {
 		return Message{}, err
 	}
-	if ch.Type != channel.TypeText {
-		return Message{}, apperr.Invalid("só canais de texto recebem mensagens")
+	if ch.Type != channel.TypeText && !ch.IsDM() {
+		return Message{}, apperr.Invalid("só canais de texto e DMs recebem mensagens")
 	}
 	if ok, wait := s.limiter.Take("msg:" + strconv.FormatInt(userID, 10) + ":" + strconv.FormatInt(channelID, 10)); !ok {
 		return Message{}, apperr.RateLimited("você está enviando mensagens rápido demais", wait)
@@ -186,7 +188,8 @@ func (s *Service) Delete(ctx context.Context, userID, channelID, messageID int64
 	if err != nil {
 		return err
 	}
-	if cur.Author.ID != userID && !member.Has(perm.ManageMessages) {
+	// Em DM não há cargos nem MANAGE_MESSAGES: só o autor exclui.
+	if cur.Author.ID != userID && (ch.IsDM() || !member.Has(perm.ManageMessages)) {
 		return apperr.Forbidden("só o autor ou quem gerencia mensagens pode excluí-la")
 	}
 	if err := s.store.Delete(ctx, messageID, channelID); err != nil {
@@ -199,9 +202,17 @@ func (s *Service) Delete(ctx context.Context, userID, channelID, messageID int64
 	s.pub.Publish(events.Event{
 		Type: events.MessageDelete, GuildID: gid, ChannelID: channelID,
 		Topics: []string{"channel:" + strconv.FormatInt(channelID, 10)},
-		Data:   DeletePayload{ID: httpx.ID(messageID), ChannelID: httpx.ID(channelID), GuildID: httpx.ID(gid)},
+		Data:   DeletePayload{ID: httpx.ID(messageID), ChannelID: httpx.ID(channelID), GuildID: guildIDString(gid)},
 	})
 	return nil
+}
+
+// guildIDString devolve "" para DMs (o campo é omitido no JSON).
+func guildIDString(gid int64) string {
+	if gid == 0 {
+		return ""
+	}
+	return httpx.ID(gid)
 }
 
 func (s *Service) publish(typ string, ch channel.Channel, data MessagePayload) {

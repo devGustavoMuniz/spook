@@ -17,9 +17,11 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
 )
 
 var tracer = otel.Tracer("spook/gateway")
@@ -40,6 +42,31 @@ type Directory interface {
 	ChannelIDs(ctx context.Context, guildID int64) ([]int64, error)
 }
 
+// DMs é o que o gateway consulta das DMs (implementada pelo dm.Service): as DMs do usuário, com
+// participantes, no READY e para assinar os canais.
+type DMs interface {
+	List(ctx context.Context, userID int64) ([]channel.Channel, error)
+}
+
+// Presence é o que o gateway avisa à presença (implementada pelo presence.Service): sessões que
+// ganham ou perdem o socket e mudanças de idle (op 12), mais o snapshot do READY. Os métodos de
+// aviso não bloqueiam (o gateway os chama com o lock da sessão).
+type Presence interface {
+	Connect(userID int64, sessionID string)
+	Disconnect(userID int64, sessionID string)
+	SetIdle(userID int64, sessionID string, idle bool)
+	Snapshot(ctx context.Context, userID int64) ([]presence.UpdatePayload, error)
+}
+
+// Option liga uma dependência opcional do Hub.
+type Option func(*Hub)
+
+// WithDMs liga o suporte a DMs (assinaturas e private_channels no READY).
+func WithDMs(d DMs) Option { return func(h *Hub) { h.dms = d } }
+
+// WithPresence liga a presença (avisos de conexão, op 12 e presences no READY).
+func WithPresence(p Presence) Option { return func(h *Hub) { h.pres = p } }
+
 // Bus é o que o gateway precisa do barramento de eventos.
 type Bus interface {
 	Subscribe(fn func(events.Event)) (cancel func())
@@ -47,10 +74,12 @@ type Bus interface {
 
 // Hub mantém sessões, conexões e as assinaturas por tópico, e faz o fan-out dos eventos.
 type Hub struct {
-	cfg Config
-	dir Directory
-	met *metrics
-	tk  *tickets
+	cfg  Config
+	dir  Directory
+	dms  DMs
+	pres Presence
+	met  *metrics
+	tk   *tickets
 
 	mu       sync.RWMutex
 	topics   map[string]map[*Session]struct{}
@@ -68,13 +97,16 @@ type Hub struct {
 
 // NewHub cria o gateway e se inscreve no barramento. ctx controla a manutenção; quando for
 // cancelado o hub se encerra (close 1001 em todas as conexões).
-func NewHub(ctx context.Context, cfg Config, dir Directory, bus Bus) *Hub {
+func NewHub(ctx context.Context, cfg Config, dir Directory, bus Bus, opts ...Option) *Hub {
 	cfg = cfg.withDefaults()
 	h := &Hub{
 		cfg: cfg, dir: dir, met: newMetrics(), tk: newTickets(cfg.TicketTTL),
 		topics: map[string]map[*Session]struct{}{}, sessions: map[string]*Session{},
 		byUser: map[int64]map[*Session]struct{}{}, conns: map[*conn]struct{}{},
 		shutdownDone: make(chan struct{}), stopJanitor: make(chan struct{}),
+	}
+	for _, o := range opts {
+		o(h)
 	}
 	h.cancelBus = bus.Subscribe(h.handle)
 	go h.janitor()
@@ -366,9 +398,17 @@ func (h *Hub) handle(ev events.Event) {
 				}
 			}
 		}
-	case events.ChannelCreate:
-		for _, s := range recips {
-			s.channelAdded(ev.GuildID, ev.ChannelID)
+	case events.ChannelCreate, events.ChannelUpdate:
+		if ev.GuildID == 0 {
+			// DM (o evento vai a user:<id> de cada participante): assina o canal. Idempotente, então
+			// também cobre o participante recém-adicionado e outras sessões do mesmo usuário.
+			for _, s := range recips {
+				s.dmAdded(ev.ChannelID)
+			}
+		} else if ev.Type == events.ChannelCreate {
+			for _, s := range recips {
+				s.channelAdded(ev.GuildID, ev.ChannelID)
+			}
 		}
 	case events.RoleUpdate, events.RoleDelete:
 		h.refresh(ctx, recips, ev.GuildID)
@@ -418,7 +458,7 @@ func (h *Hub) handle(ev events.Event) {
 // nele, mesmo que a assinatura do tópico ainda exista (defesa em profundidade).
 func allows(s *Session, ev events.Event) bool {
 	switch ev.Type {
-	case events.MessageCreate, events.MessageUpdate, events.MessageDelete,
+	case events.MessageCreate, events.MessageUpdate, events.MessageDelete, events.TypingStart,
 		events.ChannelCreate, events.ChannelUpdate, events.ChannelDelete:
 		if ev.GuildID != 0 {
 			return s.canView(ev.GuildID)
@@ -472,4 +512,16 @@ func (h *Hub) refresh(ctx context.Context, sessions []*Session, gid int64) {
 		}()
 	}
 	wg.Wait()
+}
+
+func (h *Hub) presenceConnect(s *Session) {
+	if h.pres != nil {
+		h.pres.Connect(s.userID, s.id)
+	}
+}
+
+func (h *Hub) presenceDisconnect(s *Session) {
+	if h.pres != nil {
+		h.pres.Disconnect(s.userID, s.id)
+	}
 }

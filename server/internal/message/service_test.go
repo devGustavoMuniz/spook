@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -284,5 +285,64 @@ func TestDeleteAuthorOrManageMessages(t *testing.T) {
 				t.Fatalf("apagar duas vezes: %v", err)
 			}
 		})
+	}
+}
+
+func dmSetup() (*Service, *fakeStore, *fakeChannels, *recorder) {
+	svc, st, ch, _, rec := setup()
+	ch.ch = channel.Channel{ID: 30, Type: channel.TypeDM} // DM: sem servidor
+	ch.member = perm.Member{}
+	return svc, st, ch, rec
+}
+
+func TestSendInDMPublishesWithoutGuild(t *testing.T) {
+	svc, st, _, rec := dmSetup()
+	for _, typ := range []channel.Type{channel.TypeDM, channel.TypeGroupDM} {
+		rec.evs = nil
+		svc.channels.(*fakeChannels).ch.Type = typ
+		m, err := svc.Send(context.Background(), 1, 30, "oi")
+		if err != nil || m.Content != "oi" {
+			t.Fatalf("tipo %d: %v", typ, err)
+		}
+		ev := rec.evs[0]
+		if ev.Type != events.MessageCreate || ev.GuildID != 0 || ev.Topics[0] != "channel:30" {
+			t.Fatalf("evento: %+v", ev)
+		}
+	}
+	if st.inserts != 2 {
+		t.Fatalf("inserts = %d", st.inserts)
+	}
+}
+
+func TestDMEditAndDeleteAreAuthorOnly(t *testing.T) {
+	svc, st, ch, rec := dmSetup()
+	st.msgs[5] = Message{ID: 5, ChannelID: 30, Author: Author{ID: 1}}
+	// mesmo um perm.Member com tudo (como um dono de servidor) não apaga mensagem alheia em DM
+	ch.member = perm.NewMember(2, true, perm.All, 99)
+	if err := svc.Delete(context.Background(), 2, 30, 5); !apperr.IsKind(err, apperr.KindForbidden) || st.deleted[5] {
+		t.Fatalf("outro participante não apaga: %v", err)
+	}
+	if _, err := svc.Edit(context.Background(), 2, 30, 5, "x"); !apperr.IsKind(err, apperr.KindForbidden) {
+		t.Fatalf("outro participante não edita: %v", err)
+	}
+	rec.evs = nil
+	if err := svc.Delete(context.Background(), 1, 30, 5); err != nil {
+		t.Fatal(err)
+	}
+	p := rec.evs[0].Data.(DeletePayload)
+	if p.GuildID != "" || p.ChannelID != "30" || rec.evs[0].GuildID != 0 {
+		t.Fatalf("payload da DM: %+v", p)
+	}
+	b, _ := json.Marshal(p)
+	if strings.Contains(string(b), "guild_id") {
+		t.Fatalf("guild_id deve ser omitido em DMs: %s", b)
+	}
+}
+
+func TestListInDMUsesAuthorization(t *testing.T) {
+	svc, _, ch, _ := dmSetup()
+	ch.err = channel.ErrNotFound // não participante
+	if _, _, err := svc.List(context.Background(), 9, 30, 0, 10); !errors.Is(err, channel.ErrNotFound) {
+		t.Fatalf("não participante lê o histórico: %v", err)
 	}
 }

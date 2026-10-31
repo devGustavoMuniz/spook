@@ -22,7 +22,7 @@ func NewStore(d db.DB) *PGStore { return &PGStore{db: d, q: dbgen.New(d)} }
 func FromRow(r dbgen.Channel) Channel {
 	c := Channel{
 		ID: r.ID, Type: Type(r.Type), GuildID: r.GuildID, ParentID: r.ParentID,
-		Position: r.Position, LastMessageID: r.LastMessageID, CreatedAt: r.CreatedAt.Time,
+		Position: r.Position, LastMessageID: r.LastMessageID, CreatedAt: r.CreatedAt.Time, OwnerID: r.OwnerID,
 	}
 	if r.Name != nil {
 		c.Name = *r.Name

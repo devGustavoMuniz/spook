@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
 )
 
 // Op é o código de operação de um frame.
@@ -22,6 +25,7 @@ const (
 	OpInvalidSession Op = 9  // servidor → cliente: o resume falhou; faça IDENTIFY de novo
 	OpHello          Op = 10 // servidor → cliente: primeiro frame, informa o heartbeat_interval
 	OpAck            Op = 11 // servidor → cliente: resposta ao heartbeat
+	OpPresence       Op = 12 // cliente → servidor: muda o status da sessão ({status: online|idle}), Fase 4
 )
 
 // Códigos de fechamento do WebSocket. Os 4xxx são do Spook; o cliente reconecta em todos,
@@ -52,9 +56,9 @@ const (
 	EventReady   = "READY"
 	EventResumed = "RESUMED"
 
-	// Emitidos a partir das fases 4–6; o contrato fica fixado aqui desde já.
-	EventTypingStart      = "TYPING_START"
-	EventPresenceUpdate   = "PRESENCE_UPDATE"
+	// Emitidos pelas features (Fase 4: typing e presence); os nomes ficam fixados aqui.
+	EventTypingStart      = events.TypingStart
+	EventPresenceUpdate   = events.PresenceUpdate
 	EventVoiceStateUpdate = "VOICE_STATE_UPDATE"
 	EventReadStateUpdate  = "READ_STATE_UPDATE"
 )
@@ -75,12 +79,22 @@ type Resume struct {
 	Seq       int64  `json:"seq" doc:"Último s recebido"`
 }
 
+// SetPresence é o d do op 12 (cliente → servidor): o status desta sessão. O cliente manda "idle"
+// depois de 10 min sem interação e "online" quando o usuário volta.
+type SetPresence struct {
+	Status string `json:"status" doc:"online ou idle"`
+}
+
 // Ready é o d do dispatch READY. Guilds usa o mesmo formato do GET /api/guilds (canais sem
-// VIEW_CHANNEL vêm vazios).
+// VIEW_CHANNEL vêm vazios); PrivateChannels, o do GET /api/users/@me/channels (DMs com
+// participantes); Presences, os usuários não-offline que compartilham servidor ou DM com quem
+// conectou.
 type Ready struct {
-	SessionID string                `json:"session_id"`
-	User      ReadyUser             `json:"user"`
-	Guilds    []guild.DetailPayload `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
+	SessionID       string                   `json:"session_id"`
+	User            ReadyUser                `json:"user"`
+	Guilds          []guild.DetailPayload    `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
+	PrivateChannels []channel.ChannelPayload `json:"private_channels" doc:"DMs com participantes, da atividade mais recente para a mais antiga"`
+	Presences       []presence.UpdatePayload `json:"presences" doc:"Snapshot de presença (só online e idle)"`
 }
 
 // ReadyUser é o usuário autenticado no READY.
@@ -94,28 +108,8 @@ type Resumed struct {
 	Replayed  int    `json:"replayed" doc:"Quantos eventos perdidos foram reenviados antes do RESUMED"`
 }
 
-// ---- Payloads dos eventos das fases 4–6 (contrato fixo, ainda não emitidos) ----
-
-// TypingStart: alguém começou a digitar em um canal (Fase 4). Expira em 8 s sem novo evento.
-type TypingStart struct {
-	ChannelID string  `json:"channel_id"`
-	GuildID   *string `json:"guild_id"`
-	UserID    string  `json:"user_id"`
-	Timestamp int64   `json:"timestamp" doc:"Unix, em segundos"`
-}
-
-// Status de presença (SPEC 7.6).
-const (
-	StatusOnline  = "online"
-	StatusIdle    = "idle"
-	StatusOffline = "offline"
-)
-
-// PresenceUpdate: mudança de status de um usuário (Fase 4).
-type PresenceUpdate struct {
-	UserID string `json:"user_id"`
-	Status string `json:"status" doc:"online, idle ou offline"`
-}
+// ---- Payloads dos eventos das fases 5–6 (contrato fixo, ainda não emitidos) ----
+// TYPING_START e PRESENCE_UPDATE (Fase 4) têm os payloads em typing.StartPayload e presence.UpdatePayload.
 
 // VoiceStateUpdate: estado de voz de um usuário (Fase 5). ChannelID nulo = saiu da voz.
 type VoiceStateUpdate struct {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/dm"
 	"github.com/devGustavoMuniz/spook/server/internal/gateway"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/health"
@@ -32,6 +33,8 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/webui"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/typing"
 	"github.com/devGustavoMuniz/spook/server/internal/user"
 )
 
@@ -53,14 +56,19 @@ type Deps struct {
 	MsgLimiter *ratelimit.Limiter // padrão: 5 mensagens a cada 5 s por usuário e canal
 	// GatewayLimiter limita os handshakes de /api/gateway por IP (padrão: 50/s, rajada de 200).
 	GatewayLimiter *ratelimit.Limiter
-	Gateway        gateway.Config // tempos e limites do gateway (zero = padrões)
+	Gateway        gateway.Config     // tempos e limites do gateway (zero = padrões)
+	Presence       presence.Config    // tolerância de offline etc. (zero = padrões; os testes usam valores curtos)
+	AuthLimiter    *ratelimit.Limiter // padrão: 10 tentativas por minuto por IP em /api/auth/*
+	DMLimiter      *ratelimit.Limiter // padrão: 10 DMs criadas por minuto por usuário
+	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
 }
 
 // App é a aplicação montada: o handler HTTP e o gateway, que precisa de um desligamento próprio
 // (conexões hijacked não são encerradas pelo http.Server.Shutdown).
 type App struct {
-	Handler http.Handler
-	Gateway *gateway.Hub
+	Handler  http.Handler
+	Gateway  *gateway.Hub
+	presence *presence.Service // acessado pelos testes de integração
 }
 
 // Storage é o storage S3 usado para avatares e ícones.
@@ -109,7 +117,10 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	userH := user.NewHandler(userSvc, auth.UserID)
 	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View)
 
-	authLimiter := ratelimit.New(10.0/60, 10) // 10 tentativas por minuto por IP em /api/auth/*
+	authLimiter := d.AuthLimiter
+	if authLimiter == nil {
+		authLimiter = ratelimit.New(10.0/60, 10) // 10 tentativas por minuto por IP em /api/auth/*
+	}
 	apiLimiter := d.APILimiter
 	if apiLimiter == nil {
 		apiLimiter = ratelimit.New(30, 90)
@@ -119,6 +130,15 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		msgLimiter = ratelimit.New(1, 5) // 5 mensagens a cada 5 s (SPEC 7.3)
 	}
 
+	dmLimiter := d.DMLimiter
+	if dmLimiter == nil {
+		dmLimiter = ratelimit.New(10.0/60, 10) // 10 criações por minuto (SPEC 7.4)
+	}
+	typingLimiter := d.TypingLimiter
+	if typingLimiter == nil {
+		typingLimiter = ratelimit.New(1/typing.Throttle.Seconds(), 1)
+	}
+
 	// Ligação entre as features: guild expõe as permissões; channel, message e invite as consomem.
 	// channel não conhece guild (só a interface Access), então guild recebe channel por interface e
 	// channelSvc é criado com um proxy que aponta para guildSvc depois de pronto.
@@ -126,25 +146,31 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	channelSvc := channel.NewService(channel.NewStore(pool), access, ids, bus)
 	guildSvc := guild.NewService(guild.NewStore(pool), channelSvc, guildStorage, userSvc, ids, bus)
 	access.svc = guildSvc
+	dmSvc := dm.NewService(dm.NewStore(pool), ids, bus, userSvc, dmLimiter)
+	channelSvc.SetDMs(dmSvc)
+	typingSvc := typing.NewService(channelSvc, typingLimiter, bus)
+	presenceSvc := presence.NewService(ctx, d.Presence, presence.NewStore(pool), bus, bus)
 	messageSvc := message.NewService(message.NewStore(pool), channelSvc, msgLimiter, userSvc, ids, bus)
 	gwCfg := d.Gateway
 	if gwCfg.AllowedOrigins == nil {
 		gwCfg.AllowedOrigins = d.Cfg.AllowedOrigins
 	}
 	gwCfg.Dev = d.Cfg.IsDev()
-	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus)
+	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc))
 	gatewayH := gateway.NewHandler(hub, authSvc, auth.UserID)
 	gwLimiter := d.GatewayLimiter
 	if gwLimiter == nil {
 		gwLimiter = ratelimit.New(50, 200)
 	}
-	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter)
+	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
 	channelH := channel.NewHandler(channelSvc, auth.UserID)
 	messageH := message.NewHandler(messageSvc, auth.UserID)
 	inviteH := invite.NewHandler(inviteSvc, auth.UserID)
+	dmH := dm.NewHandler(dmSvc, auth.UserID)
+	typingH := typing.NewHandler(typingSvc, auth.UserID)
 
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
@@ -155,7 +181,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH, gatewayH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH, dmH, typingH, gatewayH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	if d.Cfg.IsDev() {
@@ -174,14 +200,14 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
 		}))
-	return &App{Handler: h, Gateway: hub}, nil
+	return &App{Handler: h, Gateway: hub, presence: presenceSvc}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		gateway.NewHandler(nil, nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
 	return api.OpenAPI().YAML()
 }
 
@@ -194,7 +220,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, inviteH *invite.Handler,
-	gatewayH *gateway.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, gatewayH *gateway.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -215,6 +241,8 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	channelH.Register(api, authed, auth.Security)
 	messageH.Register(api, authed, auth.Security)
 	inviteH.Register(api, authed, auth.Security)
+	dmH.Register(api, authed, auth.Security)
+	typingH.Register(api, authed, auth.Security)
 	gatewayH.Register(api, authed, auth.Security)
 	return api
 }

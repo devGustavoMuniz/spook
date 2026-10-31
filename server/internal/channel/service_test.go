@@ -271,3 +271,88 @@ func TestReorderValidation(t *testing.T) {
 		})
 	}
 }
+
+type fakeDMs struct {
+	recipients map[[2]int64]bool // (canal, usuário)
+	renamed    []string
+	err        error
+}
+
+func (f *fakeDMs) IsRecipient(_ context.Context, ch, u int64) (bool, error) {
+	return f.recipients[[2]int64{ch, u}], f.err
+}
+
+func (f *fakeDMs) Rename(_ context.Context, _, ch int64, name string) (Channel, error) {
+	f.renamed = append(f.renamed, name)
+	return Channel{ID: ch, Type: TypeGroupDM, Name: name}, nil
+}
+
+func TestAuthorizeDM(t *testing.T) {
+	svc, st, _ := setup()
+	st.chans[61] = Channel{ID: 61, Type: TypeGroupDM}
+	dms := &fakeDMs{recipients: map[[2]int64]bool{{60, plain}: true, {61, plain}: true}}
+	svc.SetDMs(dms)
+	ctx := context.Background()
+
+	ch, m, err := svc.Authorize(ctx, plain, 60, perm.SendMessages|perm.ManageMessages)
+	if err != nil || ch.ID != 60 || ch.GuildID != nil || m.Has(perm.ManageMessages) {
+		t.Fatalf("participante: ch=%+v m=%+v err=%v", ch, m, err)
+	}
+	if _, _, err := svc.Authorize(ctx, plain, 61, 0); err != nil {
+		t.Fatalf("DM em grupo: %v", err)
+	}
+	if _, _, err := svc.Authorize(ctx, stranger, 60, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("quem não participa recebe 404, veio %v", err)
+	}
+	dms.err = errors.New("banco fora")
+	if _, _, err := svc.Authorize(ctx, plain, 60, 0); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("falha do banco não vira 404: %v", err)
+	}
+}
+
+func TestUpdateDMGoesThroughGroupRename(t *testing.T) {
+	svc, st, _ := setup()
+	st.chans[61] = Channel{ID: 61, Type: TypeGroupDM}
+	dms := &fakeDMs{recipients: map[[2]int64]bool{{60, plain}: true, {61, plain}: true}}
+	svc.SetDMs(dms)
+	ctx := context.Background()
+	name, pos := "Estudos", int32(3)
+
+	c, err := svc.Update(ctx, plain, 61, UpdateParams{Name: &name})
+	if err != nil || c.Name != "Estudos" || len(dms.renamed) != 1 {
+		t.Fatalf("c=%+v err=%v renamed=%v", c, err, dms.renamed)
+	}
+	if _, err := svc.Update(ctx, plain, 61, UpdateParams{Name: &name, Position: &pos}); !apperr.IsKind(err, apperr.KindInvalid) {
+		t.Fatalf("posição não se aplica a DM: %v", err)
+	}
+	if _, err := svc.Update(ctx, plain, 60, UpdateParams{Name: &name}); !apperr.IsKind(err, apperr.KindInvalid) {
+		t.Fatalf("DM 1:1 não tem nome: %v", err)
+	}
+	if _, err := svc.Update(ctx, stranger, 61, UpdateParams{Name: &name}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("não participante: %v", err)
+	}
+	if _, err := svc.Update(ctx, plain, 61, UpdateParams{}); !apperr.IsKind(err, apperr.KindInvalid) {
+		t.Fatalf("sem nome: %v", err)
+	}
+	if len(dms.renamed) != 1 {
+		t.Fatal("só o primeiro PATCH deveria renomear")
+	}
+	// canais de servidor seguem as regras de antes
+	if _, err := svc.Update(ctx, plain, 11, UpdateParams{Name: &name}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("canal de servidor sem MANAGE_CHANNELS: %v", err)
+	}
+}
+
+func TestDMPayloadHasRecipientsAndServerChannelDoesNot(t *testing.T) {
+	owner := int64(1)
+	dm := Channel{ID: 5, Type: TypeGroupDM, OwnerID: &owner, Name: "g", Recipients: []Recipient{{ID: 1, Username: "a"}, {ID: 2, Username: "b"}}}
+	p := dm.Payload()
+	if p.OwnerID == nil || *p.OwnerID != "1" || len(p.Recipients) != 2 || p.Recipients[1].ID != "2" || p.GuildID != nil {
+		t.Fatalf("payload da DM: %+v", p)
+	}
+	g := int64(1)
+	sp := Channel{ID: 6, Type: TypeText, GuildID: &g}.Payload()
+	if sp.OwnerID != nil || sp.Recipients != nil {
+		t.Fatalf("canal de servidor não leva campos de DM: %+v", sp)
+	}
+}
