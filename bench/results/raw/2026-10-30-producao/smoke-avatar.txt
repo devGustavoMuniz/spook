@@ -1,0 +1,24 @@
+Smoke em https://spook.dottadigital.com — usuário smoke_1793413483314
+
+OK   cadastro — HTTP 201
+OK   cookie de sessão HttpOnly + Secure + SameSite=Lax — spook_session=<token>; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax
+OK   perfil logo após o cadastro — HTTP 200
+OK   logout — HTTP 204
+OK   perfil sem sessão dá 401 — HTTP 401
+OK   login — HTTP 200
+OK   URL pré-assinada do avatar — HTTP 200
+     host da URL: spook-files.dottadigital.com  chave: avatars/109839944519778304/109839946059087872.png
+OK   preflight CORS a partir de https://spook.dottadigital.com — HTTP 200, Allow-Origin=https://spook.dottadigital.com, Allow-Methods=GET, PUT, HEAD
+OK   preflight de origem não autorizada é recusado — HTTP 403
+OK   PUT da imagem direto em spook-files — HTTP 200
+OK   sem SignatureDoesNotMatch (Host público chega intacto ao Garage)
+OK   resposta do PUT com Allow-Origin da origem do app
+OK   PATCH do perfil com a chave do avatar — HTTP 200
+OK   perfil devolve avatar_url (GET pré-assinado) — spook-files.dottadigital.com
+OK   GET da imagem pela URL pré-assinada — HTTP 200
+OK   bytes baixados idênticos aos enviados — 70 bytes, sha256:c414cd0e204de974 == c414cd0e204de974
+OK   Content-Type image/png — image/png
+OK   tipo de arquivo inválido é recusado — HTTP 422
+OK   chave de avatar de outro usuário é recusada — HTTP 422
+
+TUDO OK — usuário descartável que ficou no banco: smoke_1793413483314 (smoke-1793413483314@smoke.spook.invalid)
