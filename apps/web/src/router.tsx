@@ -17,6 +17,7 @@ import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
 import { HomePage } from "@/pages/home";
 import { InvitePage } from "@/pages/invite";
 import { LoginPage } from "@/pages/login";
+import { NotificationsPage } from "@/pages/notifications";
 import { ProfilePage } from "@/pages/profile";
 import { RegisterPage } from "@/pages/register";
 
@@ -90,6 +91,12 @@ const profileRoute = createRoute({
   component: ProfilePage,
 });
 
+const notificationsRoute = createRoute({
+  getParentRoute: () => pageRoute,
+  path: "/settings/notifications",
+  component: NotificationsPage,
+});
+
 const guildRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/channels/$guildId",
@@ -135,7 +142,7 @@ const routeTree = rootRoute.addChildren([
   registerRoute,
   authedRoute.addChildren([
     homeRoute,
-    pageRoute.addChildren([profileRoute]),
+    pageRoute.addChildren([profileRoute, notificationsRoute]),
     dmRoute.addChildren([dmIndexRoute, dmChannelRoute]),
     guildRoute.addChildren([guildIndexRoute, channelRoute]),
     inviteRoute,

@@ -23,6 +23,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { GuildMenu } from "@/features/guilds/guild-menu";
+import { MentionBadge, mentionLabel, UnreadDot } from "@/features/notifications/badges";
+import { useReadStateStore } from "@/features/notifications/read-state";
 import { joinVoice } from "@/features/voice/controller";
 import { voicePermissions } from "@/features/voice/permissions";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "@/features/voice/store";
@@ -37,6 +39,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   const qc = useQueryClient();
   const params = useParams({ strict: false }) as { channelId?: string };
   const reorder = useReorderChannels();
+  const reads = useReadStateStore((s) => s.channels);
   const canManage = can(guild, Permission.MANAGE_CHANNELS);
   const groups = groupChannels(guild);
   const navigate = useNavigate();
@@ -114,6 +117,8 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
 
   function renderChannel(c: ChannelPayload) {
     const active = c.id === params.channelId;
+    const read = reads[c.id];
+    const unread = !!read && (read.unread > 0 || read.mentions > 0);
     return (
       <li key={c.id}>
         <div className="group flex items-center rounded-md hover:bg-accent">
@@ -146,11 +151,23 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
               to="/channels/$guildId/$channelId"
               params={{ guildId: guild.id, channelId: c.id }}
               className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-                active ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground"
+                active
+                  ? "bg-accent font-medium text-accent-foreground"
+                  : unread
+                    ? "font-semibold text-foreground"
+                    : "text-muted-foreground"
               }`}
             >
               <Hash className="size-4 shrink-0" aria-hidden />
-              <span className="truncate">{c.name}</span>
+              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              {read && read.mentions > 0 ? (
+                <MentionBadge
+                  count={read.mentions}
+                  label={mentionLabel(read.mentions, `#${c.name}`)}
+                />
+              ) : unread ? (
+                <UnreadDot label={`Mensagens novas em #${c.name}`} />
+              ) : null}
             </Link>
           )}
           {renderMenu(c)}

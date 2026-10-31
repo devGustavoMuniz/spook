@@ -2,6 +2,7 @@ import { getGetMeQueryKey, isApiError, useLogout } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { detachPushFromAccount } from "@/features/push/push";
 
 export function useSignOut() {
   const qc = useQueryClient();
@@ -9,6 +10,11 @@ export function useSignOut() {
   const logout = useLogout();
 
   async function signOut() {
+    // Este navegador deixa de receber push desta conta (a sessão ainda vale para o DELETE); nunca trava a saída.
+    await Promise.race([
+      detachPushFromAccount().catch(() => {}),
+      new Promise((r) => setTimeout(r, 2000)),
+    ]);
     try {
       await logout.mutateAsync();
     } catch (e) {

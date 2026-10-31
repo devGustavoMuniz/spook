@@ -4,10 +4,10 @@ import { Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { StatusAvatar } from "@/components/presence-dot";
 import { Button } from "@/components/ui/button";
+import { MentionBadge, UnreadDot, useChannelRead } from "@/features/notifications/badges";
 import { appMessage } from "@/lib/app-errors";
 import { dmTitle, isGroupDm, otherRecipient } from "./dm-utils";
 import { NewGroupDialog } from "./new-group-dialog";
-import { useDmUnreadStore } from "./unread-store";
 import { useDms } from "./use-dms";
 
 /** Lista de conversas (1:1 e em grupo) por atividade recente, com o botão de nova conversa em grupo. */
@@ -59,7 +59,8 @@ export function DmSidebar() {
 }
 
 function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
-  const unread = useDmUnreadStore((s) => s.channels.has(channel.id));
+  const read = useChannelRead(channel.id);
+  const unread = !!read && (read.unread > 0 || read.mentions > 0);
   const title = dmTitle(channel, myId);
   const other = otherRecipient(channel, myId);
   return (
@@ -83,12 +84,13 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
       >
         {title}
       </span>
-      {unread ? (
-        <span
-          role="img"
-          aria-label="Mensagens novas"
-          className="size-2 shrink-0 rounded-full bg-primary"
+      {read && read.mentions > 0 ? (
+        <MentionBadge
+          count={read.mentions}
+          label={`${read.mentions > 99 ? "99+" : read.mentions} mensagens novas`}
         />
+      ) : unread ? (
+        <UnreadDot label="Mensagens novas" />
       ) : null}
     </Link>
   );

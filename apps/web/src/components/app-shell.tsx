@@ -21,6 +21,9 @@ export function PageShell() {
           <Button asChild variant="ghost" size="sm">
             <Link to="/settings/profile">Perfil</Link>
           </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/settings/notifications">Notificações</Link>
+          </Button>
           <ThemeToggle />
           <Button variant="outline" size="sm" onClick={signOut} disabled={pending}>
             <LogOut /> Sair

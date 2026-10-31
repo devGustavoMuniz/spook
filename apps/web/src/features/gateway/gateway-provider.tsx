@@ -3,7 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { toast } from "sonner";
-import { useDmUnreadStore } from "../dms/unread-store";
+import { showInAppNotification } from "../notifications/notify";
+import { useReadStateStore } from "../notifications/read-state";
+import { cancelReloadReadStates } from "../notifications/sync";
+import { resetAckMemory } from "../notifications/use-auto-ack";
+import { pageActive, useViewportStore, viewingOf } from "../notifications/viewport";
 import { watchIdle } from "../presence/idle-detector";
 import { usePresenceStore } from "../presence/store";
 import { useTypingStore } from "../typing/store";
@@ -53,6 +57,8 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
         );
         void router.navigate({ to: "/channels/@me", replace: true });
       },
+      viewing: (channelId) => viewingOf(channelId, useViewportStore.getState(), pageActive()),
+      notify: (n) => showInAppNotification(n, (url) => void router.navigate({ href: url })),
     };
 
     const client = new GatewayClient({
@@ -109,7 +115,9 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       useGatewayStore.getState().reset();
       usePresenceStore.getState().reset();
       useTypingStore.getState().reset();
-      useDmUnreadStore.getState().reset();
+      useReadStateStore.getState().reset();
+      cancelReloadReadStates();
+      resetAckMemory();
       shutdownVoice();
     };
   }, [qc, router]);

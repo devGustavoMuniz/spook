@@ -5,7 +5,9 @@ import { dmsOf } from "@/lib/dm-cache";
 import { addMessage, flattenPages, type MessagePages } from "@/lib/message-cache";
 import { queryKeys } from "@/lib/queryKeys";
 import { channel, dm, guild, ME, member, messages, recipient, role } from "@/test/fixtures";
-import { useDmUnreadStore } from "../dms/unread-store";
+import { useNotificationPrefs } from "../notifications/prefs";
+import { useReadStateStore } from "../notifications/read-state";
+import type { Viewing } from "../notifications/viewport";
 import { usePresenceStore } from "../presence/store";
 import { useTypingStore } from "../typing/store";
 import {
@@ -22,6 +24,7 @@ let fx: GatewayEffects & {
   channelGone: ReturnType<typeof vi.fn>;
   dmGone: ReturnType<typeof vi.fn>;
 };
+let viewing: Viewing = "away";
 let where: { guildId?: string; channelId?: string };
 
 const send = (ev: GatewayEvent) => applyGatewayEvent(qc, fx, ev);
@@ -46,7 +49,9 @@ function msg(id: string, content = `msg ${id}`, author = "50"): MessagePayload {
 beforeEach(() => {
   usePresenceStore.getState().reset();
   useTypingStore.getState().reset();
-  useDmUnreadStore.getState().reset();
+  useReadStateStore.getState().reset();
+  useNotificationPrefs.getState().setMuted(false);
+  viewing = "away";
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   where = { guildId: "g1", channelId: CH };
   fx = {
@@ -55,6 +60,8 @@ beforeEach(() => {
     leftGuild: vi.fn(),
     channelGone: vi.fn(),
     dmGone: vi.fn(),
+    viewing: () => viewing,
+    notify: vi.fn(),
   };
   qc.setQueryData(queryKeys.guilds(), [
     guild("g1", "Alfa", {
@@ -320,24 +327,77 @@ describe("DMs", () => {
     expect(fx.dmGone).not.toHaveBeenCalled();
   });
 
-  it("MESSAGE_CREATE em DM sobe a conversa na lista e marca como não lida", () => {
+  it("MESSAGE_CREATE em DM sobe a conversa na lista, conta como não lida e avisa", () => {
     where = { guildId: "g1", channelId: CH };
     send({ t: "MESSAGE_CREATE", d: dmMsg(GRP, "9000", "60") });
     expect(dmIds()[0]).toBe(GRP);
-    expect(useDmUnreadStore.getState().channels.has(GRP)).toBe(true);
-    expect(useDmUnreadStore.getState().channels.has(DM1)).toBe(false);
+    const reads = useReadStateStore.getState().channels;
+    expect(reads[GRP]?.unread).toBe(1);
+    expect(reads[DM1]).toBeUndefined();
+    expect(fx.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: GRP, url: `/channels/@me/${GRP}`, body: "dm 9000" }),
+    );
   });
 
-  it("não marca como não lida a DM aberta nem a minha própria mensagem", () => {
-    where = { channelId: DM1 };
+  it("não conta nem avisa a minha própria mensagem; DM à vista não vira não lida, mas pede ack", () => {
+    viewing = "caught-up";
     send({ t: "MESSAGE_CREATE", d: dmMsg(DM1, "9000", "50") });
     send({ t: "MESSAGE_CREATE", d: dmMsg(GRP, "9001", ME) });
-    expect(useDmUnreadStore.getState().channels.size).toBe(0);
+    const reads = useReadStateStore.getState().channels;
+    expect(reads[DM1]).toMatchObject({ unread: 0, latest: "9000" });
+    expect(reads[GRP]).toBeUndefined();
+    expect(fx.notify).not.toHaveBeenCalled();
   });
 
-  it("mensagem de canal de servidor não mexe nas DMs nem nas não lidas", () => {
+  it("canal aberto mas rolado para cima conta como não lido, sem aviso", () => {
+    viewing = "focused";
+    send({ t: "MESSAGE_CREATE", d: dmMsg(DM1, "9000", "50") });
+    expect(useReadStateStore.getState().channels[DM1]?.unread).toBe(1);
+    expect(fx.notify).not.toHaveBeenCalled();
+  });
+
+  it("mensagem comum de servidor conta como não lida, mas não avisa; a menção direta avisa", () => {
+    where = { guildId: "g1", channelId: "outro" };
     send({ t: "MESSAGE_CREATE", d: msg("2000") });
-    expect(useDmUnreadStore.getState().channels.size).toBe(0);
+    expect(useReadStateStore.getState().channels[CH]).toMatchObject({ guildId: "g1", unread: 1 });
+    expect(fx.notify).not.toHaveBeenCalled();
+    send({ t: "MESSAGE_CREATE", d: { ...msg("2001", "oi @ana"), mention_ids: [ME] } });
+    expect(useReadStateStore.getState().channels[CH]?.unread).toBe(2);
+    expect(fx.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "bia (#geral · Alfa)", url: `/channels/g1/${CH}` }),
+    );
+  });
+
+  it("silenciar notificações tira o aviso, mas a contagem segue", () => {
+    useNotificationPrefs.getState().setMuted(true);
+    send({ t: "MESSAGE_CREATE", d: dmMsg(GRP, "9000", "60") });
+    expect(fx.notify).not.toHaveBeenCalled();
+    expect(useReadStateStore.getState().channels[GRP]?.unread).toBe(1);
+  });
+
+  it("READY substitui as não lidas e READ_STATE_UPDATE atualiza as menções", () => {
+    applyReady(
+      qc,
+      {
+        guilds: [],
+        read_states: [
+          {
+            channel_id: CH,
+            guild_id: "g1",
+            last_read_message_id: "1000",
+            mention_count: 1,
+            unread_count: 3,
+          },
+        ],
+      },
+      fx,
+    );
+    expect(useReadStateStore.getState().channels[CH]).toMatchObject({ unread: 3, mentions: 1 });
+    send({
+      t: "READ_STATE_UPDATE",
+      d: { channel_id: CH, last_read_message_id: "1000", mention_count: 2 },
+    });
+    expect(useReadStateStore.getState().channels[CH]).toMatchObject({ unread: 3, mentions: 2 });
   });
 
   it("refreshAfterGap também invalida a lista de DMs", () => {

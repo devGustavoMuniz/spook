@@ -6,17 +6,62 @@ import { useSignOut } from "@/auth/use-sign-out";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useDmUnreadStore } from "@/features/dms/unread-store";
+import {
+  MentionBadge,
+  mentionLabel,
+  UnreadDot,
+  useDmTotals,
+  useGuildTotals,
+} from "@/features/notifications/badges";
 import { type Guild, initials } from "@/lib/guild";
 import { AddServerDialog } from "./add-server-dialog";
 
 const itemClass =
   "flex size-12 items-center justify-center overflow-hidden rounded-[1.5rem] bg-secondary text-sm font-semibold text-secondary-foreground transition-[border-radius,background-color] hover:rounded-xl hover:bg-primary hover:text-primary-foreground data-[status=active]:rounded-xl data-[status=active]:bg-primary data-[status=active]:text-primary-foreground";
 
+function GuildButton({ guild: g }: { guild: Guild }) {
+  const t = useGuildTotals(g.id);
+  return (
+    <li className="relative">
+      {t.unread > 0 || t.mentions > 0 ? (
+        <span
+          aria-hidden
+          className="absolute top-1/2 -left-3 h-2 w-1 -translate-y-1/2 rounded-r-full bg-foreground"
+        />
+      ) : null}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/channels/$guildId"
+            params={{ guildId: g.id }}
+            aria-label={g.name}
+            className={`${itemClass} relative`}
+            activeOptions={{ exact: false }}
+          >
+            {g.icon_url ? (
+              <img src={g.icon_url} alt="" className="size-full object-cover" />
+            ) : (
+              <span aria-hidden>{initials(g.name)}</span>
+            )}
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">{g.name}</TooltipContent>
+      </Tooltip>
+      {t.mentions > 0 ? (
+        <MentionBadge
+          count={t.mentions}
+          label={mentionLabel(t.mentions, g.name)}
+          className="pointer-events-none absolute -right-1 -bottom-1 ring-2 ring-sidebar"
+        />
+      ) : null}
+    </li>
+  );
+}
+
 export function ServerRail({ guilds }: { guilds: Guild[] }) {
   const [adding, setAdding] = useState(false);
   const { signOut, pending } = useSignOut();
-  const unread = useDmUnreadStore((s) => s.channels.size > 0);
+  const dms = useDmTotals();
   return (
     <nav
       aria-label="Servidores"
@@ -26,11 +71,16 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
         <TooltipTrigger asChild>
           <Link to="/channels/@me" aria-label="Início" className={`${itemClass} relative`}>
             <img src={miniLogo} alt="" className="size-8" />
-            {unread ? (
-              <span
-                role="img"
-                aria-label="Mensagens diretas novas"
-                className="absolute right-0 bottom-0 size-3 rounded-full bg-primary ring-2 ring-sidebar"
+            {dms.mentions > 0 ? (
+              <MentionBadge
+                count={dms.mentions}
+                label={`${dms.mentions > 99 ? "99+" : dms.mentions} mensagens diretas não lidas`}
+                className="absolute -right-1 -bottom-1 ring-2 ring-sidebar"
+              />
+            ) : dms.unread > 0 ? (
+              <UnreadDot
+                label="Mensagens diretas novas"
+                className="absolute right-0 bottom-0 size-3 ring-2 ring-sidebar"
               />
             ) : null}
           </Link>
@@ -40,26 +90,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
       <hr className="w-8 border-border" />
       <ul className="flex flex-col items-center gap-2">
         {guilds.map((g) => (
-          <li key={g.id}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/channels/$guildId"
-                  params={{ guildId: g.id }}
-                  aria-label={g.name}
-                  className={itemClass}
-                  activeOptions={{ exact: false }}
-                >
-                  {g.icon_url ? (
-                    <img src={g.icon_url} alt="" className="size-full object-cover" />
-                  ) : (
-                    <span aria-hidden>{initials(g.name)}</span>
-                  )}
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">{g.name}</TooltipContent>
-            </Tooltip>
-          </li>
+          <GuildButton key={g.id} guild={g} />
         ))}
       </ul>
       <Tooltip>

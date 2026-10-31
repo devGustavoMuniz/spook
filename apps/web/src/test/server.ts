@@ -1,4 +1,10 @@
-import type { ChannelPayload, DetailPayload, MemberPayload, MessagePayload } from "@spook/shared";
+import type {
+  ChannelPayload,
+  DetailPayload,
+  MemberPayload,
+  MessagePayload,
+  ReadStatePayload,
+} from "@spook/shared";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { guild as makeGuild, member, role } from "./fixtures";
@@ -49,6 +55,29 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     retryAfter: 1,
     requests: [] as { method: string; path: string; search: string; body?: unknown }[],
     nextId: 5000,
+    /** Não lidas (Fase 6): resposta do GET e os acks recebidos (`PUT /channels/{id}/ack`). */
+    readStates: [] as ReadStatePayload[],
+    acks: [] as { channelId: string; messageId: string }[],
+    /** Push (Fase 6): chave pública (`null` = 503, desligado) e as inscrições/remoções recebidas. */
+    push: {
+      publicKey:
+        "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U" as
+          | string
+          | null,
+      subscribed: [] as { endpoint: string; keys: { p256dh: string; auth: string } }[],
+      unsubscribed: [] as string[],
+      subscribeStatus: 204,
+    },
+    /** Uploads (Fase 6): pedidos recebidos e erro forçado. */
+    uploads: {
+      requested: [] as {
+        channelId: string;
+        filename: string;
+        content_type: string;
+        size: number;
+      }[],
+      error: null as null | { status: number; detail: string },
+    },
     /** Voz (Fase 5): erro forçado do token, tokens emitidos e PATCH /voice/state / leave recebidos. */
     voice: {
       tokenError: null as null | { status: number; detail: string },
@@ -97,8 +126,87 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     ...guildHandlers(),
     ...dmHandlers(),
     ...voiceHandlers(),
+    ...notificationHandlers(),
   ];
   return { state, handlers };
+
+  function notificationHandlers() {
+    return [
+      http.get("*/api/users/@me/read-states", ({ request }) => {
+        track(request);
+        const guilds = new Map<string, { unread: number; mentions: number }>();
+        for (const r of state.readStates) {
+          if (!r.guild_id) continue;
+          const g = guilds.get(r.guild_id) ?? { unread: 0, mentions: 0 };
+          g.unread = Math.min(100, g.unread + r.unread_count);
+          g.mentions += r.mention_count;
+          guilds.set(r.guild_id, g);
+        }
+        return HttpResponse.json({
+          read_states: state.readStates,
+          guilds: [...guilds].map(([guild_id, g]) => ({
+            guild_id,
+            unread_count: g.unread,
+            mention_count: g.mentions,
+          })),
+        });
+      }),
+      http.put("*/api/channels/:channelId/ack", async ({ params, request }) => {
+        const b = (await request.json()) as { message_id: string };
+        track(request, b);
+        const channelId = params.channelId as string;
+        state.acks.push({ channelId, messageId: b.message_id });
+        return HttpResponse.json({
+          channel_id: channelId,
+          last_read_message_id: b.message_id,
+          mention_count: 0,
+        });
+      }),
+      http.get("*/api/push/vapid-public-key", () =>
+        state.push.publicKey
+          ? HttpResponse.json({ public_key: state.push.publicKey })
+          : problem(503, "notificações push desligadas"),
+      ),
+      http.post("*/api/push/subscriptions", async ({ request }) => {
+        const b = (await request.json()) as {
+          endpoint: string;
+          keys: { p256dh: string; auth: string };
+        };
+        track(request, b);
+        if (state.push.subscribeStatus !== 204)
+          return problem(state.push.subscribeStatus, "não foi possível inscrever");
+        state.push.subscribed.push(b);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.delete("*/api/push/subscriptions", async ({ request }) => {
+        const b = (await request.json()) as { endpoint: string };
+        track(request, b);
+        state.push.unsubscribed.push(b.endpoint);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/channels/:channelId/uploads", async ({ params, request }) => {
+        const b = (await request.json()) as {
+          filename: string;
+          content_type: string;
+          size: number;
+        };
+        track(request, b);
+        const e = state.uploads.error;
+        if (e) return problem(e.status, e.detail);
+        state.uploads.requested.push({ channelId: params.channelId as string, ...b });
+        const id = nextId();
+        return HttpResponse.json(
+          {
+            id,
+            upload_url: `https://storage.test/upload/${id}`,
+            headers: { "Content-Type": b.content_type },
+            expires_in: 300,
+          },
+          { status: 201 },
+        );
+      }),
+    ];
+  }
 
   function voiceHandlers() {
     return [
@@ -325,7 +433,7 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
         });
       }),
       http.post("*/api/channels/:channelId/messages", async ({ params, request }) => {
-        const b = (await request.json()) as { content: string };
+        const b = (await request.json()) as { content: string; attachment_ids?: string[] | null };
         track(request, b);
         if (state.rateLimited > 0) {
           state.rateLimited--;
@@ -339,10 +447,16 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           id: nextId(),
           channel_id: cid,
           author: { id: state.user.id, username: state.user.username },
-          content: b.content.trim(),
+          content: (b.content ?? "").trim(),
           created_at: new Date().toISOString(),
           edited_at: null,
-          attachments: [],
+          attachments: (b.attachment_ids ?? []).map((id) => ({
+            id,
+            filename: `arquivo-${id}.txt`,
+            content_type: "text/plain",
+            size: 12,
+            url: `https://storage.test/get/${id}`,
+          })),
           mention_ids: [],
         };
         state.messages[cid] = [...(state.messages[cid] ?? []), msg];

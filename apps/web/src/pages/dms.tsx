@@ -1,7 +1,7 @@
 import { useGetMe } from "@spook/shared";
 import { Link, Outlet, useParams } from "@tanstack/react-router";
 import { MessageCircle, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Notice } from "@/components/notice";
 import { PresenceDot, StatusAvatar, statusLabel } from "@/components/presence-dot";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { DmSidebar } from "@/features/dms/dm-sidebar";
 import { dmTitle, isGroupDm, otherRecipient, recipientsOf } from "@/features/dms/dm-utils";
 import { GroupDialog } from "@/features/dms/group-dialog";
 import { NewGroupDialog } from "@/features/dms/new-group-dialog";
-import { useDmUnreadStore } from "@/features/dms/unread-store";
 import { useDms } from "@/features/dms/use-dms";
 import { ChannelView } from "@/features/messages/channel-view";
 import { usePresence } from "@/features/presence/store";
@@ -61,10 +60,6 @@ export function DmPage() {
   const dms = useDms();
   const [managing, setManaging] = useState(false);
   const channel = dms.list.find((c) => c.id === channelId);
-
-  // Abrir a conversa a marca como lida (só nesta sessão; a contagem de verdade é a Fase 6).
-  const clearUnread = useDmUnreadStore((s) => s.clear);
-  useEffect(() => clearUnread(channelId), [channelId, clearUnread]);
 
   if (dms.isPending || !me) return null;
   if (dms.isError)

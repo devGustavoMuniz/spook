@@ -5,6 +5,7 @@ import type { MessagePayload } from "@spook/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
+import { useViewportStore } from "../notifications/viewport";
 import { MessageRow, type MessageRowProps } from "./message-row";
 import { buildRows } from "./rows";
 
@@ -18,6 +19,9 @@ export type MessageListProps = {
   onLoadMore: () => void;
   colors: ReadonlyMap<string, string>;
   myId: string;
+  myUsername: string;
+  /** Ponto de leitura de quando o canal foi aberto: a mensagem seguinte ganha "Novas mensagens". */
+  newAfterId?: string | null;
   canManageMessages: boolean;
   editingId: string | null;
   onStartEdit: MessageRowProps["onStartEdit"];
@@ -27,6 +31,7 @@ export type MessageListProps = {
 };
 
 const LOAD_MORE_THRESHOLD_PX = 400;
+const BOTTOM_THRESHOLD_PX = 120;
 
 /**
  * Lista invertida: cresce para cima e fica ancorada no fim. O virtualizer faz `anchorTo: "end"`
@@ -37,7 +42,11 @@ export function MessageList(props: MessageListProps) {
   "use no memo";
   const { messages, hasMore, loadingMore, onLoadMore } = props;
   const parentRef = useRef<HTMLDivElement>(null);
-  const rows = useMemo(() => buildRows(messages, { hasMore }), [messages, hasMore]);
+  const { newAfterId, myId } = props;
+  const rows = useMemo(
+    () => buildRows(messages, { hasMore, newAfterId, myId }),
+    [messages, hasMore, newAfterId, myId],
+  );
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -45,7 +54,7 @@ export function MessageList(props: MessageListProps) {
     estimateSize: (i) => {
       const r = rows[i];
       if (!r || r.kind === "start") return 72;
-      return r.header ? 64 + (r.day ? 40 : 0) : 26;
+      return (r.header ? 64 + (r.day ? 40 : 0) : 26) + (r.marker ? 28 : 0);
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 10,
@@ -77,9 +86,19 @@ export function MessageList(props: MessageListProps) {
     prevLastId.current = lastId;
   }, [lastId]);
 
+  // A lista está no fim? (as mensagens novas só contam como lidas assim)
+  const setAtBottom = useViewportStore((s) => s.setAtBottom);
+  function reportBottom() {
+    const el = parentRef.current;
+    if (el) setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD_PX);
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reavalia quando o conteúdo muda de tamanho
+  useEffect(reportBottom, [rows.length, virtualizer.getTotalSize()]);
+
   // Só rolagem para cima pede página anterior (ignora os saltos programáticos de ancoragem).
   const lastTop = useRef<number | null>(null);
   function maybeLoadMore() {
+    reportBottom();
     const el = parentRef.current;
     if (!el) return;
     const goingUp = lastTop.current !== null && el.scrollTop < lastTop.current;
@@ -156,6 +175,9 @@ export function MessageList(props: MessageListProps) {
                     message={row.message}
                     header={row.header}
                     day={row.day}
+                    marker={row.marker}
+                    myId={props.myId}
+                    myUsername={props.myUsername}
                     color={props.colors.get(row.message.author.id)}
                     canEdit={row.message.author.id === props.myId}
                     canDelete={row.message.author.id === props.myId || props.canManageMessages}

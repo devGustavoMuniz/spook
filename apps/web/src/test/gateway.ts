@@ -1,4 +1,9 @@
-import type { ChannelPayload, DetailPayload, VoiceStatePayload } from "@spook/shared";
+import type {
+  ChannelPayload,
+  DetailPayload,
+  ReadStatePayload,
+  VoiceStatePayload,
+} from "@spook/shared";
 import { FakeSocket } from "@spook/shared/testing";
 import { act, waitFor } from "@testing-library/react";
 import { ME } from "./fixtures";
@@ -11,6 +16,7 @@ export async function connectGateway(
     private_channels?: ChannelPayload[];
     presences?: { user_id: string; status: "online" | "idle" }[];
     voice_states?: VoiceStatePayload[];
+    read_states?: ReadStatePayload[];
   } = {},
 ) {
   await waitFor(() => expect(FakeSocket.instances.length).toBeGreaterThan(0));
@@ -24,6 +30,7 @@ export async function connectGateway(
       private_channels: extra.private_channels ?? [],
       presences: extra.presences ?? [],
       voice_states: extra.voice_states ?? [],
+      read_states: extra.read_states ?? [],
     });
   });
   return sock;

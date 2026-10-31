@@ -8,7 +8,9 @@ import {
   useGetMe,
 } from "@spook/shared";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { Paperclip } from "lucide-react";
+import type { DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -19,8 +21,12 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useComposerAttachments } from "@/features/attachments/use-composer-attachments";
 import { recipientName, recipientsOf } from "@/features/dms/dm-utils";
 import { memberName, useGuildMembers, useMemberColors } from "@/features/members/use-members";
+import { useAutoAck } from "@/features/notifications/use-auto-ack";
+import { useEntryMarker } from "@/features/notifications/use-entry-marker";
+import { useViewportStore } from "@/features/notifications/viewport";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild } from "@/lib/guild";
 import {
@@ -97,6 +103,21 @@ export function ChannelView({
     [perfOn, perfMessages, query.data],
   );
 
+  const canViewChannel = guild ? can(guild, Permission.VIEW_CHANNEL) : true;
+  const canAttach = guild ? can(guild, Permission.ATTACH_FILES) : true;
+  const attachments = useComposerAttachments(channelId, canAttach);
+  const drag = useFileDrop(attachments.addFiles);
+
+  // Onde o usuário está olhando (define o que conta como não lido) e a leitura automática.
+  const setViewChannel = useViewportStore((s) => s.setChannel);
+  useEffect(() => {
+    if (perfOn) return;
+    setViewChannel(channelId);
+    return () => setViewChannel(null);
+  }, [channelId, perfOn, setViewChannel]);
+  useAutoAck(channelId, messages.at(-1)?.id, !perfOn && !query.isPending && canViewChannel);
+  const newAfterId = useEntryMarker(channelId);
+
   const edit = useEditMessage();
   const del = useDeleteMessage();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -131,7 +152,22 @@ export function ChannelView({
   const canSend = guild ? canView && can(guild, Permission.SEND_MESSAGES) : true;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // biome-ignore lint/a11y/noStaticElementInteractions: soltar arquivos é um atalho; o botão "Anexar arquivo" faz o mesmo pelo teclado
+    <div
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDragEnter={drag.onDragEnter}
+      onDragOver={drag.onDragOver}
+      onDragLeave={drag.onDragLeave}
+      onDrop={drag.onDrop}
+    >
+      {drag.active && canSend ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 bg-background/80 text-lg font-semibold ring-2 ring-primary ring-inset"
+        >
+          <Paperclip /> Solte para anexar
+        </div>
+      ) : null}
       {!canView ? (
         <p className="p-6 text-sm text-muted-foreground">Você não pode ver este canal.</p>
       ) : query.isPending && !perfOn ? (
@@ -154,6 +190,8 @@ export function ChannelView({
           onLoadMore={() => void query.fetchNextPage({ cancelRefetch: false })}
           colors={colors}
           myId={me.id}
+          myUsername={me.username}
+          newAfterId={newAfterId}
           canManageMessages={guild ? can(guild, Permission.MANAGE_MESSAGES) : false}
           editingId={editingId}
           onStartEdit={setEditingId}
@@ -168,6 +206,7 @@ export function ChannelView({
         isDm={!!dm}
         nameOf={nameOf}
         canSend={canSend && !perfOn}
+        attachments={attachments}
       />
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>
@@ -188,4 +227,36 @@ export function ChannelView({
       </AlertDialog>
     </div>
   );
+}
+
+/** Arrastar e soltar arquivos sobre a área do canal (ignora arrastos que não são de arquivos). */
+function useFileDrop(onFiles: (files: File[]) => void) {
+  const [active, setActive] = useState(false);
+  // dragenter/dragleave disparam também nos filhos: o contador evita o overlay piscar.
+  const depth = useRef(0);
+  const hasFiles = (e: DragEvent) => e.dataTransfer?.types?.includes("Files") ?? false;
+  return {
+    active,
+    onDragEnter(e: DragEvent) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth.current++;
+      setActive(true);
+    },
+    onDragOver(e: DragEvent) {
+      if (hasFiles(e)) e.preventDefault(); // sem isso o navegador não aceita o drop
+    },
+    onDragLeave(e: DragEvent) {
+      if (!hasFiles(e)) return;
+      depth.current = Math.max(0, depth.current - 1);
+      if (depth.current === 0) setActive(false);
+    },
+    onDrop(e: DragEvent) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth.current = 0;
+      setActive(false);
+      onFiles([...e.dataTransfer.files]);
+    },
+  };
 }

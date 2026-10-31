@@ -1,10 +1,16 @@
 import "@testing-library/jest-dom/vitest";
 import { FakeSocket } from "@spook/shared/testing";
+import { toast } from "sonner";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { setGatewaySocketFactory } from "@/features/gateway/socket";
 import { server } from "@/test/server";
 
 window.scrollTo = () => {};
+// jsdom não cria object URLs (miniaturas locais dos anexos).
+URL.createObjectURL ??= () => "blob:spook-test";
+URL.revokeObjectURL ??= () => {};
+// jsdom não tem foco de janela: nos testes o app está sempre "à vista" (os que precisam do contrário trocam o stub).
+Document.prototype.hasFocus = () => true;
 
 // O gateway abre um WebSocket ao montar a área autenticada; nos testes ele é falso (nada abre
 // sozinho) e os testes de tempo real o comandam por `FakeSocket.last`.
@@ -73,6 +79,7 @@ beforeAll(() => {
   }) as typeof fetch;
 });
 afterEach(() => {
+  toast.dismiss(); // o estado dos toasts é global ao módulo: não vaza para o teste seguinte
   FakeSocket.reset();
   server.resetHandlers();
   document.documentElement.classList.remove("dark");

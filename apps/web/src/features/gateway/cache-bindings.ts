@@ -1,6 +1,13 @@
 // Liga os eventos do gateway ao cache do TanStack Query (SPEC 5.5, Fase 3 front). Sem React aqui:
 // a função `applyGatewayEvent` é pura em relação ao `QueryClient` e fácil de testar.
-import type { ChannelPayload, DetailPayload, GatewayEvent, VoiceStatePayload } from "@spook/shared";
+import type {
+  ChannelPayload,
+  DetailPayload,
+  GatewayEvent,
+  MessagePayload,
+  ReadStatePayload,
+  VoiceStatePayload,
+} from "@spook/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { bumpDM, findDm, removeDM, setDMs, upsertDM } from "@/lib/dm-cache";
 import {
@@ -18,7 +25,16 @@ import { dropRoleFromMembers, removeMember, upsertMember } from "@/lib/member-ca
 import { addMessage, removeMessage, replaceMessage } from "@/lib/message-cache";
 import { isMembersKey, isMessagesKey, queryKeys } from "@/lib/queryKeys";
 import { dmTitle } from "../dms/dm-utils";
-import { useDmUnreadStore } from "../dms/unread-store";
+import {
+  channelUrl,
+  type InAppNotification,
+  previewBody,
+  shouldNotify,
+} from "../notifications/in-app";
+import { useNotificationPrefs } from "../notifications/prefs";
+import { useReadStateStore } from "../notifications/read-state";
+import { reloadReadStates } from "../notifications/sync";
+import type { Viewing } from "../notifications/viewport";
 import { usePresenceStore } from "../presence/store";
 import { useTypingStore } from "../typing/store";
 import { reconcileVoiceSnapshot, reconcileVoiceUpdate } from "../voice/controller";
@@ -33,6 +49,10 @@ export type GatewayEffects = {
   channelGone(guildId: string, channelName: string | undefined): void;
   /** Saí (ou fui removido) da DM que está aberta: avisa e leva à lista de conversas. */
   dmGone(title: string | undefined): void;
+  /** O usuário está vendo este canal agora? (define se a mensagem nova conta como não lida e se avisa). */
+  viewing(channelId: string): Viewing;
+  /** Aviso in-app (toast ou notificação do navegador) de DM ou menção em canal que não está à vista. */
+  notify(n: InAppNotification): void;
 };
 
 const guildsOf = (qc: QueryClient) => qc.getQueryData<DetailPayload[] | null>(queryKeys.guilds());
@@ -45,6 +65,7 @@ export function refreshAfterGap(qc: QueryClient) {
   useTypingStore.getState().reset(); // o fim do "digitando…" pode ter se perdido
   void qc.invalidateQueries({ predicate: (q) => isMessagesKey(q.queryKey) });
   void qc.invalidateQueries({ predicate: (q) => isMembersKey(q.queryKey) });
+  reloadReadStates(); // contagens e menções podem ter mudado enquanto estava fora
 }
 
 /** READY: a lista de servidores do servidor manda; o histórico aberto é refeito (fecha a janela READY↔assinatura). */
@@ -54,10 +75,13 @@ export function applyReady(
     guilds: DetailPayload[];
     private_channels?: ChannelPayload[] | null;
     voice_states?: VoiceStatePayload[] | null;
+    read_states?: ReadStatePayload[] | null;
   },
   fx: GatewayEffects,
 ) {
   setGuilds(qc, ready.guilds);
+  // Snapshot completo: canal ausente = zero não lidas.
+  useReadStateStore.getState().replaceAll(ready.read_states ?? []);
   setDMs(qc, ready.private_channels ?? []);
   // Snapshot de voz (sempre completo): zera o mapa e confere se a sala local ainda existe no servidor.
   reconcileVoiceSnapshot(fx.myId(), ready.voice_states ?? []);
@@ -92,7 +116,8 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
       addMessage(qc, ev.d.channel_id, ev.d);
       // Quem enviou parou de digitar (vale para servidor e DM).
       useTypingStore.getState().stop(ev.d.channel_id, ev.d.author.id);
-      onDmMessage(qc, fx, ev.d.channel_id, ev.d.id, ev.d.author.id);
+      onDmMessage(qc, ev.d.channel_id, ev.d.id);
+      onIncomingMessage(qc, fx, ev.d);
       return refetchIfLoading(qc, ev.d.channel_id);
     case "MESSAGE_UPDATE":
       replaceMessage(qc, ev.d.channel_id, ev.d);
@@ -136,6 +161,7 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
       const guildId = ev.d.guild_id;
       if (!guildId) return leaveDm(qc, fx, ev.d);
       removeChannel(qc, guildId, ev.d.id);
+      useReadStateStore.getState().removeChannel(ev.d.id);
       qc.removeQueries({ queryKey: queryKeys.messages(ev.d.id) });
       if (fx.location().channelId === ev.d.id) fx.channelGone(guildId, ev.d.name);
       return;
@@ -170,7 +196,13 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
     case "VOICE_STATE_UPDATE":
       return reconcileVoiceUpdate(fx.myId(), ev.d);
 
-    // READY/RESUMED vão pelos callbacks do cliente; READ_STATE_UPDATE ainda não tem interface (Fase 6).
+    // ---- não lidas e menções (Fase 6) ----
+    case "READ_STATE_UPDATE":
+      // Outra sessão (ou esta) acusou leitura, ou uma menção chegou: o contador de menções vem absoluto.
+      if (useReadStateStore.getState().applyUpdate(ev.d)) reloadReadStates();
+      return;
+
+    // READY/RESUMED vão pelos callbacks do cliente.
     default:
       return;
   }
@@ -185,18 +217,48 @@ function refetchIfLoading(qc: QueryClient, channelId: string) {
   if (qc.isFetching({ queryKey: key }) > 0) void qc.invalidateQueries({ queryKey: key });
 }
 
-/** Mensagem numa DM: a conversa sobe na lista e, se não está aberta nem é minha, fica marcada como não lida. */
-function onDmMessage(
-  qc: QueryClient,
-  fx: GatewayEffects,
-  channelId: string,
-  messageId: string,
-  authorId: string,
-) {
+/** Mensagem numa DM: a conversa sobe na lista. */
+function onDmMessage(qc: QueryClient, channelId: string, messageId: string) {
   if (!findDm(qc, channelId)) return;
   bumpDM(qc, channelId, messageId);
-  if (authorId !== fx.myId() && fx.location().channelId !== channelId)
-    useDmUnreadStore.getState().mark(channelId);
+}
+
+/**
+ * Mensagem de outra pessoa: conta como não lida se o canal não está à vista (o servidor já não conta as
+ * minhas) e, sendo DM ou menção direta, avisa. A contagem de menções chega pelo READ_STATE_UPDATE.
+ */
+function onIncomingMessage(qc: QueryClient, fx: GatewayEffects, m: MessagePayload) {
+  const myId = fx.myId();
+  if (!myId || m.author.id === myId) return;
+  const guild = guildsOf(qc)?.find((g) => g.channels?.some((c) => c.id === m.channel_id));
+  const dm = guild ? undefined : findDm(qc, m.channel_id);
+  if (!guild && !dm) return; // canal desconhecido (o CHANNEL_CREATE ainda não chegou)
+
+  const viewing = fx.viewing(m.channel_id);
+  const reads = useReadStateStore.getState();
+  if (viewing === "caught-up") reads.noteSeen(m.channel_id, guild?.id, m.id);
+  else reads.addUnread(m.channel_id, guild?.id, m.id);
+
+  if (
+    !shouldNotify({
+      authorId: m.author.id,
+      myId,
+      isDm: !!dm,
+      mentionIds: m.mention_ids ?? [],
+      viewing,
+      muted: useNotificationPrefs.getState().muted,
+    })
+  )
+    return;
+  const author = m.author.display_name || m.author.username;
+  const channelName = guild?.channels?.find((c) => c.id === m.channel_id)?.name;
+  fx.notify({
+    channelId: m.channel_id,
+    title: guild ? `${author} (#${channelName} · ${guild.name})` : author,
+    body: previewBody(m),
+    url: channelUrl(guild?.id, m.channel_id),
+    mention: !dm,
+  });
 }
 
 /** CHANNEL_DELETE de DM: saí do grupo ou fui removido. */
@@ -204,7 +266,7 @@ function leaveDm(qc: QueryClient, fx: GatewayEffects, ch: ChannelPayload) {
   const known = findDm(qc, ch.id);
   removeDM(qc, ch.id);
   qc.removeQueries({ queryKey: queryKeys.messages(ch.id) });
-  useDmUnreadStore.getState().clear(ch.id);
+  useReadStateStore.getState().removeChannel(ch.id);
   // Quem saiu pelo app já navegou: sem DM no cache, o evento é eco e não repete o aviso.
   if (known && fx.location().channelId === ch.id) fx.dmGone(dmTitle(known, fx.myId() ?? ""));
 }
@@ -219,5 +281,6 @@ function leaveGuild(qc: QueryClient, fx: GatewayEffects, guildId: string) {
   // Quem saiu pelo app já tirou o servidor do cache (e navegou): o evento que chega depois é eco.
   if (!guild) return;
   removeGuild(qc, guildId);
+  useReadStateStore.getState().removeGuild(guildId);
   if (fx.location().guildId === guildId) fx.leftGuild(guild.name);
 }

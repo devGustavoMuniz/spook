@@ -2,7 +2,6 @@ import { Permission } from "@spook/shared";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { useDmUnreadStore } from "@/features/dms/unread-store";
 import { usePresenceStore } from "@/features/presence/store";
 import { dm, guild, ME, member, messages, recipient } from "@/test/fixtures";
 import { connectGateway, serverSends } from "@/test/gateway";
@@ -360,9 +359,10 @@ describe("tempo real nas DMs", () => {
     expect(await within(log).findByText("dm 2100")).toBeInTheDocument();
   });
 
-  it("DM com mensagem nova fora de vista marca o Início e a conversa; abrir limpa", async () => {
+  it("DM com mensagem nova fora de vista marca o Início e a conversa; abrir limpa e acusa leitura", async () => {
     const user = userEvent.setup();
-    const { sock } = await open("/channels/g1/g1-txt");
+    const { sock, state } = await open("/channels/g1/g1-txt");
+    state.messages[GROUP] = [incoming(GROUP, "3100", "60")]; // o servidor já tem a mensagem ao abrir
     serverSends(sock, "MESSAGE_CREATE", 2, incoming(GROUP, "3100", "60"));
     expect(await screen.findByRole("img", { name: "Mensagens diretas novas" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Início" }));
@@ -372,8 +372,10 @@ describe("tempo real nas DMs", () => {
     // a conversa com mensagem nova sobe para o topo
     expect(within(nav).getAllByRole("link")[0]).toBe(item);
     await user.click(item);
-    await waitFor(() => expect(useDmUnreadStore.getState().channels.size).toBe(0));
-    expect(screen.queryByRole("img", { name: "Mensagens diretas novas" })).toBeNull();
+    await waitFor(() => expect(state.acks).toEqual([{ channelId: GROUP, messageId: "3100" }]));
+    await waitFor(() =>
+      expect(screen.queryByRole("img", { name: "Mensagens diretas novas" })).toBeNull(),
+    );
   });
 
   it("CHANNEL_CREATE (alguém abriu uma DM comigo) entra na lista; CHANNEL_UPDATE troca os participantes", async () => {
