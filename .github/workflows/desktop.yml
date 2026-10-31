@@ -1,0 +1,161 @@
+name: Desktop
+
+# Instaladores do app desktop (Tauri 2) para Windows, macOS e Linux. Independente do deploy do backend:
+# o deploy.yml não depende deste workflow. Sem assinatura de código (ver apps/desktop/README.md).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "apps/web/**"
+      - "packages/**"
+      - ".github/workflows/desktop.yml"
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os_name }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    # macOS x64 é cross-compilado no runner arm64: se falhar, não derruba as demais plataformas.
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            os_name: windows
+            arch: x64
+            bundles: nsis
+            target: ""
+          - runner: macos-latest
+            os_name: macos
+            arch: arm64
+            bundles: dmg
+            target: aarch64-apple-darwin
+          - runner: macos-latest
+            os_name: macos
+            arch: x64
+            bundles: dmg
+            target: x86_64-apple-darwin
+            experimental: true
+          - runner: ubuntu-22.04
+            os_name: linux
+            arch: x64
+            bundles: deb,appimage
+            target: ""
+    env:
+      # AppImage sem FUSE (runners e contêineres não têm).
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: ${{ matrix.os_name }}-${{ matrix.arch }}
+      - name: Dependências do sistema (Linux)
+        if: matrix.os_name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev libdbus-1-dev patchelf build-essential curl wget file
+      - run: pnpm install --frozen-lockfile
+      - name: Versão do package.json igual à do Cargo.toml
+        run: |
+          pkg="$(node -p "require('./apps/desktop/package.json').version")"
+          crate="$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml | head -n1)"
+          echo "package.json=$pkg Cargo.toml=$crate"
+          [ "$pkg" = "$crate" ] || { echo "::error::versões diferentes: sincronize package.json e Cargo.toml"; exit 1; }
+      - name: Build do desktop
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+        run: |
+          args=(--bundles "$BUNDLES")
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          pnpm --filter @spook/desktop tauri build "${args[@]}"
+      - name: Renomeia para Spook-<versão>-<so>-<arquitetura>
+        env:
+          TARGET: ${{ matrix.target }}
+          OS_NAME: ${{ matrix.os_name }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          root=apps/desktop/src-tauri/target
+          if [ -n "$TARGET" ]; then bundle="$root/$TARGET/release/bundle"; else bundle="$root/release/bundle"; fi
+          mkdir -p installers
+          shopt -s nullglob
+          for f in "$bundle"/nsis/*.exe "$bundle"/dmg/*.dmg "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage; do
+            ext="${f##*.}"
+            out="installers/Spook-${version}-${OS_NAME}-${ARCH}.${ext}"
+            cp "$f" "$out"
+            echo "$f -> $out"
+          done
+          [ -n "$(ls installers)" ] || { echo "::error::nenhum instalador encontrado em $bundle"; find "$root" -maxdepth 4 -type d -name bundle; exit 1; }
+          # SHA-256 de cada instalador (os binários não são assinados: o usuário pode conferir o hash).
+          node -e '
+            const fs = require("fs"), c = require("crypto");
+            for (const f of fs.readdirSync("installers")) {
+              const h = c.createHash("sha256").update(fs.readFileSync("installers/" + f)).digest("hex");
+              fs.writeFileSync("installers/" + f + ".sha256", h + "  " + f + "\n");
+            }'
+          ls -la installers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spook-desktop-${{ matrix.os_name }}-${{ matrix.arch }}
+          path: installers/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    # Só em tags desktop-v*: cria um release RASCUNHO com os instaladores (a publicação é manual).
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: spook-desktop-*
+          path: installers
+          merge-multiple: true
+      - name: Tag igual à versão do app
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          pkg="$(node -p "require('./apps/desktop/package.json').version")"
+          [ "$TAG" = "desktop-v$pkg" ] || { echo "::error::a tag $TAG não bate com a versão $pkg do package.json"; exit 1; }
+      - name: Cria o release rascunho
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -la installers
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" installers/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" installers/* --draft --verify-tag --repo "$GITHUB_REPOSITORY" \
+              --title "Spook ${TAG#desktop-v}" \
+              --notes "Instaladores do Spook desktop. Sem assinatura de código: o Windows (SmartScreen) e o macOS (Gatekeeper) vão avisar na primeira abertura; veja apps/desktop/README.md. Confira o SHA-256 nos arquivos .sha256."
+          fi

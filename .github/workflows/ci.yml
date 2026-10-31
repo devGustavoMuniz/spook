@@ -47,7 +47,8 @@ jobs:
         run: |
           pnpm --filter @spook/shared generate
           git diff --exit-code -- packages/shared
-      - run: pnpm turbo run lint test build --filter='!@spook/server'
+      # O @spook/desktop (Tauri/Rust) fica de fora: seus instaladores saem do workflow desktop.yml.
+      - run: pnpm turbo run lint test build --filter='!@spook/server' --filter='!@spook/desktop'
 
   integration:
     runs-on: ubuntu-latest
