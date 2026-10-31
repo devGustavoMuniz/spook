@@ -3,6 +3,7 @@
 
 export * from "./api/endpoints/auth/auth";
 export * from "./api/endpoints/channels/channels";
+export * from "./api/endpoints/dms/dms";
 export * from "./api/endpoints/guilds/guilds";
 export * from "./api/endpoints/invites/invites";
 export * from "./api/endpoints/messages/messages";

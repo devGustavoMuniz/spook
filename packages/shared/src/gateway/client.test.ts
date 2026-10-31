@@ -433,3 +433,41 @@ describe("close", () => {
     expect(FakeSocket.instances).toHaveLength(1);
   });
 });
+
+describe("presença (op 12)", () => {
+  it("setPresence manda o op 12 só quando muda e só com a conexão pronta", async () => {
+    const { client, sock } = await connected();
+    client.setPresence("online"); // já é o padrão
+    expect(sock.ops(12)).toHaveLength(0);
+    client.setPresence("idle");
+    client.setPresence("idle");
+    client.setPresence("online");
+    expect(sock.ops(12).map((f) => f.d)).toEqual([{ status: "idle" }, { status: "online" }]);
+  });
+
+  it("antes da conexão não manda nada; o READY reenvia só se não for 'online'", async () => {
+    const { client } = setup();
+    client.setPresence("idle");
+    client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    const sock = FakeSocket.last;
+    sock.hello();
+    expect(sock.ops(12)).toHaveLength(0);
+    sock.dispatch("READY", 1, ready());
+    expect(sock.ops(12)).toEqual([{ op: 12, t: null, s: null, d: { status: "idle" } }]);
+  });
+
+  it("sessão nova (READY) volta a 'online' no servidor: 'online' não precisa de frame", async () => {
+    const { client, sock } = await connected();
+    sock.serverClose(1006);
+    const next = await reconnectedSocket();
+    next.dispatch("RESUMED", null, { session_id: "sess-1", replayed: 0 });
+    // RESUMED sempre reenvia o estado atual (a sessão guardada pode estar diferente do que o app quer)
+    expect(next.ops(12).map((f) => f.d)).toEqual([{ status: "online" }]);
+    client.setPresence("idle");
+    next.serverClose(4009);
+    const third = await reconnectedSocket();
+    third.dispatch("READY", 1, ready("sess-2"));
+    expect(third.ops(12).map((f) => f.d)).toEqual([{ status: "idle" }]);
+  });
+});

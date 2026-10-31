@@ -20,6 +20,13 @@ export const messagePayloadSchema = z.object({
   created_at: z.string(),
 });
 
+export const recipientPayloadSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  display_name: z.string().optional(),
+  avatar_url: z.string().optional(),
+});
+
 export const channelPayloadSchema = z.object({
   id: z.string(),
   type: z.number().int(),
@@ -29,6 +36,9 @@ export const channelPayloadSchema = z.object({
   position: z.number().int(),
   last_message_id: z.string().nullable(),
   created_at: z.string(),
+  // Só em DMs (tipo 3 e 4): o dono do grupo e todos os participantes, inclusive quem consulta.
+  owner_id: z.string().optional(),
+  recipients: z.array(recipientPayloadSchema).nullable().optional(),
 });
 
 export const rolePayloadSchema = z.object({
@@ -75,10 +85,21 @@ export const helloDataSchema = z.object({ heartbeat_interval: z.number().int().p
 export const identifyDataSchema = z.object({ client: z.string().optional() });
 export const resumeDataSchema = z.object({ session_id: z.string(), seq: z.number().int() });
 
+export const presenceStatusSchema = z.enum(["online", "idle", "offline"]);
+export type PresenceStatus = z.infer<typeof presenceStatusSchema>;
+/** Status que o cliente pode sinalizar (op 12); offline é decidido pelo servidor. */
+export const clientPresenceStatusSchema = z.enum(["online", "idle"]);
+export type ClientPresenceStatus = z.infer<typeof clientPresenceStatusSchema>;
+export const setPresenceDataSchema = z.object({ status: clientPresenceStatusSchema });
+
 export const readyDataSchema = z.object({
   session_id: z.string(),
   user: z.object({ id: z.string() }),
   guilds: z.array(guildDetailPayloadSchema),
+  // Fase 4: as DMs do usuário e o snapshot de presença (só online/idle, sem o próprio usuário).
+  // O servidor sempre manda arrays; o `default` tolera um servidor anterior à Fase 4.
+  private_channels: z.array(channelPayloadSchema).nullable().default([]),
+  presences: z.array(z.object({ user_id: z.string(), status: presenceStatusSchema })).default([]),
 });
 
 export const resumedDataSchema = z.object({
@@ -95,14 +116,13 @@ export const messageDeleteDataSchema = z.object({
 });
 export const roleDeleteDataSchema = z.object({ guild_id: z.string(), role_id: z.string() });
 
-// Fases 4 a 6: contrato fixado, ainda sem emissão no servidor.
+// Fases 4 a 6.
 export const typingStartDataSchema = z.object({
   channel_id: z.string(),
   guild_id: z.string().nullable(),
   user_id: z.string(),
   timestamp: z.number().int(),
 });
-export const presenceStatusSchema = z.enum(["online", "idle", "offline"]);
 export const presenceUpdateDataSchema = z.object({
   user_id: z.string(),
   status: presenceStatusSchema,
@@ -170,6 +190,8 @@ export const Op = {
   InvalidSession: 9,
   Hello: 10,
   Ack: 11,
+  /** Cliente -> servidor: `{status: "online" | "idle"}` da sessão (Fase 4). */
+  PresenceUpdate: 12,
 } as const;
 
 const seq = z.number().int().nullable();
@@ -192,6 +214,7 @@ export const invalidSessionFrameSchema = control(Op.InvalidSession, z.boolean())
 export const heartbeatFrameSchema = control(Op.Heartbeat, z.number().int().nullable());
 export const identifyFrameSchema = control(Op.Identify, identifyDataSchema);
 export const resumeFrameSchema = control(Op.Resume, resumeDataSchema);
+export const setPresenceFrameSchema = control(Op.PresenceUpdate, setPresenceDataSchema);
 
 /** Frame de dispatch de um evento específico (`t` fixo, `d` tipado). */
 export const dispatchFrameSchema = <K extends GatewayEventName>(t: K) =>

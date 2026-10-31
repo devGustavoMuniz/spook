@@ -14,6 +14,7 @@ import {
   identifyFrameSchema,
   invalidSessionFrameSchema,
   resumeFrameSchema,
+  setPresenceFrameSchema,
 } from "./schemas";
 
 describe("fixtures do gateway", () => {
@@ -33,12 +34,39 @@ describe("fixtures do gateway", () => {
     const ready = dispatchFrameSchema("READY").parse(fixtures.ready);
     expect(ready.s).toBe(1);
     expect(ready.d.guilds[0]?.channels).toHaveLength(3);
+    // Fase 4: DMs e presenças vêm no READY (arrays, nunca null)
+    expect(Array.isArray(fixtures.ready.d.private_channels)).toBe(true);
+    expect(Array.isArray(fixtures.ready.d.presences)).toBe(true);
+    const dm = ready.d.private_channels?.[0];
+    expect(dm).toMatchObject({ type: 4, guild_id: null, owner_id: "11" });
+    expect(dm?.recipients).toHaveLength(3);
+    expect(ready.d.presences).toEqual([
+      { user_id: "12", status: "online" },
+      { user_id: "13", status: "idle" },
+    ]);
     const resumed = dispatchFrameSchema("RESUMED").parse(fixtures.resumed);
     expect(resumed.s).toBeNull(); // RESUMED não consome sequência
     expect(resumed.d.replayed).toBe(3);
   });
 
   const names = Object.keys(fixtures.dispatch) as GatewayEventName[];
+
+  it("op 12 (cliente -> servidor) e CHANNEL_CREATE de DM em grupo", () => {
+    expect(setPresenceFrameSchema.parse(fixtures.set_presence).d).toEqual({ status: "idle" });
+    const dm = dispatchFrameSchema("CHANNEL_CREATE").parse(fixtures.dm_channel_create);
+    expect(dm.d.recipients?.map((r) => r.username)).toEqual(["gustavo", "maria", "joao"]);
+    expect(
+      setPresenceFrameSchema.safeParse({ ...fixtures.set_presence, d: { status: "offline" } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("READY sem os campos da Fase 4 (servidor antigo) vira arrays vazios", () => {
+    const { private_channels: _a, presences: _b, ...old } = fixtures.ready.d;
+    const parsed = eventSchemas.READY.parse(old);
+    expect(parsed.private_channels).toEqual([]);
+    expect(parsed.presences).toEqual([]);
+  });
 
   it("o fixture cobre todos os eventos do schema (e só eles)", () => {
     const all = Object.keys(eventSchemas).filter((n) => n !== "READY" && n !== "RESUMED");

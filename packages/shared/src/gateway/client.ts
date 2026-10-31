@@ -6,6 +6,7 @@
 // mesma conexão e avisa `onInvalidated` (o app deve refazer os GETs, pois eventos podem ter se perdido).
 import { isApiError } from "../http";
 import {
+  type ClientPresenceStatus,
   CloseCode,
   eventSchemas,
   frameSchema,
@@ -85,6 +86,8 @@ export class GatewayClient {
   #sessionId: string | null = null;
   #seq: number | null = null;
   #hadReady = false;
+  /** Estado que o app quer sinalizar; reenviado ao reconectar (a sessão nova começa "online"). */
+  #presence: ClientPresenceStatus = "online";
   #attempt = 0;
   #reconnectTimer: Timer | null = null;
   #connectTimer: Timer | null = null;
@@ -140,6 +143,20 @@ export class GatewayClient {
     this.#sessionId = null;
     this.#seq = null;
     this.#setStatus("closed");
+  }
+
+  /**
+   * Sinaliza `online` ou `idle` para a sessão (op 12). Guardado mesmo sem conexão: ao reconectar o
+   * estado atual é reenviado (READY: só se diferir do padrão "online"; RESUMED: sempre).
+   */
+  setPresence(status: ClientPresenceStatus): void {
+    if (this.#presence === status) return;
+    this.#presence = status;
+    if (this.#status === "connected") this.#send(Op.PresenceUpdate, { status });
+  }
+
+  get presence(): ClientPresenceStatus {
+    return this.#presence;
   }
 
   /**
@@ -361,6 +378,7 @@ export class GatewayClient {
       this.#attempt = 0;
       this.#setStatus("connected");
       this.#emit({ t: "READY", d: ready }, () => this.#o.onReady?.(ready, { reconnect }));
+      if (this.#presence !== "online") this.#send(Op.PresenceUpdate, { status: this.#presence });
       if (reconnect) this.#invalidate();
       return;
     }
@@ -370,6 +388,7 @@ export class GatewayClient {
       this.#attempt = 0;
       this.#setStatus("connected");
       this.#emit({ t: "RESUMED", d: resumed }, () => this.#o.onResumed?.(resumed));
+      this.#send(Op.PresenceUpdate, { status: this.#presence });
       return;
     }
 
