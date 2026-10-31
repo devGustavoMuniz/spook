@@ -31,17 +31,22 @@ type ObjectInfo struct {
 }
 
 type Config struct {
-	Endpoint        string
-	Region          string
-	Bucket          string
-	AccessKeyID     string
-	SecretAccessKey string
+	// Endpoint é o endereço PÚBLICO: só serve para assinar as URLs entregues ao navegador (a assinatura inclui o host).
+	Endpoint string
+	// InternalEndpoint é por onde o SERVIDOR fala com o storage (HEAD, GET, PUT, DELETE). Em produção é a rede interna
+	// (http://garage:3900): passar pela internet/Cloudflare só para falar com o próprio storage é lento e, na prática,
+	// foi bloqueado (403). Vazio = usa Endpoint.
+	InternalEndpoint string
+	Region           string
+	Bucket           string
+	AccessKeyID      string
+	SecretAccessKey  string
 }
 
 type Store struct {
 	bucket  string
-	client  *s3.Client
-	presign *s3.PresignClient
+	client  *s3.Client        // operações do servidor (endpoint interno)
+	presign *s3.PresignClient // assinatura de URLs para o navegador (endpoint público)
 }
 
 func New(ctx context.Context, cfg Config) (*Store, error) {
@@ -52,11 +57,17 @@ func New(ctx context.Context, cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("carregar config S3: %w", err)
 	}
-	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(cfg.Endpoint)
-		o.UsePathStyle = true // servidores self-hosted não têm DNS por bucket
-	})
-	return &Store{bucket: cfg.Bucket, client: client, presign: s3.NewPresignClient(client)}, nil
+	newClient := func(endpoint string) *s3.Client {
+		return s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true // servidores self-hosted não têm DNS por bucket
+		})
+	}
+	internal := cfg.InternalEndpoint
+	if internal == "" {
+		internal = cfg.Endpoint
+	}
+	return &Store{bucket: cfg.Bucket, client: newClient(internal), presign: s3.NewPresignClient(newClient(cfg.Endpoint))}, nil
 }
 
 // PresignPut gera a URL para o cliente enviar o objeto direto ao storage.

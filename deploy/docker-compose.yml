@@ -87,6 +87,7 @@ services:
       SPOOK_OTLP_ENDPOINT: otel-collector:4317
       # Endpoint público do S3: as URLs pré-assinadas são usadas pelo navegador, não pelo container.
       S3_ENDPOINT: ${S3_ENDPOINT:-http://localhost:3900}
+      S3_INTERNAL_ENDPOINT: http://garage:3900 # o container do servidor não alcança "localhost:3900" do host
       S3_REGION: ${S3_REGION:-garage}
       S3_BUCKET: ${S3_BUCKET:-spook}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}

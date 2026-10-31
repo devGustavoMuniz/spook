@@ -5,6 +5,7 @@
 //
 // Uso: node scripts/smoke-prod.mjs [BASE_URL=https://spook.dottadigital.com]
 import { createHash } from "node:crypto";
+import { deflateSync } from "node:zlib";
 
 const base = process.argv[2] ?? "https://spook.dottadigital.com";
 const origin = new URL(base).origin;
@@ -20,6 +21,48 @@ const png = Buffer.from(
   "base64",
 );
 const sha = (b) => createHash("sha256").update(b).digest("hex").slice(0, 16);
+
+// PNG RGB w x h com gradiente (o suficiente para o thumbnail ser menor que o original)
+function makePng(w, h) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, sum]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // 8 bits
+  ihdr[9] = 2; // RGB
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * (w * 3 + 1);
+    for (let x = 0; x < w; x++) {
+      raw[row + 1 + x * 3] = (x * 255) / w;
+      raw[row + 2 + x * 3] = (y * 255) / h;
+      raw[row + 3 + x * 3] = 128;
+    }
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 let cookie = "";
 let failures = 0;
@@ -148,6 +191,94 @@ if (avatarUrl) {
     "Content-Type image/png",
     get.headers.get("content-type") ?? "",
   );
+}
+
+// ---- Mensagem com anexo e thumbnail (regressão: o backend falava com o storage pelo endpoint público e levava 403) ----
+r = await api("POST", "/api/guilds", { name: `smoke ${stamp}` });
+const guild = r.json;
+const textChannel = guild?.channels?.find((c) => c.type === 0);
+step(
+  r.res.status === 201 && !!textChannel,
+  "servidor de teste com canal de texto",
+  `HTTP ${r.res.status}`,
+);
+
+if (textChannel) {
+  const img = makePng(800, 600);
+  r = await api("POST", `/api/channels/${textChannel.id}/uploads`, {
+    filename: "smoke.png",
+    content_type: "image/png",
+    size: img.length,
+  });
+  step(
+    r.res.status === 201 && r.json?.upload_url,
+    "URL de upload do anexo",
+    `HTTP ${r.res.status}`,
+  );
+  const up = r.json;
+  if (up?.upload_url) {
+    const putA = await fetch(up.upload_url, {
+      method: "PUT",
+      headers: { ...up.headers, origin },
+      body: img,
+    });
+    step(putA.status === 200, "PUT do anexo direto em spook-files", `HTTP ${putA.status}`);
+
+    r = await api("POST", `/api/channels/${textChannel.id}/messages`, {
+      content: "",
+      attachment_ids: [up.id],
+    });
+    step(
+      r.res.status === 201,
+      "mensagem com anexo (backend confere o objeto no storage)",
+      `HTTP ${r.res.status} ${r.res.status === 201 ? "" : r.text.slice(0, 200)}`,
+    );
+    const att = r.json?.attachments?.[0];
+    step(
+      !!att?.url,
+      "anexo presente na mensagem",
+      att ? `${att.content_type}, ${att.size} bytes` : "",
+    );
+    if (att?.url) {
+      const dl = Buffer.from(await (await fetch(att.url)).arrayBuffer());
+      step(dl.equals(img), "download do anexo idêntico ao enviado", `${dl.length} bytes`);
+    }
+
+    // o thumbnail é gerado por um job (River) e chega como MESSAGE_UPDATE; sem WebSocket aqui, consulta o histórico
+    let thumbAtt;
+    const deadline = Date.now() + 45_000;
+    while (Date.now() < deadline) {
+      const h = await api("GET", `/api/channels/${textChannel.id}/messages?limit=5`);
+      thumbAtt = h.json?.messages?.[0]?.attachments?.[0];
+      if (thumbAtt?.thumbnail_url) break;
+      await new Promise((res) => setTimeout(res, 1500));
+    }
+    step(
+      !!thumbAtt?.thumbnail_url,
+      "thumbnail gerado pelo job",
+      thumbAtt ? `${thumbAtt.width}x${thumbAtt.height}` : "não apareceu em 45 s",
+    );
+    if (thumbAtt?.thumbnail_url) {
+      const tr = await fetch(thumbAtt.thumbnail_url);
+      const tb = Buffer.from(await tr.arrayBuffer());
+      step(
+        tr.status === 200 &&
+          tb.length < img.length &&
+          tr.headers.get("content-type")?.startsWith("image/"),
+        "download do thumbnail (menor que o original)",
+        `${tb.length} < ${img.length} bytes`,
+      );
+      step(
+        thumbAtt.width === 800 && thumbAtt.height === 600,
+        "dimensões do original no payload",
+        `${thumbAtt.width}x${thumbAtt.height}`,
+      );
+    }
+  }
+}
+if (guild?.id) {
+  const del = await api("DELETE", `/api/guilds/${guild.id}`);
+  step(del.res.status === 204, "servidor de teste excluído", `HTTP ${del.res.status}`);
 }
 
 // recusas de validação do backend em produção

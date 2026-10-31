@@ -36,6 +36,9 @@ services:
       SPOOK_OTLP_ENDPOINT: ""
       # Endpoint PÚBLICO do S3: as URLs pré-assinadas são entregues ao navegador.
       S3_ENDPOINT: ${S3_ENDPOINT:-https://spook-files.dottadigital.com}
+      # Operações do SERVIDOR (HEAD/GET/PUT/DELETE de anexos, thumbnails) vão direto ao Garage pela rede interna do
+      # Compose, sem passar pela Cloudflare (que respondia 403 ao HEAD do backend). O endpoint acima só assina URLs.
+      S3_INTERNAL_ENDPOINT: http://garage:3900
       S3_REGION: ${S3_REGION:-garage}
       S3_BUCKET: ${S3_BUCKET:-spook}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}

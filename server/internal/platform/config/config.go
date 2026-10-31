@@ -11,11 +11,12 @@ import (
 )
 
 type S3 struct {
-	Endpoint        string // endpoint público: as URLs pré-assinadas são entregues ao navegador
-	Region          string
-	Bucket          string
-	AccessKeyID     string
-	SecretAccessKey string
+	Endpoint         string // endpoint público: as URLs pré-assinadas são entregues ao navegador
+	InternalEndpoint string // endpoint interno para as operações do servidor (HEAD/GET/PUT/DELETE); vazio = Endpoint
+	Region           string
+	Bucket           string
+	AccessKeyID      string
+	SecretAccessKey  string
 }
 
 func (s S3) Enabled() bool { return s.Endpoint != "" }
@@ -84,11 +85,12 @@ func Load() (Config, error) {
 		WebDir:       os.Getenv("SPOOK_WEB_DIR"),
 		RealIPHeader: os.Getenv("SPOOK_REAL_IP_HEADER"),
 		S3: S3{
-			Endpoint:        os.Getenv("S3_ENDPOINT"),
-			Region:          getenv("S3_REGION", "garage"),
-			Bucket:          getenv("S3_BUCKET", "spook"),
-			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
-			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
+			Endpoint:         os.Getenv("S3_ENDPOINT"),
+			InternalEndpoint: os.Getenv("S3_INTERNAL_ENDPOINT"),
+			Region:           getenv("S3_REGION", "garage"),
+			Bucket:           getenv("S3_BUCKET", "spook"),
+			AccessKeyID:      os.Getenv("S3_ACCESS_KEY_ID"),
+			SecretAccessKey:  os.Getenv("S3_SECRET_ACCESS_KEY"),
 		},
 		VAPID: VAPID{
 			PublicKey:  strings.TrimSpace(os.Getenv("VAPID_PUBLIC_KEY")),

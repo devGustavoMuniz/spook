@@ -126,3 +126,18 @@ func TestLoadVAPIDAllOrNothing(t *testing.T) {
 		t.Fatalf("as três: ligado (%+v)", c.VAPID)
 	}
 }
+
+func TestLoadS3InternalEndpoint(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("S3_ENDPOINT", "https://publico.test")
+	t.Setenv("S3_ACCESS_KEY_ID", "a")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "s")
+	t.Setenv("S3_INTERNAL_ENDPOINT", "http://garage:3900")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.S3.Endpoint != "https://publico.test" || c.S3.InternalEndpoint != "http://garage:3900" {
+		t.Fatalf("S3 = %+v", c.S3)
+	}
+}

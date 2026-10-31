@@ -104,7 +104,7 @@ func run() error {
 	var avatars app.Storage // interface nil = upload desligado
 	if cfg.S3.Enabled() {
 		s, err := storage.New(ctx, storage.Config{
-			Endpoint: cfg.S3.Endpoint, Region: cfg.S3.Region, Bucket: cfg.S3.Bucket,
+			Endpoint: cfg.S3.Endpoint, InternalEndpoint: cfg.S3.InternalEndpoint, Region: cfg.S3.Region, Bucket: cfg.S3.Bucket,
 			AccessKeyID: cfg.S3.AccessKeyID, SecretAccessKey: cfg.S3.SecretAccessKey,
 		})
 		if err != nil {
