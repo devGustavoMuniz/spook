@@ -117,7 +117,7 @@ func TestWebPushSenderRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, a := newBrowserKeys(t)
-	status, err := sender.Send(context.Background(), Subscription{Endpoint: srv.URL + "/push/abc", P256dh: p, Auth: a}, []byte(`{"title":"oi"}`))
+	status, err := sender.Send(context.Background(), Subscription{Endpoint: srv.URL + "/push/abc", P256dh: p, Auth: a}, []byte(`{"title":"marcador-em-texto-claro-spook"}`))
 	if err != nil || status != http.StatusCreated {
 		t.Fatalf("status %d err %v", status, err)
 	}
@@ -132,7 +132,7 @@ func TestWebPushSenderRequest(t *testing.T) {
 	if auth := got.Header.Get("Authorization"); !strings.HasPrefix(strings.ToLower(auth), "vapid ") || !strings.Contains(auth, cfg.PublicKey) {
 		t.Fatalf("Authorization sem VAPID: %q", auth)
 	}
-	if len(body) < 100 || strings.Contains(string(body), "oi") {
+	if len(body) < 100 || strings.Contains(string(body), "marcador-em-texto-claro-spook") {
 		t.Fatalf("corpo deveria ser cifrado e não vazio (%d bytes)", len(body))
 	}
 }

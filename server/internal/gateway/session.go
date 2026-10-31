@@ -22,11 +22,21 @@ type Session struct {
 	conn       *conn
 	detachedAt time.Time
 	dead       bool
+	// holding: sessão nova ainda sem READY. Eventos que chegam do barramento nesse intervalo ficam
+	// retidos em held e são numerados DEPOIS do READY (que precisa ser s=1), sem perder nenhum.
+	holding bool
+	held    []heldEvent
 
 	// stMu protege as assinaturas. Ordem de locks: stMu → hub.mu.
 	stMu   sync.Mutex
 	guilds map[int64]*guildState
 	topics map[string]struct{}
+}
+
+type heldEvent struct {
+	t  string
+	d  json.RawMessage
+	at time.Time
 }
 
 // guildState é o que a sessão sabe de um servidor: se pode ver os canais (VIEW_CHANNEL) e em
@@ -39,8 +49,9 @@ type guildState struct {
 func newSession(id string, userID int64, h *Hub) *Session {
 	return &Session{
 		id: id, userID: userID, hub: h,
-		buf:    newRing(h.cfg.BufferSize, h.cfg.ResumeWindow),
-		guilds: map[int64]*guildState{}, topics: map[string]struct{}{},
+		buf:     newRing(h.cfg.BufferSize, h.cfg.ResumeWindow),
+		holding: true,
+		guilds:  map[int64]*guildState{}, topics: map[string]struct{}{},
 	}
 }
 
@@ -54,8 +65,23 @@ func (s *Session) push(t string, d json.RawMessage, at time.Time) {
 		s.mu.Unlock()
 		return
 	}
+	if s.holding {
+		s.held = append(s.held, heldEvent{t: t, d: d, at: at})
+		s.mu.Unlock()
+		return
+	}
+	s.appendLocked(t, d, at, now)
+	s.afterAppend()
+}
+
+// appendLocked numera o evento e o guarda no buffer. Exige s.mu.
+func (s *Session) appendLocked(t string, d json.RawMessage, at, now time.Time) {
 	s.seq++
 	s.buf.push(event{Seq: s.seq, T: t, D: d, At: at}, now)
+}
+
+// afterAppend avalia consumidor lento e acorda o escritor. Chamado com s.mu travado; destrava-o.
+func (s *Session) afterAppend() {
 	c := s.conn
 	slow := c != nil && !c.replaying.Load() && s.seq-c.sent.Load() > int64(s.hub.cfg.SendQueue)
 	s.mu.Unlock()
@@ -68,6 +94,25 @@ func (s *Session) push(t string, d json.RawMessage, at time.Time) {
 		return
 	}
 	c.wakeUp()
+}
+
+// pushReady numera o READY como s=1 e, em seguida, libera os eventos retidos desde o registro da
+// sessão, na ordem em que chegaram. É atômico em relação ao push.
+func (s *Session) pushReady(ready json.RawMessage, at time.Time) {
+	now := time.Now()
+	s.mu.Lock()
+	if s.dead {
+		s.mu.Unlock()
+		return
+	}
+	s.holding = false
+	held := s.held
+	s.held = nil
+	s.appendLocked(EventReady, ready, at, now)
+	for _, e := range held {
+		s.appendLocked(e.t, e.d, e.at, now)
+	}
+	s.afterAppend()
 }
 
 // pending devolve os eventos com Seq > after para o escritor. ok é false se o buffer não cobre

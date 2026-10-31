@@ -304,14 +304,8 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		return false
 	}
 
-	c.sess = s
-	s.attach(c)
-	c.identified.Store(true)
-	c.armWatchdog(h.cfg.heartbeatTimeout())
-	go c.writeLoop(s)
-	s.push(EventReady, ready, time.Now()) // s=1: sempre o primeiro dispatch
-
-	// Só agora assina: nenhum evento pode ser numerado antes do READY.
+	// Assina ANTES de liberar o READY: eventos publicados a partir daqui ficam retidos na sessão e saem
+	// logo depois do READY (s=1), em vez de se perderem na janela entre o READY e a assinatura.
 	s.subscribeUser()
 	for _, g := range details {
 		ids := make([]int64, len(g.Channels))
@@ -323,6 +317,13 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	for _, d := range dmList {
 		s.dmAdded(d.ID)
 	}
+
+	c.sess = s
+	s.attach(c)
+	c.identified.Store(true)
+	c.armWatchdog(h.cfg.heartbeatTimeout())
+	go c.writeLoop(s)
+	s.pushReady(ready, time.Now()) // s=1: sempre o primeiro dispatch
 	h.met.identifyTime.Record(ctx, time.Since(start).Seconds())
 	return true
 }
