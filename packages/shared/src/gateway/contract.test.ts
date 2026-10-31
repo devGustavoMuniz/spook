@@ -44,6 +44,18 @@ describe("fixtures do gateway", () => {
       { user_id: "12", status: "online" },
       { user_id: "13", status: "idle" },
     ]);
+    // Fase 5: voice_states (array, nunca null)
+    expect(ready.d.voice_states).toEqual([
+      {
+        guild_id: "100",
+        channel_id: "301",
+        user_id: "12",
+        self_mute: false,
+        self_deaf: false,
+        self_video: true,
+        self_screen: false,
+      },
+    ]);
     const resumed = dispatchFrameSchema("RESUMED").parse(fixtures.resumed);
     expect(resumed.s).toBeNull(); // RESUMED não consome sequência
     expect(resumed.d.replayed).toBe(3);
@@ -62,10 +74,11 @@ describe("fixtures do gateway", () => {
   });
 
   it("READY sem os campos da Fase 4 (servidor antigo) vira arrays vazios", () => {
-    const { private_channels: _a, presences: _b, ...old } = fixtures.ready.d;
+    const { private_channels: _a, presences: _b, voice_states: _c, ...old } = fixtures.ready.d;
     const parsed = eventSchemas.READY.parse(old);
     expect(parsed.private_channels).toEqual([]);
     expect(parsed.presences).toEqual([]);
+    expect(parsed.voice_states).toEqual([]);
   });
 
   it("o fixture cobre todos os eventos do schema (e só eles)", () => {

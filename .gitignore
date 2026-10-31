@@ -8,3 +8,6 @@ bin
 coverage
 e2e/test-results
 e2e/report
+
+# Config do LiveKit renderizada pelo deploy.sh (a partir do .tmpl)
+deploy/livekit/livekit.prod.yaml

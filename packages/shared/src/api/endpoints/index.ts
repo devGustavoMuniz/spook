@@ -6,3 +6,4 @@ export * from "./guilds/guilds";
 export * from "./invites/invites";
 export * from "./messages/messages";
 export * from "./users/users";
+export * from "./voice/voice";

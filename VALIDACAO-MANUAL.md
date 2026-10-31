@@ -53,6 +53,17 @@ Cada fase acrescenta os seus passos aqui, em ordem curta. Marque `[x]` conforme 
 
 ## Fase 5 — Voz, vídeo e tela
 
+Backend (o front desta fase ainda não existe; os itens de interface entram quando ele for feito):
+
+- [ ] Depois do deploy, conferir que `LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` chegaram ao container `spook` (sem elas a voz responde 503) e que `deploy/livekit/livekit.prod.yaml` foi renderizado no servidor com `webhook.api_key` igual à `LIVEKIT_API_KEY` do `.env` (`grep -A3 '^webhook' /srv/spook/prod/deploy/livekit/livekit.prod.yaml`).
+- [ ] **Webhook em produção:** com uma chamada em andamento, os logs do `livekit` devem mostrar `sent webhook ... "status": "200 OK"` para `http://spook:8090/api/livekit/webhook` (`docker compose ... logs livekit | grep webhook`). Qualquer `401` indica `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` diferentes entre o `spook` e o `livekit`; `connection refused`, o `spook` fora do ar. Os logs do `spook` não devem ter `voice: webhook falhou`.
+- [ ] **Mídia direto pelo IP público:** de uma rede de fora do VPS, `nc -vz 187.127.26.46 7891` (TCP) e um teste de UDP em `187.127.26.46:7892` (a confirmação definitiva é uma chamada real conectar por UDP; no VPS `ss -ulnp | grep 7892`). Se o navegador conectar a sinalização (`wss://spook-rtc.dottadigital.com`) mas ficar sem áudio, o problema é 7891/tcp ou 7892/udp (firewall do VPS/provedor ou `LIVEKIT_NODE_IP`).
+- [ ] **Teste real de voz com duas pessoas** (duas redes diferentes, dois navegadores): ambas entram no mesmo canal de voz, conversam, uma liga a câmera e compartilha a tela (com áudio do sistema onde a plataforma permitir) e a outra vê; mutar/silenciar reflete na outra conta; trocar de canal tira a pessoa do anterior para todo o servidor; DM 1:1 e em grupo também chamam.
+- [ ] Permissões na prática: tirar CONNECT do cargo de alguém que está na chamada e conferir que ela é removida na hora e a lista de participantes atualiza para todos; tirar só VIDEO derruba câmera/tela mas mantém o áudio; tirar só SPEAK mantém a pessoa ouvindo, sem microfone.
+- [ ] Reinício do LiveKit durante uma chamada (`docker compose ... restart livekit`): em até ~60 s os participantes fantasmas somem da lista (reconciliador); reiniciar o `spook` com a chamada ativa: em até ~60 s a lista volta a mostrar quem está na chamada.
+- [ ] Observabilidade: com `SPOOK_OTLP_ENDPOINT` definido (Fase B), conferir `spook.voice.participants`, `spook.voice.tokens.issued/denied`, `spook.voice.webhooks` e `spook.voice.token.duration`.
+- [ ] Fase B: rodar `bench/scenarios/voice-token.js` e `bench/scripts/livekit-load-test.sh` (passos em `bench/README.md`) com conta/canal de **teste**, combinando a carga antes; registrar CPU e banda por participante do LiveKit (teto de 0,5 CPU / 512M no VPS).
+
 ## Fase 6 — Uploads e notificações
 
 ## Fase 7 — Desktop

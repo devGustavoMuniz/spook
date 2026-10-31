@@ -92,6 +92,16 @@ export const clientPresenceStatusSchema = z.enum(["online", "idle"]);
 export type ClientPresenceStatus = z.infer<typeof clientPresenceStatusSchema>;
 export const setPresenceDataSchema = z.object({ status: clientPresenceStatusSchema });
 
+export const voiceStatePayloadSchema = z.object({
+  guild_id: z.string().nullable(),
+  channel_id: z.string().nullable(),
+  user_id: z.string(),
+  self_mute: z.boolean(),
+  self_deaf: z.boolean(),
+  self_video: z.boolean(),
+  self_screen: z.boolean(),
+});
+
 export const readyDataSchema = z.object({
   session_id: z.string(),
   user: z.object({ id: z.string() }),
@@ -100,6 +110,8 @@ export const readyDataSchema = z.object({
   // O servidor sempre manda arrays; o `default` tolera um servidor anterior à Fase 4.
   private_channels: z.array(channelPayloadSchema).nullable().default([]),
   presences: z.array(z.object({ user_id: z.string(), status: presenceStatusSchema })).default([]),
+  // Fase 5: quem está em voz agora (servidores que o usuário vê e as DMs dele); sempre array.
+  voice_states: z.array(voiceStatePayloadSchema).nullable().default([]),
 });
 
 export const resumedDataSchema = z.object({
@@ -127,15 +139,7 @@ export const presenceUpdateDataSchema = z.object({
   user_id: z.string(),
   status: presenceStatusSchema,
 });
-export const voiceStateUpdateDataSchema = z.object({
-  guild_id: z.string().nullable(),
-  channel_id: z.string().nullable(),
-  user_id: z.string(),
-  self_mute: z.boolean(),
-  self_deaf: z.boolean(),
-  self_video: z.boolean(),
-  self_screen: z.boolean(),
-});
+export const voiceStateUpdateDataSchema = voiceStatePayloadSchema;
 export const readStateUpdateDataSchema = z.object({
   channel_id: z.string(),
   last_read_message_id: z.string(),

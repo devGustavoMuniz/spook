@@ -488,6 +488,17 @@
           "user_id": "13",
           "status": "idle"
         }
+      ],
+      "voice_states": [
+        {
+          "guild_id": "100",
+          "channel_id": "301",
+          "user_id": "12",
+          "self_mute": false,
+          "self_deaf": false,
+          "self_video": true,
+          "self_screen": false
+        }
       ]
     }
   },
