@@ -63,3 +63,60 @@ jobs:
       - name: Derruba a infra
         if: always()
         run: docker compose --env-file .env -f deploy/docker-compose.yml down -v
+
+  e2e:
+    # RNF06: fluxo crítico no navegador, contra o build de produção do front servido pelo backend.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: spook
+          POSTGRES_PASSWORD: spook
+          POSTGRES_DB: spook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U spook -d spook"
+          --health-interval 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.10" # mesma versão do job server
+          cache-dependency-path: server/go.sum
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build do front e do backend
+        run: |
+          pnpm --filter @spook/web build
+          cd server && go build -o bin/spook ./cmd/spook
+      - name: Sobe o backend (serve apps/web/dist; S3 desligado)
+        env:
+          SPOOK_ENV: development # cookie sem Secure: o E2E fala HTTP em localhost
+          SPOOK_ADDR: ":8090"
+          SPOOK_DATABASE_URL: postgres://spook:spook@localhost:5432/spook?sslmode=disable
+          SPOOK_WEB_DIR: ${{ github.workspace }}/apps/web/dist
+        run: |
+          server/bin/spook > server.log 2>&1 &
+          curl --retry 30 --retry-delay 1 --retry-connrefused -fsS http://localhost:8090/healthz
+      - name: Instala o Chromium do Playwright
+        run: pnpm --filter @spook/web exec playwright install --with-deps chromium
+      - name: Suíte E2E
+        run: pnpm --filter @spook/web e2e
+      - name: Relatório, traces e log do servidor (só em falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostico
+          path: |
+            apps/web/e2e/report
+            apps/web/e2e/test-results
+            server.log
+          retention-days: 7

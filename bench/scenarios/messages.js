@@ -21,7 +21,9 @@ const BASE_URL = __ENV.BASE_URL;
 const COOKIE = __ENV.COOKIE;
 const CHANNEL_ID = __ENV.CHANNEL_ID;
 if (!BASE_URL || !COOKIE || !CHANNEL_ID) {
-  throw new Error("defina BASE_URL, COOKIE (header Cookie de uma sessão iniciada no navegador) e CHANNEL_ID");
+  throw new Error(
+    "defina BASE_URL, COOKIE (header Cookie de uma sessão iniciada no navegador) e CHANNEL_ID",
+  );
 }
 const PAGE_SIZE = Number(__ENV.PAGE_SIZE || 50);
 const URL = `${BASE_URL}/api/channels/${CHANNEL_ID}/messages`;
@@ -67,17 +69,26 @@ export const options = {
 export function setup() {
   const res = http.get(`${URL}?limit=1`, { headers, redirects: 0, tags: { name: "setup" } });
   if (res.status === 0) {
-    throw new Error(`sem resposta de ${URL}: ${res.error || "alvo inalcançável"} (rede/URL/Host corretos?)`);
+    throw new Error(
+      `sem resposta de ${URL}: ${res.error || "alvo inalcançável"} (rede/URL/Host corretos?)`,
+    );
   }
-  if (res.status === 401) throw new Error("cookie inválido ou expirado: refaça o login no navegador");
+  if (res.status === 401)
+    throw new Error("cookie inválido ou expirado: refaça o login no navegador");
   if (res.status !== 200) {
-    throw new Error(`GET ${URL} deu ${res.status} (CHANNEL_ID de um canal de texto onde você é membro?): ${res.body}`);
+    throw new Error(
+      `GET ${URL} deu ${res.status} (CHANNEL_ID de um canal de texto onde você é membro?): ${res.body}`,
+    );
   }
   return {};
 }
 
 export function history() {
-  const first = http.get(`${URL}?limit=${PAGE_SIZE}`, { headers, redirects: 0, tags: { name: "history" } });
+  const first = http.get(`${URL}?limit=${PAGE_SIZE}`, {
+    headers,
+    redirects: 0,
+    tags: { name: "history" },
+  });
   recordServerTiming(first);
   const ok = check(first, { "histórico 200": (r) => r.status === 200 });
   if (!ok) return;
@@ -85,7 +96,11 @@ export function history() {
   const page = first.json();
   if (page.has_more && page.messages.length > 0) {
     const before = page.messages[page.messages.length - 1].id;
-    const next = http.get(`${URL}?limit=${PAGE_SIZE}&before=${before}`, { headers, redirects: 0, tags: { name: "history" } });
+    const next = http.get(`${URL}?limit=${PAGE_SIZE}&before=${before}`, {
+      headers,
+      redirects: 0,
+      tags: { name: "history" },
+    });
     recordServerTiming(next);
     check(next, { "página anterior 200": (r) => r.status === 200 });
   }
