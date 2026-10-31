@@ -6,6 +6,7 @@ import { useSignOut } from "@/auth/use-sign-out";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useDmUnreadStore } from "@/features/dms/unread-store";
 import { type Guild, initials } from "@/lib/guild";
 import { AddServerDialog } from "./add-server-dialog";
 
@@ -15,6 +16,7 @@ const itemClass =
 export function ServerRail({ guilds }: { guilds: Guild[] }) {
   const [adding, setAdding] = useState(false);
   const { signOut, pending } = useSignOut();
+  const unread = useDmUnreadStore((s) => s.channels.size > 0);
   return (
     <nav
       aria-label="Servidores"
@@ -22,11 +24,18 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
     >
       <Tooltip>
         <TooltipTrigger asChild>
-          <Link to="/" aria-label="Início" className={itemClass}>
+          <Link to="/channels/@me" aria-label="Início" className={`${itemClass} relative`}>
             <img src={miniLogo} alt="" className="size-8" />
+            {unread ? (
+              <span
+                role="img"
+                aria-label="Mensagens diretas novas"
+                className="absolute right-0 bottom-0 size-3 rounded-full bg-primary ring-2 ring-sidebar"
+              />
+            ) : null}
           </Link>
         </TooltipTrigger>
-        <TooltipContent side="right">Início</TooltipContent>
+        <TooltipContent side="right">Início (mensagens diretas)</TooltipContent>
       </Tooltip>
       <hr className="w-8 border-border" />
       <ul className="flex flex-col items-center gap-2">

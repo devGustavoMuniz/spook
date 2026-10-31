@@ -1,4 +1,5 @@
 import {
+  type ChannelPayload,
   listMessages,
   type MessagePayload,
   Permission,
@@ -18,7 +19,8 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useMemberColors } from "@/features/members/use-members";
+import { recipientName, recipientsOf } from "@/features/dms/dm-utils";
+import { memberName, useGuildMembers, useMemberColors } from "@/features/members/use-members";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild } from "@/lib/guild";
 import {
@@ -58,11 +60,15 @@ function useChannelMessages(channelId: string, enabled: boolean) {
 
 export function ChannelView({
   guild,
+  dm,
   channelId,
   channelName,
   perf,
 }: {
-  guild: Guild;
+  /** Canal de servidor: dá as permissões, as cores dos cargos e os nomes de quem digita. */
+  guild?: Guild;
+  /** DM: sem permissões de servidor (só o autor edita ou exclui); quem digita vem dos participantes. */
+  dm?: ChannelPayload;
   channelId: string;
   channelName: string;
   /** Só em dev (`?perf=N`): troca o histórico por N mensagens falsas locais. */
@@ -71,6 +77,15 @@ export function ChannelView({
   const qc = useQueryClient();
   const { data: me } = useGetMe();
   const colors = useMemberColors(guild);
+  const guildMembers = useGuildMembers(guild?.id ?? "", !!guild);
+  const nameOf = (userId: string) => {
+    if (dm) {
+      const r = recipientsOf(dm).find((x) => x.id === userId);
+      return r ? recipientName(r) : undefined;
+    }
+    const m = guildMembers.data?.members?.find((x) => x.user_id === userId);
+    return m ? memberName(m) : undefined;
+  };
   const perfOn = import.meta.env.DEV && !!perf;
   const query = useChannelMessages(channelId, !perfOn);
   const perfMessages = useMemo(
@@ -111,7 +126,9 @@ export function ChannelView({
   }
 
   if (!me) return null;
-  const canView = can(guild, Permission.VIEW_CHANNEL);
+  // Em DM quem participa vê e escreve; o servidor responde 404 para quem não participa.
+  const canView = guild ? can(guild, Permission.VIEW_CHANNEL) : true;
+  const canSend = guild ? canView && can(guild, Permission.SEND_MESSAGES) : true;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -130,13 +147,14 @@ export function ChannelView({
         <MessageList
           key={channelId}
           channelName={channelName}
+          isDm={!!dm}
           messages={messages}
           hasMore={perfOn ? false : !!query.hasNextPage}
           loadingMore={query.isFetchingNextPage}
           onLoadMore={() => void query.fetchNextPage({ cancelRefetch: false })}
           colors={colors}
           myId={me.id}
-          canManageMessages={can(guild, Permission.MANAGE_MESSAGES)}
+          canManageMessages={guild ? can(guild, Permission.MANAGE_MESSAGES) : false}
           editingId={editingId}
           onStartEdit={setEditingId}
           onCancelEdit={() => setEditingId(null)}
@@ -147,7 +165,9 @@ export function ChannelView({
       <MessageComposer
         channelId={channelId}
         channelName={channelName}
-        canSend={canView && can(guild, Permission.SEND_MESSAGES) && !perfOn}
+        isDm={!!dm}
+        nameOf={nameOf}
+        canSend={canSend && !perfOn}
       />
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>

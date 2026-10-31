@@ -1,16 +1,26 @@
 import type { DetailPayload, GatewayEvent, MessagePayload } from "@spook/shared";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { dmsOf } from "@/lib/dm-cache";
 import { addMessage, flattenPages, type MessagePages } from "@/lib/message-cache";
 import { queryKeys } from "@/lib/queryKeys";
-import { channel, guild, ME, member, messages, role } from "@/test/fixtures";
-import { applyGatewayEvent, type GatewayEffects, refreshAfterGap } from "./cache-bindings";
+import { channel, dm, guild, ME, member, messages, recipient, role } from "@/test/fixtures";
+import { useDmUnreadStore } from "../dms/unread-store";
+import { usePresenceStore } from "../presence/store";
+import { useTypingStore } from "../typing/store";
+import {
+  applyGatewayEvent,
+  applyReady,
+  type GatewayEffects,
+  refreshAfterGap,
+} from "./cache-bindings";
 
 const CH = "g1-txt";
 let qc: QueryClient;
 let fx: GatewayEffects & {
   leftGuild: ReturnType<typeof vi.fn>;
   channelGone: ReturnType<typeof vi.fn>;
+  dmGone: ReturnType<typeof vi.fn>;
 };
 let where: { guildId?: string; channelId?: string };
 
@@ -32,6 +42,9 @@ function msg(id: string, content = `msg ${id}`, author = "50"): MessagePayload {
 }
 
 beforeEach(() => {
+  usePresenceStore.getState().reset();
+  useTypingStore.getState().reset();
+  useDmUnreadStore.getState().reset();
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   where = { guildId: "g1", channelId: CH };
   fx = {
@@ -39,6 +52,7 @@ beforeEach(() => {
     location: () => where,
     leftGuild: vi.fn(),
     channelGone: vi.fn(),
+    dmGone: vi.fn(),
   };
   qc.setQueryData(queryKeys.guilds(), [
     guild("g1", "Alfa", {
@@ -230,5 +244,140 @@ describe("lacuna de eventos", () => {
     expect(invalidated(queryKeys.guilds())).toBe(true);
     expect(invalidated(queryKeys.messages(CH))).toBe(true);
     expect(invalidated(queryKeys.members("g1"))).toBe(true);
+  });
+});
+
+// ---- Fase 4: DMs, presença e "digitando…" ----
+
+const DM1 = "1100"; // 1:1 com a bia (50)
+const GRP = "1200"; // grupo meu, com bia e caio
+const bia = recipient("50", "bia");
+const me = recipient(ME, "ana");
+const caio = recipient("60", "caio");
+const dmMsg = (channelId: string, id: string, author = "50"): MessagePayload => ({
+  ...msg(id, `dm ${id}`, author),
+  channel_id: channelId,
+});
+const typing = (ch: string) => useTypingStore.getState().byChannel[ch] ?? [];
+const dmIds = () => dmsOf(qc).map((c) => c.id);
+
+describe("DMs", () => {
+  beforeEach(() => {
+    applyReady(
+      qc,
+      {
+        guilds: guildsData(),
+        private_channels: [
+          dm(DM1, [me, bia]),
+          dm(GRP, [me, bia, caio], { type: 4, owner_id: ME, name: "Estudo" }),
+        ],
+      },
+      fx,
+    );
+  });
+
+  it("o READY semeia a lista de DMs com os participantes", () => {
+    expect(dmIds().sort()).toEqual([DM1, GRP]);
+    expect(dmsOf(qc).find((c) => c.id === GRP)?.recipients).toHaveLength(3);
+    // um READY seguinte substitui (sessão nova)
+    applyReady(qc, { guilds: guildsData(), private_channels: [dm("1900", [me, caio])] }, fx);
+    expect(dmIds()).toEqual(["1900"]);
+  });
+
+  it("CHANNEL_CREATE de DM entra na lista (e não vira canal de servidor)", () => {
+    send({ t: "CHANNEL_CREATE", d: dm("1300", [me, caio]) });
+    expect(dmIds()).toContain("1300");
+    expect(g1().channels?.some((c) => c.id === "1300")).toBe(false);
+  });
+
+  it("CHANNEL_UPDATE troca participantes e nome", () => {
+    send({
+      t: "CHANNEL_UPDATE",
+      d: dm(GRP, [me, bia], { type: 4, owner_id: ME, name: "Novo nome" }),
+    });
+    const grp = dmsOf(qc).find((c) => c.id === GRP);
+    expect(grp?.name).toBe("Novo nome");
+    expect(grp?.recipients?.map((r) => r.id)).toEqual([ME, "50"]);
+  });
+
+  it("CHANNEL_DELETE de DM remove da lista, apaga o histórico e avisa se estava aberta", () => {
+    qc.setQueryData<MessagePages>(queryKeys.messages(GRP), { pageParams: [undefined], pages: [] });
+    where = { channelId: GRP };
+    send({ t: "CHANNEL_DELETE", d: dm(GRP, [me, bia], { type: 4, name: "Estudo" }) });
+    expect(dmIds()).toEqual([DM1]);
+    expect(qc.getQueryData(queryKeys.messages(GRP))).toBeUndefined();
+    expect(fx.dmGone).toHaveBeenCalledWith("Estudo");
+  });
+
+  it("CHANNEL_DELETE de DM que não está aberta não leva a lugar nenhum; eco de quem saiu é silencioso", () => {
+    where = { guildId: "g1", channelId: CH };
+    send({ t: "CHANNEL_DELETE", d: dm(GRP, [me, bia]) });
+    expect(fx.dmGone).not.toHaveBeenCalled();
+    where = { channelId: GRP };
+    send({ t: "CHANNEL_DELETE", d: dm(GRP, [me, bia]) }); // já não está no cache
+    expect(fx.dmGone).not.toHaveBeenCalled();
+  });
+
+  it("MESSAGE_CREATE em DM sobe a conversa na lista e marca como não lida", () => {
+    where = { guildId: "g1", channelId: CH };
+    send({ t: "MESSAGE_CREATE", d: dmMsg(GRP, "9000", "60") });
+    expect(dmIds()[0]).toBe(GRP);
+    expect(useDmUnreadStore.getState().channels.has(GRP)).toBe(true);
+    expect(useDmUnreadStore.getState().channels.has(DM1)).toBe(false);
+  });
+
+  it("não marca como não lida a DM aberta nem a minha própria mensagem", () => {
+    where = { channelId: DM1 };
+    send({ t: "MESSAGE_CREATE", d: dmMsg(DM1, "9000", "50") });
+    send({ t: "MESSAGE_CREATE", d: dmMsg(GRP, "9001", ME) });
+    expect(useDmUnreadStore.getState().channels.size).toBe(0);
+  });
+
+  it("mensagem de canal de servidor não mexe nas DMs nem nas não lidas", () => {
+    send({ t: "MESSAGE_CREATE", d: msg("2000") });
+    expect(useDmUnreadStore.getState().channels.size).toBe(0);
+  });
+
+  it("refreshAfterGap também invalida a lista de DMs", () => {
+    refreshAfterGap(qc);
+    expect(invalidated(queryKeys.dms())).toBe(true);
+  });
+});
+
+describe("presença", () => {
+  it("READY semeia os status; PRESENCE_UPDATE atualiza e offline remove", () => {
+    applyReady(qc, { guilds: [] }, fx);
+    usePresenceStore.getState().replaceAll([{ user_id: "50", status: "online" }]);
+    send({ t: "PRESENCE_UPDATE", d: { user_id: "50", status: "idle" } });
+    expect(usePresenceStore.getState().statuses).toEqual({ "50": "idle" });
+    send({ t: "PRESENCE_UPDATE", d: { user_id: "50", status: "offline" } });
+    expect(usePresenceStore.getState().statuses).toEqual({});
+  });
+});
+
+describe('"digitando…"', () => {
+  const start = (user: string, channel = CH) =>
+    send({
+      t: "TYPING_START",
+      d: { channel_id: channel, guild_id: "g1", user_id: user, timestamp: 1 },
+    });
+
+  it("TYPING_START de outra pessoa entra; o meu próprio evento é ignorado", () => {
+    start("50");
+    start(ME);
+    expect(typing(CH)).toEqual(["50"]);
+  });
+
+  it("MESSAGE_CREATE do mesmo autor encerra o 'digitando…' dele (e só dele)", () => {
+    start("50");
+    start("60");
+    send({ t: "MESSAGE_CREATE", d: msg("2000", "pronto", "50") });
+    expect(typing(CH)).toEqual(["60"]);
+  });
+
+  it("refreshAfterGap zera os indicadores (o fim pode ter se perdido)", () => {
+    start("50");
+    refreshAfterGap(qc);
+    expect(typing(CH)).toEqual([]);
   });
 });

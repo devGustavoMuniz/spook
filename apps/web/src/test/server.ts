@@ -1,4 +1,4 @@
-import type { DetailPayload, MemberPayload, MessagePayload } from "@spook/shared";
+import type { ChannelPayload, DetailPayload, MemberPayload, MessagePayload } from "@spook/shared";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { guild as makeGuild, member, role } from "./fixtures";
@@ -31,6 +31,12 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     logouts: 0,
     // Servidores (fonte de verdade da lista), membros e mensagens por canal (ordem crescente).
     guilds: [] as DetailPayload[],
+    /** Canais para os quais o usuário avisou "digitando…" (`POST /channels/{id}/typing`). */
+    typing: [] as string[],
+    /** DMs do usuário (fonte de verdade de `GET /users/@me/channels`). */
+    dms: [] as ChannelPayload[],
+    /** Resposta forçada de `POST /users/@me/channels` (simula 403/409/422/429). */
+    openDmError: null as null | { status: number; detail: string; retryAfter?: number },
     members: {} as Record<string, MemberPayload[]>,
     messages: {} as Record<string, MessagePayload[]>,
     /** Convites: código → resposta do preview; `gone` simula 410, ausente simula 404. */
@@ -81,8 +87,104 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       return HttpResponse.json(state.user);
     }),
     ...guildHandlers(),
+    ...dmHandlers(),
   ];
   return { state, handlers };
+
+  function dmHandlers() {
+    const fail = (e: NonNullable<typeof state.openDmError>) =>
+      HttpResponse.json(
+        { title: String(e.status), status: e.status, detail: e.detail, errors: [] },
+        {
+          status: e.status,
+          headers: e.retryAfter ? { "Retry-After": String(e.retryAfter) } : undefined,
+        },
+      );
+    const find = (id: unknown) => state.dms.find((c) => c.id === id);
+    return [
+      http.get("*/api/users/@me/channels", ({ request }) => {
+        track(request);
+        return HttpResponse.json(state.dms);
+      }),
+      http.post("*/api/users/@me/channels", async ({ request }) => {
+        const b = (await request.json()) as { recipient_id?: string; recipient_ids?: string[] };
+        track(request, b);
+        if (state.openDmError) return fail(state.openDmError);
+        const me = { id: state.user.id, username: state.user.username };
+        const lookup = (id: string) => {
+          for (const list of Object.values(state.members)) {
+            const m = list.find((x) => x.user_id === id);
+            if (m) return { id, username: m.username };
+          }
+          return { id, username: `user${id}` };
+        };
+        if (b.recipient_id) {
+          const existing = state.dms.find(
+            (c) => c.type === 3 && c.recipients?.some((r) => r.id === b.recipient_id),
+          );
+          if (existing) return HttpResponse.json(existing, { status: 200 });
+          const ch: ChannelPayload = {
+            id: nextId(),
+            type: 3,
+            guild_id: null,
+            parent_id: null,
+            name: "",
+            position: 0,
+            last_message_id: null,
+            created_at: new Date().toISOString(),
+            recipients: [me, lookup(b.recipient_id)],
+          };
+          state.dms.push(ch);
+          return HttpResponse.json(ch, { status: 201 });
+        }
+        const ch: ChannelPayload = {
+          id: nextId(),
+          type: 4,
+          guild_id: null,
+          parent_id: null,
+          name: "",
+          position: 0,
+          last_message_id: null,
+          created_at: new Date().toISOString(),
+          owner_id: state.user.id,
+          recipients: [me, ...(b.recipient_ids ?? []).map(lookup)],
+        };
+        state.dms.push(ch);
+        return HttpResponse.json(ch, { status: 201 });
+      }),
+      http.patch("*/api/channels/:channelId", async ({ params, request }) => {
+        const b = (await request.json()) as { name?: string };
+        track(request, b);
+        const ch = find(params.channelId);
+        if (!ch) return problem(404, "canal não encontrado");
+        ch.name = b.name ?? ch.name;
+        return HttpResponse.json(ch);
+      }),
+      http.put("*/api/channels/:channelId/recipients/:userId", ({ params, request }) => {
+        track(request);
+        const ch = find(params.channelId);
+        if (!ch) return problem(404, "canal não encontrado");
+        const id = params.userId as string;
+        if (!ch.recipients?.some((r) => r.id === id))
+          ch.recipients = [...(ch.recipients ?? []), { id, username: `user${id}` }];
+        return HttpResponse.json(ch);
+      }),
+      http.delete("*/api/channels/:channelId/recipients/:userId", ({ params, request }) => {
+        track(request);
+        const ch = find(params.channelId);
+        if (!ch) return problem(404, "canal não encontrado");
+        const id = params.userId === "@me" ? state.user.id : (params.userId as string);
+        if (id === ch.owner_id) return problem(409, "o dono não pode sair da conversa");
+        ch.recipients = (ch.recipients ?? []).filter((r) => r.id !== id);
+        if (id === state.user.id) state.dms = state.dms.filter((c) => c.id !== ch.id);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/channels/:channelId/typing", ({ params }) => {
+        state.typing.push(params.channelId as string);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    ];
+  }
 
   function guildHandlers() {
     return [

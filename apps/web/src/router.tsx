@@ -12,6 +12,7 @@ import { PageShell } from "@/components/app-shell";
 import { AuthedLayout } from "@/components/authed-layout";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
+import { DmIndex, DmLayout, DmPage } from "@/pages/dms";
 import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
 import { HomePage } from "@/pages/home";
 import { InvitePage } from "@/pages/invite";
@@ -110,6 +111,19 @@ const channelRoute = createRoute({
   component: ChannelPage,
 });
 
+// DMs: `/channels/@me` (estático) tem prioridade sobre `/channels/$guildId`.
+const dmRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/channels/@me",
+  component: DmLayout,
+});
+const dmIndexRoute = createRoute({ getParentRoute: () => dmRoute, path: "/", component: DmIndex });
+const dmChannelRoute = createRoute({
+  getParentRoute: () => dmRoute,
+  path: "$channelId",
+  component: DmPage,
+});
+
 const inviteRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/invite/$code",
@@ -122,6 +136,7 @@ const routeTree = rootRoute.addChildren([
   authedRoute.addChildren([
     homeRoute,
     pageRoute.addChildren([profileRoute]),
+    dmRoute.addChildren([dmIndexRoute, dmChannelRoute]),
     guildRoute.addChildren([guildIndexRoute, channelRoute]),
     inviteRoute,
   ]),

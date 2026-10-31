@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Avatar } from "@/components/avatar";
+import { StatusAvatar } from "@/components/presence-dot";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { useStartDm } from "@/features/dms/use-start-dm";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import { canKick, canManageRole, type Guild, memberColor, rolesOf } from "@/lib/guild";
@@ -43,6 +44,7 @@ import { memberName, useGuildMembers } from "./use-members";
 
 export function MembersPanel({ guild }: { guild: Guild }) {
   const { data: me } = useGetMe();
+  const { startDm } = useStartDm();
   const members = useGuildMembers(guild.id);
   const [rolesFor, setRolesFor] = useState<MemberPayload | null>(null);
   const [kicking, setKicking] = useState<MemberPayload | null>(null);
@@ -75,7 +77,7 @@ export function MembersPanel({ guild }: { guild: Guild }) {
               key={m.user_id}
               className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
             >
-              <Avatar url={m.avatar_url} name={memberName(m)} size={28} />
+              <StatusAvatar userId={m.user_id} url={m.avatar_url} name={memberName(m)} size={28} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm" style={color ? { color } : undefined}>
                   {memberName(m)}
@@ -91,7 +93,7 @@ export function MembersPanel({ guild }: { guild: Guild }) {
                   </p>
                 ) : null}
               </div>
-              {mayKick || mayRoles ? (
+              {m.user_id !== me?.id ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -104,6 +106,9 @@ export function MembersPanel({ guild }: { guild: Guild }) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => void startDm(m.user_id)}>
+                      Enviar mensagem
+                    </DropdownMenuItem>
                     {mayRoles ? (
                       <DropdownMenuItem onSelect={() => setRolesFor(m)}>
                         Gerenciar cargos

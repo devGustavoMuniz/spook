@@ -1,28 +1,39 @@
-import { isApiError, useSendMessage } from "@spook/shared";
+import { isApiError, startTyping, useSendMessage } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { SendHorizontal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { appMessage } from "@/lib/app-errors";
 import { addMessage } from "@/lib/message-cache";
+import { createTypingThrottle } from "../typing/throttle";
+import { TypingIndicator } from "../typing/typing-indicator";
 import { MAX_MESSAGE_LENGTH, runeCount } from "./limits";
 
 export function MessageComposer({
   channelId,
   channelName,
+  isDm = false,
   canSend,
+  nameOf,
 }: {
   channelId: string;
   channelName: string;
+  /** DM: o campo fala "com <nome>" em vez de "em #canal". */
+  isDm?: boolean;
   canSend: boolean;
+  /** Resolve o nome de quem está digitando (membro do servidor ou participante da DM). */
+  nameOf: (userId: string) => string | undefined;
 }) {
   const qc = useQueryClient();
   const send = useSendMessage();
   const [text, setText] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
+  // "Digitando…" no máximo a cada 3 s por canal (o servidor também limita); recomeça ao trocar de canal.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: um throttle novo por canal
+  const typing = useMemo(() => createTypingThrottle(), [channelId]);
 
   // Contagem regressiva do 429 (Retry-After).
   useEffect(() => {
@@ -42,6 +53,7 @@ export function MessageComposer({
     try {
       const msg = await send.mutateAsync({ channelId, data: { content: text } });
       addMessage(qc, channelId, msg);
+      typing.reset();
       setText("");
     } catch (e) {
       if (isApiError(e) && e.status === 429) setCooldown(Math.max(1, Math.ceil(e.retryAfter ?? 1)));
@@ -70,11 +82,16 @@ export function MessageComposer({
       <div className="flex items-end gap-2">
         <Textarea
           ref={input}
-          aria-label={`Mensagem em #${channelName}`}
-          placeholder={`Conversar em #${channelName}`}
+          aria-label={isDm ? `Mensagem para ${channelName}` : `Mensagem em #${channelName}`}
+          placeholder={isDm ? `Conversar com ${channelName}` : `Conversar em #${channelName}`}
           rows={1}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            // Falha no aviso não atrapalha quem escreve: o indicador dos outros é só um detalhe.
+            if (canSend && typing.shouldSend(e.target.value))
+              void startTyping(channelId).catch(() => {});
+          }}
           onKeyDown={(e) => {
             // Enter envia; Shift+Enter quebra linha. Não envia no meio de uma composição (IME).
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -90,6 +107,7 @@ export function MessageComposer({
           <SendHorizontal />
         </Button>
       </div>
+      <TypingIndicator channelId={channelId} nameOf={nameOf} />
       <div
         id="composer-info"
         className="flex justify-between gap-2 text-xs text-muted-foreground"

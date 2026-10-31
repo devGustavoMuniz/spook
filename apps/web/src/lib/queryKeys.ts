@@ -1,6 +1,7 @@
 import {
   getGetInviteQueryKey,
   getGetMeQueryKey,
+  getListDMsQueryKey,
   getListGuildMembersQueryKey,
   getListGuildsQueryKey,
   getListInvitesQueryKey,
@@ -17,6 +18,8 @@ import {
 export const queryKeys = {
   me: getGetMeQueryKey,
   guilds: getListGuildsQueryKey,
+  /** DMs (1:1 e em grupo) com participantes, por atividade recente. */
+  dms: getListDMsQueryKey,
   /** Prefixo: casa com qualquer página/limite de membros do servidor. */
   members: (guildId: string) => getListGuildMembersQueryKey(guildId),
   invites: getListInvitesQueryKey,

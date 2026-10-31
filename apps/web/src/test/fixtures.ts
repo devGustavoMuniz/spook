@@ -91,3 +91,28 @@ export function messages(
     edited_at: null,
   }));
 }
+
+/** Participante de DM (formato do `ChannelPayload.recipients`). */
+export function recipient(id: string, username: string, display_name?: string) {
+  return { id, username, ...(display_name ? { display_name } : {}) };
+}
+
+/** DM 1:1 (tipo 3, `name` vazio) ou em grupo (tipo 4, com `owner_id`), como a API devolve. */
+export function dm(
+  id: string,
+  recipients: ReturnType<typeof recipient>[],
+  extra: Partial<ChannelPayload> = {},
+): ChannelPayload {
+  return {
+    id,
+    type: 3,
+    guild_id: null,
+    parent_id: null,
+    name: "",
+    position: 0,
+    last_message_id: null,
+    created_at: "2026-10-30T12:00:00Z",
+    recipients,
+    ...extra,
+  };
+}

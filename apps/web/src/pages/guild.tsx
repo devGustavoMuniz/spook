@@ -1,6 +1,7 @@
 import { Link, Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
 import { Hash } from "lucide-react";
 import { useEffect } from "react";
+import { Notice } from "@/components/notice";
 import { ChannelSidebar } from "@/features/channels/channel-sidebar";
 import { useGuild } from "@/features/guilds/use-guild";
 import { MembersPanel } from "@/features/members/members-panel";
@@ -8,15 +9,6 @@ import { ChannelView } from "@/features/messages/channel-view";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_TEXT, CHANNEL_VOICE, channelsOf } from "@/lib/guild";
 import { lastLocation } from "@/lib/last-location";
-
-function Notice({ title, children }: { title: string; children?: React.ReactNode }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-      <h1 className="text-lg font-semibold">{title}</h1>
-      <div className="text-sm text-muted-foreground">{children}</div>
-    </div>
-  );
-}
 
 /** `/channels/$guildId`: barra de canais + conteúdo + membros. */
 export function GuildLayout() {

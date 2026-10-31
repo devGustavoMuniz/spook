@@ -10,6 +10,8 @@ import { buildRows } from "./rows";
 
 export type MessageListProps = {
   channelName: string;
+  /** DM: "início da conversa com X" em vez de "#canal". */
+  isDm?: boolean;
   messages: MessagePayload[];
   hasMore: boolean;
   loadingMore: boolean;
@@ -139,9 +141,15 @@ export function MessageList(props: MessageListProps) {
                 {row.kind === "start" ? (
                   <div className="px-4 py-6 text-sm text-muted-foreground">
                     <p className="text-base font-semibold text-foreground">
-                      Este é o início de #{props.channelName}
+                      {props.isDm
+                        ? `Este é o início da conversa com ${props.channelName}`
+                        : `Este é o início de #${props.channelName}`}
                     </p>
-                    <p>Aqui começa a história do canal.</p>
+                    <p>
+                      {props.isDm
+                        ? "Aqui começa a história da conversa."
+                        : "Aqui começa a história do canal."}
+                    </p>
                   </div>
                 ) : (
                   <MessageRow

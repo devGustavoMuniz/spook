@@ -28,3 +28,32 @@ export function appMessage(err: unknown): string {
         : capitalize(err.detail);
   }
 }
+
+export type DmAction = "open" | "create" | "add" | "remove" | "leave" | "rename";
+
+/** Erros das DMs (SPEC 7.4) em pt-br; o mesmo status quer dizer coisas diferentes por ação. */
+export function dmMessage(err: unknown, action: DmAction): string {
+  if (!isApiError(err)) return appMessage(err);
+  switch (err.status) {
+    case 403:
+      return action === "open" || action === "create" || action === "add"
+        ? "Você só pode conversar com quem compartilha um servidor com você."
+        : "Só o dono da conversa pode fazer isso.";
+    case 404:
+      return "Você não participa mais desta conversa.";
+    case 409:
+      return action === "add"
+        ? "A conversa já tem 10 participantes."
+        : "O dono da conversa não pode sair nem ser removido.";
+    case 422:
+      return action === "rename"
+        ? "O nome da conversa precisa ter de 1 a 100 caracteres."
+        : "Escolha de 1 a 9 pessoas, sem incluir você.";
+    case 429:
+      return err.retryAfter
+        ? `Você está criando conversas rápido demais. Tente de novo em ${err.retryAfter} s.`
+        : "Você está criando conversas rápido demais. Aguarde um instante.";
+    default:
+      return appMessage(err);
+  }
+}

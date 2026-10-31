@@ -3,6 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { toast } from "sonner";
+import { useDmUnreadStore } from "../dms/unread-store";
+import { watchIdle } from "../presence/idle-detector";
+import { usePresenceStore } from "../presence/store";
+import { useTypingStore } from "../typing/store";
 import {
   applyGatewayEvent,
   applyReady,
@@ -42,6 +46,12 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
         );
         void router.navigate({ to: "/channels/$guildId", params: { guildId }, replace: true });
       },
+      dmGone: (title) => {
+        toast.info(
+          title ? `Você não está mais na conversa ${title}.` : "Você não está mais nesta conversa.",
+        );
+        void router.navigate({ to: "/channels/@me", replace: true });
+      },
     };
 
     const client = new GatewayClient({
@@ -52,7 +62,12 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       onReady: (ready) => {
         useGatewayStore.getState().setSession(ready.session_id, ready.user.id);
         // Em reconexão o onInvalidated (logo depois) refaz o resto; aqui entra a lista nova de servidores.
-        applyReady(qc, ready.guilds, fx);
+        applyReady(qc, ready, fx);
+        // O snapshot não traz o próprio usuário: ele se vê pelo estado que o detector sinaliza.
+        const presence = usePresenceStore.getState();
+        presence.replaceAll(ready.presences);
+        presence.set(ready.user.id, client.presence);
+        useTypingStore.getState().reset();
       },
       onResumed: (r) => useGatewayStore.getState().setSession(r.session_id),
       onInvalidated: () => refreshAfterGap(qc),
@@ -67,6 +82,13 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
     });
     client.connect();
 
+    // Ausente após 10 min sem interação (medido aqui; o servidor só guarda o que sinalizamos).
+    const stopIdle = watchIdle((status) => {
+      client.setPresence(status);
+      const me = useGatewayStore.getState().userId;
+      if (me) usePresenceStore.getState().set(me, status);
+    });
+
     const wake = () => {
       if (document.visibilityState === "visible") client.reconnectNow();
     };
@@ -79,8 +101,12 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
       document.removeEventListener("visibilitychange", wake);
+      stopIdle();
       client.close();
       useGatewayStore.getState().reset();
+      usePresenceStore.getState().reset();
+      useTypingStore.getState().reset();
+      useDmUnreadStore.getState().reset();
     };
   }, [qc, router]);
 

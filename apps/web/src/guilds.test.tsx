@@ -231,10 +231,12 @@ describe("membros", () => {
     const panel = await screen.findByRole("complementary", { name: "Membros" });
     await within(panel).findByText("bia");
     expect(within(panel).getByRole("button", { name: "Opções de bia" })).toBeInTheDocument();
-    expect(
-      within(panel).queryByRole("button", { name: "Opções de chefe" }),
-    ).not.toBeInTheDocument();
+    // eu mesmo não tenho menu; os demais têm "Enviar mensagem" (Fase 4), mas "Expulsar" só vale para quem está abaixo
     expect(within(panel).queryByRole("button", { name: "Opções de ana" })).not.toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: "Opções de chefe" }));
+    expect(await screen.findByRole("menuitem", { name: "Enviar mensagem" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Expulsar" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
     await user.click(within(panel).getByRole("button", { name: "Opções de bia" }));
     expect(await screen.findByRole("menuitem", { name: "Expulsar" })).toBeInTheDocument();
   });
