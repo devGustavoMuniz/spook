@@ -131,6 +131,9 @@ func buildFixtures(t *testing.T) map[string]any {
 		{events.RoleDelete, guild.RoleDeletePayload{GuildID: "100", RoleID: "400"}},
 		{EventTypingStart, typing.StartPayload{ChannelID: "300", GuildID: ptr("100"), UserID: "11", Timestamp: at.Unix()}},
 		{EventPresenceUpdate, presence.UpdatePayload{UserID: "11", Status: presence.StatusOnline}},
+		{EventPresenceUpdate, presence.UpdatePayload{UserID: "12", Status: presence.StatusDND, CustomStatus: &presence.CustomStatus{Text: "em foco", Emoji: "🎧", ExpiresAt: &at}}},
+		{EventPresenceSelfUpdate, presence.SelfPayload{StatusPref: presence.PrefInvisible, CustomStatus: &presence.CustomStatus{Text: "em foco", Emoji: "🎧"}}},
+		{EventNotificationSettingsUpdate, notification.SettingPayload{Scope: "channel", TargetID: "300", Muted: true, MutedUntil: &at, Level: ptr("mentions")}},
 		{EventVoiceStateUpdate, VoiceStateUpdate{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "11", SelfMute: true, SelfVideo: true}},
 		{EventReadStateUpdate, ReadStateUpdate{ChannelID: "300", LastReadMessageID: "901", MentionCount: 2}},
 	}
@@ -148,9 +151,11 @@ func buildFixtures(t *testing.T) map[string]any {
 		"resume":          control(t, OpResume, "", Resume{SessionID: "c2Vzc2lvbi1pZA", Seq: 42}),
 		"ready": dispatch(t, 1, EventReady, Ready{
 			SessionID: "c2Vzc2lvbi1pZA", User: ReadyUser{ID: "11"}, Guilds: []guild.DetailPayload{detail},
-			PrivateChannels: []channel.ChannelPayload{dm},
-			Presences:       []presence.UpdatePayload{{UserID: "12", Status: presence.StatusOnline}, {UserID: "13", Status: presence.StatusIdle}},
-			VoiceStates:     []voicepkg.StatePayload{{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "12", SelfVideo: true}},
+			PrivateChannels:      []channel.ChannelPayload{dm},
+			Presences:            []presence.UpdatePayload{{UserID: "12", Status: presence.StatusOnline}, {UserID: "13", Status: presence.StatusIdle}, {UserID: "14", Status: presence.StatusDND, CustomStatus: &presence.CustomStatus{Emoji: "🎧"}}},
+			SelfPresence:         presence.SelfPayload{StatusPref: presence.PrefOnline, CustomStatus: &presence.CustomStatus{Text: "almoçando", Emoji: "🍽️", ExpiresAt: &at}},
+			NotificationSettings: []notification.SettingPayload{{Scope: "guild", TargetID: "100", Muted: true}, {Scope: "channel", TargetID: "300", Level: ptr("none")}},
+			VoiceStates:          []voicepkg.StatePayload{{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "12", SelfVideo: true}},
 			ReadStates: []notification.ReadStatePayload{
 				{ChannelID: "300", GuildID: "100", LastReadMessageID: "890", MentionCount: 2, UnreadCount: 12},
 				{ChannelID: "500", LastReadMessageID: "880", UnreadCount: 100},

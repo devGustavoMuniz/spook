@@ -1,10 +1,16 @@
 import miniLogo from "@spook/brand/assets/mini-logo.svg";
 import { Link } from "@tanstack/react-router";
-import { LogOut, Plus, Settings } from "lucide-react";
+import { BellOff, LogOut, Plus, Settings } from "lucide-react";
 import { useState } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   MentionBadge,
@@ -13,6 +19,8 @@ import {
   useDmTotals,
   useGuildTotals,
 } from "@/features/notifications/badges";
+import { NotificationMenuItems } from "@/features/notifications/notification-menu";
+import { useIsMuted } from "@/features/notifications/settings";
 import { type Guild, initials } from "@/lib/guild";
 import { AddServerDialog } from "./add-server-dialog";
 
@@ -21,8 +29,32 @@ const itemClass =
 
 function GuildButton({ guild: g }: { guild: Guild }) {
   const t = useGuildTotals(g.id);
+  const muted = useIsMuted("guild", g.id);
+  const [menu, setMenu] = useState(false);
   return (
-    <li className="relative">
+    <li
+      className={`relative ${muted ? "opacity-60" : ""}`}
+      data-muted={muted || undefined}
+      onContextMenu={(e) => {
+        e.preventDefault(); // sem componente de menu de contexto: abre o mesmo menu do servidor
+        setMenu(true);
+      }}
+    >
+      <DropdownMenu open={menu} onOpenChange={setMenu}>
+        <DropdownMenuTrigger asChild>
+          <span aria-hidden className="pointer-events-none absolute inset-0" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" className="w-60">
+          <DropdownMenuLabel>{g.name}</DropdownMenuLabel>
+          <NotificationMenuItems
+            scope="guild"
+            targetId={g.id}
+            what="o servidor"
+            isGuildLike
+            withSeparator={false}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
       {t.unread > 0 || t.mentions > 0 ? (
         <span
           aria-hidden
@@ -52,6 +84,12 @@ function GuildButton({ guild: g }: { guild: Guild }) {
           count={t.mentions}
           label={mentionLabel(t.mentions, g.name)}
           className="pointer-events-none absolute -right-1 -bottom-1 ring-2 ring-sidebar"
+        />
+      ) : muted ? (
+        <BellOff
+          role="img"
+          aria-label="Servidor silenciado"
+          className="pointer-events-none absolute -right-1 -bottom-1 size-4 rounded-full bg-sidebar p-0.5"
         />
       ) : null}
     </li>

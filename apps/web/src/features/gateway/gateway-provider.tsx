@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { gatewayConnection } from "@/desktop/connection";
 import { showInAppNotification } from "../notifications/notify";
 import { useReadStateStore } from "../notifications/read-state";
+import { useNotificationSettings } from "../notifications/settings";
 import { cancelReloadReadStates } from "../notifications/sync";
 import { resetAckMemory } from "../notifications/use-auto-ack";
 import { pageActive, useViewportStore, viewingOf } from "../notifications/viewport";
@@ -74,6 +75,8 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
         const presence = usePresenceStore.getState();
         presence.replaceAll(ready.presences);
         presence.set(ready.user.id, client.presence);
+        presence.setMine(ready.user.id, ready.self_presence);
+        useNotificationSettings.getState().replaceAll(ready.notification_settings ?? []);
         useTypingStore.getState().reset();
       },
       onResumed: (r) => useGatewayStore.getState().setSession(r.session_id),
@@ -116,6 +119,7 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       usePresenceStore.getState().reset();
       useTypingStore.getState().reset();
       useReadStateStore.getState().reset();
+      useNotificationSettings.getState().reset();
       cancelReloadReadStates();
       resetAckMemory();
       shutdownVoice();

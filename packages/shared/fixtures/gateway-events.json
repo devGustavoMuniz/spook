@@ -300,19 +300,48 @@
         "pinned": true
       }
     },
+    "NOTIFICATION_SETTINGS_UPDATE": {
+      "op": 0,
+      "t": "NOTIFICATION_SETTINGS_UPDATE",
+      "s": 21,
+      "d": {
+        "scope": "channel",
+        "target_id": "300",
+        "muted": true,
+        "muted_until": "2026-10-31T12:00:00Z",
+        "level": "mentions"
+      }
+    },
+    "PRESENCE_SELF_UPDATE": {
+      "op": 0,
+      "t": "PRESENCE_SELF_UPDATE",
+      "s": 20,
+      "d": {
+        "status_pref": "invisible",
+        "custom_status": {
+          "text": "em foco",
+          "emoji": "🎧"
+        }
+      }
+    },
     "PRESENCE_UPDATE": {
       "op": 0,
       "t": "PRESENCE_UPDATE",
-      "s": 18,
+      "s": 19,
       "d": {
-        "user_id": "11",
-        "status": "online"
+        "user_id": "12",
+        "status": "dnd",
+        "custom_status": {
+          "text": "em foco",
+          "emoji": "🎧",
+          "expires_at": "2026-10-31T12:00:00Z"
+        }
       }
     },
     "READ_STATE_UPDATE": {
       "op": 0,
       "t": "READ_STATE_UPDATE",
-      "s": 20,
+      "s": 23,
       "d": {
         "channel_id": "300",
         "last_read_message_id": "901",
@@ -370,7 +399,7 @@
     "VOICE_STATE_UPDATE": {
       "op": 0,
       "t": "VOICE_STATE_UPDATE",
-      "s": 19,
+      "s": 22,
       "d": {
         "guild_id": "100",
         "channel_id": "301",
@@ -552,6 +581,13 @@
         {
           "user_id": "13",
           "status": "idle"
+        },
+        {
+          "user_id": "14",
+          "status": "dnd",
+          "custom_status": {
+            "emoji": "🎧"
+          }
         }
       ],
       "voice_states": [
@@ -578,6 +614,30 @@
           "last_read_message_id": "880",
           "mention_count": 0,
           "unread_count": 100
+        }
+      ],
+      "self_presence": {
+        "status_pref": "online",
+        "custom_status": {
+          "text": "almoçando",
+          "emoji": "🍽️",
+          "expires_at": "2026-10-31T12:00:00Z"
+        }
+      },
+      "notification_settings": [
+        {
+          "scope": "guild",
+          "target_id": "100",
+          "muted": true,
+          "muted_until": null,
+          "level": null
+        },
+        {
+          "scope": "channel",
+          "target_id": "300",
+          "muted": false,
+          "muted_until": null,
+          "level": "none"
         }
       ]
     }

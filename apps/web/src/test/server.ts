@@ -65,6 +65,10 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     /** Não lidas (Fase 6): resposta do GET e os acks recebidos (`PUT /channels/{id}/ack`). */
     readStates: [] as ReadStatePayload[],
     acks: [] as { channelId: string; messageId: string }[],
+    /** Status e silêncio/nível (adicional): preferência atual, PATCHs recebidos e configurações por alvo. */
+    presence: { status_pref: "online", custom_status: undefined } as Record<string, unknown>,
+    presencePatches: [] as Record<string, unknown>[],
+    notifSettings: [] as Record<string, unknown>[],
     /** Push (Fase 6): chave pública (`null` = 503, desligado) e as inscrições/remoções recebidas. */
     push: {
       publicKey:
@@ -173,6 +177,52 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           mention_count: 0,
         });
       }),
+      http.get("*/api/users/@me/presence", () => HttpResponse.json(state.presence)),
+      http.patch("*/api/users/@me/presence", async ({ request }) => {
+        const b = (await request.json()) as Record<string, unknown>;
+        track(request, b);
+        state.presencePatches.push(b);
+        if (b.status_pref === "away") return problem(422, "preferência de status inválida");
+        if (typeof b.status_pref === "string") state.presence.status_pref = b.status_pref;
+        if (b.clear_custom_status) state.presence.custom_status = undefined;
+        else if (b.custom_status) state.presence.custom_status = b.custom_status;
+        return HttpResponse.json(state.presence);
+      }),
+      http.get("*/api/users/@me/notification-settings", ({ request }) => {
+        track(request);
+        return HttpResponse.json({ settings: state.notifSettings });
+      }),
+      http.put(
+        "*/api/users/@me/notification-settings/:scope/:targetId",
+        async ({ params, request }) => {
+          const b = (await request.json()) as Record<string, unknown>;
+          track(request, b);
+          const row = {
+            scope: params.scope,
+            target_id: params.targetId,
+            muted: !!b.muted,
+            muted_until: b.muted_until ?? null,
+            level: b.level ?? null,
+          };
+          state.notifSettings = [
+            ...state.notifSettings.filter(
+              (r) => !(r.scope === row.scope && r.target_id === row.target_id),
+            ),
+            row,
+          ];
+          return HttpResponse.json(row);
+        },
+      ),
+      http.delete(
+        "*/api/users/@me/notification-settings/:scope/:targetId",
+        ({ params, request }) => {
+          track(request);
+          state.notifSettings = state.notifSettings.filter(
+            (r) => !(r.scope === params.scope && r.target_id === params.targetId),
+          );
+          return new HttpResponse(null, { status: 204 });
+        },
+      ),
       http.get("*/api/push/vapid-public-key", () =>
         state.push.publicKey
           ? HttpResponse.json({ public_key: state.push.publicKey })

@@ -319,9 +319,21 @@ func (s *Service) onMessage(ctx context.Context, ev events.Event) error {
 	if !s.PushEnabled() {
 		return nil
 	}
-	return s.enqueuePush(ctx, messageID, channelID, pushRecipients(targets, func(id int64) bool {
+	recipients := pushRecipients(targets, func(id int64) bool {
 		return s.Presence.Status(id) != presence.StatusOffline
-	}))
+	})
+	if len(recipients) == 0 {
+		return nil
+	}
+	mentionSet := make(map[int64]bool, len(mentioned))
+	for _, id := range mentioned {
+		mentionSet[id] = true
+	}
+	// Não perturbar e silenciar/nível: só o aviso muda; a contagem de menções acima já foi somada.
+	if recipients, err = s.notifiable(ctx, recipients, channelID, guildID, mentionSet); err != nil {
+		return err
+	}
+	return s.enqueuePush(ctx, messageID, channelID, recipients)
 }
 
 func (s *Service) enqueuePush(ctx context.Context, messageID, channelID int64, recipients []int64) error {

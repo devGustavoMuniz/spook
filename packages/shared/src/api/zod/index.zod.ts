@@ -6,6 +6,7 @@ export * from "./guilds/guilds.zod";
 export * from "./invites/invites.zod";
 export * from "./messages/messages.zod";
 export * from "./notifications/notifications.zod";
+export * from "./presence/presence.zod";
 export * from "./uploads/uploads.zod";
 export * from "./users/users.zod";
 export * from "./voice/voice.zod";

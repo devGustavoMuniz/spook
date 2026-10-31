@@ -53,6 +53,10 @@ func (f *fakePresence) Snapshot(context.Context, int64) ([]presence.UpdatePayloa
 	return f.snap, f.err
 }
 
+func (f *fakePresence) Self(context.Context, int64) (presence.SelfPayload, error) {
+	return presence.SelfPayload{StatusPref: presence.PrefOnline}, nil
+}
+
 func (f *fakePresence) ops() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

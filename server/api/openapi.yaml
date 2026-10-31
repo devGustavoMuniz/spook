@@ -246,6 +246,20 @@ components:
           minimum: 1
           type: integer
       type: object
+    CustomStatus:
+      additionalProperties: false
+      properties:
+        emoji:
+          maxLength: 128
+          type: string
+        expires_at:
+          description: Instante em que o status some sozinho; ausente = não expira
+          format: date-time
+          type: string
+        text:
+          maxLength: 128
+          type: string
+      type: object
     DetailPayload:
       additionalProperties: false
       properties:
@@ -565,6 +579,24 @@ components:
         - reply_to
         - pinned
       type: object
+    NotificationSettingBody:
+      additionalProperties: false
+      properties:
+        level:
+          description: Nível; ausente = herda
+          enum:
+            - all
+            - mentions
+            - none
+          type: string
+        muted:
+          description: Silenciar (ausente = não silenciado)
+          type: boolean
+        muted_until:
+          description: Fim do silêncio (futuro); ausente com muted=true = até reativar
+          format: date-time
+          type: string
+      type: object
     OpenInputBody:
       additionalProperties: false
       properties:
@@ -590,6 +622,23 @@ components:
           type: array
       required:
         - messages
+      type: object
+    PresenceUpdateBody:
+      additionalProperties: false
+      properties:
+        clear_custom_status:
+          description: Remove o status personalizado
+          type: boolean
+        custom_status:
+          $ref: "#/components/schemas/CustomStatus"
+          description: Define o status personalizado (texto e/ou emoji; expires_at opcional, futuro e em até 48 h)
+        status_pref:
+          description: online (ausente é automático), dnd (Não perturbar) ou invisible
+          enum:
+            - online
+            - dnd
+            - invisible
+          type: string
       type: object
     PreviewPayload:
       additionalProperties: false
@@ -818,6 +867,20 @@ components:
         - permissions
         - is_everyone
       type: object
+    SelfPayload:
+      additionalProperties: false
+      properties:
+        custom_status:
+          $ref: "#/components/schemas/CustomStatus"
+        status_pref:
+          enum:
+            - online
+            - dnd
+            - invisible
+          type: string
+      required:
+        - status_pref
+      type: object
     SendBody:
       additionalProperties: false
       properties:
@@ -849,6 +912,52 @@ components:
           $ref: "#/components/schemas/View"
       required:
         - user
+      type: object
+    SettingPayload:
+      additionalProperties: false
+      properties:
+        level:
+          description: Nível de notificação; nulo = herda (canal -> servidor -> padrão)
+          enum:
+            - all
+            - mentions
+            - none
+          type:
+            - string
+            - "null"
+        muted:
+          description: Silenciado (vale até muted_until; sem muted_until, até reativar)
+          type: boolean
+        muted_until:
+          description: Fim do silêncio; nulo com muted=true = até reativar
+          format: date-time
+          type:
+            - string
+            - "null"
+        scope:
+          description: guild, ou channel (canal de servidor, DM ou DM em grupo)
+          enum:
+            - guild
+            - channel
+          type: string
+        target_id:
+          type: string
+      required:
+        - scope
+        - target_id
+        - muted
+        - muted_until
+        - level
+      type: object
+    SettingsOutputBody:
+      additionalProperties: false
+      properties:
+        settings:
+          items:
+            $ref: "#/components/schemas/SettingPayload"
+          type: array
+      required:
+        - settings
       type: object
     StatePayload:
       additionalProperties: false
@@ -3821,6 +3930,218 @@ paths:
       summary: "Abre uma DM 1:1 (recipient_id; 201 se criou, 200 se já existia) ou cria uma DM em grupo (recipient_ids; 201). Limite: 10 por minuto"
       tags:
         - dms
+  /api/users/@me/notification-settings:
+    get:
+      description: "Herança do nível: canal (ou DM) -> servidor -> padrão (servidor: mentions; DM: all). Silêncio vale se o canal ou o servidor estiverem silenciados; silêncio vencido (`muted_until` no passado) já não aparece. Contagens de não lidas e menções não mudam com silêncio ou nível: só os avisos (push, toast, som)."
+      operationId: listNotificationSettings
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Silêncios e níveis de notificação do usuário (só o que difere do padrão)
+      tags:
+        - notifications
+  /api/users/@me/notification-settings/{scope}/{target_id}:
+    delete:
+      operationId: deleteNotificationSetting
+      parameters:
+        - in: path
+          name: scope
+          required: true
+          schema:
+            enum:
+              - guild
+              - channel
+            type: string
+        - in: path
+          name: target_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Volta o servidor, canal ou DM ao padrão (idempotente)
+      tags:
+        - notifications
+    put:
+      description: "`muted_until` só vale com `muted=true` e no futuro; `muted=true` sem `muted_until` silencia até reativar. Sem silêncio e sem nível, volta ao padrão. Publica NOTIFICATION_SETTINGS_UPDATE nas sessões do usuário."
+      operationId: putNotificationSetting
+      parameters:
+        - description: guild, ou channel (canal de servidor ou DM)
+          in: path
+          name: scope
+          required: true
+          schema:
+            description: guild, ou channel (canal de servidor ou DM)
+            enum:
+              - guild
+              - channel
+            type: string
+        - description: ID do servidor, canal ou DM
+          in: path
+          name: target_id
+          required: true
+          schema:
+            description: ID do servidor, canal ou DM
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationSettingBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Define silêncio e/ou nível de notificação de um servidor, canal ou DM (substitui a configuração)
+      tags:
+        - notifications
+  /api/users/@me/presence:
+    get:
+      description: Status personalizado vencido já vem ausente (a expiração é avaliada no servidor).
+      operationId: getMyPresence
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Preferência de status e status personalizado do usuário
+      tags:
+        - presence
+    patch:
+      description: Invisível aparece como offline para os outros; Não perturbar aparece como dnd e suprime push e avisos. Publica PRESENCE_UPDATE para quem vê o usuário e PRESENCE_SELF_UPDATE nas sessões dele.
+      operationId: updateMyPresence
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresenceUpdateBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Muda o status (online, não perturbar, invisível) e/ou o status personalizado
+      tags:
+        - presence
   /api/users/@me/read-states:
     get:
       description: "Não lidas = mensagens de outros usuários, não apagadas, com ID maior que `last_read_message_id`. Sem leitura registrada a base é a entrada do membro no servidor (DM: a criação do canal): o histórico anterior nunca conta como não lido. `unread_count` é limitado a 100 por canal (100 = \"100 ou mais\")."

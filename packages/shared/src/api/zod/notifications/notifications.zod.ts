@@ -77,6 +77,81 @@ export const GetVapidPublicKeyResponse = zod.object({
 });
 
 /**
+ * Herança do nível: canal (ou DM) -> servidor -> padrão (servidor: mentions; DM: all). Silêncio vale se o canal ou o servidor estiverem silenciados; silêncio vencido (`muted_until` no passado) já não aparece. Contagens de não lidas e menções não mudam com silêncio ou nível: só os avisos (push, toast, som).
+ * @summary Silêncios e níveis de notificação do usuário (só o que difere do padrão)
+ */
+export const ListNotificationSettingsResponse = zod.object({
+  settings: zod.array(
+    zod.object({
+      level: zod
+        .union([
+          zod.literal("all"),
+          zod.literal("mentions"),
+          zod.literal("none"),
+          zod.literal(null),
+        ])
+        .nullable()
+        .describe("Nível de notificação; nulo = herda (canal -> servidor -> padrão)"),
+      muted: zod
+        .boolean()
+        .describe("Silenciado (vale até muted_until; sem muted_until, até reativar)"),
+      muted_until: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe("Fim do silêncio; nulo com muted=true = até reativar"),
+      scope: zod
+        .enum(["guild", "channel"])
+        .describe("guild, ou channel (canal de servidor, DM ou DM em grupo)"),
+      target_id: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Volta o servidor, canal ou DM ao padrão (idempotente)
+ */
+export const DeleteNotificationSettingParams = zod.object({
+  scope: zod.enum(["guild", "channel"]),
+  target_id: zod.string(),
+});
+
+export const DeleteNotificationSettingResponse = zod.void();
+
+/**
+ * `muted_until` só vale com `muted=true` e no futuro; `muted=true` sem `muted_until` silencia até reativar. Sem silêncio e sem nível, volta ao padrão. Publica NOTIFICATION_SETTINGS_UPDATE nas sessões do usuário.
+ * @summary Define silêncio e/ou nível de notificação de um servidor, canal ou DM (substitui a configuração)
+ */
+export const PutNotificationSettingParams = zod.object({
+  scope: zod.enum(["guild", "channel"]).describe("guild, ou channel (canal de servidor ou DM)"),
+  target_id: zod.string().describe("ID do servidor, canal ou DM"),
+});
+
+export const PutNotificationSettingBody = zod.object({
+  level: zod.enum(["all", "mentions", "none"]).optional().describe("Nível; ausente = herda"),
+  muted: zod.boolean().optional().describe("Silenciar (ausente = não silenciado)"),
+  muted_until: zod.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("Fim do silêncio (futuro); ausente com muted=true = até reativar"),
+});
+
+export const PutNotificationSettingResponse = zod.object({
+  level: zod
+    .union([zod.literal("all"), zod.literal("mentions"), zod.literal("none"), zod.literal(null)])
+    .nullable()
+    .describe("Nível de notificação; nulo = herda (canal -> servidor -> padrão)"),
+  muted: zod.boolean().describe("Silenciado (vale até muted_until; sem muted_until, até reativar)"),
+  muted_until: zod.iso
+    .datetime({ offset: true })
+    .nullable()
+    .describe("Fim do silêncio; nulo com muted=true = até reativar"),
+  scope: zod
+    .enum(["guild", "channel"])
+    .describe("guild, ou channel (canal de servidor, DM ou DM em grupo)"),
+  target_id: zod.string(),
+});
+
+/**
  * Não lidas = mensagens de outros usuários, não apagadas, com ID maior que `last_read_message_id`. Sem leitura registrada a base é a entrada do membro no servidor (DM: a criação do canal): o histórico anterior nunca conta como não lido. `unread_count` é limitado a 100 por canal (100 = "100 ou mais").
  * @summary Não lidas e menções por canal e por servidor
  */

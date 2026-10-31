@@ -24,3 +24,12 @@ WHERE r1.user_id = $1 AND r2.user_id <> $1;
 -- Dos usuários online, quem é membro do servidor.
 -- name: ListOnlineGuildMembers :many
 SELECT user_id FROM guild_members WHERE guild_id = $1 AND user_id = ANY($2::bigint[]);
+
+-- Preferência de status e status personalizado (expiração avaliada pelo service).
+-- name: GetStatusPrefs :one
+SELECT status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at FROM users WHERE id = $1;
+
+-- name: SetStatusPrefs :execrows
+UPDATE users
+SET status_pref = $2, custom_status_text = $3, custom_status_emoji = $4, custom_status_expires_at = $5
+WHERE id = $1;

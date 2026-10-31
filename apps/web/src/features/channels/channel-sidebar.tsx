@@ -1,7 +1,8 @@
-import { type ChannelPayload, Permission, useGetMe, useReorderChannels } from "@spook/shared";
+import { type ChannelPayload, Permission, useReorderChannels } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
+  BellOff,
   ChevronDown,
   ChevronUp,
   Hash,
@@ -13,7 +14,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,14 +24,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { GuildMenu } from "@/features/guilds/guild-menu";
 import { MentionBadge, mentionLabel, UnreadDot } from "@/features/notifications/badges";
+import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { useReadStateStore } from "@/features/notifications/read-state";
+import { effective, useNotificationSettings } from "@/features/notifications/settings";
+import { UserPanel } from "@/features/presence/user-panel";
 import { joinVoice } from "@/features/voice/controller";
 import { voicePermissions } from "@/features/voice/permissions";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "@/features/voice/store";
 import { usePersonLookup } from "@/features/voice/use-person-lookup";
 import { VoiceParticipants } from "@/features/voice/voice-participants";
 import { appMessage } from "@/lib/app-errors";
-import { CHANNEL_VOICE, can, type Guild, groupChannels, moveChannel } from "@/lib/guild";
+import {
+  CHANNEL_TEXT,
+  CHANNEL_VOICE,
+  can,
+  type Guild,
+  groupChannels,
+  moveChannel,
+} from "@/lib/guild";
 import { refreshGuilds } from "@/lib/guild-cache";
 import { CreateChannelDialog, DeleteChannelDialog, RenameChannelDialog } from "./channel-dialogs";
 
@@ -40,6 +50,8 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   const params = useParams({ strict: false }) as { channelId?: string };
   const reorder = useReorderChannels();
   const reads = useReadStateStore((s) => s.channels);
+  const settings = useNotificationSettings((s) => s.entries);
+  useNotificationSettings((s) => s.tick); // reavalia quando um silêncio vence
   const canManage = can(guild, Permission.MANAGE_CHANNELS);
   const groups = groupChannels(guild);
   const navigate = useNavigate();
@@ -81,7 +93,8 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   }
 
   function renderMenu(c: ChannelPayload) {
-    if (!canManage) return null;
+    const notifiable = c.type === CHANNEL_TEXT;
+    if (!canManage && !notifiable) return null;
     const canUp = moveChannel(guild, c.id, -1) !== null;
     const canDown = moveChannel(guild, c.id, 1) !== null;
     return (
@@ -97,19 +110,33 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => setRenaming(c)}>
-            <Pencil /> Renomear
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canUp} onSelect={() => void move(c, -1)}>
-            <ChevronUp /> Mover para cima
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canDown} onSelect={() => void move(c, 1)}>
-            <ChevronDown /> Mover para baixo
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem destructive onSelect={() => setDeleting(c)}>
-            <Trash2 /> Excluir
-          </DropdownMenuItem>
+          {notifiable ? (
+            <NotificationMenuItems
+              scope="channel"
+              targetId={c.id}
+              what="este canal"
+              isGuildLike
+              withSeparator={false}
+            />
+          ) : null}
+          {canManage ? (
+            <>
+              {notifiable ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuItem onSelect={() => setRenaming(c)}>
+                <Pencil /> Renomear
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!canUp} onSelect={() => void move(c, -1)}>
+                <ChevronUp /> Mover para cima
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!canDown} onSelect={() => void move(c, 1)}>
+                <ChevronDown /> Mover para baixo
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem destructive onSelect={() => setDeleting(c)}>
+                <Trash2 /> Excluir
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -119,9 +146,13 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
     const active = c.id === params.channelId;
     const read = reads[c.id];
     const unread = !!read && (read.unread > 0 || read.mentions > 0);
+    const muted = effective(settings, { guildId: guild.id, channelId: c.id }).muted;
     return (
       <li key={c.id}>
-        <div className="group flex items-center rounded-md hover:bg-accent">
+        <div
+          className={`group flex items-center rounded-md hover:bg-accent ${muted ? "opacity-60" : ""}`}
+          data-muted={muted || undefined}
+        >
           {c.type === CHANNEL_VOICE ? (
             <button
               type="button"
@@ -160,6 +191,9 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
             >
               <Hash className="size-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              {muted ? (
+                <BellOff className="size-3.5 shrink-0" aria-label="Silenciado" role="img" />
+              ) : null}
               {read && read.mentions > 0 ? (
                 <MentionBadge
                   count={read.mentions}
@@ -231,27 +265,6 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
         activeChannelId={params.channelId}
         onClose={() => setDeleting(null)}
       />
-    </div>
-  );
-}
-
-function UserPanel() {
-  const { data: me } = useGetMe();
-  if (!me) return null;
-  const name = me.display_name || me.username;
-  return (
-    <div className="flex items-center gap-2 border-t p-2">
-      <Link
-        to="/settings/profile"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md p-1 hover:bg-accent"
-        aria-label="Meu perfil"
-      >
-        <Avatar url={me.avatar_url} name={name} size={32} />
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{name}</span>
-          <span className="block truncate text-xs text-muted-foreground">@{me.username}</span>
-        </span>
-      </Link>
     </div>
   );
 }

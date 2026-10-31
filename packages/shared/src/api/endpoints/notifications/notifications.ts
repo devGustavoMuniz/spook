@@ -24,7 +24,10 @@ import { http } from "../../../http";
 import type {
   AckBody,
   ErrorModel,
+  NotificationSettingBody,
   ReadStatesOutputBody,
+  SettingPayload,
+  SettingsOutputBody,
   SubscribeBody,
   UnsubscribeBody,
   UpdatePayload,
@@ -471,6 +474,333 @@ export function useGetVapidPublicKey<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getListNotificationSettingsUrl = () => {
+  return `/api/users/@me/notification-settings`;
+};
+
+/**
+ * Herança do nível: canal (ou DM) -> servidor -> padrão (servidor: mentions; DM: all). Silêncio vale se o canal ou o servidor estiverem silenciados; silêncio vencido (`muted_until` no passado) já não aparece. Contagens de não lidas e menções não mudam com silêncio ou nível: só os avisos (push, toast, som).
+ * @summary Silêncios e níveis de notificação do usuário (só o que difere do padrão)
+ */
+export const listNotificationSettings = async (
+  options?: Parameters<typeof http>[1],
+): Promise<SettingsOutputBody> => {
+  return http<SettingsOutputBody>(getListNotificationSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListNotificationSettingsQueryKey = () => {
+  return [`/api/users/@me/notification-settings`] as const;
+};
+
+export const getListNotificationSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listNotificationSettings>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof listNotificationSettings>>, TError, TData>
+  >;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListNotificationSettingsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listNotificationSettings>>> = ({
+    signal,
+  }) => listNotificationSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listNotificationSettings>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListNotificationSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listNotificationSettings>>
+>;
+export type ListNotificationSettingsQueryError = ErrorModel;
+
+export function useListNotificationSettings<
+  TData = Awaited<ReturnType<typeof listNotificationSettings>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listNotificationSettings>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listNotificationSettings>>,
+          TError,
+          Awaited<ReturnType<typeof listNotificationSettings>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListNotificationSettings<
+  TData = Awaited<ReturnType<typeof listNotificationSettings>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listNotificationSettings>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listNotificationSettings>>,
+          TError,
+          Awaited<ReturnType<typeof listNotificationSettings>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListNotificationSettings<
+  TData = Awaited<ReturnType<typeof listNotificationSettings>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listNotificationSettings>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Silêncios e níveis de notificação do usuário (só o que difere do padrão)
+ */
+
+export function useListNotificationSettings<
+  TData = Awaited<ReturnType<typeof listNotificationSettings>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listNotificationSettings>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListNotificationSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getDeleteNotificationSettingUrl = (scope: "guild" | "channel", targetId: string) => {
+  return `/api/users/@me/notification-settings/${scope}/${targetId}`;
+};
+
+/**
+ * @summary Volta o servidor, canal ou DM ao padrão (idempotente)
+ */
+export const deleteNotificationSetting = async (
+  scope: "guild" | "channel",
+  targetId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getDeleteNotificationSettingUrl(scope, targetId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteNotificationSettingMutationKey = () => ["deleteNotificationSetting"] as const;
+
+export const getDeleteNotificationSettingMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteNotificationSetting>>,
+    TError,
+    DeleteNotificationSettingMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteNotificationSetting>>,
+  TError,
+  DeleteNotificationSettingMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeleteNotificationSettingMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteNotificationSetting>>,
+    DeleteNotificationSettingMutationVariables
+  > = (props) => {
+    const { scope, targetId } = props ?? {};
+
+    return deleteNotificationSetting(scope, targetId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteNotificationSettingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteNotificationSetting>>
+>;
+
+export type DeleteNotificationSettingMutationError = ErrorModel;
+export type DeleteNotificationSettingMutationVariables = {
+  scope: "guild" | "channel";
+  targetId: string;
+};
+
+/**
+ * @summary Volta o servidor, canal ou DM ao padrão (idempotente)
+ */
+export const useDeleteNotificationSetting = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteNotificationSetting>>,
+      TError,
+      DeleteNotificationSettingMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteNotificationSetting>>,
+  TError,
+  DeleteNotificationSettingMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeleteNotificationSettingMutationOptions(options), queryClient);
+};
+export const getPutNotificationSettingUrl = (scope: "guild" | "channel", targetId: string) => {
+  return `/api/users/@me/notification-settings/${scope}/${targetId}`;
+};
+
+/**
+ * `muted_until` só vale com `muted=true` e no futuro; `muted=true` sem `muted_until` silencia até reativar. Sem silêncio e sem nível, volta ao padrão. Publica NOTIFICATION_SETTINGS_UPDATE nas sessões do usuário.
+ * @summary Define silêncio e/ou nível de notificação de um servidor, canal ou DM (substitui a configuração)
+ */
+export const putNotificationSetting = async (
+  scope: "guild" | "channel",
+  targetId: string,
+  notificationSettingBody: NotificationSettingBody,
+  options?: Parameters<typeof http>[1],
+): Promise<SettingPayload> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<SettingPayload>(getPutNotificationSettingUrl(scope, targetId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(notificationSettingBody),
+  });
+};
+
+export const getPutNotificationSettingMutationKey = () => ["putNotificationSetting"] as const;
+
+export const getPutNotificationSettingMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putNotificationSetting>>,
+    TError,
+    PutNotificationSettingMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putNotificationSetting>>,
+  TError,
+  PutNotificationSettingMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPutNotificationSettingMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putNotificationSetting>>,
+    PutNotificationSettingMutationVariables
+  > = (props) => {
+    const { scope, targetId, data } = props ?? {};
+
+    return putNotificationSetting(scope, targetId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutNotificationSettingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof putNotificationSetting>>
+>;
+export type PutNotificationSettingMutationBody = NotificationSettingBody;
+export type PutNotificationSettingMutationError = ErrorModel;
+export type PutNotificationSettingMutationVariables = {
+  scope: "guild" | "channel";
+  targetId: string;
+  data: NotificationSettingBody;
+};
+
+/**
+ * @summary Define silêncio e/ou nível de notificação de um servidor, canal ou DM (substitui a configuração)
+ */
+export const usePutNotificationSetting = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof putNotificationSetting>>,
+      TError,
+      PutNotificationSettingMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof putNotificationSetting>>,
+  TError,
+  PutNotificationSettingMutationVariables,
+  TContext
+> => {
+  return useMutation(getPutNotificationSettingMutationOptions(options), queryClient);
+};
 export const getListReadStatesUrl = () => {
   return `/api/users/@me/read-states`;
 };

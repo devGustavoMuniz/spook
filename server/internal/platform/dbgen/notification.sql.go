@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const ackChannel = `-- name: AckChannel :one
@@ -82,6 +84,24 @@ type DeleteGuildReadStatesParams struct {
 func (q *Queries) DeleteGuildReadStates(ctx context.Context, arg DeleteGuildReadStatesParams) error {
 	_, err := q.db.Exec(ctx, deleteGuildReadStates, arg.GuildID, arg.UserID)
 	return err
+}
+
+const deleteNotificationSetting = `-- name: DeleteNotificationSetting :execrows
+DELETE FROM notification_settings WHERE user_id = $1 AND scope = $2 AND target_id = $3
+`
+
+type DeleteNotificationSettingParams struct {
+	UserID   int64
+	Scope    string
+	TargetID int64
+}
+
+func (q *Queries) DeleteNotificationSetting(ctx context.Context, arg DeleteNotificationSettingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNotificationSetting, arg.UserID, arg.Scope, arg.TargetID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deletePushSubscription = `-- name: DeletePushSubscription :execrows
@@ -209,6 +229,22 @@ func (q *Queries) IncrementMentions(ctx context.Context, arg IncrementMentionsPa
 	return items, nil
 }
 
+const isGuildMember = `-- name: IsGuildMember :one
+SELECT EXISTS (SELECT 1 FROM guild_members WHERE guild_id = $1 AND user_id = $2)
+`
+
+type IsGuildMemberParams struct {
+	GuildID int64
+	UserID  int64
+}
+
+func (q *Queries) IsGuildMember(ctx context.Context, arg IsGuildMemberParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isGuildMember, arg.GuildID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listChannelRecipientIDs = `-- name: ListChannelRecipientIDs :many
 SELECT user_id FROM channel_recipients WHERE channel_id = $1
 `
@@ -226,6 +262,102 @@ func (q *Queries) ListChannelRecipientIDs(ctx context.Context, channelID int64) 
 			return nil, err
 		}
 		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNotificationSettings = `-- name: ListNotificationSettings :many
+SELECT scope, target_id, muted, muted_until, level FROM notification_settings WHERE user_id = $1 ORDER BY scope, target_id
+`
+
+type ListNotificationSettingsRow struct {
+	Scope      string
+	TargetID   int64
+	Muted      bool
+	MutedUntil pgtype.Timestamptz
+	Level      *string
+}
+
+// Silenciar e nível de notificação (adicional).
+func (q *Queries) ListNotificationSettings(ctx context.Context, userID int64) ([]ListNotificationSettingsRow, error) {
+	rows, err := q.db.Query(ctx, listNotificationSettings, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNotificationSettingsRow
+	for rows.Next() {
+		var i ListNotificationSettingsRow
+		if err := rows.Scan(
+			&i.Scope,
+			&i.TargetID,
+			&i.Muted,
+			&i.MutedUntil,
+			&i.Level,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNotifyFilters = `-- name: ListNotifyFilters :many
+SELECT u.id AS user_id, u.status_pref,
+       ch.muted AS channel_muted, ch.muted_until AS channel_muted_until, ch.level AS channel_level,
+       gu.muted AS guild_muted, gu.muted_until AS guild_muted_until, gu.level AS guild_level
+FROM users u
+LEFT JOIN notification_settings ch ON ch.user_id = u.id AND ch.scope = 'channel' AND ch.target_id = $1::bigint
+LEFT JOIN notification_settings gu ON gu.user_id = u.id AND gu.scope = 'guild' AND gu.target_id = $2::bigint
+WHERE u.id = ANY($3::bigint[])
+`
+
+type ListNotifyFiltersParams struct {
+	ChannelID int64
+	GuildID   *int64
+	UserIds   []int64
+}
+
+type ListNotifyFiltersRow struct {
+	UserID            int64
+	StatusPref        string
+	ChannelMuted      *bool
+	ChannelMutedUntil pgtype.Timestamptz
+	ChannelLevel      *string
+	GuildMuted        *bool
+	GuildMutedUntil   pgtype.Timestamptz
+	GuildLevel        *string
+}
+
+// Para decidir o push: preferência de status e as configurações do canal e do servidor de cada destinatário.
+func (q *Queries) ListNotifyFilters(ctx context.Context, arg ListNotifyFiltersParams) ([]ListNotifyFiltersRow, error) {
+	rows, err := q.db.Query(ctx, listNotifyFilters, arg.ChannelID, arg.GuildID, arg.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNotifyFiltersRow
+	for rows.Next() {
+		var i ListNotifyFiltersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.StatusPref,
+			&i.ChannelMuted,
+			&i.ChannelMutedUntil,
+			&i.ChannelLevel,
+			&i.GuildMuted,
+			&i.GuildMutedUntil,
+			&i.GuildLevel,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -411,6 +543,51 @@ func (q *Queries) ResolveGuildMentions(ctx context.Context, arg ResolveGuildMent
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertNotificationSetting = `-- name: UpsertNotificationSetting :one
+INSERT INTO notification_settings (user_id, scope, target_id, muted, muted_until, level)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (user_id, scope, target_id)
+DO UPDATE SET muted = EXCLUDED.muted, muted_until = EXCLUDED.muted_until, level = EXCLUDED.level, updated_at = now()
+RETURNING scope, target_id, muted, muted_until, level
+`
+
+type UpsertNotificationSettingParams struct {
+	UserID     int64
+	Scope      string
+	TargetID   int64
+	Muted      bool
+	MutedUntil pgtype.Timestamptz
+	Level      *string
+}
+
+type UpsertNotificationSettingRow struct {
+	Scope      string
+	TargetID   int64
+	Muted      bool
+	MutedUntil pgtype.Timestamptz
+	Level      *string
+}
+
+func (q *Queries) UpsertNotificationSetting(ctx context.Context, arg UpsertNotificationSettingParams) (UpsertNotificationSettingRow, error) {
+	row := q.db.QueryRow(ctx, upsertNotificationSetting,
+		arg.UserID,
+		arg.Scope,
+		arg.TargetID,
+		arg.Muted,
+		arg.MutedUntil,
+		arg.Level,
+	)
+	var i UpsertNotificationSettingRow
+	err := row.Scan(
+		&i.Scope,
+		&i.TargetID,
+		&i.Muted,
+		&i.MutedUntil,
+		&i.Level,
+	)
+	return i, err
 }
 
 const upsertPushSubscription = `-- name: UpsertPushSubscription :one

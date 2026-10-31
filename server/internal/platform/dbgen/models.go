@@ -89,6 +89,16 @@ type Message struct {
 	PinnedBy    *int64
 }
 
+type NotificationSetting struct {
+	UserID     int64
+	Scope      string
+	TargetID   int64
+	Muted      bool
+	MutedUntil pgtype.Timestamptz
+	Level      *string
+	UpdatedAt  pgtype.Timestamptz
+}
+
 type PushSubscription struct {
 	ID        int64
 	UserID    int64
@@ -124,11 +134,15 @@ type Session struct {
 }
 
 type User struct {
-	ID           int64
-	Email        string
-	Username     string
-	DisplayName  *string
-	PasswordHash string
-	AvatarKey    *string
-	CreatedAt    pgtype.Timestamptz
+	ID                    int64
+	Email                 string
+	Username              string
+	DisplayName           *string
+	PasswordHash          string
+	AvatarKey             *string
+	CreatedAt             pgtype.Timestamptz
+	StatusPref            string
+	CustomStatusText      *string
+	CustomStatusEmoji     *string
+	CustomStatusExpiresAt pgtype.Timestamptz
 }

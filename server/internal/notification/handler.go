@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -29,6 +30,20 @@ type ReadStatesOutput struct {
 		ReadStates []ReadStatePayload      `json:"read_states" nullable:"false" doc:"Um item por canal de texto visível e por DM; unread_count vai até 100 (100 = 100 ou mais, a UI mostra 99+)"`
 		Guilds     []GuildReadStatePayload `json:"guilds" nullable:"false" doc:"Agregado por servidor: soma de unread_count (limitada a 100) e de mention_count"`
 	}
+}
+
+type SettingsOutput struct {
+	Body struct {
+		Settings []SettingPayload `json:"settings" nullable:"false"`
+	}
+}
+
+type SettingOutput struct{ Body SettingPayload }
+
+type NotificationSettingBody struct {
+	Muted      bool       `json:"muted,omitempty" doc:"Silenciar (ausente = não silenciado)"`
+	MutedUntil *time.Time `json:"muted_until,omitempty" doc:"Fim do silêncio (futuro); ausente com muted=true = até reativar"`
+	Level      *string    `json:"level,omitempty" enum:"all,mentions,none" doc:"Nível; ausente = herda"`
 }
 
 type VAPIDOutput struct {
@@ -123,6 +138,63 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 	}, func(ctx context.Context, in *struct{ Body SubscribeBody }) (*struct{}, error) {
 		err := h.svc.Subscribe(ctx, h.userID(ctx), in.Body.Endpoint, in.Body.Keys.P256dh, in.Body.Keys.Auth)
 		return nil, httpx.Err(err)
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "listNotificationSettings", Method: http.MethodGet, Path: "/api/users/@me/notification-settings",
+		Summary: "Silêncios e níveis de notificação do usuário (só o que difere do padrão)",
+		Description: "Herança do nível: canal (ou DM) -> servidor -> padrão (servidor: mentions; DM: all). Silêncio vale se o canal ou o " +
+			"servidor estiverem silenciados; silêncio vencido (`muted_until` no passado) já não aparece. Contagens de não lidas e menções " +
+			"não mudam com silêncio ou nível: só os avisos (push, toast, som).",
+		Tags: []string{"notifications"}, Security: security, Middlewares: mw,
+		Errors: []int{http.StatusUnauthorized},
+	}, func(ctx context.Context, _ *struct{}) (*SettingsOutput, error) {
+		list, err := h.svc.ListSettings(ctx, h.userID(ctx))
+		if err != nil {
+			return nil, httpx.Err(err)
+		}
+		out := &SettingsOutput{}
+		out.Body.Settings = list
+		return out, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "putNotificationSetting", Method: http.MethodPut, Path: "/api/users/@me/notification-settings/{scope}/{target_id}",
+		Summary: "Define silêncio e/ou nível de notificação de um servidor, canal ou DM (substitui a configuração)",
+		Description: "`muted_until` só vale com `muted=true` e no futuro; `muted=true` sem `muted_until` silencia até reativar. Sem silêncio e " +
+			"sem nível, volta ao padrão. Publica NOTIFICATION_SETTINGS_UPDATE nas sessões do usuário.",
+		Tags: []string{"notifications"}, Security: security, Middlewares: mw,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity},
+	}, func(ctx context.Context, in *struct {
+		Scope    string `path:"scope" enum:"guild,channel" doc:"guild, ou channel (canal de servidor ou DM)"`
+		TargetID string `path:"target_id" doc:"ID do servidor, canal ou DM"`
+		Body     NotificationSettingBody
+	}) (*SettingOutput, error) {
+		target, ok := httpx.ParseID(in.TargetID)
+		if !ok {
+			return nil, httpx.BadID("destino")
+		}
+		p, err := h.svc.PutSetting(ctx, h.userID(ctx), in.Scope, target, SettingInput{Muted: in.Body.Muted, MutedUntil: in.Body.MutedUntil, Level: in.Body.Level})
+		if err != nil {
+			return nil, httpx.Err(err)
+		}
+		return &SettingOutput{Body: p}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "deleteNotificationSetting", Method: http.MethodDelete, Path: "/api/users/@me/notification-settings/{scope}/{target_id}",
+		Summary: "Volta o servidor, canal ou DM ao padrão (idempotente)", DefaultStatus: http.StatusNoContent,
+		Tags: []string{"notifications"}, Security: security, Middlewares: mw,
+		Errors: []int{http.StatusUnauthorized, http.StatusUnprocessableEntity},
+	}, func(ctx context.Context, in *struct {
+		Scope    string `path:"scope" enum:"guild,channel"`
+		TargetID string `path:"target_id"`
+	}) (*struct{}, error) {
+		target, ok := httpx.ParseID(in.TargetID)
+		if !ok {
+			return nil, httpx.BadID("destino")
+		}
+		return nil, httpx.Err(h.svc.DeleteSetting(ctx, h.userID(ctx), in.Scope, target))
 	})
 
 	huma.Register(api, huma.Operation{

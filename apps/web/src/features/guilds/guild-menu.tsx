@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild } from "@/lib/guild";
 import { removeGuild } from "@/lib/guild-cache";
@@ -94,6 +95,13 @@ export function GuildMenu({
               <Plus /> Criar canal
             </DropdownMenuItem>
           ) : null}
+          <NotificationMenuItems
+            scope="guild"
+            targetId={guild.id}
+            what="o servidor"
+            isGuildLike
+            withSeparator={canInvite || canSettings || canRoles || canChannels}
+          />
           {!guild.is_owner ? (
             <>
               <DropdownMenuSeparator />

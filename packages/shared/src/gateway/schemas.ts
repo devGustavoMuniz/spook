@@ -120,12 +120,42 @@ export const helloDataSchema = z.object({ heartbeat_interval: z.number().int().p
 export const identifyDataSchema = z.object({ client: z.string().optional() });
 export const resumeDataSchema = z.object({ session_id: z.string(), seq: z.number().int() });
 
-export const presenceStatusSchema = z.enum(["online", "idle", "offline"]);
+/** O que os outros veem: online, ausente, não perturbar (dnd) ou offline (invisível também aparece offline). */
+export const presenceStatusSchema = z.enum(["online", "idle", "dnd", "offline"]);
 export type PresenceStatus = z.infer<typeof presenceStatusSchema>;
 /** Status que o cliente pode sinalizar (op 12); offline é decidido pelo servidor. */
 export const clientPresenceStatusSchema = z.enum(["online", "idle"]);
 export type ClientPresenceStatus = z.infer<typeof clientPresenceStatusSchema>;
 export const setPresenceDataSchema = z.object({ status: clientPresenceStatusSchema });
+
+/** Status personalizado (texto e/ou emoji); `expires_at` ausente = não expira. */
+export const customStatusSchema = z.object({
+  text: z.string().optional(),
+  emoji: z.string().optional(),
+  expires_at: z.string().optional(),
+});
+export type CustomStatusPayload = z.infer<typeof customStatusSchema>;
+
+/** Preferência de status da própria pessoa (READY.self_presence e PRESENCE_SELF_UPDATE). */
+export const statusPrefSchema = z.enum(["online", "dnd", "invisible"]);
+export type StatusPref = z.infer<typeof statusPrefSchema>;
+export const selfPresenceSchema = z.object({
+  status_pref: statusPrefSchema,
+  custom_status: customStatusSchema.optional(),
+});
+export type SelfPresencePayload = z.infer<typeof selfPresenceSchema>;
+
+/** Silêncio e nível de notificação de um servidor, canal ou DM (READY e NOTIFICATION_SETTINGS_UPDATE). */
+export const notificationLevelSchema = z.enum(["all", "mentions", "none"]);
+export type NotificationLevel = z.infer<typeof notificationLevelSchema>;
+export const notificationSettingSchema = z.object({
+  scope: z.enum(["guild", "channel"]),
+  target_id: z.string(),
+  muted: z.boolean(),
+  muted_until: z.string().nullable(),
+  level: notificationLevelSchema.nullable(),
+});
+export type NotificationSettingPayload = z.infer<typeof notificationSettingSchema>;
 
 export const voiceStatePayloadSchema = z.object({
   guild_id: z.string().nullable(),
@@ -150,6 +180,14 @@ export const readStatePayloadSchema = z.object({
   unread_count: z.number().int().nonnegative(),
 });
 
+function presenceUpdateDataSchemaBase() {
+  return z.object({
+    user_id: z.string(),
+    status: presenceStatusSchema,
+    custom_status: customStatusSchema.optional(),
+  });
+}
+
 export const readyDataSchema = z.object({
   session_id: z.string(),
   user: z.object({ id: z.string() }),
@@ -157,11 +195,14 @@ export const readyDataSchema = z.object({
   // Fase 4: as DMs do usuário e o snapshot de presença (só online/idle, sem o próprio usuário).
   // O servidor sempre manda arrays; o `default` tolera um servidor anterior à Fase 4.
   private_channels: z.array(channelPayloadSchema).nullable().default([]),
-  presences: z.array(z.object({ user_id: z.string(), status: presenceStatusSchema })).default([]),
+  presences: z.array(presenceUpdateDataSchemaBase()).default([]),
   // Fase 5: quem está em voz agora (servidores que o usuário vê e as DMs dele); sempre array.
   voice_states: z.array(voiceStatePayloadSchema).nullable().default([]),
   // Fase 6b: só canais com não lidas ou menções (canal ausente = zero); o servidor sempre manda array.
   read_states: z.array(readStatePayloadSchema).nullable().optional(),
+  // Adicionais: a minha preferência de status e os silêncios/níveis de notificação (o `default` tolera servidor antigo).
+  self_presence: selfPresenceSchema.default({ status_pref: "online" }),
+  notification_settings: z.array(notificationSettingSchema).nullable().default([]),
 });
 
 export const resumedDataSchema = z.object({
@@ -185,10 +226,7 @@ export const typingStartDataSchema = z.object({
   user_id: z.string(),
   timestamp: z.number().int(),
 });
-export const presenceUpdateDataSchema = z.object({
-  user_id: z.string(),
-  status: presenceStatusSchema,
-});
+export const presenceUpdateDataSchema = presenceUpdateDataSchemaBase();
 export const voiceStateUpdateDataSchema = voiceStatePayloadSchema;
 export const readStateUpdateDataSchema = z.object({
   channel_id: z.string(),
@@ -219,6 +257,8 @@ export const eventSchemas = {
   PRESENCE_UPDATE: presenceUpdateDataSchema,
   VOICE_STATE_UPDATE: voiceStateUpdateDataSchema,
   READ_STATE_UPDATE: readStateUpdateDataSchema,
+  PRESENCE_SELF_UPDATE: selfPresenceSchema,
+  NOTIFICATION_SETTINGS_UPDATE: notificationSettingSchema,
 } as const;
 
 export type GatewayEventName = keyof typeof eventSchemas;

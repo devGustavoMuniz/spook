@@ -85,8 +85,14 @@ describe("lista de canais e permissões", () => {
     });
     const nav = await screen.findByRole("navigation", { name: "Canais" });
     expect(within(nav).getByRole("link", { name: "avisos" })).toBeInTheDocument();
-    // o canal de voz é um botão (bloqueado, sem CONNECT); nenhuma ação de gestão
-    expect(within(nav).queryByRole("button", { name: /Opções/ })).not.toBeInTheDocument();
+    // o canal de voz é um botão (bloqueado, sem CONNECT); o menu dos canais de texto só tem
+    // notificações (silenciar e nível), nenhuma ação de gestão
+    await user.click(within(nav).getByRole("button", { name: "Opções de avisos" }));
+    expect(
+      await screen.findByRole("menuitem", { name: /Silenciar este canal/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Renomear|Excluir/ })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: /Menu do servidor/ }));
     expect(screen.queryByRole("menuitem", { name: /Criar canal/ })).not.toBeInTheDocument();
     expect(

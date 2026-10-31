@@ -43,6 +43,7 @@ describe("fixtures do gateway", () => {
     expect(ready.d.presences).toEqual([
       { user_id: "12", status: "online" },
       { user_id: "13", status: "idle" },
+      { user_id: "14", status: "dnd", custom_status: { emoji: "🎧" } },
     ]);
     // Fase 5: voice_states (array, nunca null)
     expect(ready.d.voice_states).toEqual([
@@ -97,6 +98,28 @@ describe("fixtures do gateway", () => {
     expect(rs.d).toEqual({ channel_id: "300", last_read_message_id: "901", mention_count: 2 });
   });
 
+  it("status (dnd, status personalizado), preferência própria e configurações de notificação", () => {
+    const up = dispatchFrameSchema("PRESENCE_UPDATE").parse(fixtures.dispatch.PRESENCE_UPDATE);
+    expect(up.d).toMatchObject({ status: "dnd", custom_status: { text: "em foco", emoji: "🎧" } });
+    const self = dispatchFrameSchema("PRESENCE_SELF_UPDATE").parse(
+      fixtures.dispatch.PRESENCE_SELF_UPDATE,
+    );
+    expect(self.d.status_pref).toBe("invisible");
+    const ns = dispatchFrameSchema("NOTIFICATION_SETTINGS_UPDATE").parse(
+      fixtures.dispatch.NOTIFICATION_SETTINGS_UPDATE,
+    );
+    expect(ns.d).toMatchObject({ scope: "channel", muted: true, level: "mentions" });
+    const ready = eventSchemas.READY.parse(fixtures.ready.d);
+    expect(ready.self_presence.status_pref).toBe("online");
+    expect(ready.notification_settings).toHaveLength(2);
+    expect(ready.presences[2]).toMatchObject({ status: "dnd", custom_status: { emoji: "🎧" } });
+    // Servidor anterior: sem os campos novos, os padrões entram.
+    const { self_presence: _s, notification_settings: _n, ...old } = fixtures.ready.d;
+    const parsed = eventSchemas.READY.parse(old);
+    expect(parsed.self_presence).toEqual({ status_pref: "online" });
+    expect(parsed.notification_settings).toEqual([]);
+  });
+
   it("VOICE_STATE_UPDATE: o fixture do Go e as variantes de saída e de DM", () => {
     const frame = dispatchFrameSchema("VOICE_STATE_UPDATE").parse(
       fixtures.dispatch.VOICE_STATE_UPDATE,
@@ -128,7 +151,7 @@ describe("fixtures do gateway", () => {
   it("os schemas rejeitam payload fora do contrato", () => {
     const bad = { ...fixtures.dispatch.MESSAGE_CREATE, d: { id: 1 } };
     expect(dispatchFrameSchema("MESSAGE_CREATE").safeParse(bad).success).toBe(false);
-    const status = { ...fixtures.dispatch.PRESENCE_UPDATE.d, status: "dnd" };
+    const status = { ...fixtures.dispatch.PRESENCE_UPDATE.d, status: "busy" };
     expect(eventSchemas.PRESENCE_UPDATE.safeParse(status).success).toBe(false);
   });
 

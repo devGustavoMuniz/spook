@@ -257,6 +257,23 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 			presences = p
 		}
 	}
+	selfPresence := presence.SelfPayload{StatusPref: presence.PrefOnline}
+	if h.pres != nil {
+		// Também deixa a preferência pronta para o Connect (invisível não pode piscar como online).
+		if sp, perr := h.pres.Self(ctx, c.userID); perr != nil {
+			slog.Warn("gateway: preferência de status indisponível", "user", c.userID, "err", perr)
+		} else {
+			selfPresence = sp
+		}
+	}
+	notifSettings := []notification.SettingPayload{}
+	if h.notifSettings != nil {
+		if ns, nerr := h.notifSettings.ReadySettings(ctx, c.userID); nerr != nil {
+			slog.Warn("gateway: configurações de notificação indisponíveis para o READY", "user", c.userID, "err", nerr)
+		} else if ns != nil {
+			notifSettings = ns
+		}
+	}
 	s, okReg := h.register(c.userID)
 	if !okReg {
 		c.fail(CloseRateLimited, "muitas sessões")
@@ -297,6 +314,7 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	ready, err := json.Marshal(Ready{
 		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
 		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates, ReadStates: readStates,
+		SelfPresence: selfPresence, NotificationSettings: notifSettings,
 	})
 	if err != nil {
 		h.dropSession(s)

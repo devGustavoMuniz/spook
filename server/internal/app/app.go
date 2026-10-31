@@ -284,7 +284,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		gwCfg.AllowedOrigins = d.Cfg.AllowedOrigins
 	}
 	gwCfg.Dev = d.Cfg.IsDev()
-	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc), gateway.WithReadStates(notifySvc))
+	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc), gateway.WithReadStates(notifySvc), gateway.WithNotificationSettings(notifySvc))
 	gatewayH := gateway.NewHandler(hub, authSvc, auth.UserID)
 	gwLimiter := d.GatewayLimiter
 	if gwLimiter == nil {
@@ -301,6 +301,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	dmH := dm.NewHandler(dmSvc, auth.UserID)
 	typingH := typing.NewHandler(typingSvc, auth.UserID)
 	notifyH := notification.NewHandler(notifySvc, auth.UserID)
+	presenceH := presence.NewHandler(presenceSvc, auth.UserID)
 
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
@@ -312,7 +313,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, gatewayH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
@@ -341,7 +342,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
 	return api.OpenAPI().YAML()
 }
 
@@ -354,7 +355,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
-	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, gatewayH *gateway.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -380,6 +381,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	typingH.Register(api, authed, auth.Security)
 	voiceH.Register(api, authed, auth.Security)
 	notifyH.Register(api, authed, auth.Security)
+	presenceH.Register(api, authed, auth.Security)
 	gatewayH.Register(api, authed, auth.Security)
 	return api
 }

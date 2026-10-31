@@ -63,6 +63,9 @@ const (
 	EventPresenceUpdate   = events.PresenceUpdate
 	EventVoiceStateUpdate = "VOICE_STATE_UPDATE"
 	EventReadStateUpdate  = events.ReadStateUpdate
+	// Adicionais: a preferência de status do próprio usuário e os silêncios/níveis de notificação (tópico user:<id>).
+	EventPresenceSelfUpdate         = events.PresenceSelfUpdate
+	EventNotificationSettingsUpdate = events.NotificationSettingsUpdate
 )
 
 // Hello é o d do op 10.
@@ -92,13 +95,15 @@ type SetPresence struct {
 // participantes); Presences, os usuários não-offline que compartilham servidor ou DM com quem
 // conectou.
 type Ready struct {
-	SessionID       string                          `json:"session_id"`
-	User            ReadyUser                       `json:"user"`
-	Guilds          []guild.DetailPayload           `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
-	PrivateChannels []channel.ChannelPayload        `json:"private_channels" doc:"DMs com participantes, da atividade mais recente para a mais antiga"`
-	Presences       []presence.UpdatePayload        `json:"presences" doc:"Snapshot de presença (só online e idle)"`
-	VoiceStates     []voice.StatePayload            `json:"voice_states" doc:"Quem está em voz agora nos servidores que o usuário vê e nas DMs dele"`
-	ReadStates      []notification.ReadStatePayload `json:"read_states" doc:"Canais com não lidas ou menções (mesmo formato de GET /api/users/@me/read-states); canal ausente = zero"`
+	SessionID            string                          `json:"session_id"`
+	User                 ReadyUser                       `json:"user"`
+	Guilds               []guild.DetailPayload           `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
+	PrivateChannels      []channel.ChannelPayload        `json:"private_channels" doc:"DMs com participantes, da atividade mais recente para a mais antiga"`
+	Presences            []presence.UpdatePayload        `json:"presences" doc:"Snapshot de presença (só online e idle)"`
+	VoiceStates          []voice.StatePayload            `json:"voice_states" doc:"Quem está em voz agora nos servidores que o usuário vê e nas DMs dele"`
+	ReadStates           []notification.ReadStatePayload `json:"read_states" doc:"Canais com não lidas ou menções (mesmo formato de GET /api/users/@me/read-states); canal ausente = zero"`
+	SelfPresence         presence.SelfPayload            `json:"self_presence" doc:"Preferência de status do próprio usuário (online, dnd ou invisible) e status personalizado"`
+	NotificationSettings []notification.SettingPayload   `json:"notification_settings" doc:"Silêncios e níveis de notificação que diferem do padrão (GET /api/users/@me/notification-settings)"`
 }
 
 // ReadyUser é o usuário autenticado no READY.

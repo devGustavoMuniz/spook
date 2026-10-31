@@ -7,7 +7,33 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const getStatusPrefs = `-- name: GetStatusPrefs :one
+SELECT status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at FROM users WHERE id = $1
+`
+
+type GetStatusPrefsRow struct {
+	StatusPref            string
+	CustomStatusText      *string
+	CustomStatusEmoji     *string
+	CustomStatusExpiresAt pgtype.Timestamptz
+}
+
+// Preferência de status e status personalizado (expiração avaliada pelo service).
+func (q *Queries) GetStatusPrefs(ctx context.Context, id int64) (GetStatusPrefsRow, error) {
+	row := q.db.QueryRow(ctx, getStatusPrefs, id)
+	var i GetStatusPrefsRow
+	err := row.Scan(
+		&i.StatusPref,
+		&i.CustomStatusText,
+		&i.CustomStatusEmoji,
+		&i.CustomStatusExpiresAt,
+	)
+	return i, err
+}
 
 const listDMPeerIDs = `-- name: ListDMPeerIDs :many
 SELECT DISTINCT r2.user_id
@@ -128,4 +154,32 @@ func (q *Queries) ListUserGuildIDs(ctx context.Context, userID int64) ([]int64, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const setStatusPrefs = `-- name: SetStatusPrefs :execrows
+UPDATE users
+SET status_pref = $2, custom_status_text = $3, custom_status_emoji = $4, custom_status_expires_at = $5
+WHERE id = $1
+`
+
+type SetStatusPrefsParams struct {
+	ID                    int64
+	StatusPref            string
+	CustomStatusText      *string
+	CustomStatusEmoji     *string
+	CustomStatusExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) SetStatusPrefs(ctx context.Context, arg SetStatusPrefsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setStatusPrefs,
+		arg.ID,
+		arg.StatusPref,
+		arg.CustomStatusText,
+		arg.CustomStatusEmoji,
+		arg.CustomStatusExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

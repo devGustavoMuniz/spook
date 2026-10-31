@@ -1,4 +1,4 @@
-import type { MessagePayload } from "@spook/shared";
+import type { MessagePayload, NotificationLevel } from "@spook/shared";
 
 /** Aviso in-app de uma mensagem nova (toast ou notificação do navegador). */
 export type InAppNotification = {
@@ -35,8 +35,10 @@ export function safeAppPath(url: unknown): string | null {
 }
 
 /**
- * Decide se a mensagem merece aviso: só DM ou menção direta, nunca minha, e não quando a pessoa já
- * está olhando o canal. `mentionIds` vazio em servidor = mensagem comum (sem aviso).
+ * Decide se a mensagem merece aviso: nunca minha, não quando a pessoa já está olhando o canal, nunca
+ * silenciada nem em "Não perturbar". Depois vale o nível: "all" avisa sempre, "mentions" só com menção
+ * direta e "none" nunca. Sem `level`, o padrão é o de antes (DM avisa; servidor só com menção).
+ * (@everyone e @here não existem aqui: são só usernames, então não há o que suprimir além da menção.)
  */
 export function shouldNotify(args: {
   authorId: string;
@@ -45,8 +47,14 @@ export function shouldNotify(args: {
   mentionIds: readonly string[];
   viewing: "caught-up" | "focused" | "away";
   muted: boolean;
+  /** Nível efetivo do canal (canal -> servidor -> padrão). */
+  level?: NotificationLevel;
+  /** "Não perturbar" ligado: nenhum aviso. */
+  dnd?: boolean;
 }): boolean {
-  if (args.muted || !args.myId || args.authorId === args.myId) return false;
+  if (args.muted || args.dnd || !args.myId || args.authorId === args.myId) return false;
   if (args.viewing !== "away") return false;
-  return args.isDm || args.mentionIds.includes(args.myId);
+  const level = args.level ?? (args.isDm ? "all" : "mentions");
+  if (level === "all") return true;
+  return level === "mentions" && args.mentionIds.includes(args.myId);
 }

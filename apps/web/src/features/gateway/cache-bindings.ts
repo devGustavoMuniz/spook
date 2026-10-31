@@ -34,9 +34,10 @@ import {
 } from "../notifications/in-app";
 import { useNotificationPrefs } from "../notifications/prefs";
 import { useReadStateStore } from "../notifications/read-state";
+import { effective, useNotificationSettings } from "../notifications/settings";
 import { reloadReadStates } from "../notifications/sync";
 import type { Viewing } from "../notifications/viewport";
-import { usePresenceStore } from "../presence/store";
+import { isDnd, usePresenceStore } from "../presence/store";
 import { useTypingStore } from "../typing/store";
 import { reconcileVoiceSnapshot, reconcileVoiceUpdate } from "../voice/controller";
 
@@ -189,7 +190,12 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
 
     // ---- presença e "digitando…" (Fase 4) ----
     case "PRESENCE_UPDATE":
-      return usePresenceStore.getState().set(ev.d.user_id, ev.d.status);
+      return usePresenceStore.getState().set(ev.d.user_id, ev.d.status, ev.d.custom_status);
+    case "PRESENCE_SELF_UPDATE":
+      // A minha preferência mudou (nesta ou em outra aba): invisível, não perturbar e status personalizado.
+      return usePresenceStore.getState().setMine(fx.myId(), ev.d);
+    case "NOTIFICATION_SETTINGS_UPDATE":
+      return useNotificationSettings.getState().apply(ev.d);
     case "TYPING_START":
       // O servidor também manda o meu próprio evento de volta; eu não me vejo digitando.
       if (ev.d.user_id === fx.myId()) return;
@@ -242,6 +248,10 @@ function onIncomingMessage(qc: QueryClient, fx: GatewayEffects, m: MessagePayloa
   if (viewing === "caught-up") reads.noteSeen(m.channel_id, guild?.id, m.id);
   else reads.addUnread(m.channel_id, guild?.id, m.id);
 
+  const eff = effective(useNotificationSettings.getState().entries, {
+    guildId: guild?.id,
+    channelId: m.channel_id,
+  });
   if (
     !shouldNotify({
       authorId: m.author.id,
@@ -249,7 +259,9 @@ function onIncomingMessage(qc: QueryClient, fx: GatewayEffects, m: MessagePayloa
       isDm: !!dm,
       mentionIds: m.mention_ids ?? [],
       viewing,
-      muted: useNotificationPrefs.getState().muted,
+      muted: useNotificationPrefs.getState().muted || eff.muted,
+      level: eff.level,
+      dnd: isDnd(),
     })
   )
     return;

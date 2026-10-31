@@ -2,6 +2,7 @@ package presence
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 	"testing"
@@ -40,6 +41,15 @@ func (c *fakeClock) AfterFunc(d time.Duration, f func()) Timer {
 	return t
 }
 
+var epoch = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+
+// wall é o "agora" do serviço: o relógio falso a partir de uma época fixa.
+func (c *fakeClock) wall() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return epoch.Add(c.now)
+}
+
 // advance move o relógio e dispara os timers vencidos (fora do lock, como o time.AfterFunc faz).
 func (c *fakeClock) advance(d time.Duration) {
 	c.mu.Lock()
@@ -62,6 +72,7 @@ type fakeStore struct {
 	peers   map[int64][]int64
 	sharing map[int64][]int64 // quem enxerga quem (para o snapshot)
 	members map[int64][]int64 // servidor -> membros
+	prefs   map[int64]Prefs
 }
 
 func (f *fakeStore) Audience(_ context.Context, u int64) ([]int64, []int64, error) {
@@ -90,6 +101,21 @@ func (f *fakeStore) OnlineGuildMembers(_ context.Context, g int64, online []int6
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeStore) Prefs(_ context.Context, u int64) (Prefs, error) {
+	if p, ok := f.prefs[u]; ok {
+		return p, nil
+	}
+	return Prefs{Pref: PrefOnline}, nil
+}
+
+func (f *fakeStore) SetPrefs(_ context.Context, u int64, p Prefs) (bool, error) {
+	if f.prefs == nil {
+		f.prefs = map[int64]Prefs{}
+	}
+	f.prefs[u] = p
+	return true, nil
 }
 
 type collector struct {
@@ -122,7 +148,7 @@ func newRig(t *testing.T) *rig {
 		sharing: map[int64][]int64{}, members: map[int64][]int64{},
 	}
 	clock, pub := &fakeClock{}, &collector{}
-	svc := NewService(ctx, Config{OfflineGrace: 15 * time.Second, Clock: clock, Shards: 2}, st, pub, nil)
+	svc := NewService(ctx, Config{OfflineGrace: 15 * time.Second, Clock: clock, Shards: 2, Now: clock.wall}, st, pub, nil)
 	return &rig{t: t, svc: svc, clock: clock, pub: pub, store: st}
 }
 
@@ -439,5 +465,163 @@ func TestGaugesFollowTransitions(t *testing.T) {
 	r.clock.advance(15 * time.Second)
 	if r.svc.online.Load() != 0 || r.svc.idle.Load() != 1 {
 		t.Fatalf("online=%d idle=%d", r.svc.online.Load(), r.svc.idle.Load())
+	}
+}
+
+// ---- Não perturbar, invisível e status personalizado ----
+
+func (r *rig) updatePayloads(user string) []UpdatePayload {
+	r.t.Helper()
+	r.flush()
+	var out []UpdatePayload
+	for _, ev := range r.pub.all() {
+		if p, ok := ev.Data.(UpdatePayload); ok && ev.Type == events.PresenceUpdate && p.UserID == user {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func ptrS(s string) *string { return &s }
+
+func TestDNDShowsAsDNDEvenWhenIdleAndBackToOnline(t *testing.T) {
+	r := newRig(t)
+	r.svc.Connect(1, "s1")
+	if _, err := r.svc.Update(context.Background(), 1, Update{StatusPref: ptrS(PrefDND)}); err != nil {
+		t.Fatal(err)
+	}
+	r.svc.SetIdle(1, "s1", true) // ausente não muda o dnd: nenhum evento novo
+	r.want("1", "online", "dnd")
+	r.svc.SetIdle(1, "s1", false)
+	if _, err := r.svc.Update(context.Background(), 1, Update{StatusPref: ptrS(PrefOnline)}); err != nil {
+		t.Fatal(err)
+	}
+	r.want("1", "online", "dnd", "online")
+	if r.svc.Status(1) != StatusOnline {
+		t.Fatal("o status de conexão segue online (o push usa isso)")
+	}
+}
+
+func TestInvisibleLooksOfflineToOthersButStaysConnected(t *testing.T) {
+	r := newRig(t)
+	r.store.prefs = map[int64]Prefs{1: {Pref: PrefInvisible}}
+	self, err := r.svc.Self(context.Background(), 1) // o READY lê a preferência antes do Connect
+	if err != nil || self.StatusPref != PrefInvisible {
+		t.Fatalf("self: %+v %v", self, err)
+	}
+	r.svc.Connect(1, "s1")
+	r.want("1") // invisível desde o primeiro instante: nunca piscou online
+	if r.svc.Status(1) != StatusOnline {
+		t.Fatal("a conexão segue registrada (voz e push dependem dela)")
+	}
+	r.store.sharing[2] = []int64{1}
+	snap, _ := r.svc.Snapshot(context.Background(), 2)
+	if len(snap) != 0 {
+		t.Fatalf("invisível não entra no snapshot: %+v", snap)
+	}
+	// Ficar visível publica online; sair invisível não publica offline repetido.
+	if _, err := r.svc.Update(context.Background(), 1, Update{StatusPref: ptrS(PrefOnline)}); err != nil {
+		t.Fatal(err)
+	}
+	r.want("1", "online")
+	if _, err := r.svc.Update(context.Background(), 1, Update{StatusPref: ptrS(PrefInvisible)}); err != nil {
+		t.Fatal(err)
+	}
+	r.want("1", "online", "offline")
+	r.svc.Disconnect(1, "s1")
+	r.clock.advance(time.Minute)
+	r.want("1", "online", "offline") // já aparecia offline
+}
+
+func TestSelfUpdateIsPublishedToOwnTopic(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.svc.Update(context.Background(), 1, Update{StatusPref: ptrS(PrefInvisible)}); err != nil {
+		t.Fatal(err)
+	}
+	var got *events.Event
+	for _, ev := range r.pub.all() {
+		if ev.Type == events.PresenceSelfUpdate {
+			got = &ev
+		}
+	}
+	if got == nil || len(got.Topics) != 1 || got.Topics[0] != "user:1" || got.Data.(SelfPayload).StatusPref != PrefInvisible {
+		t.Fatalf("evento: %+v", got)
+	}
+}
+
+func TestCustomStatusIsBroadcastAndExpiresOnTime(t *testing.T) {
+	r := newRig(t)
+	r.svc.Connect(1, "s1")
+	exp := epoch.Add(30 * time.Minute)
+	self, err := r.svc.Update(context.Background(), 1, Update{Custom: &CustomStatus{Text: " almoçando ", Emoji: "🍽️", ExpiresAt: &exp}})
+	if err != nil || self.CustomStatus == nil || self.CustomStatus.Text != "almoçando" {
+		t.Fatalf("update: %+v %v", self, err)
+	}
+	ups := r.updatePayloads("1")
+	if len(ups) != 2 || ups[1].CustomStatus == nil || ups[1].CustomStatus.Emoji != "🍽️" || ups[1].Status != StatusOnline {
+		t.Fatalf("eventos: %+v", ups)
+	}
+	r.store.sharing[2] = []int64{1}
+	snap, _ := r.svc.Snapshot(context.Background(), 2)
+	if len(snap) != 1 || snap[0].CustomStatus == nil {
+		t.Fatalf("snapshot traz o status: %+v", snap)
+	}
+	r.clock.advance(29 * time.Minute)
+	if n := len(r.updatePayloads("1")); n != 2 {
+		t.Fatalf("antes do prazo nada muda (%d eventos)", n)
+	}
+	r.clock.advance(time.Minute) // vence
+	ups = r.updatePayloads("1")
+	if len(ups) != 3 || ups[2].CustomStatus != nil || ups[2].Status != StatusOnline {
+		t.Fatalf("depois do prazo o status some e é publicado: %+v", ups)
+	}
+	snap, _ = r.svc.Snapshot(context.Background(), 2)
+	if len(snap) != 1 || snap[0].CustomStatus != nil {
+		t.Fatalf("snapshot sem o vencido: %+v", snap)
+	}
+	if cur, _ := r.svc.Self(context.Background(), 1); cur.CustomStatus != nil {
+		t.Fatalf("Self ignora o vencido: %+v", cur)
+	}
+}
+
+func TestExpiredCustomStatusFromDatabaseIsIgnored(t *testing.T) {
+	r := newRig(t)
+	old := epoch.Add(-time.Hour)
+	r.store.prefs = map[int64]Prefs{1: {Pref: PrefOnline, Custom: &CustomStatus{Text: "ontem", ExpiresAt: &old}}}
+	if self, _ := r.svc.Self(context.Background(), 1); self.CustomStatus != nil {
+		t.Fatalf("vencido na leitura: %+v", self)
+	}
+	r.svc.Connect(1, "s1")
+	if ups := r.updatePayloads("1"); len(ups) != 1 || ups[0].CustomStatus != nil {
+		t.Fatalf("nada de status vencido no primeiro evento: %+v", ups)
+	}
+}
+
+func TestUpdateValidation(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	if _, err := r.svc.Update(ctx, 1, Update{StatusPref: ptrS("away")}); !errors.Is(err, ErrInvalidPref) {
+		t.Fatalf("pref: %v", err)
+	}
+	past, far := epoch.Add(-time.Minute), epoch.Add(49*time.Hour)
+	long := make([]rune, 129)
+	for i := range long {
+		long[i] = 'a'
+	}
+	for name, c := range map[string]*CustomStatus{
+		"vazio": {}, "só espaços": {Text: "  "}, "texto longo": {Text: string(long)},
+		"prazo passado": {Text: "x", ExpiresAt: &past}, "prazo longe": {Text: "x", ExpiresAt: &far},
+	} {
+		if _, err := r.svc.Update(ctx, 1, Update{Custom: c}); !errors.Is(err, ErrInvalidCustom) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// Só o emoji basta; limpar remove.
+	if _, err := r.svc.Update(ctx, 1, Update{Custom: &CustomStatus{Emoji: "🎮"}}); err != nil {
+		t.Fatal(err)
+	}
+	self, err := r.svc.Update(ctx, 1, Update{ClearCustom: true})
+	if err != nil || self.CustomStatus != nil || self.StatusPref != PrefOnline {
+		t.Fatalf("limpar: %+v %v", self, err)
 	}
 }

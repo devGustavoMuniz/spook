@@ -2,7 +2,11 @@ package presence
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
 )
@@ -37,4 +41,45 @@ func (s *PGStore) OnlineGuildMembers(ctx context.Context, guildID int64, online 
 		return nil, fmt.Errorf("cruzar online com membros: %w", err)
 	}
 	return ids, nil
+}
+
+func (s *PGStore) Prefs(ctx context.Context, userID int64) (Prefs, error) {
+	r, err := s.q.GetStatusPrefs(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Prefs{Pref: PrefOnline}, nil
+	}
+	if err != nil {
+		return Prefs{}, fmt.Errorf("ler preferências de status: %w", err)
+	}
+	p := Prefs{Pref: r.StatusPref}
+	if (r.CustomStatusText != nil && *r.CustomStatusText != "") || (r.CustomStatusEmoji != nil && *r.CustomStatusEmoji != "") {
+		c := &CustomStatus{}
+		if r.CustomStatusText != nil {
+			c.Text = *r.CustomStatusText
+		}
+		if r.CustomStatusEmoji != nil {
+			c.Emoji = *r.CustomStatusEmoji
+		}
+		if r.CustomStatusExpiresAt.Valid {
+			t := r.CustomStatusExpiresAt.Time
+			c.ExpiresAt = &t
+		}
+		p.Custom = c
+	}
+	return p, nil
+}
+
+func (s *PGStore) SetPrefs(ctx context.Context, userID int64, p Prefs) (bool, error) {
+	arg := dbgen.SetStatusPrefsParams{ID: userID, StatusPref: p.Pref}
+	if c := p.Custom; c != nil {
+		arg.CustomStatusText, arg.CustomStatusEmoji = &c.Text, &c.Emoji
+		if c.ExpiresAt != nil {
+			arg.CustomStatusExpiresAt = pgtype.Timestamptz{Time: *c.ExpiresAt, Valid: true}
+		}
+	}
+	n, err := s.q.SetStatusPrefs(ctx, arg)
+	if err != nil {
+		return false, fmt.Errorf("gravar preferências de status: %w", err)
+	}
+	return n > 0, nil
 }

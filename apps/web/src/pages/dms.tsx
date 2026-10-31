@@ -12,6 +12,7 @@ import { NewGroupDialog } from "@/features/dms/new-group-dialog";
 import { useDms } from "@/features/dms/use-dms";
 import { ChannelView } from "@/features/messages/channel-view";
 import { PinnedMessagesButton } from "@/features/messages/pins-panel";
+import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
 import { DmCallButton, DmCallPanel } from "@/features/voice/call-panel";
 import { appMessage } from "@/lib/app-errors";
@@ -116,9 +117,10 @@ export function DmPage() {
 function HeaderStatus({ userId }: { userId: string | undefined }) {
   const status = usePresence(userId);
   return (
-    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
       <PresenceDot status={status} className="ring-0" />
       {statusLabel[status]}
+      <CustomStatusText userId={userId} className="min-w-0 truncate" prefix="· " />
     </span>
   );
 }

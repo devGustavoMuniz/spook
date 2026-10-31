@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
@@ -63,6 +65,14 @@ type Store interface {
 	Subscription(ctx context.Context, id int64) (Subscription, error) // ErrNotFound
 	DeleteSubscription(ctx context.Context, id int64) error
 	SubscriptionsOf(ctx context.Context, userIDs []int64) ([]Subscription, error)
+
+	// Silenciar e nível de notificação.
+	ListSettings(ctx context.Context, userID int64) ([]Setting, error)
+	UpsertSetting(ctx context.Context, userID int64, s Setting) error
+	DeleteSetting(ctx context.Context, userID int64, scope string, target int64) error
+	IsGuildMember(ctx context.Context, guildID, userID int64) (bool, error)
+	// NotifyFilters devolve, por destinatário, o DND e as configurações do canal e do servidor (1 consulta).
+	NotifyFilters(ctx context.Context, userIDs []int64, channelID int64, guildID *int64) ([]NotifyFilter, error)
 }
 
 type PGStore struct {
@@ -245,6 +255,71 @@ func (s *PGStore) SubscriptionsOf(ctx context.Context, userIDs []int64) ([]Subsc
 	out := make([]Subscription, len(rows))
 	for i, r := range rows {
 		out[i] = fromRow(r)
+	}
+	return out, nil
+}
+
+func timePtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	v := t.Time
+	return &v
+}
+
+func (s *PGStore) ListSettings(ctx context.Context, userID int64) ([]Setting, error) {
+	rows, err := s.q.ListNotificationSettings(ctx, userID)
+	if err != nil {
+		return nil, wrap("listar configurações de notificação", err)
+	}
+	out := make([]Setting, len(rows))
+	for i, r := range rows {
+		out[i] = Setting{Scope: r.Scope, TargetID: r.TargetID, Muted: r.Muted, MutedUntil: timePtr(r.MutedUntil), Level: r.Level}
+	}
+	return out, nil
+}
+
+func (s *PGStore) UpsertSetting(ctx context.Context, userID int64, set Setting) error {
+	arg := dbgen.UpsertNotificationSettingParams{UserID: userID, Scope: set.Scope, TargetID: set.TargetID, Muted: set.Muted, Level: set.Level}
+	if set.MutedUntil != nil {
+		arg.MutedUntil = pgtype.Timestamptz{Time: *set.MutedUntil, Valid: true}
+	}
+	if _, err := s.q.UpsertNotificationSetting(ctx, arg); err != nil {
+		return wrap("gravar configuração de notificação", err)
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteSetting(ctx context.Context, userID int64, scope string, target int64) error {
+	if _, err := s.q.DeleteNotificationSetting(ctx, dbgen.DeleteNotificationSettingParams{UserID: userID, Scope: scope, TargetID: target}); err != nil {
+		return wrap("apagar configuração de notificação", err)
+	}
+	return nil
+}
+
+func (s *PGStore) IsGuildMember(ctx context.Context, guildID, userID int64) (bool, error) {
+	ok, err := s.q.IsGuildMember(ctx, dbgen.IsGuildMemberParams{GuildID: guildID, UserID: userID})
+	if err != nil {
+		return false, wrap("verificar participação", err)
+	}
+	return ok, nil
+}
+
+func (s *PGStore) NotifyFilters(ctx context.Context, userIDs []int64, channelID int64, guildID *int64) ([]NotifyFilter, error) {
+	rows, err := s.q.ListNotifyFilters(ctx, dbgen.ListNotifyFiltersParams{ChannelID: channelID, GuildID: guildID, UserIds: userIDs})
+	if err != nil {
+		return nil, wrap("buscar filtros de notificação", err)
+	}
+	out := make([]NotifyFilter, len(rows))
+	for i, r := range rows {
+		f := NotifyFilter{UserID: r.UserID, DND: r.StatusPref == "dnd"}
+		if r.ChannelMuted != nil {
+			f.Channel = &Setting{Muted: *r.ChannelMuted, MutedUntil: timePtr(r.ChannelMutedUntil), Level: r.ChannelLevel}
+		}
+		if r.GuildMuted != nil {
+			f.Guild = &Setting{Muted: *r.GuildMuted, MutedUntil: timePtr(r.GuildMutedUntil), Level: r.GuildLevel}
+		}
+		out[i] = f
 	}
 	return out, nil
 }

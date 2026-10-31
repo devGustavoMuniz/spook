@@ -34,6 +34,10 @@ type fakeStore struct {
 	subLimit   int
 	deleted    []int64
 	leftGuilds [][2]int64
+
+	filters  map[int64]NotifyFilter // por usuário; ausente = sem configuração, fora do DND
+	settings map[string]Setting     // "scope:target"
+	members  map[int64]bool         // servidores dos quais o usuário (qualquer um) é membro
 }
 
 type ackCall struct{ user, channel, message int64 }
@@ -71,6 +75,45 @@ func (f *fakeStore) DeleteGuildReadStates(_ context.Context, g, u int64) error {
 	return nil
 }
 func (f *fakeStore) ReadStates(context.Context, int64) ([]ReadState, error) { return nil, nil }
+
+func (f *fakeStore) ListSettings(context.Context, int64) ([]Setting, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Setting
+	for _, s := range f.settings {
+		out = append(out, s)
+	}
+	return out, nil
+}
+func (f *fakeStore) UpsertSetting(_ context.Context, _ int64, s Setting) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.settings == nil {
+		f.settings = map[string]Setting{}
+	}
+	f.settings[s.Scope+":"+strconv.FormatInt(s.TargetID, 10)] = s
+	return nil
+}
+func (f *fakeStore) DeleteSetting(_ context.Context, _ int64, scope string, target int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.settings, scope+":"+strconv.FormatInt(target, 10))
+	return nil
+}
+func (f *fakeStore) IsGuildMember(_ context.Context, g, _ int64) (bool, error) {
+	return f.members[g], nil
+}
+func (f *fakeStore) NotifyFilters(_ context.Context, users []int64, _ int64, _ *int64) ([]NotifyFilter, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]NotifyFilter, 0, len(users))
+	for _, u := range users {
+		flt := f.filters[u]
+		flt.UserID = u
+		out = append(out, flt)
+	}
+	return out, nil
+}
 func (f *fakeStore) ResolveGuildMentions(_ context.Context, _, _ int64, _ []string) ([]int64, error) {
 	return f.resolved, f.resolveErr
 }

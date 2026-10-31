@@ -14,7 +14,13 @@ export async function connectGateway(
   session = "sess-1",
   extra: {
     private_channels?: ChannelPayload[];
-    presences?: { user_id: string; status: "online" | "idle" }[];
+    presences?: {
+      user_id: string;
+      status: "online" | "idle" | "dnd";
+      custom_status?: { text?: string; emoji?: string };
+    }[];
+    self_presence?: { status_pref: "online" | "dnd" | "invisible"; custom_status?: object };
+    notification_settings?: object[];
     voice_states?: VoiceStatePayload[];
     read_states?: ReadStatePayload[];
   } = {},
@@ -31,6 +37,8 @@ export async function connectGateway(
       presences: extra.presences ?? [],
       voice_states: extra.voice_states ?? [],
       read_states: extra.read_states ?? [],
+      ...(extra.self_presence ? { self_presence: extra.self_presence } : {}),
+      notification_settings: extra.notification_settings ?? [],
     });
   });
   return sock;

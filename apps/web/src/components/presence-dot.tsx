@@ -1,17 +1,20 @@
-import type { PresenceStatus } from "@spook/shared";
 import { Avatar } from "@/components/avatar";
-import { usePresence } from "@/features/presence/store";
+import { type DisplayStatus, usePresence } from "@/features/presence/store";
 import { cn } from "@/lib/utils";
 
-export const statusLabel: Record<PresenceStatus, string> = {
+export const statusLabel: Record<DisplayStatus, string> = {
   online: "Online",
   idle: "Ausente",
+  dnd: "Não perturbar",
+  invisible: "Invisível",
   offline: "Offline",
 };
 
-const statusColor: Record<PresenceStatus, string> = {
+const statusColor: Record<DisplayStatus, string> = {
   online: "bg-emerald-500",
   idle: "bg-amber-500",
+  dnd: "bg-red-500",
+  invisible: "bg-zinc-400 dark:bg-zinc-500",
   offline: "bg-zinc-400 dark:bg-zinc-500",
 };
 
@@ -21,7 +24,7 @@ export function PresenceDot({
   size = 10,
   className,
 }: {
-  status: PresenceStatus;
+  status: DisplayStatus;
   size?: number;
   className?: string;
 }) {

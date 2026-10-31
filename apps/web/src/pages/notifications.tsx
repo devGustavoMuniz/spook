@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
 import { useNotificationPrefs } from "@/features/notifications/prefs";
+import { NotificationDefaultsCard } from "@/features/notifications/settings-card";
 import type { PushStatus } from "@/features/push/push";
 import { usePushSettings } from "@/features/push/use-push";
 
@@ -13,6 +14,7 @@ export function NotificationsPage() {
   return (
     <div className="flex flex-col gap-6">
       <InAppCard />
+      <NotificationDefaultsCard />
       {isTauri() ? <NativeCard /> : <PushCard />}
     </div>
   );

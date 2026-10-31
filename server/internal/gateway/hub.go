@@ -58,6 +58,13 @@ type Presence interface {
 	Disconnect(userID int64, sessionID string)
 	SetIdle(userID int64, sessionID string, idle bool)
 	Snapshot(ctx context.Context, userID int64) ([]presence.UpdatePayload, error)
+	// Self lê a preferência de status do usuário (e a deixa pronta para o Connect), para o READY.
+	Self(ctx context.Context, userID int64) (presence.SelfPayload, error)
+}
+
+// NotificationSettings é o que o gateway pede às notificações: silêncios e níveis, para o READY.
+type NotificationSettings interface {
+	ReadySettings(ctx context.Context, userID int64) ([]notification.SettingPayload, error)
 }
 
 // Voice é o que o gateway pede à voz (implementada pelo voice.Service): o snapshot em memória dos
@@ -87,6 +94,11 @@ func WithVoice(v Voice) Option { return func(h *Hub) { h.voice = v } }
 // WithReadStates liga os read_states do READY.
 func WithReadStates(r ReadStates) Option { return func(h *Hub) { h.reads = r } }
 
+// WithNotificationSettings liga o notification_settings do READY.
+func WithNotificationSettings(n NotificationSettings) Option {
+	return func(h *Hub) { h.notifSettings = n }
+}
+
 // Bus é o que o gateway precisa do barramento de eventos.
 type Bus interface {
 	Subscribe(fn func(events.Event)) (cancel func())
@@ -94,14 +106,15 @@ type Bus interface {
 
 // Hub mantém sessões, conexões e as assinaturas por tópico, e faz o fan-out dos eventos.
 type Hub struct {
-	cfg   Config
-	dir   Directory
-	dms   DMs
-	pres  Presence
-	voice Voice
-	reads ReadStates
-	met   *metrics
-	tk    *tickets
+	cfg           Config
+	dir           Directory
+	dms           DMs
+	pres          Presence
+	voice         Voice
+	reads         ReadStates
+	notifSettings NotificationSettings
+	met           *metrics
+	tk            *tickets
 
 	mu       sync.RWMutex
 	topics   map[string]map[*Session]struct{}

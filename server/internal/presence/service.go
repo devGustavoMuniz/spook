@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -17,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 )
 
@@ -33,6 +35,10 @@ type Store interface {
 	OnlineSharing(ctx context.Context, userID int64, online []int64) ([]int64, error)
 	// OnlineGuildMembers devolve, dos usuários online, quem é membro do servidor.
 	OnlineGuildMembers(ctx context.Context, guildID int64, online []int64) ([]int64, error)
+	// Prefs lê a preferência de status e o status personalizado (sem tratar a expiração).
+	Prefs(ctx context.Context, userID int64) (Prefs, error)
+	// SetPrefs grava os dois; devolve false se o usuário não existe.
+	SetPrefs(ctx context.Context, userID int64, p Prefs) (bool, error)
 }
 
 // Bus é o que o service precisa do barramento para reagir a eventos de domínio.
@@ -42,9 +48,15 @@ type Bus interface {
 
 type userState struct {
 	sessions  map[string]bool // id da sessão do gateway -> ausente (idle)
-	published string          // último status publicado; mantido durante a tolerância
+	published string          // status de CONEXÃO (online/idle); mantido durante a tolerância
 	timer     Timer
 	gen       uint64
+
+	pref      string        // preferência escolhida (online/dnd/invisible); "" = online
+	custom    *CustomStatus // status personalizado (pode estar vencido: ver display)
+	shown     UpdatePayload // última visão publicada para os outros (Status, CustomStatus)
+	customGen uint64
+	customTmr Timer // dispara a limpeza do status personalizado na expiração
 }
 
 // Service é a máquina de estados da presença. Os métodos Connect/Disconnect/SetIdle são
@@ -58,6 +70,8 @@ type Service struct {
 	mu     sync.Mutex
 	users  map[int64]*userState
 	shards []*shard
+	// pending guarda as preferências lidas no READY (Self) até a sessão conectar (Connect as consome).
+	pending map[int64]Prefs
 
 	online, idle atomic.Int64
 	transitions  metric.Int64Counter
@@ -67,7 +81,7 @@ type Service struct {
 // (testes de unidade).
 func NewService(ctx context.Context, cfg Config, store Store, pub events.Publisher, bus Bus) *Service {
 	cfg = cfg.withDefaults()
-	s := &Service{cfg: cfg, store: store, pub: pub, users: map[int64]*userState{}}
+	s := &Service{cfg: cfg, store: store, pub: pub, users: map[int64]*userState{}, pending: map[int64]Prefs{}}
 	for range cfg.Shards {
 		sh := &shard{wake: make(chan struct{}, 1)}
 		s.shards = append(s.shards, sh)
@@ -98,8 +112,12 @@ func (s *Service) Connect(userID int64, sessionID string) {
 	defer s.mu.Unlock()
 	st := s.users[userID]
 	if st == nil {
-		st = &userState{sessions: map[string]bool{}}
+		st = &userState{sessions: map[string]bool{}, shown: UpdatePayload{Status: StatusOffline}}
+		if p, ok := s.pending[userID]; ok {
+			st.pref, st.custom = p.Pref, p.Custom
+		}
 		s.users[userID] = st
+		s.armCustomLocked(userID, st)
 	}
 	if _, ok := st.sessions[sessionID]; !ok {
 		st.sessions[sessionID] = false
@@ -168,7 +186,12 @@ func (s *Service) expire(userID int64, gen uint64) {
 	}
 	delete(s.users, userID)
 	s.count(st.published, -1)
-	s.emitLocked(userID, StatusOffline)
+	if st.customTmr != nil {
+		st.customTmr.Stop()
+	}
+	if st.shown.Status != StatusOffline { // invisível já aparecia offline
+		s.emitLocked(userID, UpdatePayload{UserID: strconv.FormatInt(userID, 10), Status: StatusOffline})
+	}
 }
 
 // evaluateLocked recalcula o status (o melhor entre as sessões: online > idle) e publica se mudou.
@@ -176,6 +199,7 @@ func (s *Service) evaluateLocked(userID int64, st *userState) {
 	if len(st.sessions) == 0 {
 		return
 	}
+	delete(s.pending, userID)
 	want := StatusIdle
 	for _, idle := range st.sessions {
 		if !idle {
@@ -183,13 +207,93 @@ func (s *Service) evaluateLocked(userID int64, st *userState) {
 			break
 		}
 	}
-	if want == st.published {
+	if want != st.published {
+		s.count(st.published, -1)
+		s.count(want, 1)
+		st.published = want
+	}
+	s.refreshLocked(userID, st)
+}
+
+// display calcula o que os outros veem: invisível = offline (sem status personalizado); dnd vale mesmo
+// ausente; senão o status de conexão. O status personalizado vencido some.
+func (s *Service) display(userID int64, st *userState) UpdatePayload {
+	out := UpdatePayload{UserID: strconv.FormatInt(userID, 10), Status: st.published}
+	switch st.pref {
+	case PrefInvisible:
+		out.Status = StatusOffline
+		return out
+	case PrefDND:
+		out.Status = StatusDND
+	}
+	if out.Status == "" {
+		out.Status = StatusOffline
+	}
+	out.CustomStatus = s.liveCustom(st.custom)
+	return out
+}
+
+// liveCustom devolve o status personalizado se ainda vale (a expiração é avaliada aqui, na leitura).
+func (s *Service) liveCustom(c *CustomStatus) *CustomStatus {
+	if c == nil || (c.Text == "" && c.Emoji == "") {
+		return nil
+	}
+	if c.ExpiresAt != nil && !s.cfg.Now().Before(*c.ExpiresAt) {
+		return nil
+	}
+	return c
+}
+
+func sameShown(a, b UpdatePayload) bool {
+	if a.Status != b.Status {
+		return false
+	}
+	switch {
+	case a.CustomStatus == nil || b.CustomStatus == nil:
+		return a.CustomStatus == b.CustomStatus
+	default:
+		x, y := *a.CustomStatus, *b.CustomStatus
+		return x.Text == y.Text && x.Emoji == y.Emoji && (x.ExpiresAt == nil) == (y.ExpiresAt == nil) &&
+			(x.ExpiresAt == nil || x.ExpiresAt.Equal(*y.ExpiresAt))
+	}
+}
+
+// refreshLocked recalcula a visão pública e publica se mudou (status, dnd/invisível ou status personalizado).
+func (s *Service) refreshLocked(userID int64, st *userState) {
+	if len(st.sessions) == 0 {
 		return
 	}
-	s.count(st.published, -1)
-	s.count(want, 1)
-	st.published = want
-	s.emitLocked(userID, want)
+	d := s.display(userID, st)
+	if sameShown(st.shown, d) {
+		return
+	}
+	st.shown = d
+	s.emitLocked(userID, d)
+}
+
+// armCustomLocked agenda a limpeza do status personalizado no instante em que ele vence (a expiração
+// também é avaliada em cada leitura; o timer só garante o aviso em tempo real).
+func (s *Service) armCustomLocked(userID int64, st *userState) {
+	st.customGen++
+	if st.customTmr != nil {
+		st.customTmr.Stop()
+		st.customTmr = nil
+	}
+	if st.custom == nil || st.custom.ExpiresAt == nil {
+		return
+	}
+	gen := st.customGen
+	d := st.custom.ExpiresAt.Sub(s.cfg.Now())
+	if d < 0 {
+		d = 0
+	}
+	st.customTmr = s.cfg.Clock.AfterFunc(d, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if cur := s.users[userID]; cur == st && st.customGen == gen {
+			s.refreshLocked(userID, st)
+		}
+	})
 }
 
 func (s *Service) count(status string, d int64) {
@@ -202,9 +306,9 @@ func (s *Service) count(status string, d int64) {
 }
 
 // emitLocked enfileira a publicação (sob s.mu, para preservar a ordem das transições do usuário).
-func (s *Service) emitLocked(userID int64, status string) {
-	s.transitions.Add(context.Background(), 1, metric.WithAttributes(attribute.String("status", status)))
-	s.shardFor(userID).push(func() { s.broadcast(userID, status) })
+func (s *Service) emitLocked(userID int64, p UpdatePayload) {
+	s.transitions.Add(context.Background(), 1, metric.WithAttributes(attribute.String("status", p.Status)))
+	s.shardFor(userID).push(func() { s.broadcast(userID, p) })
 }
 
 func (s *Service) shardFor(key int64) *shard {
@@ -213,10 +317,10 @@ func (s *Service) shardFor(key int64) *shard {
 
 // broadcast publica PRESENCE_UPDATE em guild:<id> de cada servidor do usuário e em user:<par>
 // de cada par de DM.
-func (s *Service) broadcast(userID int64, status string) {
+func (s *Service) broadcast(userID int64, p UpdatePayload) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	ctx, span := tracer.Start(ctx, "presence.transition", spanAttrs(userID, status))
+	ctx, span := tracer.Start(ctx, "presence.transition", spanAttrs(userID, p.Status))
 	defer span.End()
 	guilds, peers, err := s.store.Audience(ctx, userID)
 	if err != nil {
@@ -235,11 +339,129 @@ func (s *Service) broadcast(userID int64, status string) {
 	if len(topics) == 0 {
 		return
 	}
-	s.pub.Publish(events.Event{Type: events.PresenceUpdate, Topics: topics, Data: payload(userID, status)})
+	s.pub.Publish(events.Event{Type: events.PresenceUpdate, Topics: topics, Data: p})
 }
 
 func spanAttrs(userID int64, status string) trace.SpanStartEventOption {
 	return trace.WithAttributes(attribute.Int64("user.id", userID), attribute.String("status", status))
+}
+
+// ---- preferências (status escolhido, dnd, invisível, status personalizado) ----
+
+// Update é o PATCH do usuário: campos nulos não mudam.
+type Update struct {
+	StatusPref  *string
+	Custom      *CustomStatus // define (substitui) o status personalizado
+	ClearCustom bool
+}
+
+func runes(s string) int { return utf8.RuneCountInString(s) }
+
+// normalize valida e limpa um status personalizado novo.
+func (s *Service) normalizeCustom(c *CustomStatus) (*CustomStatus, error) {
+	text := strings.TrimSpace(c.Text)
+	emoji := strings.TrimSpace(c.Emoji)
+	if text == "" && emoji == "" || runes(text) > MaxCustomTextRunes || runes(emoji) > MaxCustomEmojiRunes {
+		return nil, ErrInvalidCustom
+	}
+	out := &CustomStatus{Text: text, Emoji: emoji}
+	if c.ExpiresAt != nil {
+		now := s.cfg.Now()
+		if !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(MaxCustomTTL)) {
+			return nil, ErrInvalidCustom
+		}
+		t := c.ExpiresAt.UTC()
+		out.ExpiresAt = &t
+	}
+	return out, nil
+}
+
+func (s *Service) self(p Prefs) SelfPayload {
+	pref := p.Pref
+	if pref == "" {
+		pref = PrefOnline
+	}
+	return SelfPayload{StatusPref: pref, CustomStatus: s.liveCustom(p.Custom)}
+}
+
+// Self lê as preferências do usuário (banco), deixa-as prontas para o Connect da sessão que vai
+// abrir (o status certo sai já na primeira publicação, sem piscar online para quem está invisível)
+// e devolve o que o READY mostra em self_presence.
+func (s *Service) Self(ctx context.Context, userID int64) (SelfPayload, error) {
+	ctx, span := tracer.Start(ctx, "presence.self")
+	defer span.End()
+	p, err := s.store.Prefs(ctx, userID)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return SelfPayload{}, err
+	}
+	s.mu.Lock()
+	if _, connected := s.users[userID]; !connected {
+		s.pending[userID] = p
+	}
+	s.mu.Unlock()
+	return s.self(p), nil
+}
+
+// Update grava a preferência e/ou o status personalizado, aplica à presença em tempo real (os outros
+// recebem PRESENCE_UPDATE) e avisa as sessões do próprio usuário (PRESENCE_SELF_UPDATE).
+func (s *Service) Update(ctx context.Context, userID int64, in Update) (SelfPayload, error) {
+	ctx, span := tracer.Start(ctx, "presence.update")
+	defer span.End()
+	if in.StatusPref != nil {
+		switch *in.StatusPref {
+		case PrefOnline, PrefDND, PrefInvisible:
+		default:
+			return SelfPayload{}, ErrInvalidPref
+		}
+		span.SetAttributes(attribute.String("status.pref", *in.StatusPref))
+	}
+	var newCustom *CustomStatus
+	if in.Custom != nil && !in.ClearCustom {
+		var err error
+		if newCustom, err = s.normalizeCustom(in.Custom); err != nil {
+			return SelfPayload{}, err
+		}
+	}
+	cur, err := s.store.Prefs(ctx, userID)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return SelfPayload{}, err
+	}
+	cur.Custom = s.liveCustom(cur.Custom)
+	next := cur
+	if in.StatusPref != nil {
+		next.Pref = *in.StatusPref
+	}
+	switch {
+	case in.ClearCustom:
+		next.Custom = nil
+	case newCustom != nil:
+		next.Custom = newCustom
+	}
+	if next.Pref == "" {
+		next.Pref = PrefOnline
+	}
+	ok, err := s.store.SetPrefs(ctx, userID, next)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		return SelfPayload{}, err
+	}
+	if !ok {
+		return SelfPayload{}, apperr.NotFound("usuário não encontrado")
+	}
+
+	s.mu.Lock()
+	if st := s.users[userID]; st != nil {
+		st.pref, st.custom = next.Pref, next.Custom
+		s.armCustomLocked(userID, st)
+		s.refreshLocked(userID, st)
+	}
+	s.mu.Unlock()
+
+	out := s.self(next)
+	s.pub.Publish(events.Event{Type: events.PresenceSelfUpdate, Topics: []string{"user:" + strconv.FormatInt(userID, 10)}, Data: out})
+	return out, nil
 }
 
 func payload(userID int64, status string) UpdatePayload {
@@ -255,14 +477,7 @@ func (s *Service) Snapshot(ctx context.Context, userID int64) ([]UpdatePayload, 
 	ctx, span := tracer.Start(ctx, "presence.snapshot")
 	defer span.End()
 	s.mu.Lock()
-	status := make(map[int64]string, len(s.users))
-	ids := make([]int64, 0, len(s.users))
-	for id, st := range s.users {
-		if id != userID && st.published != "" {
-			status[id] = st.published
-			ids = append(ids, id)
-		}
-	}
+	status, ids := s.visibleLocked(userID)
 	s.mu.Unlock()
 	span.SetAttributes(attribute.Int("online", len(ids)))
 	out := []UpdatePayload{}
@@ -275,9 +490,35 @@ func (s *Service) Snapshot(ctx context.Context, userID int64) ([]UpdatePayload, 
 		return nil, err
 	}
 	for _, id := range visible {
-		out = append(out, payload(id, status[id]))
+		out = append(out, status[id])
 	}
 	return out, nil
+}
+
+// visibleLocked devolve a visão pública de quem aparece não-offline (invisíveis ficam de fora), exceto except.
+func (s *Service) visibleLocked(except int64) (map[int64]UpdatePayload, []int64) {
+	status := make(map[int64]UpdatePayload, len(s.users))
+	ids := make([]int64, 0, len(s.users))
+	for id, st := range s.users {
+		if id == except || st.published == "" {
+			continue
+		}
+		if d := s.display(id, st); d.Status != StatusOffline {
+			status[id] = d
+			ids = append(ids, id)
+		}
+	}
+	return status, ids
+}
+
+// shownOf é a visão pública atual de um usuário (offline se não há sessão ou está invisível).
+func (s *Service) shownOf(userID int64) UpdatePayload {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st := s.users[userID]; st != nil && st.published != "" {
+		return s.display(userID, st)
+	}
+	return payload(userID, StatusOffline)
 }
 
 // ---- reação a eventos de domínio ----
@@ -304,16 +545,10 @@ func (s *Service) onEvent(ev events.Event) {
 	}
 }
 
-func (s *Service) onlineSnapshot(except int64) (ids []int64, status map[int64]string) {
+func (s *Service) onlineSnapshot(except int64) (ids []int64, status map[int64]UpdatePayload) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	status = make(map[int64]string, len(s.users))
-	for id, st := range s.users {
-		if id != except && st.published != "" {
-			status[id] = st.published
-			ids = append(ids, id)
-		}
-	}
+	status, ids = s.visibleLocked(except)
 	return ids, status
 }
 
@@ -324,10 +559,10 @@ func (s *Service) memberJoined(guildID, userID int64) {
 	defer cancel()
 	ctx, span := tracer.Start(ctx, "presence.member_joined", spanAttrs(userID, ""))
 	defer span.End()
-	if st := s.Status(userID); st != StatusOffline {
+	if d := s.shownOf(userID); d.Status != StatusOffline {
 		s.pub.Publish(events.Event{
 			Type: events.PresenceUpdate, GuildID: guildID,
-			Topics: []string{"guild:" + strconv.FormatInt(guildID, 10)}, Data: payload(userID, st),
+			Topics: []string{"guild:" + strconv.FormatInt(guildID, 10)}, Data: d,
 		})
 	}
 	ids, status := s.onlineSnapshot(userID)
@@ -345,7 +580,7 @@ func (s *Service) memberJoined(guildID, userID int64) {
 	}
 	topic := "user:" + strconv.FormatInt(userID, 10)
 	for _, m := range members {
-		s.pub.Publish(events.Event{Type: events.PresenceUpdate, Topics: []string{topic}, Data: payload(m, status[m])})
+		s.pub.Publish(events.Event{Type: events.PresenceUpdate, Topics: []string{topic}, Data: status[m]})
 	}
 }
 
@@ -370,15 +605,15 @@ func (s *Service) groupDMCreated(ev events.Event, ch channel.ChannelPayload) {
 			if m == t {
 				continue
 			}
-			if st := s.Status(t); st != StatusOffline { // t aparece para os demais participantes
+			if d := s.shownOf(t); d.Status != StatusOffline { // t aparece para os demais participantes
 				s.pub.Publish(events.Event{
-					Type: events.PresenceUpdate, Topics: []string{"user:" + strconv.FormatInt(m, 10)}, Data: payload(t, st),
+					Type: events.PresenceUpdate, Topics: []string{"user:" + strconv.FormatInt(m, 10)}, Data: d,
 				})
 			}
 			if !targets[m] {
-				if st := s.Status(m); st != StatusOffline { // os demais aparecem para t
+				if d := s.shownOf(m); d.Status != StatusOffline { // os demais aparecem para t
 					s.pub.Publish(events.Event{
-						Type: events.PresenceUpdate, Topics: []string{"user:" + strconv.FormatInt(t, 10)}, Data: payload(m, st),
+						Type: events.PresenceUpdate, Topics: []string{"user:" + strconv.FormatInt(t, 10)}, Data: d,
 					})
 				}
 			}

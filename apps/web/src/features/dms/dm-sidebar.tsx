@@ -1,10 +1,18 @@
 import { type ChannelPayload, useGetMe } from "@spook/shared";
 import { Link } from "@tanstack/react-router";
-import { Plus, Users } from "lucide-react";
+import { BellOff, MoreVertical, Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { StatusAvatar } from "@/components/presence-dot";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { MentionBadge, UnreadDot, useChannelRead } from "@/features/notifications/badges";
+import { NotificationMenuItems } from "@/features/notifications/notification-menu";
+import { useIsMuted } from "@/features/notifications/settings";
+import { UserPanel } from "@/features/presence/user-panel";
 import { appMessage } from "@/lib/app-errors";
 import { dmTitle, isGroupDm, otherRecipient } from "./dm-utils";
 import { NewGroupDialog } from "./new-group-dialog";
@@ -53,6 +61,7 @@ export function DmSidebar() {
           </ul>
         )}
       </nav>
+      <UserPanel />
       <NewGroupDialog open={creating} onOpenChange={setCreating} />
     </aside>
   );
@@ -63,35 +72,65 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
   const unread = !!read && (read.unread > 0 || read.mentions > 0);
   const title = dmTitle(channel, myId);
   const other = otherRecipient(channel, myId);
+  const muted = useIsMuted("channel", channel.id);
   return (
-    <Link
-      to="/channels/@me/$channelId"
-      params={{ channelId: channel.id }}
-      className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent data-[status=active]:bg-accent"
+    <div
+      className={`group flex items-center rounded-md hover:bg-accent ${muted ? "opacity-60" : ""}`}
+      data-muted={muted || undefined}
     >
-      {isGroupDm(channel) ? (
-        <span
-          aria-hidden
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground"
-        >
-          <Users className="size-4" />
-        </span>
-      ) : (
-        <StatusAvatar userId={other?.id} url={other?.avatar_url} name={title} size={32} />
-      )}
-      <span
-        className={unread ? "min-w-0 flex-1 truncate font-semibold" : "min-w-0 flex-1 truncate"}
+      <Link
+        to="/channels/@me/$channelId"
+        params={{ channelId: channel.id }}
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-sm data-[status=active]:bg-accent"
       >
-        {title}
-      </span>
-      {read && read.mentions > 0 ? (
-        <MentionBadge
-          count={read.mentions}
-          label={`${read.mentions > 99 ? "99+" : read.mentions} mensagens novas`}
-        />
-      ) : unread ? (
-        <UnreadDot label="Mensagens novas" />
-      ) : null}
-    </Link>
+        {isGroupDm(channel) ? (
+          <span
+            aria-hidden
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground"
+          >
+            <Users className="size-4" />
+          </span>
+        ) : (
+          <StatusAvatar userId={other?.id} url={other?.avatar_url} name={title} size={32} />
+        )}
+        <span
+          className={unread ? "min-w-0 flex-1 truncate font-semibold" : "min-w-0 flex-1 truncate"}
+        >
+          {title}
+        </span>
+        {muted ? (
+          <BellOff className="size-3.5 shrink-0" aria-label="Silenciado" role="img" />
+        ) : null}
+        {read && read.mentions > 0 ? (
+          <MentionBadge
+            count={read.mentions}
+            label={`${read.mentions > 99 ? "99+" : read.mentions} mensagens novas`}
+          />
+        ) : unread ? (
+          <UnreadDot label="Mensagens novas" />
+        ) : null}
+      </Link>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            aria-label={`Opções de ${title}`}
+          >
+            <MoreVertical />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <NotificationMenuItems
+            scope="channel"
+            targetId={channel.id}
+            what="esta conversa"
+            isGuildLike={false}
+            withSeparator={false}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }

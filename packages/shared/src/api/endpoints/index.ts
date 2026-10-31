@@ -6,6 +6,7 @@ export * from "./guilds/guilds";
 export * from "./invites/invites";
 export * from "./messages/messages";
 export * from "./notifications/notifications";
+export * from "./presence/presence";
 export * from "./uploads/uploads";
 export * from "./users/users";
 export * from "./voice/voice";

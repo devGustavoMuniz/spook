@@ -120,3 +120,30 @@ SELECT * FROM push_subscriptions WHERE id = $1;
 
 -- name: ListPushSubscriptionsByUsers :many
 SELECT * FROM push_subscriptions WHERE user_id = ANY($1::bigint[]) ORDER BY id;
+
+-- Silenciar e nível de notificação (adicional).
+-- name: ListNotificationSettings :many
+SELECT scope, target_id, muted, muted_until, level FROM notification_settings WHERE user_id = $1 ORDER BY scope, target_id;
+
+-- name: UpsertNotificationSetting :one
+INSERT INTO notification_settings (user_id, scope, target_id, muted, muted_until, level)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (user_id, scope, target_id)
+DO UPDATE SET muted = EXCLUDED.muted, muted_until = EXCLUDED.muted_until, level = EXCLUDED.level, updated_at = now()
+RETURNING scope, target_id, muted, muted_until, level;
+
+-- name: DeleteNotificationSetting :execrows
+DELETE FROM notification_settings WHERE user_id = $1 AND scope = $2 AND target_id = $3;
+
+-- name: IsGuildMember :one
+SELECT EXISTS (SELECT 1 FROM guild_members WHERE guild_id = $1 AND user_id = $2);
+
+-- Para decidir o push: preferência de status e as configurações do canal e do servidor de cada destinatário.
+-- name: ListNotifyFilters :many
+SELECT u.id AS user_id, u.status_pref,
+       ch.muted AS channel_muted, ch.muted_until AS channel_muted_until, ch.level AS channel_level,
+       gu.muted AS guild_muted, gu.muted_until AS guild_muted_until, gu.level AS guild_level
+FROM users u
+LEFT JOIN notification_settings ch ON ch.user_id = u.id AND ch.scope = 'channel' AND ch.target_id = @channel_id::bigint
+LEFT JOIN notification_settings gu ON gu.user_id = u.id AND gu.scope = 'guild' AND gu.target_id = sqlc.narg('guild_id')::bigint
+WHERE u.id = ANY(@user_ids::bigint[]);

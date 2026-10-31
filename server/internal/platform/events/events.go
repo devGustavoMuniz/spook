@@ -29,6 +29,10 @@ const (
 	PresenceUpdate    = "PRESENCE_UPDATE"
 	VoiceStateUpdate  = "VOICE_STATE_UPDATE"
 	ReadStateUpdate   = "READ_STATE_UPDATE"
+	// PresenceSelfUpdate: a preferência de status/status personalizado do próprio usuário mudou (user:<id>).
+	PresenceSelfUpdate = "PRESENCE_SELF_UPDATE"
+	// NotificationSettingsUpdate: silenciar/nível de notificação mudou (user:<id>, sincroniza sessões).
+	NotificationSettingsUpdate = "NOTIFICATION_SETTINGS_UPDATE"
 )
 
 // Event é um fato ocorrido no domínio. Topics diz quem deve recebê-lo

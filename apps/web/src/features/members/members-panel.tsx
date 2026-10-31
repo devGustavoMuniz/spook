@@ -36,11 +36,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { useStartDm } from "@/features/dms/use-start-dm";
+import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import { canKick, canManageRole, type Guild, memberColor, rolesOf } from "@/lib/guild";
 import { queryKeys } from "@/lib/queryKeys";
 import { memberName, useGuildMembers } from "./use-members";
+
+function MemberCustomStatus({ userId }: { userId: string }) {
+  return (
+    <CustomStatusText
+      userId={userId}
+      className="block truncate text-[11px] text-muted-foreground"
+    />
+  );
+}
 
 export function MembersPanel({ guild }: { guild: Guild }) {
   const { data: me } = useGetMe();
@@ -87,6 +97,7 @@ export function MembersPanel({ guild }: { guild: Guild }) {
                     </span>
                   ) : null}
                 </p>
+                <MemberCustomStatus userId={m.user_id} />
                 {roleNames.length > 0 ? (
                   <p className="truncate text-[11px] text-muted-foreground">
                     {roleNames.join(", ")}
