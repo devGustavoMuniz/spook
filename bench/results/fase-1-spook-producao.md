@@ -4,6 +4,19 @@
 Critérios de produção da Fase 1 (SPEC): `/healthz` em produção ✅, k6 do baseline contra o Spook ✅, p95 de login ✅,
 RAM ociosa ✅ (amostra única fornecida pelo dono), smoke de avatar ✅.
 
+## Dois tipos de medição, lado a lado
+
+Os números abaixo são **pela internet** (experiência do usuário, com Cloudflare e túnel no caminho). O método agora também inclui a
+medição **interna** (backend, k6 na rede Docker do app no VPS, sem Cloudflare/túnel) e o header `Server-Timing` no Spook; ver
+`bench/README.md`. Enquanto a medição interna não é rodada, as células ficam como _pendente_.
+
+| Resultado (mediana de 3 rodadas) | Internet: Laravel | Internet: Spook | Interno: Laravel | Interno: Spook |
+| --- | --- | --- | --- | --- |
+| healthz p50 / p95 / p99 | 58,6 / 132,6 / 142,7 ms | 48,0 / 123,1 / 140,0 ms | _pendente_ | _pendente_ |
+| login p50 / p95 / p99 | _pendente_ (sem conta de teste) | 110,7 / 177,7 / 190,0 ms (8/min) | _pendente_ | _pendente_ |
+| Server-Timing `app` (processamento no backend) | n/a | _pendente_ (pós-deploy) | n/a | _pendente_ |
+| Server-Timing `argon2` (hash) | n/a | _pendente_ (pós-deploy) | n/a | _pendente_ |
+
 ## Contexto
 | Campo | Valor |
 | --- | --- |
@@ -16,7 +29,9 @@ RAM ociosa ✅ (amostra única fornecida pelo dono), smoke de avatar ✅.
 | Alvo | `https://spook.dottadigital.com` (`/healthz`, `/api/auth/login`) |
 | Imagem do Spook | `ghcr.io/devgustavomuniz/spook:1eb314dd5ab83d0ce1056f097b84eaab03edc67f` |
 
-## 1. healthz — mesmo cenário do baseline (`baseline.js`, 5 req/s por 60 s), mediana de 3 rodadas
+## 1. healthz — mesmo cenário do baseline (`baseline.js`, 5 req/s por 60 s)
+
+### 1A. Internet (experiência do usuário) — mediana de 3 rodadas, medido em 30/10/2026
 
 | Métrica | Laravel (antrax `/up`) | Spook (`/healthz`) |
 | --- | --- | --- |
@@ -56,7 +71,23 @@ conexão fechada no meio do caminho (borda da Cloudflare ↔ túnel), mas **a ca
 logs do `cloudflared` no momento. Se reaparecer, vale olhar os logs do `cloudflared` nesse horário. A mediana de falhas
 entre as rodadas é 0%, mas o dado bruto fica registrado aqui.
 
-## 2. Login (`login.js`, 8 logins/min por 5 min, 3 rodadas)
+### 1B. Interno (backend, sem Cloudflare/túnel) — PENDENTE
+
+Rodar `bench/scripts/run-internal.sh` (`bench/README.md`, seção 3). O `Server-Timing` do Spook só aparece depois do deploy do commit
+que o introduziu.
+
+| Métrica (mediana de 3 rodadas) | Laravel (antrax) | Spook |
+| --- | --- | --- |
+| http_req_duration p50 / p95 / p99 | _pendente_ | _pendente_ |
+| Server-Timing `app` p50 / p95 / p99 | n/a (o antrax não expõe) | _pendente_ |
+| http_req_failed | _pendente_ | _pendente_ |
+
+## 2. Login
+
+### 2A. Internet — Spook (`login.js`, 8 logins/min por 5 min, 3 rodadas, medido em 30/10/2026)
+
+A taxa padrão do `login.js` mudou depois desta medição: agora é **4/min por 6 min**, igual à do antrax (que limita a 5/min por
+e-mail+IP). Esta medição usou 8/min.
 
 Cada rodada faz 41 logins (mais 1 cadastro no `setup`; por isso `reqs` = 42). `login_duration` mede **só** o `POST /api/auth/login`
 (Argon2id incluído). A taxa fica abaixo do limite de 10/min por IP: houve 0 respostas 429.
@@ -81,7 +112,53 @@ Parte relevante desses ~110 ms é a rede (o piso do `/healthz` já é ~48 ms); o
 foi medido** aqui. O Laravel não tem cenário de login equivalente medido (a comparação de login fica para um cenário comum aos
 dois, se quisermos).
 
-## 3. RAM ociosa — `docker stats --no-stream` no VPS, 30/10/2026, **amostra única** (fornecida pelo dono)
+### 2B. Internet — antrax (`login-antrax.js`) — PENDENTE
+Precisa de uma conta de teste existente, sem 2FA, no antrax. Rodar `run-alternating.sh` com `ANTRAX_LOGIN_EMAIL`/`ANTRAX_LOGIN_PASSWORD`.
+Lembrete: o login do antrax tem **piso de ~200 ms** (Timebox), ver a seção "Login: algoritmo e custo de hash".
+
+| Métrica (mediana de 3 rodadas) | Laravel | Spook |
+| --- | --- | --- |
+| login_duration p50 / p95 / p99 | _pendente_ | _pendente_ (a 4/min) |
+
+### 2C. Interno (backend) — PENDENTE
+
+| Métrica (mediana de 3 rodadas) | Laravel | Spook |
+| --- | --- | --- |
+| login_duration p50 / p95 / p99 | _pendente_ | _pendente_ |
+| Server-Timing `app` p50 / p95 | n/a | _pendente_ |
+| Server-Timing `argon2` p50 / p95 | n/a | _pendente_ |
+
+## 3. Login: algoritmo e custo de hash
+
+O hash domina a latência do login. Configuração de cada lado (lida do código) e custo medido **na mesma máquina**:
+
+| | Spook | antrax (Laravel + Fortify) |
+| --- | --- | --- |
+| Algoritmo | **Argon2id** | **bcrypt** |
+| Parâmetros | m = 19 456 KiB (19 MiB), t = 2, p = 1; salt 16 B, saída 32 B | custo (rounds) = **12** (`BCRYPT_ROUNDS=12`; `config/hashing.php` padrão do framework, driver `bcrypt`) |
+| Onde está definido | `server/internal/auth/password.go` | `.env.prod.example` / padrão do Laravel; `rehash_on_login=true` |
+| Uso de memória por hash | ~19 MiB (no máx. 4 simultâneos, por semáforo) | ~4 KiB (bcrypt não é memory-hard) |
+| Tempo constante contra enumeração | hash "fantasma" quando o e-mail não existe | **`Timebox` de 200 ms**: todo login leva **≥ ~200 ms** |
+| Limite de tentativas | 10/min por IP (`/api/auth/*`) | 5/min por e-mail+IP |
+| **Custo medido** (hash / verify, mediana de 20) | **23,6 / 24,2 ms** (Go, `x/crypto/argon2`) | **209,3 / 209,5 ms** (PHP 8.4, `password_hash`) |
+
+Medido em 30/10/2026 no Mac do dono (arm64, Docker Desktop, mesma VM Linux para os dois): `go test -bench` em `server/internal/auth` e
+`bench/scripts/hash-cost.php`. Outros pontos da mesma execução: bcrypt custo 10 = 52,2 ms e custo 13 = 421,9 ms; **Argon2id com os
+parâmetros do Spook na libargon2 do PHP = 14,5 / 14,0 ms**; Argon2id com o padrão do Laravel (64 MiB, t=4) = 135,4 ms (verify).
+
+Como ler isto:
+- Nesta máquina o **bcrypt 12 custa ≈ 8,6× o Argon2id do Spook em Go** e ≈ 15× o mesmo Argon2id na libargon2. A latência do login
+  compara *configurações* (custo escolhido), não só linguagens ou frameworks.
+- **Ressalva do Go:** o `golang.org/x/crypto/argon2` tem otimização em assembly para amd64 e usa código genérico em arm64; este Mac é
+  arm64, por isso o Go aparece mais lento que a libargon2 aqui (24 contra 14 ms). No VPS o número que vale é o `argon2` do
+  **Server-Timing** (pendente de medição pós-deploy). Não extrapole estes 24 ms para o VPS.
+- **Custo não é igual a segurança equivalente.** O Spook usa o mínimo recomendado pela OWASP para Argon2id (19 MiB, t=2, p=1); o
+  antrax usa bcrypt 12 (a OWASP pede custo ≥ 10). Para comparar *implementações* em pé de igualdade, o caminho é calibrar os dois para o
+  mesmo tempo-alvo (por exemplo ~50 ms: bcrypt 10 contra o Argon2id atual); isso é uma decisão do dono, não feita aqui.
+- No antrax o `Timebox` faz o login nunca ser mais rápido que ~200 ms, mesmo que o hash seja barato. Com o bcrypt 12 medido aqui (≈ 209 ms),
+  o hash sozinho já passa do piso; no VPS depende da CPU.
+
+## 4. RAM ociosa — `docker stats --no-stream` no VPS, 30/10/2026, **amostra única** (fornecida pelo dono)
 
 | Stack Spook | MiB | | Stack Antrax | MiB |
 | --- | --- | --- | --- | --- |
@@ -104,7 +181,7 @@ dois, se quisermos).
   backend vai crescer; (2) o Antrax roda há dias, com dados e uso real, o que infla caches e processos; (3) é uma **única
   amostra**. Para as próximas medições use `bench/scripts/docker-stats.sh` (mediana de N amostras).
 
-## 4. Smoke do avatar em produção (README do deploy, seção 6.3)
+## 5. Smoke do avatar em produção (README do deploy, seção 6.3)
 `node scripts/smoke-prod.mjs https://spook.dottadigital.com` → **19 verificações, todas OK** (saída: [`raw/2026-10-30-producao/smoke-avatar.txt`](./raw/2026-10-30-producao/smoke-avatar.txt)):
 cadastro (cookie `HttpOnly; Secure; SameSite=Lax`), logout, 401 sem sessão, login, URL pré-assinada apontando para
 `spook-files.dottadigital.com`, **preflight CORS a partir de `https://spook.dottadigital.com` com 200 e `Allow-Origin` correto**

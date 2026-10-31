@@ -34,6 +34,7 @@ Monorepo pnpm + Turborepo: `apps/web`, `apps/desktop`, `packages/shared`, `packa
 - Config por variáveis de ambiente; segredos nunca entram no repositório (use `.env.example`).
 - Testes acompanham o código. CI roda lint, testes e build a cada push.
 - Cada fase termina com benchmark k6 versionado em `bench/`, com resultados registrados.
+- Benchmarks têm dois tipos, sempre registrados lado a lado: internet (experiência do usuário) e interno (backend, sem Cloudflare/túnel). O backend devolve `Server-Timing` em toda resposta. Método e comandos: `bench/README.md`.
 
 ## Contrato da API (código gerado, não edite à mão)
 

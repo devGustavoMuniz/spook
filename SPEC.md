@@ -132,6 +132,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 ### RNF03 — Mensurabilidade
 - Toda fase termina com um benchmark k6 reproduzível, versionado no repositório.
 - Os mesmos cenários rodam contra o Laravel e o Spook, no mesmo VPS e com o mesmo volume de dados. O baseline do Laravel é medido contra `antrax.dottadigital.com`, que roda no mesmo VPS e no mesmo padrão de deploy (RNF05).
+- Toda medição é registrada em dois tipos, lado a lado: **pela internet** (experiência do usuário, com Cloudflare e túnel no caminho) e **interna** (backend, k6 na rede Docker do app no VPS, sem Cloudflare/túnel). O backend expõe o header `Server-Timing` com o tempo de processamento da requisição. Resultados de login registram o algoritmo e o custo do hash de cada lado, pois ele domina a latência.
 
 ### RNF04 — Segurança
 - Senhas com Argon2id.

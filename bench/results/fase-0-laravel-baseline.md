@@ -3,6 +3,10 @@
 **Status: REGISTRADO** (30/10/2026). Medido em produção, contra `antrax.dottadigital.com`, que roda no mesmo VPS e no
 mesmo padrão de deploy do Spook (SPEC, RNF03). Resultados do Spook, lado a lado: [`fase-1-spook-producao.md`](./fase-1-spook-producao.md).
 
+Há **dois tipos de medição** (ver `bench/README.md`): **Internet** (experiência do usuário: Cloudflare + túnel, a partir da sua
+máquina) e **Interno** (backend: k6 na rede Docker do app, no VPS, sem Cloudflare/túnel). Este arquivo guarda o lado do antrax;
+o comparativo está no arquivo da Fase 1.
+
 ## Contexto da execução
 | Campo | Valor |
 | --- | --- |
@@ -23,7 +27,7 @@ docker run --rm -i -v "$PWD/bench:/bench:ro" -v "$PWD/out:/out" grafana/k6:1.3.0
 ```
 (o `run-alternating.sh` repete isso 3 vezes, intercalando com o Spook; `node bench/scripts/summarize.mjs <dir>` gera as tabelas.)
 
-## Resultados — mediana das 3 rodadas
+## Internet (experiência do usuário) — mediana das 3 rodadas, medido em 30/10/2026
 | Métrica | Valor |
 | --- | --- |
 | http_reqs (total e req/s) | 301 por execução, 5,01 req/s |
@@ -42,6 +46,22 @@ docker run --rm -i -v "$PWD/bench:/bench:ro" -v "$PWD/out:/out" grafana/k6:1.3.0
 | 2 | 301 | 5.01 | 0.00% (0) | 70.8 ms | 58.6 ms | 120.2 ms | 128.8 ms | 136.1 ms | 146.1 ms |
 | 3 | 301 | 5.01 | 0.00% (0) | 62.9 ms | 52.3 ms | 114.5 ms | 132.6 ms | 142.7 ms | 213.7 ms |
 | **mediana** | 301 | 5.01 | 0.00% | 70.8 ms | 58.6 ms | 120.2 ms | 132.6 ms | 142.7 ms | 213.7 ms |
+
+## Interno (backend, sem Cloudflare/túnel) — PENDENTE
+
+Rodar `bench/scripts/run-internal.sh` (ver `bench/README.md`, seção 3): k6 em container na rede Docker do antrax, no VPS, contra
+a origem que o túnel usa para `antrax.dottadigital.com`. Preencher com `node bench/scripts/summarize.mjs`.
+
+| Campo | Valor |
+| --- | --- |
+| Data/hora, origem | |
+| Rede Docker / alvo interno / Host header | |
+| Cenário | `baseline.js` (`/up`), 5 req/s por 60 s, 3 rodadas |
+
+| Métrica (mediana de 3 rodadas) | Valor |
+| --- | --- |
+| http_req_duration p50 / p95 / p99 | |
+| http_req_failed | |
 
 ## Observações
 - O `/up` do Laravel mede principalmente o caminho de rede (origem → Cloudflare → túnel → app) mais o custo mínimo do

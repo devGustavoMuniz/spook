@@ -1,82 +1,169 @@
 # Benchmarks
 
 Cenários k6 reproduzíveis (RNF03). O mesmo cenário roda contra o Laravel (baseline, `antrax.dottadigital.com`)
-e o Spook. Resultados ficam em `results/`. **A partir da Fase 1 as medições são feitas contra produção
-no VPS** (SPEC, seção 8). Todos os comandos usam só Docker e podem ser rodados da sua máquina.
+e o Spook. **A partir da Fase 1 as medições são feitas contra produção no VPS** (SPEC, seção 8), e cada
+resultado é registrado em **dois tipos de medição, lado a lado**, em `results/`:
 
-## Fase 0 — baseline de healthz (`scenarios/baseline.js`)
+| Tipo | O que mede | Onde roda | Caminho da requisição |
+| --- | --- | --- | --- |
+| **Internet** ("experiência do usuário") | o que o usuário final sente | seu computador | k6 → internet → Cloudflare → túnel → app |
+| **Interno** ("backend") | só o app, sem o ruído da rede | no VPS, na rede Docker do app | k6 → app (rede Docker local; sem Cloudflare, túnel nem TLS) |
 
-Variáveis: `BASE_URL` (obrigatória), `HEALTH_PATH` (padrão `/healthz`), `RATE` (req/s, padrão 5)
-e `DURATION` (padrão `60s`). Carga leve de propósito: o antrax está em produção.
+A diferença entre os dois é o custo de rede. O Spook ainda devolve o header **`Server-Timing`** com o tempo de
+processamento da requisição (`app`) e do hash de senha (`argon2`), o que dá uma terceira visão do mesmo número
+(o k6 grava como `server_timing_app` e `server_timing_argon2`). O antrax não tem esse header: para ele vale a
+medição interna do k6.
+
+> O `Server-Timing` e o login a 4/min só existem em produção depois do deploy do commit que os introduziu. Rode as
+> medições novas depois de um deploy.
+
+## 1. Cenários (`scenarios/`)
+
+| Cenário | Alvo | Mede |
+| --- | --- | --- |
+| `baseline.js` | `HEALTH_PATH` de qualquer sistema (`/up` no antrax, `/healthz` no Spook) | latência do health check |
+| `login.js` | Spook | `POST /api/auth/login`. O `setup` cadastra 1 usuário de teste por execução |
+| `login-antrax.js` | antrax (Laravel + Fortify) | `POST /login`, equivalente ao anterior. **Usa conta de teste existente** (não cadastra nada) |
+
+Todos usam carga leve (é produção). Variáveis principais: `BASE_URL` (obrigatória), `RATE`/`DURATION` (health) e
+`RATE_PER_MIN`/`DURATION` (login, padrão **4/min por 6 min**, igual nos dois lados). `HOST_HEADER` e `FORWARDED_PROTO`
+servem à medição interna do antrax por trás de um proxy por virtual host.
+
+### O login não é equivalente "de graça": o que o antrax faz diferente
+- **Hash:** bcrypt custo 12 (antrax) contra Argon2id m=19 MiB, t=2, p=1 (Spook). Domina a latência do login: ver a seção 5.
+- **Piso de ~200 ms no antrax.** O `Fortify::authenticateUsing` envolve a checagem num `Timebox` de 200 ms (anti-enumeração de
+  contas): todo login demora **pelo menos ~200 ms**, não importa o hash. Se o hash passar disso, vale o hash.
+- **Limites:** antrax 5/min por e-mail+IP; Spook 10/min por IP. Por isso a taxa comum é 4/min.
+- **Fluxo:** o antrax exige sessão + `XSRF-TOKEN` (um `GET /login` antes do `POST`), que o `login-antrax.js` faz; só o `POST`
+  entra na métrica. A conta de teste não pode ter 2FA.
+- O `login-antrax.js` foi validado contra um mock do contrato do Fortify (`test/mock-fortify.mjs`: cookies `Secure`,
+  CSRF, Timebox, limite de 5/min), **não** contra o antrax real. Ajuste `LOGIN_PATH`/headers se o app divergir.
+
+## 2. Medição pela internet (experiência do usuário)
+
+Da sua máquina (só precisa de Docker). Alterna Laravel e Spook e depois faz o login de cada um:
 
 ```sh
-# Laravel (antrax) — health em /up
-docker run --rm -i -v "$PWD/bench:/bench" grafana/k6:1.3.0 run \
-  -e BASE_URL=https://antrax.dottadigital.com -e HEALTH_PATH=/up \
-  /bench/scenarios/baseline.js
-
-# Spook em produção — health em /healthz (MESMO cenário, para comparar)
-docker run --rm -i -v "$PWD/bench:/bench" grafana/k6:1.3.0 run \
-  -e BASE_URL=https://spook.dottadigital.com -e HEALTH_PATH=/healthz \
-  /bench/scenarios/baseline.js
+ANTRAX_LOGIN_EMAIL=<conta-de-teste> ANTRAX_LOGIN_PASSWORD=<senha> \
+  bench/scripts/run-alternating.sh /tmp/bench-internet-$(date +%F) 3
+node bench/scripts/summarize.mjs /tmp/bench-internet-$(date +%F)
 ```
 
-Rode os dois no mesmo horário e da mesma rede. Resultado do Laravel: `results/fase-0-laravel-baseline.md`.
+`run-alternating.sh` (≈ 30 a 45 min conforme o login) aceita `RATE`, `DURATION`, `LOGIN_RATE_PER_MIN`, `LOGIN_DURATION`,
+`ANTRAX_URL`, `SPOOK_URL`, `PAUSE`. Sem `ANTRAX_LOGIN_*` o login do antrax é pulado. Cada execução grava
+`<nome>.json` (summary do k6) e `<nome>.log`. Rode antrax e Spook no mesmo horário e da mesma rede.
 
-## Fase 1 — login (`scenarios/login.js`)
-
-Mede o p95 de `POST /api/auth/login`. O backend limita `/api/auth/*` a **10 req/min por IP**
-(burst 10), então o padrão é leve: `RATE_PER_MIN=8` por `DURATION=5m` (~40 amostras). Passar de
-10/min mede respostas 429, não o login (o threshold `http_req_failed` acusa).
+Comandos avulsos equivalentes:
 
 ```sh
-docker run --rm -i -v "$PWD/bench:/bench" grafana/k6:1.3.0 run \
-  -e BASE_URL=https://spook.dottadigital.com \
-  /bench/scenarios/login.js
+docker run --rm -i -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run \
+  -e BASE_URL=https://antrax.dottadigital.com -e HEALTH_PATH=/up /bench/scenarios/baseline.js
+docker run --rm -i -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run \
+  -e BASE_URL=https://spook.dottadigital.com -e HEALTH_PATH=/healthz /bench/scenarios/baseline.js
 ```
 
-O `setup` cadastra um usuário de teste (`bench-…@bench.spook.invalid`). Para removê-lo depois, no VPS
-como usuário `spook` (com `DOCKER_HOST` apontando para o Docker rootless, ver `deploy/README.md`):
+## 3. Medição interna (backend, sem rede)
+
+### Por que não dá para fazer `curl` de dentro do VPS
+Cada app roda em **Docker rootless de um usuário** (`spook`, `antrax`). Cada daemon tem o **próprio namespace de rede**
+(rootlesskit): os IPs e as redes dos containers existem só dentro dele e **não são alcançáveis a partir do host**, nem como
+`gustavo`, nem como root. O que o host enxerga são só as portas *publicadas*, e os apps HTTP **não publicam nada** (a entrada
+é pelo `cloudflared`; do Spook só `7891/tcp` e `7892/udp`, do LiveKit). Então `curl localhost:8090` não funciona.
+
+A saída é rodar o **k6 também em container, na rede Docker do app**, pelo daemon do dono: `sudo -iu <usuário> docker run
+--network <rede> …`. Lá o app responde pelo nome do serviço. É o que o `scripts/vps-k6.sh` faz (com `--user 0`, `--cpus 0.25`
+e `--memory 192m`).
+
+### Qual é o "serviço interno" de cada um
+Use **a mesma origem que o túnel da Cloudflare usa** para o hostname público (Zero Trust → Networks → Tunnels → o túnel →
+*Public Hostnames* → coluna *Service*). Assim a medição interna é exatamente "o mesmo alvo, sem Cloudflare/túnel":
+
+| Sistema | Usuário (Docker) | Rede Docker | Alvo interno |
+| --- | --- | --- | --- |
+| Spook | `spook` (uid 1004) | `spook_default` (projeto Compose `spook`) | `http://spook:8090` (`/healthz`, `/api/auth/login`) |
+| antrax | `antrax` (uid 1003, socket `/run/user/1003/docker.sock`) | descubra (abaixo) | o *Service* do túnel para `antrax.dottadigital.com` |
+
+Descobrir a rede e o endereço do antrax (lista redes, containers, IPs e portas do daemon dele):
 
 ```sh
-cd /srv/spook/prod && docker compose --env-file .env -f deploy/docker-compose.prod.yml exec postgres \
-  psql -U spook -d spook -c "DELETE FROM users WHERE email LIKE '%@bench.spook.invalid'"
+ssh gustavo@<vps> "sudo -iu antrax bash -s" < bench/scripts/vps-discover.sh
+ssh gustavo@<vps> "sudo -iu spook  bash -s" < bench/scripts/vps-discover.sh   # confirma spook_default / spook:8090
 ```
 
-## Fase 1 — RAM ociosa (mediana de N amostras)
+Se o alvo do antrax for um proxy por virtual host (nginx/Caddy/"edge"), ele só responde ao `Host` certo e o app só gera
+cookies `Secure`/URLs `https` com `X-Forwarded-Proto: https`: passe `ANTRAX_HOST_HEADER=antrax.dottadigital.com`
+(`ANTRAX_FORWARDED_PROTO` assume `https`).
+
+### Rodando
+Do seu computador (envia `bench/` para `/tmp/spook-bench` no VPS e roda cada medição lá, como o dono do Docker):
+
+```sh
+ANTRAX_NET=<rede> ANTRAX_TARGET=<url-interna> ANTRAX_HOST_HEADER=antrax.dottadigital.com \
+ANTRAX_LOGIN_EMAIL=<conta-de-teste> ANTRAX_LOGIN_PASSWORD=<senha> \
+  bench/scripts/run-internal.sh gustavo@<vps> /tmp/bench-interno-$(date +%F) 3
+node bench/scripts/summarize.mjs /tmp/bench-interno-$(date +%F)
+```
+
+Antes das rodadas há uma pré-checagem (1 req/s por 2 s) nos dois alvos; se um não responder, o script para e manda
+usar o `vps-discover.sh`. A senha do antrax segue por stdin e `-e LOGIN_PASSWORD` (herdado do ambiente), nunca na linha de
+comando. Variáveis opcionais: `SPOOK_USER`, `ANTRAX_USER`, `SPOOK_NET`, `SPOOK_TARGET`, `ANTRAX_HEALTH_PATH`, `RATE`,
+`DURATION`, `LOGIN_RATE_PER_MIN`, `LOGIN_DURATION`, `PAUSE`, `REMOTE_DIR`.
+
+Pré-requisitos no VPS: SSH como `gustavo` e `sudo -iu spook` / `sudo -iu antrax` **sem senha**; cada daemon puxa
+`grafana/k6:1.3.0` do Docker Hub na primeira vez. Sem sudo sem senha, rode à mão (logado no VPS):
+`sudo -iu spook /tmp/spook-bench/scripts/vps-k6.sh <nome> <rede> baseline.js -e BASE_URL=http://spook:8090 …`.
+
+**Cuidados.** O container do k6 consome do **mesmo slice** (CPU/memória) do app medido (3G, 1 CPU para o Spook). Com a carga
+leve padrão é desprezível e os limites do `vps-k6.sh` o contêm; para cargas altas (Fase 3 em diante) isso precisa ser
+reavaliado. A medição interna é produção: mantenha a carga leve, e não rode junto com deploy ou outro teste.
+
+## 4. Resultados e dados brutos
+`results/fase-0-laravel-baseline.md` (antrax) e `results/fase-1-spook-producao.md` (Spook, e os dois lado a lado). Dados
+brutos (summary JSON e logs) em `results/raw/<data>-<tipo>/`: `2026-10-30-producao/` é a medição pela internet. O
+`summarize.mjs` rotula cada grupo como *Internet* ou *Interno* (arquivos `internal-*`).
+
+Cada execução do `login.js` cadastra um usuário de teste e o `scripts/smoke-prod.mjs` cria um usuário descartável; **não há
+rota de excluir conta**. Os usernames saem no log do k6 (`usuario_de_teste ...`) e na saída do smoke. Para removê-los, como
+usuário `spook`, em `/srv/spook/prod`:
+
+```sh
+docker compose --env-file .env -f deploy/docker-compose.prod.yml exec postgres psql -U spook -d spook \
+  -c "DELETE FROM users WHERE email LIKE '%@bench.spook.invalid' OR email LIKE '%@smoke.spook.invalid'"
+```
+
+## 5. Custo do hash de senha (domina a latência do login)
+
+A tabela comparativa está em `results/fase-1-spook-producao.md` (seção "Login: algoritmo e custo de hash"). Para medir, na
+**mesma máquina**, os dois lados:
+
+```sh
+# Spook: Argon2id em Go (a raiz do repositório; o script entra em server/ sozinho)
+scripts/go.sh test -run '^$' -bench . -benchtime 20x ./internal/auth
+# antrax: bcrypt e, de quebra, Argon2id em PHP (libargon2) com os parâmetros do Spook
+docker run --rm -v "$PWD/bench/scripts:/s:ro" php:8.4-cli php /s/hash-cost.php 20
+```
+
+No VPS, o número que vale para o Spook é o `argon2` do `Server-Timing` (rodando o `login.js`). Para o antrax, rode o
+`hash-cost.php` **dentro do container do app dele** (mesmo PHP e mesma CPU de produção):
+
+```sh
+ssh gustavo@<vps> "sudo -iu antrax docker exec -i <container-do-app> php" < bench/scripts/hash-cost.php
+```
+
+## 6. RAM ociosa (mediana de N amostras)
 
 `scripts/docker-stats.sh [amostras=10] [intervalo=5] [filtro-regex=.]` coleta N amostras de `docker stats --no-stream`,
 converte para MiB e imprime a **mediana por container** e a soma da stack (`STATS_CSV=1` despeja as amostras brutas em
-stderr). Rode com o sistema sem tráfego (sem k6 nem deploy em andamento).
-
-O Docker é rootless por usuário, então o script precisa rodar como o dono do daemon. Do seu computador, **como `gustavo`**,
-sem copiar nada para o servidor (o script vai por stdin):
+stderr). Rode com o sistema sem tráfego (sem k6 nem deploy em andamento). O Docker é rootless por usuário, então o
+script roda como o dono do daemon. Do seu computador, **como `gustavo`**, com o script indo por stdin:
 
 ```sh
-# Spook (10 amostras, uma a cada 5 s)
-ssh gustavo@<vps> "sudo -iu spook bash -s -- 10 5" < bench/scripts/docker-stats.sh
-
-# Antrax, para comparar (mesmo comando, outro usuário)
-ssh gustavo@<vps> "sudo -iu antrax bash -s -- 10 5" < bench/scripts/docker-stats.sh
+ssh gustavo@<vps> "sudo -iu spook  bash -s -- 10 5" < bench/scripts/docker-stats.sh   # Spook
+ssh gustavo@<vps> "sudo -iu antrax bash -s -- 10 5" < bench/scripts/docker-stats.sh   # antrax, para comparar
 ```
 
-(Se o `sudo` pedir senha ou terminal, use `ssh -t` ou entre no servidor e rode `sudo -iu spook`, colando o script.)
-Registre o container `spook-spook-1` (meta do SPEC, RNF01: < 100 MB) e a soma da stack. Para o backend do antrax, some
-`app + reverb + queue + scheduler`.
+(Se o `sudo` pedir senha ou terminal, use `ssh -t` ou entre no servidor.) Registre o container `spook-spook-1` (meta do SPEC,
+RNF01: < 100 MB) e a soma da stack. Para o backend do antrax, some `app + reverb + queue + scheduler`.
 
-## Rodando tudo contra produção (3 rodadas alternadas)
-
-```sh
-bench/scripts/run-alternating.sh /tmp/bench-$(date +%F) 3          # healthz antrax/Spook alternados + login do Spook
-node bench/scripts/summarize.mjs /tmp/bench-$(date +%F)            # tabelas Markdown com a mediana das rodadas
-node scripts/smoke-prod.mjs https://spook.dottadigital.com         # smoke da API + avatar direto no storage
-```
-
-`run-alternating.sh` leva ~25 min (6 execuções de 60 s e 3 de 5 min) e aceita `RATE`, `DURATION`, `LOGIN_RATE_PER_MIN`,
-`LOGIN_DURATION`, `ANTRAX_URL`, `SPOOK_URL`, `PAUSE`. Cada execução grava `<nome>.json` (summary do k6) e `<nome>.log`.
-Os dados brutos da primeira medição estão em `results/raw/2026-10-30-producao/`.
-
-**Cada execução do `login.js` cadastra um usuário de teste e o `smoke-prod.mjs` cria um usuário descartável; não há rota de
-excluir conta.** Os usernames aparecem no log do k6 (`usuario_de_teste ...`) e na saída do smoke.
-
-Resultados e modelos: `results/fase-0-laravel-baseline.md` e `results/fase-1-spook-producao.md`.
+## 7. Smoke de produção (não é benchmark)
+`node scripts/smoke-prod.mjs https://spook.dottadigital.com`: cadastro, login, avatar direto no storage e CORS.
