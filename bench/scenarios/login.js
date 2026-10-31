@@ -1,15 +1,18 @@
 // Fase 1: latência do login em produção (RNF01/RNF03). Mede p95 de POST /api/auth/login.
 //
 // O backend limita /api/auth/* a 10 req/min por IP (burst 10), então a carga é mínima de propósito:
-// o padrão é 8 logins/min por 5 min (~40 amostras, abaixo do limite). Acima de 10/min você mede 429,
-// não o login. O setup cria UM usuário de teste (e-mail @bench.spook.invalid, ver bench/README.md
-// para removê-lo depois).
+// o padrão é 4 logins/min por 6 min (24 amostras), a mesma taxa do login-antrax.js (o antrax limita a 5/min
+// por e-mail+IP). Acima de 10/min você mede 429, não o login. O setup cria UM usuário de teste
+// (e-mail @bench.spook.invalid, ver bench/README.md para removê-lo depois).
+// Mede também o Server-Timing do backend (server_timing_app e server_timing_argon2): a diferença entre
+// login_duration e server_timing_app é o custo de rede (Cloudflare/túnel na medição pela internet).
 //
 // Uso: k6 run -e BASE_URL=https://spook.dottadigital.com bench/scenarios/login.js
-// Variáveis: BASE_URL (obrigatória), RATE_PER_MIN (8), DURATION (5m).
+// Variáveis: BASE_URL (obrigatória), RATE_PER_MIN (4), DURATION (6m).
 import { check } from "k6";
 import http from "k6/http";
 import { Trend } from "k6/metrics";
+import { recordServerTiming } from "./lib/servertiming.js";
 
 const BASE_URL = __ENV.BASE_URL;
 if (!BASE_URL) throw new Error("defina BASE_URL (ex.: https://spook.dottadigital.com)");
@@ -21,9 +24,9 @@ export const options = {
   scenarios: {
     login: {
       executor: "constant-arrival-rate",
-      rate: Number(__ENV.RATE_PER_MIN || 8),
+      rate: Number(__ENV.RATE_PER_MIN || 4),
       timeUnit: "1m",
-      duration: __ENV.DURATION || "5m",
+      duration: __ENV.DURATION || "6m",
       preAllocatedVUs: 2,
       maxVUs: 5,
     },
@@ -60,5 +63,6 @@ export default function (user) {
     { headers: HEADERS },
   );
   loginDuration.add(res.timings.duration);
+  recordServerTiming(res);
   check(res, { "login 200": (r) => r.status === 200 });
 }
