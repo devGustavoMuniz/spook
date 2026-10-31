@@ -8,6 +8,7 @@ export * from "./api/endpoints/guilds/guilds";
 export * from "./api/endpoints/invites/invites";
 export * from "./api/endpoints/messages/messages";
 export * from "./api/endpoints/notifications/notifications";
+export * from "./api/endpoints/uploads/uploads";
 export * from "./api/endpoints/users/users";
 export * from "./api/endpoints/voice/voice";
 export * from "./api/model";
