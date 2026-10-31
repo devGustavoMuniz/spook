@@ -27,6 +27,7 @@ const message = (id: string) => ({
   content: `msg ${id}`,
   edited_at: null,
   created_at: "2026-10-31T12:00:00Z",
+  attachments: [],
 });
 
 function setup(extra: Partial<GatewayOptions> = {}) {

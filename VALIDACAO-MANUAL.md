@@ -80,6 +80,16 @@ Front (o E2E com mídia falsa do Chromium e o LiveKit de desenvolvimento já cob
 
 ## Fase 6 — Uploads e notificações
 
+Backend (6a: fila de jobs, uploads e thumbnails):
+
+- [ ] Depois do deploy, conferir nos logs do `spook` a linha `River client started` e que `docker stats` mostra o container dentro do novo teto de 512M (`mem_limit`) com `GOMEMLIMIT=400MiB` (`docker compose ... config | grep -E "GOMEMLIMIT|mem_limit"`).
+- [ ] **Enviar uma imagem real em produção** (foto de celular de vários MB, JPEG e também PNG e WebP) por um canal e por uma DM: a mensagem aparece na hora com o original e, em poucos segundos, o `MESSAGE_UPDATE` troca para o thumbnail (400 px no maior lado). Conferir nos logs `thumbnail gerado ... ms=` e que não há `thumbnail falhou`.
+- [ ] **CORS e URLs do storage no navegador:** o PUT direto ao Garage (`https://spook-files.dottadigital.com`) precisa passar pelo preflight (origem `https://spook.dottadigital.com`, método PUT, cabeçalho `content-type`) e as URLs de leitura (`url`/`thumbnail_url`) abrirem em `<img>`/nova aba sem erro de CORS ou de assinatura (confira no DevTools; as URLs são assinadas para o host público `S3_ENDPOINT`). Testar também PDF (abre inline), zip, áudio e vídeo.
+- [ ] Foto de celular em retrato (EXIF com rotação): o thumbnail pode aparecer deitado, porque o servidor não aplica a orientação EXIF (limitação registrada no SPEC 5.5); conferir se o incômodo justifica tratar na Fase 6b/7.
+- [ ] Recusas na prática: arquivo acima de 25 MB (mensagem clara), `.svg`, `.html`, `.exe` e um arquivo renomeado (ex.: um `.txt` renomeado para `.png`) devem ser recusados; conta sem o bit ATTACH_FILES recebe 403 ao pedir upload.
+- [ ] Limpeza de órfãos: pedir um upload sem enviar a mensagem, esperar mais de 1 h (+ até 10 min) e conferir que a linha em `attachments` e o objeto no bucket sumiram (`docker compose ... exec postgres psql -c "select count(*) from attachments where message_id is null"`).
+- [ ] Observabilidade (Fase B): com `SPOOK_OTLP_ENDPOINT` definido, conferir `spook.uploads.requested`, `spook.thumbnail.jobs{result}`, `spook.thumbnail.job.duration` e `spook.jobs.queue.size`; rodar `bench/scenarios/upload.js` (passos em `bench/README.md`) com conta/canal de **teste**, combinando a carga.
+
 ## Fase 7 — Desktop
 
 ## Pendências gerais de configuração

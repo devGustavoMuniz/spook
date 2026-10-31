@@ -11,6 +11,19 @@ export const authorPayloadSchema = z.object({
   avatar_url: z.string().optional(),
 });
 
+export const attachmentPayloadSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  content_type: z.string(),
+  size: z.number().int(),
+  // GET pré-assinado (1 h).
+  url: z.string(),
+  // Só em imagens e só depois do job de thumbnail (chega por MESSAGE_UPDATE).
+  thumbnail_url: z.string().optional(),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
+});
+
 export const messagePayloadSchema = z.object({
   id: z.string(),
   channel_id: z.string(),
@@ -18,6 +31,8 @@ export const messagePayloadSchema = z.object({
   content: z.string(),
   edited_at: z.string().nullable(),
   created_at: z.string(),
+  // Sempre presente ([] sem anexos).
+  attachments: z.array(attachmentPayloadSchema),
 });
 
 export const recipientPayloadSchema = z.object({

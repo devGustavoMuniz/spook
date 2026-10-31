@@ -26,6 +26,23 @@ export const ListMessagesResponse = zod.object({
   messages: zod
     .array(
       zod.object({
+        attachments: zod.array(
+          zod.object({
+            content_type: zod.string(),
+            filename: zod.string(),
+            height: zod.int().optional().describe("Altura original; imagens processadas pelo job"),
+            id: zod.string(),
+            size: zod.int(),
+            thumbnail_url: zod
+              .string()
+              .optional()
+              .describe(
+                "Só em imagens, depois que o job de thumbnail termina (chega por MESSAGE_UPDATE)",
+              ),
+            url: zod.string().describe("GET pré-assinado, válido por 1 h"),
+            width: zod.int().optional().describe("Largura original; imagens processadas pelo job"),
+          }),
+        ),
         author: zod.object({
           avatar_url: zod.string().optional(),
           display_name: zod.string().optional(),
@@ -44,7 +61,7 @@ export const ListMessagesResponse = zod.object({
 });
 
 /**
- * @summary Envia uma mensagem (limite: 5 a cada 5 s por canal)
+ * @summary Envia uma mensagem, com ou sem anexos (limite: 5 a cada 5 s por canal)
  */
 export const SendMessageParams = zod.object({
   channel_id: zod.string().describe("ID do canal"),
@@ -53,14 +70,37 @@ export const SendMessageParams = zod.object({
 export const sendMessageBodyContentMax = 2000;
 
 export const SendMessageBody = zod.object({
+  attachment_ids: zod
+    .array(zod.string())
+    .nullish()
+    .describe(
+      "Até 10 IDs de uploads já enviados ao storage (POST /channels/{id}/uploads); só anexos seus, deste canal, ainda sem mensagem e com menos de 1 h",
+    ),
   content: zod
     .string()
-    .min(1)
     .max(sendMessageBodyContentMax)
-    .describe("1 a 2000 caracteres (contados em runes), não só espaços"),
+    .optional()
+    .describe("Até 2000 caracteres (runes); pode ser vazio se houver anexo"),
 });
 
 export const SendMessageResponse = zod.object({
+  attachments: zod.array(
+    zod.object({
+      content_type: zod.string(),
+      filename: zod.string(),
+      height: zod.int().optional().describe("Altura original; imagens processadas pelo job"),
+      id: zod.string(),
+      size: zod.int(),
+      thumbnail_url: zod
+        .string()
+        .optional()
+        .describe(
+          "Só em imagens, depois que o job de thumbnail termina (chega por MESSAGE_UPDATE)",
+        ),
+      url: zod.string().describe("GET pré-assinado, válido por 1 h"),
+      width: zod.int().optional().describe("Largura original; imagens processadas pelo job"),
+    }),
+  ),
   author: zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),
@@ -103,6 +143,23 @@ export const EditMessageBody = zod.object({
 });
 
 export const EditMessageResponse = zod.object({
+  attachments: zod.array(
+    zod.object({
+      content_type: zod.string(),
+      filename: zod.string(),
+      height: zod.int().optional().describe("Altura original; imagens processadas pelo job"),
+      id: zod.string(),
+      size: zod.int(),
+      thumbnail_url: zod
+        .string()
+        .optional()
+        .describe(
+          "Só em imagens, depois que o job de thumbnail termina (chega por MESSAGE_UPDATE)",
+        ),
+      url: zod.string().describe("GET pré-assinado, válido por 1 h"),
+      width: zod.int().optional().describe("Largura original; imagens processadas pelo job"),
+    }),
+  ),
   author: zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),

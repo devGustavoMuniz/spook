@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./attachmentPayload";
 export * from "./authorPayload";
 export * from "./avatarInputBody";
 export * from "./avatarInputBodyContentType";
@@ -38,6 +39,7 @@ export * from "./requestGuildIconUploadRequest";
 export * from "./requestGuildIconUploadRequestContentType";
 export * from "./requestGuildIconUploadResponse";
 export * from "./rolePayload";
+export * from "./sendBody";
 export * from "./sessionBody";
 export * from "./statePayload";
 export * from "./ticketBody";
@@ -48,4 +50,7 @@ export * from "./updateGuildRequest";
 export * from "./updateGuildRoleRequest";
 export * from "./updateProfileInputBody";
 export * from "./updateVoiceStateRequest";
+export * from "./uploadBody";
+export * from "./uploadPayload";
+export * from "./uploadPayloadHeaders";
 export * from "./view";

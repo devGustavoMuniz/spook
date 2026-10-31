@@ -206,7 +206,23 @@
         },
         "content": "Olá, Spook!",
         "edited_at": null,
-        "created_at": "2026-10-31T12:00:00Z"
+        "created_at": "2026-10-31T12:00:00Z",
+        "attachments": [
+          {
+            "id": "950",
+            "filename": "foto.jpg",
+            "content_type": "image/jpeg",
+            "size": 123456,
+            "url": "https://files.spook.example/attachments/300/950/foto.jpg?X-Amz-Signature=abc"
+          },
+          {
+            "id": "951",
+            "filename": "notas.pdf",
+            "content_type": "application/pdf",
+            "size": 2048,
+            "url": "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"
+          }
+        ]
       }
     },
     "MESSAGE_DELETE": {
@@ -232,7 +248,26 @@
         },
         "content": "Olá, Spook! (editada)",
         "edited_at": "2026-10-31T12:01:00Z",
-        "created_at": "2026-10-31T12:00:00Z"
+        "created_at": "2026-10-31T12:00:00Z",
+        "attachments": [
+          {
+            "id": "950",
+            "filename": "foto.jpg",
+            "content_type": "image/jpeg",
+            "size": 123456,
+            "url": "https://files.spook.example/attachments/300/950/foto.jpg?X-Amz-Signature=abc",
+            "thumbnail_url": "https://files.spook.example/thumbnails/950.jpg?X-Amz-Signature=abc",
+            "width": 4032,
+            "height": 3024
+          },
+          {
+            "id": "951",
+            "filename": "notas.pdf",
+            "content_type": "application/pdf",
+            "size": 2048,
+            "url": "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"
+          }
+        ]
       }
     },
     "PRESENCE_UPDATE": {

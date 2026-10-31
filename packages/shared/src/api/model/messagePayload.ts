@@ -4,9 +4,11 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { AttachmentPayload } from "./attachmentPayload";
 import type { AuthorPayload } from "./authorPayload";
 
 export interface MessagePayload {
+  attachments: AttachmentPayload[];
   author: AuthorPayload;
   channel_id: string;
   content: string;

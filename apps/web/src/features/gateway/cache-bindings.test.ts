@@ -38,6 +38,7 @@ function msg(id: string, content = `msg ${id}`, author = "50"): MessagePayload {
     content,
     edited_at: null,
     created_at: "2026-10-31T12:00:00Z",
+    attachments: [],
   };
 }
 

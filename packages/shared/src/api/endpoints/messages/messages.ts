@@ -27,6 +27,7 @@ import type {
   ListMessagesParams,
   MessageListOutputBody,
   MessagePayload,
+  SendBody,
 } from "../../model";
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -193,11 +194,11 @@ export const getSendMessageUrl = (channelId: string) => {
 };
 
 /**
- * @summary Envia uma mensagem (limite: 5 a cada 5 s por canal)
+ * @summary Envia uma mensagem, com ou sem anexos (limite: 5 a cada 5 s por canal)
  */
 export const sendMessage = async (
   channelId: string,
-  contentBody: ContentBody,
+  sendBody: SendBody,
   options?: Parameters<typeof http>[1],
 ): Promise<MessagePayload> => {
   const getHeaders = (
@@ -223,7 +224,7 @@ export const sendMessage = async (
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
-    body: JSON.stringify(contentBody),
+    body: JSON.stringify(sendBody),
   });
 };
 
@@ -263,12 +264,12 @@ export const getSendMessageMutationOptions = <TError = ErrorModel, TContext = un
 };
 
 export type SendMessageMutationResult = NonNullable<Awaited<ReturnType<typeof sendMessage>>>;
-export type SendMessageMutationBody = ContentBody;
+export type SendMessageMutationBody = SendBody;
 export type SendMessageMutationError = ErrorModel;
-export type SendMessageMutationVariables = { channelId: string; data: ContentBody };
+export type SendMessageMutationVariables = { channelId: string; data: SendBody };
 
 /**
- * @summary Envia uma mensagem (limite: 5 a cada 5 s por canal)
+ * @summary Envia uma mensagem, com ou sem anexos (limite: 5 a cada 5 s por canal)
  */
 export const useSendMessage = <TError = ErrorModel, TContext = unknown>(
   options?: {

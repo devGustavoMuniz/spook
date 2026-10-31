@@ -342,6 +342,7 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           content: b.content.trim(),
           created_at: new Date().toISOString(),
           edited_at: null,
+          attachments: [],
         };
         state.messages[cid] = [...(state.messages[cid] ?? []), msg];
         return HttpResponse.json(msg, { status: 201 });
