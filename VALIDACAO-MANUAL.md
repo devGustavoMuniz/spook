@@ -25,6 +25,12 @@ Cada fase acrescenta os seus passos aqui, em ordem curta. Marque `[x]` conforme 
 - [ ] Observabilidade em produção: `SPOOK_OTLP_ENDPOINT` segue vazio (métricas e traces do gateway ficam no-op). Para a Fase B, decidir onde roda o coletor OTLP (ver `deploy/README.md`, seção 8); em dev as métricas saem em `http://localhost:8889/metrics` (coletor, formato Prometheus).
 - [ ] Fase B: rodar `bench/scenarios/gateway-connections.js` e `gateway-latency.js` (passos e cuidados em `bench/README.md`, Fase 3) com contas/canal de **teste**, medindo conexões por GB de RAM com `docker stats`. Combinar a carga antes: 10.000 conexões saturam o VPS de 2 vCPU.
 - [ ] Ambiente Docker local sem espaço (`No space left on device` no Postgres derruba testes de integração): `docker builder prune` e `docker system df` liberam espaço.
+- [ ] Front (tempo real) com contas reais: aba parada por 2+ min não cai (o heartbeat de 41 s mantém a conexão atrás do Cloudflare); ao voltar à aba nada pisca nem recarrega.
+- [ ] Front: desligar o Wi-Fi por ~20 s com o canal aberto e religar; "Reconectando…" aparece só depois de ~2,5 s fora e some sozinho, e as mensagens enviadas por outra pessoa nesse intervalo surgem sem recarregar (resume). Fora por mais de 60 s: ao voltar, a lista de servidores e o histórico são recarregados sozinhos.
+- [ ] Front: a mesma conta aberta em duas abas/dispositivos recebe os eventos nas duas (sessões independentes); quando uma sessão é retomada por outra conexão (4002) aparece "Sessão aberta em outro lugar" e o botão "Reconectar" funciona.
+- [ ] Front: com duas contas reais, tirar o cargo que dá VIEW_CHANNEL (ou a permissão do `@everyone`) da segunda e conferir que ela é levada para fora do canal com o aviso e deixa de receber mensagens; devolver a permissão e conferir que o canal volta sem recarregar.
+- [ ] Front: ser expulso de um servidor (ou ele ser excluído) com ele aberto leva ao início com o aviso "Você não está mais em …".
+- [ ] Front: minimizar o navegador/trocar de aba por alguns segundos e voltar reconecta na hora se a conexão tiver caído (sem esperar o backoff).
 
 ## Fase 4 — Presença e DMs
 
