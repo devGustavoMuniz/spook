@@ -296,3 +296,41 @@ func TestHealthzAndOpenAPIServed(t *testing.T) {
 		status(t, resp, b, 200)
 	}
 }
+
+func TestServerTimingHeader(t *testing.T) {
+	e := newEnv(t)
+	email, username := uniq("timing")
+
+	resp, b := e.do(t, "POST", "/api/auth/register", map[string]string{"email": email, "username": username, "password": "senha-forte-123"}, nil)
+	status(t, resp, b, 201)
+	// cadastro e login fazem hash/verificação Argon2id: a métrica `argon2` precisa aparecer e ser < `app`
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{"POST", "/api/auth/login", map[string]string{"email": email, "password": "senha-forte-123"}},
+		{"POST", "/api/auth/register", map[string]string{"email": "t2-" + email, "username": "t2" + username[:10], "password": "senha-forte-123"}},
+	} {
+		resp, b = e.do(t, c.method, c.path, c.body, nil)
+		h := resp.Header.Get("Server-Timing")
+		var app, argon float64
+		if _, err := fmt.Sscanf(h, "app;dur=%f, argon2;dur=%f", &app, &argon); err != nil {
+			t.Fatalf("%s %s: Server-Timing = %q (%v) body=%s", c.method, c.path, h, err, b)
+		}
+		if argon <= 0 || argon > app {
+			t.Fatalf("%s %s: argon2 (%.2f) deveria estar entre 0 e app (%.2f)", c.method, c.path, argon, app)
+		}
+	}
+
+	resp, b = e.do(t, "GET", "/healthz", nil, nil)
+	status(t, resp, b, 200)
+	if h := resp.Header.Get("Server-Timing"); !strings.HasPrefix(h, "app;dur=") || strings.Contains(h, "argon2") {
+		t.Fatalf("healthz Server-Timing = %q", h)
+	}
+	bare := &testEnv{srv: e.srv, client: &http.Client{}} // sem cookie: 401 também carrega o header
+	resp, b = bare.do(t, "GET", "/api/users/me", nil, nil)
+	status(t, resp, b, 401)
+	if resp.Header.Get("Server-Timing") == "" {
+		t.Fatal("respostas de erro também devem ter Server-Timing")
+	}
+}

@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	gotime "time"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
 )
 
 // Parâmetros Argon2id recomendados pela OWASP (m=19 MiB, t=2, p=1).
@@ -49,7 +52,9 @@ func (h *Hasher) Hash(ctx context.Context, password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("gerar salt: %w", err)
 	}
+	start := gotime.Now()
 	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	servertiming.Add(ctx, "argon2", gotime.Since(start)) // só o cálculo, sem a espera pelo semáforo
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, argonMemory, argonTime, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
@@ -83,6 +88,8 @@ func (h *Hasher) Verify(ctx context.Context, password, encoded string) (bool, er
 		return false, err
 	}
 	defer release()
+	start := gotime.Now()
 	got := argon2.IDKey([]byte(password), salt, time, memory, threads, uint32(len(want)))
+	servertiming.Add(ctx, "argon2", gotime.Since(start))
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }

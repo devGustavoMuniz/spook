@@ -19,6 +19,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/webui"
 	"github.com/devGustavoMuniz/spook/server/internal/user"
@@ -58,6 +59,7 @@ func New(ctx context.Context, d Deps) (http.Handler, error) {
 	startCleanup(ctx, authLimiter, apiLimiter)
 
 	r := chi.NewRouter()
+	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(limitByPath(d.Cfg.RealIPHeader, authLimiter, apiLimiter))
 
