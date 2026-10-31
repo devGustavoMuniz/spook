@@ -42,6 +42,29 @@ func (l *Limiter) Allow(key string) bool {
 	return e.lim.AllowN(now, 1)
 }
 
+// Take consome uma permissão da chave (que pode ser composta, ex.: "msg:<usuário>:<canal>").
+// Quando o limite estoura devolve false e quanto falta esperar para a próxima permissão.
+func (l *Limiter) Take(key string) (ok bool, retryAfter time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	e, found := l.clients[key]
+	if !found {
+		e = &entry{lim: rate.NewLimiter(l.rate, l.burst)}
+		l.clients[key] = e
+	}
+	e.seen = now
+	r := e.lim.ReserveN(now, 1)
+	if !r.OK() {
+		return false, time.Second
+	}
+	if d := r.DelayFrom(now); d > 0 {
+		r.CancelAt(now) // não consome a vaga de quem foi recusado
+		return false, d
+	}
+	return true, 0
+}
+
 // Cleanup remove clientes inativos há mais de idle; chame periodicamente.
 func (l *Limiter) Cleanup(idle time.Duration) {
 	l.mu.Lock()
