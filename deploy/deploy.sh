@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Deploy idempotente, executado NO servidor como o usuário `spook` (Docker rootless, sem root).
 # Uso:  deploy/deploy.sh ghcr.io/<dono>/spook:<tag>
-# Variáveis opcionais: GHCR_USER (com o token do GHCR lido do stdin).
+# GHCR: o usuário vem de GHCR_USER e o token do stdin (vazio = pula o login, p.ex. rollback com a imagem em cache).
 # Ganchos só para teste local: DEPLOY_SERVICES (limita o `up`) e DEPLOY_PULL_FLAGS (ex.: --ignore-pull-failures).
-# Pré-requisito: ~/spook/.env já escrito (ver deploy/README.md); este script só ajusta SPOOK_IMAGE.
+# Raiz do app: a pasta acima de deploy/, ou seja /srv/spook/prod em produção. Lá ficam o .env (600, escrito por
+# `write-env`) e o .image-history. Os dados vivem em volumes nomeados do Docker. Este script só ajusta SPOOK_IMAGE.
 set -euo pipefail
 
 IMAGE="${1:?uso: deploy.sh ghcr.io/<dono>/spook:<tag>}"
@@ -17,11 +18,21 @@ export COMPOSE_ENV_FILE=".env"
 [ -f "$COMPOSE_ENV_FILE" ] || { echo "erro: $COMPOSE_ENV_FILE não existe (o workflow o escreve antes do deploy)" >&2; exit 1; }
 compose() { docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
-# 1. Login no GHCR (token pelo stdin; pulado se não houver usuário, p.ex. pacote público)
-if [ -n "${GHCR_USER:-}" ] && [ ! -t 0 ]; then
-  docker login ghcr.io -u "$GHCR_USER" --password-stdin
+# 1. Login no GHCR: token pelo stdin, usuário em GHCR_USER. Sem token (stdin vazio ou terminal) não há login.
+token=""
+if [ ! -t 0 ]; then token="$(cat)"; fi
+if [ -n "${GHCR_USER:-}" ] && [ -n "$token" ]; then
+  printf '%s' "$token" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
   trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT # não deixa o token salvo no servidor
 fi
+unset token
+
+# 1b. Hash das configs montadas (força recriar o container quando mudam, já que o receive-deploy troca
+#     deploy/ por um diretório novo e o container manteria o arquivo antigo)
+if command -v sha256sum >/dev/null 2>&1; then hasher="sha256sum"; else hasher="shasum -a 256"; fi
+# shellcheck disable=SC2086
+CONFIG_HASH="$(cat deploy/garage/garage.toml deploy/livekit/livekit.prod.yaml | $hasher | cut -c1-16)"
+export CONFIG_HASH
 
 # 2. Registra a imagem (histórico serve para rollback) e grava SPOOK_IMAGE no .env
 previous="$(grep -E '^SPOOK_IMAGE=' "$COMPOSE_ENV_FILE" | tail -n1 | cut -d= -f2- || true)"
@@ -42,18 +53,24 @@ sh deploy/garage-init.sh
 # shellcheck disable=SC2086
 compose up -d --remove-orphans ${DEPLOY_SERVICES:-}
 
-# 6. Espera o backend ficar saudável (HEALTHCHECK da imagem)
-cid="$(compose ps -q spook)"
-for _ in $(seq 1 60); do
-  state="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid")"
-  [ "$state" = healthy ] && break
-  sleep 2
+# 6. Espera todo serviço que tem healthcheck ficar saudável (um LiveKit ou Garage quebrado não passa em silêncio)
+unhealthy=""
+for cid in $(compose ps -q); do
+  name="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$cid")"
+  state="none"
+  for _ in $(seq 1 60); do
+    state="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid")"
+    { [ "$state" = healthy ] || [ "$state" = none ]; } && break
+    sleep 2
+  done
+  if [ "$state" != healthy ] && [ "$state" != none ]; then
+    echo "erro: $name não ficou saudável (estado: $state)" >&2
+    compose logs --tail 50 "$name" >&2
+    unhealthy="$unhealthy $name"
+  fi
 done
-if [ "${state:-}" != healthy ]; then
-  echo "erro: spook não ficou saudável (estado: ${state:-?})" >&2
-  compose logs --tail 50 spook >&2
-  exit 1
-fi
+[ -z "$unhealthy" ] || exit 1
+cid="$(compose ps -q spook)"
 
 # 7. Confirma /healthz pela rede interna do Compose (a imagem é distroless; usa o próprio binário)
 docker exec "$cid" /app/spook healthcheck

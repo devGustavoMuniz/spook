@@ -1,7 +1,24 @@
 # Produção no VPS (usuário `spook`, Docker rootless). Nenhum serviço escuta em 80/443; a única
 # entrada HTTP é o container cloudflared (túnel). Portas publicadas no host: só 7891/tcp e 7892/udp
-# (mídia do LiveKit). Uso (via deploy/deploy.sh):
+# (mídia do LiveKit). Uso (via deploy/deploy.sh, que roda a partir de /srv/spook/prod):
 #   docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
+#
+# Orçamento de recursos. O slice systemd do usuário `spook` tem 3G de memória (MemoryHigh 2500M),
+# 1 CPU e 3072 tarefas, e o próprio dockerd/containerd/rootlesskit rodam dentro dele (~200M).
+#
+#   serviço      mem_limit  reserva  pids   cpus (teto)  por quê
+#   postgres        512M     256M    512     0.5   shared_buffers 128M + ~50 backends; é o maior consumidor real
+#   spook           384M      64M    512     0.6   RNF: <100M ocioso; pico de 4 hashes Argon2id (4 x 19M) + GC
+#   livekit         512M      64M    512     0.5   ocioso ~30M; folga para as primeiras chamadas (Fase 5)
+#   garage          256M      64M    512     0.2   metadados em LMDB (page cache conta no cgroup); ocioso ~30M
+#   cloudflared     128M      32M    128     0.2   ocioso ~25M
+#   soma           1792M     480M   2176     2.0   < 2500M (high) < 3G; pids < 3072
+#
+# Memória e pids: a SOMA dos limites (1792M, 2176) fica abaixo do slice, deixando ~700M e ~900 tarefas
+# para o daemon e para picos. CPU: os tetos propositalmente se sobrepõem (soma 2.0 > 1 CPU do slice);
+# o slice é quem arbitra o total, e assim um serviço pode usar a CPU que os outros não estão usando
+# (somar 1.0 estrangularia o backend com o resto ocioso e distorceria os benchmarks).
+# Reservas (mem_reservation) são só pistas de despejo: somam 480M.
 name: spook
 
 services:
@@ -22,6 +39,11 @@ services:
       S3_BUCKET: ${S3_BUCKET:-spook}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?}
+      GOMEMLIMIT: 300MiB # o GC trabalha mais antes de o cgroup (384M) matar o processo
+    mem_limit: 384m
+    mem_reservation: 64m
+    cpus: 0.6
+    pids_limit: 512
     depends_on:
       postgres: { condition: service_healthy }
     # O HEALTHCHECK (`/app/spook healthcheck`) vem da imagem.
@@ -33,6 +55,12 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-spook}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: ${POSTGRES_DB:-spook}
+    # Ajustado ao teto de 512M: 128M de buffers, 50 conexões (o pool do backend usa poucas).
+    command: postgres -c shared_buffers=128MB -c effective_cache_size=256MB -c max_connections=50 -c work_mem=4MB
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 0.5
+    pids_limit: 512
     volumes: [postgres-data:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -44,6 +72,14 @@ services:
     restart: unless-stopped
     environment:
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?}
+    # O deploy troca deploy/ por um diretório novo; o container manteria o arquivo antigo montado.
+    # O hash da config muda o label e força a recriação quando garage.toml muda.
+    labels:
+      spook.config-hash: ${CONFIG_HASH:-none}
+    mem_limit: 256m
+    mem_reservation: 64m
+    cpus: 0.2
+    pids_limit: 512
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
@@ -58,7 +94,14 @@ services:
     restart: unless-stopped
     command: --config /etc/livekit.yaml --node-ip ${LIVEKIT_NODE_IP:-187.127.26.46}
     environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?}: ${LIVEKIT_API_SECRET:?}"
+      # O LiveKit lê isto como YAML: o segredo entre aspas evita que um valor só com dígitos vire número.
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?}: \"${LIVEKIT_API_SECRET:?}\""
+    labels:
+      spook.config-hash: ${CONFIG_HASH:-none}
+    mem_limit: 512m
+    mem_reservation: 64m
+    cpus: 0.5
+    pids_limit: 512
     volumes: [./livekit/livekit.prod.yaml:/etc/livekit.yaml:ro]
     ports:
       - "7891:7891/tcp"
@@ -74,9 +117,15 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?}
+    mem_limit: 128m
+    mem_reservation: 32m
+    cpus: 0.2
+    pids_limit: 128
     depends_on:
       spook: { condition: service_healthy }
 
+# Dados em volumes nomeados do Docker rootless (bind mounts deixariam arquivos com subuids que o usuário `spook`
+# não lê). O backup do Postgres será por pg_dump (ver deploy/README.md).
 volumes:
   postgres-data:
   garage-meta:

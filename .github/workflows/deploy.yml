@@ -109,14 +109,20 @@ jobs:
             IdentitiesOnly yes
             BatchMode yes
             StrictHostKeyChecking yes
+            ConnectTimeout 20
+            ConnectionAttempts 3
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
           CONF
 
-      - name: Envia os arquivos de deploy
+      # A chave de CI só aceita 3 comandos (ci-entry.sh no servidor); qualquer outro sai com 126.
+      # Cada passo repete a conexão se der timeout (ver .github/scripts/ssh-retry.sh).
+      - name: receive-deploy (envia deploy/ para /srv/spook/prod/deploy)
         run: |
-          tar -C deploy -cz docker-compose.prod.yml deploy.sh garage-init.sh garage livekit \
-            | ssh vps 'mkdir -p ~/spook/deploy && tar -xz -C ~/spook/deploy && chmod +x ~/spook/deploy/*.sh'
+          tar -C deploy -cz . > "$RUNNER_TEMP/deploy.tgz"
+          .github/scripts/ssh-retry.sh "$RUNNER_TEMP/deploy.tgz" receive-deploy
 
-      - name: Escreve o .env no servidor (permissão 600)
+      - name: write-env (grava /srv/spook/prod/.env, 600)
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           GARAGE_RPC_SECRET: ${{ secrets.GARAGE_RPC_SECRET }}
@@ -132,6 +138,7 @@ jobs:
         run: |
           : "${POSTGRES_PASSWORD:?}" "${GARAGE_RPC_SECRET:?}" "${S3_ACCESS_KEY_ID:?}" "${S3_SECRET_ACCESS_KEY:?}" \
             "${LIVEKIT_API_KEY:?}" "${LIVEKIT_API_SECRET:?}" "${CLOUDFLARE_TUNNEL_TOKEN:?}"
+          umask 077
           {
             printf 'POSTGRES_USER=spook\nPOSTGRES_DB=spook\nPOSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
             printf 'GARAGE_RPC_SECRET=%s\nGARAGE_CAPACITY=%s\n' "$GARAGE_RPC_SECRET" "$GARAGE_CAPACITY"
@@ -139,16 +146,26 @@ jobs:
             printf 'S3_ACCESS_KEY_ID=%s\nS3_SECRET_ACCESS_KEY=%s\n' "$S3_ACCESS_KEY_ID" "$S3_SECRET_ACCESS_KEY"
             printf 'LIVEKIT_API_KEY=%s\nLIVEKIT_API_SECRET=%s\nLIVEKIT_NODE_IP=%s\n' "$LIVEKIT_API_KEY" "$LIVEKIT_API_SECRET" "$LIVEKIT_NODE_IP"
             printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN"
-          } | ssh vps 'umask 077; cd ~/spook && { cat; grep -E "^SPOOK_IMAGE=" .env 2>/dev/null || true; } > .env.new && mv .env.new .env'
+          } > "$RUNNER_TEMP/env"
+          .github/scripts/ssh-retry.sh "$RUNNER_TEMP/env" write-env
 
-      - name: Deploy
+      - name: deploy (pull da imagem e sobe a stack)
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # shellcheck disable=SC2029  # IMAGE e GHCR_USER são expandidos aqui de propósito (já validados)
-          printf '%s' "$GHCR_TOKEN" | ssh vps "cd ~/spook && GHCR_USER='$GHCR_USER' deploy/deploy.sh '$IMAGE'"
+          # Valida igual ao ci-entry.sh, para falhar aqui com mensagem clara em vez de exit 126 no servidor.
+          [[ "$IMAGE" =~ ^ghcr\.io/[a-z0-9][a-z0-9._-]*/spook:[A-Za-z0-9._-]+$ ]] || { echo "imagem fora do padrão aceito: $IMAGE" >&2; exit 1; }
+          [[ "$GHCR_USER" =~ ^[A-Za-z0-9]+$ ]] || { echo "usuário '$GHCR_USER' não é alfanumérico (exigência do ci-entry.sh)" >&2; exit 1; }
+          umask 077
+          # Sempre envia o token (deploy normal e rollback), para o pull não depender do cache do servidor.
+          printf '%s' "$GHCR_TOKEN" > "$RUNNER_TEMP/ghcr_token"
+          .github/scripts/ssh-retry.sh "$RUNNER_TEMP/ghcr_token" "deploy $IMAGE $GHCR_USER"
+
+      - name: Remove arquivos temporários com segredos
+        if: always()
+        run: rm -f "$RUNNER_TEMP/env" "$RUNNER_TEMP/ghcr_token" "$RUNNER_TEMP/deploy.tgz" ~/.ssh/deploy_key
 
       - name: Confere /healthz em produção
         run: |
