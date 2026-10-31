@@ -8,13 +8,14 @@
 #
 #   serviço      mem_limit  reserva  pids   cpus (teto)  por quê
 #   postgres        512M     256M    512     0.5   shared_buffers 128M + ~50 backends; é o maior consumidor real
-#   spook           384M      64M    512     0.6   RNF: <100M ocioso; pico de 4 hashes Argon2id (4 x 19M) + GC
+#   spook           512M      64M    512     0.6   RNF: <100M ocioso; pico de 4 hashes Argon2id (4 x 19M) + GC +
+#                                                          2 thumbnails (Fase 6: imagem de até 12 MP = ~50M cada, 2 workers)
 #   livekit         512M      64M    512     0.5   ocioso ~30M; folga para as primeiras chamadas (Fase 5)
 #   garage          256M      64M    512     0.2   metadados em LMDB (page cache conta no cgroup); ocioso ~30M
 #   cloudflared     128M      32M    128     0.2   ocioso ~25M
-#   soma           1792M     480M   2176     2.0   < 2500M (high) < 3G; pids < 3072
+#   soma           1920M     480M   2176     2.0   < 2500M (high) < 3G; pids < 3072
 #
-# Memória e pids: a SOMA dos limites (1792M, 2176) fica abaixo do slice, deixando ~700M e ~900 tarefas
+# Memória e pids: a SOMA dos limites (1920M, 2176) fica abaixo do slice, deixando ~580M e ~900 tarefas
 # para o daemon e para picos. CPU: os tetos propositalmente se sobrepõem (soma 2.0 > 1 CPU do slice);
 # o slice é quem arbitra o total, e assim um serviço pode usar a CPU que os outros não estão usando
 # (somar 1.0 estrangularia o backend com o resto ocioso e distorceria os benchmarks).
@@ -44,8 +45,8 @@ services:
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?}
       LIVEKIT_INTERNAL_URL: http://livekit:7880
-      GOMEMLIMIT: 300MiB # o GC trabalha mais antes de o cgroup (384M) matar o processo
-    mem_limit: 384m
+      GOMEMLIMIT: 400MiB # o GC trabalha mais antes de o cgroup (512M) matar o processo
+    mem_limit: 512m
     mem_reservation: 64m
     cpus: 0.6
     pids_limit: 512

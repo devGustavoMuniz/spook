@@ -48,13 +48,13 @@ O dockerd, o containerd e o rootlesskit rodam **dentro** do mesmo slice (~200M),
 | Serviço | `mem_limit` | reserva | `pids_limit` | `cpus` (teto) | Justificativa |
 | --- | --- | --- | --- | --- | --- |
 | postgres | 512M | 256M | 512 | 0.5 | `shared_buffers=128MB`, `max_connections=50`; maior consumidor real |
-| spook | 384M | 64M | 512 | 0.6 | meta ocioso <100M (RNF01); pico de 4 hashes Argon2id (4×19M) + GC; `GOMEMLIMIT=300MiB` |
+| spook | 512M | 64M | 512 | 0.6 | meta ocioso <100M (RNF01); pico de 4 hashes Argon2id (4×19M) + GC; Fase 6: até 2 thumbnails ao mesmo tempo (imagem de até 12 MP ≈ 50M cada, entre original, decodificada e redimensionada) + 25 MB do original em memória; `GOMEMLIMIT=400MiB` |
 | livekit | 512M | 64M | 512 | 0.5 | ocioso ~30M; folga para as primeiras chamadas (Fase 5) |
 | garage | 256M | 64M | 512 | 0.2 | metadados em LMDB (page cache conta no cgroup); ocioso ~30M |
 | cloudflared | 128M | 32M | 128 | 0.2 | ocioso ~25M |
-| **soma** | **1792M** | 480M | **2176** | 2.0 | memória < 2500M (high) < 3G; pids < 3072 |
+| **soma** | **1920M** | 480M | **2176** | 2.0 | memória < 2500M (high) < 3G; pids < 3072 |
 
-- **Memória e pids:** a soma dos limites (1792M, 2176) fica abaixo do slice, deixando ~700M e ~900 tarefas para o daemon e picos.
+- **Memória e pids:** a soma dos limites (1920M, 2176) fica abaixo do slice, deixando ~580M e ~900 tarefas para o daemon e picos.
 - **CPU:** os tetos se sobrepõem de propósito (soma 2.0 > 1 CPU). O slice arbitra o total; assim um serviço usa a CPU que os
   outros não estão usando. Somar 1.0 estrangularia o backend com o resto ocioso e distorceria os benchmarks.
 - Ao subir um limite, mantenha a soma de memória abaixo de 2500M; mexa nesta tabela e no cabeçalho do compose juntos.
