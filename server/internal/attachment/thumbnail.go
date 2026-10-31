@@ -47,10 +47,17 @@ func MakeThumbnail(data []byte) (Thumb, error) {
 
 	sb := src.Bounds()
 	w, h := fit(sb.Dx(), sb.Dy(), ThumbMaxDim)
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, sb, draw.Src, nil)
+	scaled := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.CatmullRom.Scale(scaled, scaled.Bounds(), src, sb, draw.Src, nil)
 
-	out := Thumb{Width: cfg.Width, Height: cfg.Height}
+	// Fotos de celular guardam os pixels "deitados" e marcam a rotação no EXIF; o navegador aplica ao exibir o
+	// original, então o thumbnail (e width/height) precisam seguir a mesma orientação. Aplicada depois de reduzir:
+	// a caixa de 400x400 é quadrada, então continua cabendo.
+	o := jpegOrientation(data)
+	dst := orient(scaled, o)
+	ow, oh := orientedSize(cfg.Width, cfg.Height, o)
+
+	out := Thumb{Width: ow, Height: oh}
 	var buf bytes.Buffer
 	if dst.Opaque() {
 		if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: ThumbQuality}); err != nil {
