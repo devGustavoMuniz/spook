@@ -6,6 +6,7 @@ import { ChannelSidebar } from "@/features/channels/channel-sidebar";
 import { useGuild } from "@/features/guilds/use-guild";
 import { MembersPanel } from "@/features/members/members-panel";
 import { ChannelView } from "@/features/messages/channel-view";
+import { VoiceChannelView } from "@/features/voice/voice-channel-view";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_TEXT, CHANNEL_VOICE, channelsOf } from "@/lib/guild";
 import { lastLocation } from "@/lib/last-location";
@@ -90,12 +91,7 @@ export function ChannelPage() {
         </Link>
       </Notice>
     );
-  if (channel.type === CHANNEL_VOICE)
-    return (
-      <Notice title={channel.name}>
-        Canais de voz ainda não estão disponíveis (chegam na Fase 5).
-      </Notice>
-    );
+  if (channel.type === CHANNEL_VOICE) return <VoiceChannelView guild={guild} channel={channel} />;
   if (channel.type !== CHANNEL_TEXT) return <Notice title={channel.name} />;
 
   return (

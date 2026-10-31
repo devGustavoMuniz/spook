@@ -1,4 +1,4 @@
-import type { ChannelPayload, DetailPayload } from "@spook/shared";
+import type { ChannelPayload, DetailPayload, VoiceStatePayload } from "@spook/shared";
 import { FakeSocket } from "@spook/shared/testing";
 import { act, waitFor } from "@testing-library/react";
 import { ME } from "./fixtures";
@@ -10,6 +10,7 @@ export async function connectGateway(
   extra: {
     private_channels?: ChannelPayload[];
     presences?: { user_id: string; status: "online" | "idle" }[];
+    voice_states?: VoiceStatePayload[];
   } = {},
 ) {
   await waitFor(() => expect(FakeSocket.instances.length).toBeGreaterThan(0));
@@ -22,6 +23,7 @@ export async function connectGateway(
       guilds,
       private_channels: extra.private_channels ?? [],
       presences: extra.presences ?? [],
+      voice_states: extra.voice_states ?? [],
     });
   });
   return sock;
@@ -30,4 +32,22 @@ export async function connectGateway(
 /** Evento de dispatch vindo do servidor, dentro de `act`. */
 export function serverSends(sock: FakeSocket, t: string, s: number, d: unknown) {
   act(() => sock.dispatch(t, s, d));
+}
+
+/** Voice state como o gateway envia. */
+export function voiceState(
+  userId: string,
+  channelId: string | null,
+  extra: Partial<VoiceStatePayload> = {},
+): VoiceStatePayload {
+  return {
+    guild_id: channelId?.startsWith("g") ? "g1" : null,
+    channel_id: channelId,
+    user_id: userId,
+    self_mute: false,
+    self_deaf: false,
+    self_video: false,
+    self_screen: false,
+    ...extra,
+  };
 }

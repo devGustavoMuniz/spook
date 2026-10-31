@@ -49,6 +49,14 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     retryAfter: 1,
     requests: [] as { method: string; path: string; search: string; body?: unknown }[],
     nextId: 5000,
+    /** Voz (Fase 5): erro forçado do token, tokens emitidos e PATCH /voice/state / leave recebidos. */
+    voice: {
+      tokenError: null as null | { status: number; detail: string },
+      tokensFor: [] as string[],
+      stateBodies: [] as { self_mute: boolean; self_deaf: boolean }[],
+      stateStatus: 200,
+      leaves: 0,
+    },
   };
   const nextId = () => String(state.nextId++);
   const track = (request: Request, body?: unknown) => {
@@ -88,8 +96,42 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     }),
     ...guildHandlers(),
     ...dmHandlers(),
+    ...voiceHandlers(),
   ];
   return { state, handlers };
+
+  function voiceHandlers() {
+    return [
+      http.post("*/api/channels/:channelId/voice/token", ({ params }) => {
+        const e = state.voice.tokenError;
+        if (e) return problem(e.status, e.detail);
+        state.voice.tokensFor.push(params.channelId as string);
+        return HttpResponse.json({
+          url: "ws://livekit.test:7880",
+          token: `token-${params.channelId}-${state.voice.tokensFor.length}`,
+          expires_in: 600,
+        });
+      }),
+      http.patch("*/api/voice/state", async ({ request }) => {
+        const b = (await request.json()) as { self_mute: boolean; self_deaf: boolean };
+        state.voice.stateBodies.push(b);
+        if (state.voice.stateStatus !== 200)
+          return problem(state.voice.stateStatus, "você não está em um canal de voz");
+        return HttpResponse.json({
+          ...b,
+          user_id: state.user.id,
+          channel_id: null,
+          guild_id: null,
+          self_video: false,
+          self_screen: false,
+        });
+      }),
+      http.post("*/api/voice/leave", () => {
+        state.voice.leaves++;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    ];
+  }
 
   function dmHandlers() {
     const fail = (e: NonNullable<typeof state.openDmError>) =>

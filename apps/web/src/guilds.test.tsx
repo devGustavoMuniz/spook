@@ -24,7 +24,7 @@ describe("servidores", () => {
     const nav = screen.getByRole("navigation", { name: "Canais" });
     expect(within(nav).getByRole("link", { name: /geral/ })).toBeInTheDocument();
     expect(within(nav).getAllByText("Geral").length).toBeGreaterThan(0);
-    expect(within(nav).queryByRole("link", { name: /Geral/ })).toBeNull(); // o de voz não é link
+    expect(within(nav).queryByRole("link", { name: /Geral/ })).toBeNull(); // o de voz é um botão
     expect(screen.getByRole("link", { name: "Meu Grupo" })).toBeInTheDocument();
   });
 
@@ -85,7 +85,8 @@ describe("lista de canais e permissões", () => {
     });
     const nav = await screen.findByRole("navigation", { name: "Canais" });
     expect(within(nav).getByRole("link", { name: "avisos" })).toBeInTheDocument();
-    expect(within(nav).queryByRole("button")).not.toBeInTheDocument();
+    // o canal de voz é um botão (bloqueado, sem CONNECT); nenhuma ação de gestão
+    expect(within(nav).queryByRole("button", { name: /Opções/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Menu do servidor/ }));
     expect(screen.queryByRole("menuitem", { name: /Criar canal/ })).not.toBeInTheDocument();
     expect(
@@ -95,7 +96,7 @@ describe("lista de canais e permissões", () => {
     expect(screen.getByRole("menuitem", { name: /Sair do servidor/ })).toBeInTheDocument();
   });
 
-  it("canais de voz aparecem sem link; categorias agrupam os filhos", async () => {
+  it("canais de voz são botões (não links); categorias agrupam os filhos", async () => {
     await renderApp("/channels/g1", {
       signedIn: true,
       seed: (s) => s.guilds.push(guild("g1", "Alfa", { channels })),

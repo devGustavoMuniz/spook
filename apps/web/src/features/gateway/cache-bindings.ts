@@ -1,6 +1,6 @@
 // Liga os eventos do gateway ao cache do TanStack Query (SPEC 5.5, Fase 3 front). Sem React aqui:
 // a função `applyGatewayEvent` é pura em relação ao `QueryClient` e fácil de testar.
-import type { ChannelPayload, DetailPayload, GatewayEvent } from "@spook/shared";
+import type { ChannelPayload, DetailPayload, GatewayEvent, VoiceStatePayload } from "@spook/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import { bumpDM, findDm, removeDM, setDMs, upsertDM } from "@/lib/dm-cache";
 import {
@@ -21,6 +21,7 @@ import { dmTitle } from "../dms/dm-utils";
 import { useDmUnreadStore } from "../dms/unread-store";
 import { usePresenceStore } from "../presence/store";
 import { useTypingStore } from "../typing/store";
+import { reconcileVoiceSnapshot, reconcileVoiceUpdate } from "../voice/controller";
 
 /** O que o cache não sabe fazer sozinho: ler onde o usuário está e levá-lo a outro lugar. */
 export type GatewayEffects = {
@@ -49,11 +50,17 @@ export function refreshAfterGap(qc: QueryClient) {
 /** READY: a lista de servidores do servidor manda; o histórico aberto é refeito (fecha a janela READY↔assinatura). */
 export function applyReady(
   qc: QueryClient,
-  ready: { guilds: DetailPayload[]; private_channels?: ChannelPayload[] | null },
+  ready: {
+    guilds: DetailPayload[];
+    private_channels?: ChannelPayload[] | null;
+    voice_states?: VoiceStatePayload[] | null;
+  },
   fx: GatewayEffects,
 ) {
   setGuilds(qc, ready.guilds);
   setDMs(qc, ready.private_channels ?? []);
+  // Snapshot de voz (sempre completo): zera o mapa e confere se a sala local ainda existe no servidor.
+  reconcileVoiceSnapshot(fx.myId(), ready.voice_states ?? []);
   void qc.invalidateQueries(
     { predicate: (q) => isMessagesKey(q.queryKey), refetchType: "active" },
     { cancelRefetch: false },
@@ -159,8 +166,11 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
       if (ev.d.user_id === fx.myId()) return;
       return useTypingStore.getState().start(ev.d.channel_id, ev.d.user_id);
 
-    // READY/RESUMED vão pelos callbacks do cliente; VOICE_STATE_UPDATE e READ_STATE_UPDATE ainda
-    // não têm interface (Fases 5 e 6).
+    // ---- voz (Fase 5) ----
+    case "VOICE_STATE_UPDATE":
+      return reconcileVoiceUpdate(fx.myId(), ev.d);
+
+    // READY/RESUMED vão pelos callbacks do cliente; READ_STATE_UPDATE ainda não tem interface (Fase 6).
     default:
       return;
   }

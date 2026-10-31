@@ -13,6 +13,7 @@ import { useDmUnreadStore } from "@/features/dms/unread-store";
 import { useDms } from "@/features/dms/use-dms";
 import { ChannelView } from "@/features/messages/channel-view";
 import { usePresence } from "@/features/presence/store";
+import { DmCallButton, DmCallPanel } from "@/features/voice/call-panel";
 import { appMessage } from "@/lib/app-errors";
 
 /** `/channels/@me`: lista de conversas + a conversa aberta. */
@@ -90,14 +91,18 @@ export function DmPage() {
           <StatusAvatar userId={other?.id} url={other?.avatar_url} name={title} size={28} />
         )}
         <h1 className="truncate font-semibold">{title}</h1>
-        {group ? (
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setManaging(true)}>
-            <Users /> Participantes ({recipientsOf(channel).length})
-          </Button>
-        ) : (
-          <HeaderStatus userId={other?.id} />
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {group ? (
+            <Button variant="ghost" size="sm" onClick={() => setManaging(true)}>
+              <Users /> Participantes ({recipientsOf(channel).length})
+            </Button>
+          ) : (
+            <HeaderStatus userId={other?.id} />
+          )}
+          <DmCallButton channel={channel} />
+        </div>
       </header>
+      <DmCallPanel channel={channel} />
       <ChannelView key={channel.id} dm={channel} channelId={channel.id} channelName={title} />
       {group ? (
         <GroupDialog

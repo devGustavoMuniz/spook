@@ -57,3 +57,20 @@ export function dmMessage(err: unknown, action: DmAction): string {
       return appMessage(err);
   }
 }
+
+/** Erros de `POST /channels/{id}/voice/token` e do restante da voz (SPEC 7.7) em pt-br. */
+export function voiceMessage(err: unknown): string {
+  if (!isApiError(err)) return appMessage(err);
+  switch (err.status) {
+    case 403:
+      return "Você não tem permissão para entrar neste canal de voz.";
+    case 404:
+      return "Este canal de voz não está disponível para você.";
+    case 422:
+      return "Só é possível entrar em canais de voz e em conversas privadas.";
+    case 503:
+      return "A voz está indisponível no momento. Tente novamente mais tarde.";
+    default:
+      return appMessage(err);
+  }
+}

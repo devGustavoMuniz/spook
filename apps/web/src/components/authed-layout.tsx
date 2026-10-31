@@ -4,6 +4,7 @@ import { useSessionGuard } from "@/components/app-shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GatewayProvider } from "@/features/gateway/gateway-provider";
 import { ServerRail } from "@/features/guilds/server-rail";
+import { VoiceBar } from "@/features/voice/voice-bar";
 
 /** Área autenticada: barra de servidores à esquerda e a tela atual ao lado. */
 export function AuthedLayout() {
@@ -12,11 +13,14 @@ export function AuthedLayout() {
   return (
     <TooltipProvider delayDuration={200}>
       <GatewayProvider>
-        <div className="flex h-svh">
-          <ServerRail guilds={guilds.data ?? []} />
-          <div className="min-w-0 flex-1">
-            <Outlet />
+        <div className="flex h-svh flex-col">
+          <div className="flex min-h-0 flex-1">
+            <ServerRail guilds={guilds.data ?? []} />
+            <div className="min-w-0 flex-1">
+              <Outlet />
+            </div>
           </div>
+          <VoiceBar />
         </div>
       </GatewayProvider>
     </TooltipProvider>

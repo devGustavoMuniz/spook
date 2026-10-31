@@ -1,6 +1,6 @@
 import { type ChannelPayload, Permission, useGetMe, useReorderChannels } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   ChevronDown,
   ChevronUp,
@@ -23,6 +23,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { GuildMenu } from "@/features/guilds/guild-menu";
+import { joinVoice } from "@/features/voice/controller";
+import { voicePermissions } from "@/features/voice/permissions";
+import { participantsOf, useVoiceStatesStore, useVoiceStore } from "@/features/voice/store";
+import { usePersonLookup } from "@/features/voice/use-person-lookup";
+import { VoiceParticipants } from "@/features/voice/voice-participants";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_VOICE, can, type Guild, groupChannels, moveChannel } from "@/lib/guild";
 import { refreshGuilds } from "@/lib/guild-cache";
@@ -34,6 +39,29 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   const reorder = useReorderChannels();
   const canManage = can(guild, Permission.MANAGE_CHANNELS);
   const groups = groupChannels(guild);
+  const navigate = useNavigate();
+  const voiceStates = useVoiceStatesStore((s) => s.byUser);
+  const myChannelId = useVoiceStore((s) => s.channelId);
+  const myStatus = useVoiceStore((s) => s.status);
+  const speaking = useVoiceStore((s) => s.speaking);
+  const mine = { channelId: myChannelId, status: myStatus, speaking };
+  const perms = voicePermissions(guild);
+  const anyoneInVoice = Object.values(voiceStates).some((v) => v.guild_id === guild.id);
+  const lookup = usePersonLookup({ guildId: guild.id }, anyoneInVoice);
+
+  /** Clique no canal de voz: entra (ou troca de canal) e abre o painel do canal. */
+  function enterVoice(c: ChannelPayload) {
+    void navigate({
+      to: "/channels/$guildId/$channelId",
+      params: { guildId: guild.id, channelId: c.id },
+    });
+    void joinVoice({
+      channelId: c.id,
+      guildId: guild.id,
+      channelName: c.name,
+      canSpeak: perms.speak,
+    });
+  }
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [renaming, setRenaming] = useState<ChannelPayload | null>(null);
   const [deleting, setDeleting] = useState<ChannelPayload | null>(null);
@@ -87,29 +115,54 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   function renderChannel(c: ChannelPayload) {
     const active = c.id === params.channelId;
     return (
-      <li key={c.id} className="group flex items-center rounded-md hover:bg-accent">
+      <li key={c.id}>
+        <div className="group flex items-center rounded-md hover:bg-accent">
+          {c.type === CHANNEL_VOICE ? (
+            <button
+              type="button"
+              disabled={!perms.connect}
+              onClick={() => enterVoice(c)}
+              title={
+                perms.connect
+                  ? "Entrar no canal de voz"
+                  : "Você não tem permissão para entrar neste canal"
+              }
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+                mine.channelId === c.id && mine.status !== "idle"
+                  ? "font-medium text-emerald-600 dark:text-emerald-400"
+                  : active
+                    ? "bg-accent font-medium text-accent-foreground"
+                    : "text-muted-foreground"
+              }`}
+            >
+              <Volume2 className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{c.name}</span>
+              <span className="sr-only">
+                (canal de voz{perms.connect ? "" : ", sem permissão para entrar"})
+              </span>
+            </button>
+          ) : (
+            <Link
+              to="/channels/$guildId/$channelId"
+              params={{ guildId: guild.id, channelId: c.id }}
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
+                active ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <Hash className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{c.name}</span>
+            </Link>
+          )}
+          {renderMenu(c)}
+        </div>
         {c.type === CHANNEL_VOICE ? (
-          <span
-            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground"
-            title="Canais de voz ainda não estão disponíveis"
-          >
-            <Volume2 className="size-4 shrink-0" aria-hidden />
-            <span className="truncate">{c.name}</span>
-            <span className="sr-only">(canal de voz, indisponível)</span>
-          </span>
-        ) : (
-          <Link
-            to="/channels/$guildId/$channelId"
-            params={{ guildId: guild.id, channelId: c.id }}
-            className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-              active ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground"
-            }`}
-          >
-            <Hash className="size-4 shrink-0" aria-hidden />
-            <span className="truncate">{c.name}</span>
-          </Link>
-        )}
-        {renderMenu(c)}
+          <VoiceParticipants
+            participants={participantsOf(voiceStates, c.id)}
+            lookup={lookup}
+            speaking={mine.channelId === c.id ? mine.speaking : undefined}
+            className="mb-1 ml-4"
+          />
+        ) : null}
       </li>
     );
   }

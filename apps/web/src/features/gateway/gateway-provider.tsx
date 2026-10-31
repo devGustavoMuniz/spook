@@ -7,6 +7,7 @@ import { useDmUnreadStore } from "../dms/unread-store";
 import { watchIdle } from "../presence/idle-detector";
 import { usePresenceStore } from "../presence/store";
 import { useTypingStore } from "../typing/store";
+import { leaveOnPageHide, shutdownVoice } from "../voice/controller";
 import {
   applyGatewayEvent,
   applyReady,
@@ -94,10 +95,12 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
     };
     const online = () => client.reconnectNow();
     const offline = () => client.notifyOffline();
+    window.addEventListener("pagehide", leaveOnPageHide);
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     document.addEventListener("visibilitychange", wake);
     return () => {
+      window.removeEventListener("pagehide", leaveOnPageHide);
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
       document.removeEventListener("visibilitychange", wake);
@@ -107,6 +110,7 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       usePresenceStore.getState().reset();
       useTypingStore.getState().reset();
       useDmUnreadStore.getState().reset();
+      shutdownVoice();
     };
   }, [qc, router]);
 
