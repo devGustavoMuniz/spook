@@ -23,6 +23,7 @@ medição interna do k6.
 | --- | --- | --- | --- |
 | `baseline.js` | `HEALTH_PATH` (`/up` no antrax, `/healthz` no Spook) | latência do health check | sim |
 | `me.js` | Spook `GET /api/users/me`; antrax `GET /settings/profile` | endpoint autenticado leve: o usuário logado, sem efeitos colaterais | **sim** (é o cenário comparável de aplicação) |
+| `messages.js` | só o Spook | `GET /api/channels/{id}/messages` (histórico por cursor, 2 páginas por iteração) e `POST` (envio, ≤ 0,8 msg/s por causa do limite de 5/5 s) | **não** (o antrax não tem este fluxo equivalente) |
 | `login.js` | só o Spook | `POST /api/auth/login` (cadastra 1 usuário de teste por execução) | **não** (ver abaixo) |
 
 Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatória), `RATE`/`DURATION` (padrão 5 req/s por 60 s),
@@ -45,6 +46,19 @@ Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatór
 - **Segurança:** o cookie vale uma sessão logada. Passe-o por ambiente (`SPOOK_COOKIE`, `ANTRAX_COOKIE`; os scripts o repassam por
   stdin/`-e`, nunca na linha de comando), não o cole em issues nem em logs, e faça logout no navegador ao terminar.
 - As métricas do `me.js` têm a tag `name:me`, que deixa o `setup` (1 leitura de validação) fora dos números.
+
+### `messages.js`: histórico e envio (Fase 2)
+Mede o caminho quente do chat no Spook: a listagem paginada por cursor e o envio. Variáveis: `BASE_URL`, `COOKIE` e **`CHANNEL_ID`**
+(obrigatórias), `HISTORY_RATE` (5 req/s), `SEND_RATE` (0,8 msg/s; o servidor limita a 5 mensagens a cada 5 s por usuário e canal, então
+mais que 1/s gera 429, contado em `send_rate_limited`), `DURATION`, `PAGE_SIZE` (50). O `Server-Timing` do histórico entra como
+`server_timing_app` e `server_timing_db`.
+- **O envio escreve mensagens.** Use um servidor e um canal de **teste**, com uma conta descartável; nunca um canal real.
+- **Canal com muito histórico:** `scripts/seed-messages.sql` insere N mensagens (padrão sugerido: 1.000.000, via `generate_series`)
+  direto no Postgres de um canal de teste, para a listagem rodar sobre um volume realista. O uso (psql) está no cabeçalho do arquivo.
+  É um insert direto no banco: rode só no ambiente de teste, e entenda o script antes. Para limpar, o próprio arquivo traz o `DELETE`.
+- Exemplo (cookie por ambiente, nunca na linha de comando):
+  `COOKIE='spook_session=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run -e BASE_URL=http://host.docker.internal:8090 -e CHANNEL_ID=<id> /bench/scenarios/messages.js`
+- A execução contra produção e o registro dos resultados são da Fase B.
 
 ### Login: não é comparado (achado registrado)
 A latência do login é dominada por **política**, não pelo framework: o custo de hash escolhido e o `Timebox` do Fortify. Por isso
