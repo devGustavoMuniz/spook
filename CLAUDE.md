@@ -55,3 +55,4 @@ Produção no VPS segue o padrão do antrax: usuário `spook`, Docker rootless, 
 
 - `pnpm dev`: sobe web, backend, Postgres, Garage (S3) e LiveKit localmente.
 - `pnpm lint` / `pnpm test` / `pnpm build`: via Turborepo (lado Go incluído).
+- `pnpm --filter @spook/web e2e`: Playwright contra o build de produção servido pelo backend; passo a passo (inclusive via Docker) em `apps/web/README.md`.

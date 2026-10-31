@@ -289,6 +289,18 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Instrumentação.** `Server-Timing` ganhou a métrica `db` (soma do tempo das consultas da requisição, via `platform/db.Timed`); os services têm spans OpenTelemetry (`guild.*`, `channel.*`, `message.*`, `invite.*`; no envio há `message.authorize` e `message.insert`). Cenário k6: `bench/scenarios/messages.js` (+ `bench/scripts/seed-messages.sql`).
 - **Teste de 1M de mensagens.** `TestPaginationWithOneMillionMessages` (integração) insere 1.000.000 de mensagens com `generate_series`, pagina com `limit=100` (10.000 páginas) enquanto outras mensagens chegam pela API e confere ausência de duplicatas e de buracos, ordem estrita e `has_more`. A latência da listagem (p50/p95/p99, HTTP local) é registrada no log do teste; a meta de 30 ms é informativa e não falha o teste.
 
+
+**Fase 2 (front)**
+- **Estado e cache.** A lista `GET /guilds` (servidor + canais + cargos + minhas permissões) é a fonte de verdade de toda a barra lateral; um servidor é um item dessa lista (`useGuild`). A lista é pré-carregada no `loader` da rota autenticada. Depois de cada mutação própria o app atualiza o cache (`setQueryData` para servidor novo, mensagens enviadas/editadas/excluídas) ou invalida a lista; não há polling. Todas as chaves ficam em `apps/web/src/lib/queryKeys.ts` e as operações sobre o histórico em `lib/message-cache.ts` (`addMessage`/`replaceMessage`/`removeMessage`): a Fase 3 pluga os eventos do gateway nesses pontos.
+- **Permissões na interface.** `packages/shared/src/permissions.ts` traz as constantes (SPEC 7.2) e `hasPermission(efetivas, flag, {isOwner})` (dono e ADMINISTRATOR têm tudo). A interface só esconde ou desabilita ações (`lib/guild.ts` espelha a hierarquia: gerenciar cargo só abaixo do meu mais alto; expulsar não vale para o dono, para si mesmo nem para quem está no mesmo nível ou acima; bit de permissão que eu não tenho não pode ser ligado); a regra de verdade é do servidor e 403/404/409/410/422/429 viram mensagens em pt-br (`lib/app-errors.ts`).
+- **Rotas.** `/` leva ao último servidor visitado (localStorage, só conveniência) ou ao primeiro; sem servidores mostra "Criar servidor"/"Entrar com convite". `/channels/$guildId` abre o último canal de texto visitado (ou o primeiro). `/invite/$code` fica na área autenticada: sem sessão redireciona para `/login?redirect=/invite/<código>` (só caminhos internos são aceitos em `redirect`; login e cadastro voltam para lá). Canais de voz aparecem na lista sem link (entrar é Fase 5).
+- **Lista de mensagens.** TanStack Virtual com `anchorTo: "end"` e `followOnAppend` (a biblioteca ancora no fim, preserva a posição ao entrar página anterior e acompanha mensagem nova só se o usuário já estava no fim); `useInfiniteQuery` paginando por `before` = id da mais antiga (página de 50, `fetchNextPage({cancelRefetch:false})`); só rolagem para cima pede página (ignora os saltos de ancoragem). O componente usa `"use no memo"` (o virtualizer é mutável e não combina com o React Compiler) e as linhas são `memo` explícitos, com chave = id da mensagem. Mensagens do mesmo autor em até 7 minutos e no mesmo dia se agrupam; datas com date-fns (pt-BR). A mensagem própria sempre leva ao fim.
+- **Composer.** Enter envia, Shift+Enter quebra linha (não envia durante composição IME); contador em runes (igual ao servidor); no 429 o `Retry-After` (agora exposto em `ApiError.retryAfter` pelo `http()` do shared) vira contagem regressiva e o texto é mantido.
+- **`?perf=N` (só em dev).** Em `DEV`, `/channels/…/$canalId?perf=10000` troca o histórico por N mensagens falsas locais (`lib/perf.ts`), sem rede e sem composer; no build de produção o parâmetro é ignorado. Medição de referência (Chromium headless em Docker, rolando 120 px por quadro por 4 s com 10.000 mensagens): média de 16,5 ms por quadro, p95 16,7 ms, máximo 16,8 ms, ~28 mensagens no DOM. Os números definitivos ficam na Fase B.
+- **Componentes.** shadcn escritos à mão em `components/ui` sobre Radix com versão exata (dialog, alert-dialog, dropdown-menu, tabs, tooltip, select, switch); configurações do servidor (`settings-dialog`) carregam sob demanda e o build separa `react`/`radix`/`vendor` em chunks.
+- **E2E (RNF06).** `apps/web/e2e` (Playwright, Chromium) roda contra o build de produção servido pelo backend (`SPOOK_WEB_DIR`), com Postgres real e S3 desligado; no CI é o job `e2e` (o deploy já espera o CI inteiro por `uses: ./.github/workflows/ci.yml`). Localmente roda no container `mcr.microsoft.com/playwright` (comando em `apps/web/README.md`).
+- **Ícone do servidor.** Mesmo fluxo do avatar (URL pré-assinada, PUT com `XMLHttpRequest` e progresso, depois `PATCH` com a chave; `icon_key: ""` remove).
+
 ---
 
 ## 6. Modelo de dados
@@ -518,8 +530,8 @@ Entrega o deploy em produção, no padrão do VPS (RNF05): Docker Compose de pro
 - [x] O cenário k6 do baseline (Fase 0) roda contra o Spook em produção, com o resultado registrado em `bench/results/` ao lado do baseline do Laravel.
 
 ### Fase 2 — Servidores, canais e mensagens (REST)
-- [ ] Todos os RF02 a RF06 funcionam via REST, com as regras da seção 7 aplicadas e testadas.
-- [ ] Paginação por cursor retorna páginas consistentes com 1M de mensagens no banco.
+- [x] Todos os RF02 a RF06 funcionam via REST, com as regras da seção 7 aplicadas e testadas.
+- [x] Paginação por cursor retorna páginas consistentes com 1M de mensagens no banco.
 
 ### Fase 3 — Gateway realtime
 - [ ] Mensagem enviada aparece nos outros clientes sem recarregar a página.
