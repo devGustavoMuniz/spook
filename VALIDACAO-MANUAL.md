@@ -53,7 +53,7 @@ Cada fase acrescenta os seus passos aqui, em ordem curta. Marque `[x]` conforme 
 
 ## Fase 5 — Voz, vídeo e tela
 
-Backend (o front desta fase ainda não existe; os itens de interface entram quando ele for feito):
+Backend:
 
 - [ ] Depois do deploy, conferir que `LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` chegaram ao container `spook` (sem elas a voz responde 503) e que `deploy/livekit/livekit.prod.yaml` foi renderizado no servidor com `webhook.api_key` igual à `LIVEKIT_API_KEY` do `.env` (`grep -A3 '^webhook' /srv/spook/prod/deploy/livekit/livekit.prod.yaml`).
 - [ ] **Webhook em produção:** com uma chamada em andamento, os logs do `livekit` devem mostrar `sent webhook ... "status": "200 OK"` para `http://spook:8090/api/livekit/webhook` (`docker compose ... logs livekit | grep webhook`). Qualquer `401` indica `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` diferentes entre o `spook` e o `livekit`; `connection refused`, o `spook` fora do ar. Os logs do `spook` não devem ter `voice: webhook falhou`.
@@ -63,6 +63,20 @@ Backend (o front desta fase ainda não existe; os itens de interface entram quan
 - [ ] Reinício do LiveKit durante uma chamada (`docker compose ... restart livekit`): em até ~60 s os participantes fantasmas somem da lista (reconciliador); reiniciar o `spook` com a chamada ativa: em até ~60 s a lista volta a mostrar quem está na chamada.
 - [ ] Observabilidade: com `SPOOK_OTLP_ENDPOINT` definido (Fase B), conferir `spook.voice.participants`, `spook.voice.tokens.issued/denied`, `spook.voice.webhooks` e `spook.voice.token.duration`.
 - [ ] Fase B: rodar `bench/scenarios/voice-token.js` e `bench/scripts/livekit-load-test.sh` (passos em `bench/README.md`) com conta/canal de **teste**, combinando a carga antes; registrar CPU e banda por participante do LiveKit (teto de 0,5 CPU / 512M no VPS).
+
+Front (o E2E com mídia falsa do Chromium e o LiveKit de desenvolvimento já cobre entrar/sair, lista, áudio e vídeo chegando, tela compartilhada e mudo; abaixo, só o que depende de pessoas, redes e dispositivos reais):
+
+- [ ] Front (voz com outra pessoa de verdade): em produção, duas pessoas em redes diferentes entram no mesmo canal de voz, se ouvem sem eco nem corte, e a lista de canais mostra quem está dentro em tempo real nas duas telas (avatar, nome, anel verde de quem fala).
+- [ ] Front (tela compartilhada de verdade): compartilhar uma janela, uma aba e a tela inteira em Chrome, Firefox e Edge; o áudio do sistema só vem onde a plataforma permite (Chrome em Windows/ChromeOS; no macOS e no Firefox não); conferir o destaque no painel, a tela cheia por tile e que parar pela barra do navegador também remove o painel e o ícone de tela na lista.
+- [ ] Front (permissões do navegador): negar o microfone ao entrar (deve entrar mudo, com o aviso explicando como liberar), negar a câmera, cancelar o seletor de tela ("Compartilhamento de tela cancelado") e depois liberar nas configurações do site e tentar de novo.
+- [ ] Front (dispositivos): trocar microfone, alto-falante e câmera pelo diálogo durante a chamada e conferir que a troca vale na hora e persiste ao recarregar; desligar o fone/webcam com a chamada ativa. Alto-falante: Safari e Firefox não permitem escolher a saída (ficam no padrão do sistema).
+- [ ] Front (redes diferentes): entrar pelo 4G/celular e por Wi-Fi; ligar e desligar o Wi-Fi/modo avião por ~10 s no meio da chamada e conferir "Reconectando…" e a volta sem recarregar; ficar offline por mais de ~1 min e conferir que a tela volta a entrar sozinha com um token novo (ou avisa "A conexão de voz foi perdida").
+- [ ] Front (autoplay): abrir a aba em segundo plano/recém-aberta e entrar na chamada sem interagir antes (Safari principalmente): deve aparecer o botão "Ativar áudio".
+- [ ] Front (DM): chamar uma pessoa por DM 1:1 e por DM em grupo; o outro lado vê "Chamada em andamento" no cabeçalho e entra por "Entrar na chamada"; sair e voltar a ligar.
+- [ ] Front (permissões no meio da chamada): com outra conta de administrador, tirar CONNECT, depois só SPEAK, depois só VIDEO de quem está na chamada, e conferir os avisos em pt-br e os botões desabilitados com a explicação.
+- [ ] Front (fechar a aba): fechar a aba/janela no meio da chamada e conferir na outra conta que a pessoa some da lista em poucos segundos (o `keepalive` do `POST /api/voice/leave` ou, no pior caso, o webhook do LiveKit).
+- [ ] Front (claro e escuro): conferir a barra de voz, os ícones de mudo/surdo/câmera/tela, o anel de quem fala, o painel de vídeo e o diálogo de dispositivos nos dois temas e em tela estreita (a barra quebra em linhas).
+- [ ] Dev: se `docker compose up` for feito antes de o LiveKit ter a seção `webhook` no `livekit.yaml`, o container precisa ser **reiniciado** (`docker restart spook-livekit-1`): a config é lida só na partida e, sem o webhook, a conexão funciona mas a lista de participantes nunca atualiza.
 
 ## Fase 6 — Uploads e notificações
 
