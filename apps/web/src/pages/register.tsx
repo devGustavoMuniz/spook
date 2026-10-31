@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { getGetMeQueryKey, useRegister } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { AuthLayout } from "@/components/auth-layout";
@@ -15,6 +15,8 @@ import { type RegisterForm, registerSchema } from "@/lib/schemas";
 export function RegisterPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const router = useRouter();
+  const { redirect } = useSearch({ strict: false }) as { redirect?: string };
   const registerUser = useRegister();
   const {
     register,
@@ -30,7 +32,8 @@ export function RegisterPage() {
     try {
       const res = await registerUser.mutateAsync({ data });
       qc.setQueryData(getGetMeQueryKey(), res.user);
-      await navigate({ to: "/" });
+      if (redirect) router.history.push(redirect);
+      else await navigate({ to: "/" });
     } catch (e) {
       if (!applyServerError(e, setError)) toast.error(messageFor(e));
     }
@@ -94,6 +97,7 @@ export function RegisterPage() {
               Já tem conta?{" "}
               <Link
                 to="/login"
+                search={{ redirect }}
                 className="font-medium text-primary underline-offset-4 hover:underline"
               >
                 Entrar

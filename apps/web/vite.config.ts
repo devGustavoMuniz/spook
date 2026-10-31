@@ -15,5 +15,24 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/api": backend, "/healthz": backend },
   },
-  test: { environment: "jsdom", globals: true, setupFiles: ["./src/test-setup.ts"], css: false },
+  build: {
+    rollupOptions: {
+      output: {
+        // Separa o que muda pouco (React, Radix) do código do app: melhor cache e chunks menores.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/node_modules\/(\.pnpm\/)?(react|react-dom|scheduler)[@/]/.test(id)) return "react";
+          if (id.includes("@radix-ui")) return "radix";
+          return "vendor";
+        },
+      },
+    },
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./src/test-setup.ts"],
+    css: false,
+    exclude: ["e2e/**", "node_modules/**"],
+  },
 });

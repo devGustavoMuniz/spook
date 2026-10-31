@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { getGetMeQueryKey, isApiError, useLogin } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { AuthLayout } from "@/components/auth-layout";
@@ -15,6 +15,8 @@ import { type LoginForm, loginSchema } from "@/lib/schemas";
 export function LoginPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const router = useRouter();
+  const { redirect } = useSearch({ strict: false }) as { redirect?: string };
   const login = useLogin();
   const {
     register,
@@ -30,7 +32,8 @@ export function LoginPage() {
     try {
       const res = await login.mutateAsync({ data });
       qc.setQueryData(getGetMeQueryKey(), res.user);
-      await navigate({ to: "/" });
+      if (redirect) router.history.push(redirect);
+      else await navigate({ to: "/" });
     } catch (e) {
       if (isApiError(e) && e.status === 401) setError("root", { message: messageFor(e) });
       else toast.error(messageFor(e));
@@ -82,6 +85,7 @@ export function LoginPage() {
               Não tem conta?{" "}
               <Link
                 to="/register"
+                search={{ redirect }}
                 className="font-medium text-primary underline-offset-4 hover:underline"
               >
                 Cadastre-se

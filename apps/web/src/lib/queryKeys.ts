@@ -1,0 +1,26 @@
+import {
+  getGetInviteQueryKey,
+  getGetMeQueryKey,
+  getListGuildMembersQueryKey,
+  getListGuildsQueryKey,
+  getListInvitesQueryKey,
+  getListMessagesQueryKey,
+} from "@spook/shared";
+
+/**
+ * Todas as chaves de cache do app em um lugar só. Na Fase 3 o gateway atualiza o cache por aqui
+ * (setQueryData/invalidateQueries) sem precisar conhecer as telas.
+ *
+ * `guilds` guarda a lista completa (servidor + canais + cargos + minhas permissões): é a fonte de
+ * verdade de tudo que a barra lateral mostra. Mensagens são um useInfiniteQuery por canal.
+ */
+export const queryKeys = {
+  me: getGetMeQueryKey,
+  guilds: getListGuildsQueryKey,
+  /** Prefixo: casa com qualquer página/limite de membros do servidor. */
+  members: (guildId: string) => getListGuildMembersQueryKey(guildId),
+  invites: getListInvitesQueryKey,
+  invitePreview: getGetInviteQueryKey,
+  /** Páginas do histórico do canal (`InfiniteData`), da mais nova para a mais antiga. */
+  messages: (channelId: string) => [...getListMessagesQueryKey(channelId), "infinite"] as const,
+};

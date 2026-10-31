@@ -18,7 +18,7 @@ describe("guarda de rotas", () => {
 
   it("com sessão, /login redireciona para o início", async () => {
     const { router } = await renderApp("/login", { signedIn: true });
-    expect(await screen.findByText("@ana")).toBeInTheDocument();
+    expect(await screen.findByText("Você ainda não está em nenhum servidor")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
   });
 });
@@ -30,8 +30,18 @@ describe("login", () => {
     await user.type(await screen.findByLabelText("E-mail"), "ana@spook.dev");
     await user.type(screen.getByLabelText("Senha"), "senha-correta-1");
     await user.click(screen.getByRole("button", { name: "Entrar" }));
-    expect(await screen.findByText("@ana")).toBeInTheDocument();
+    expect(await screen.findByText("Você ainda não está em nenhum servidor")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
+  });
+
+  it("volta ao destino de ?redirect depois de entrar", async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp("/login?redirect=/settings/profile");
+    await user.type(await screen.findByLabelText("E-mail"), "ana@spook.dev");
+    await user.type(screen.getByLabelText("Senha"), "senha-correta-1");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+    expect(await screen.findByLabelText("Nome de exibição")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/settings/profile");
   });
 
   it("mostra erro em pt-br com credenciais erradas", async () => {
@@ -100,7 +110,7 @@ describe("cadastro", () => {
     await user.type(screen.getByLabelText("Nome de usuário"), "Novo_User");
     await user.type(screen.getByLabelText("Senha"), "senha-forte-123");
     await user.click(screen.getByRole("button", { name: "Criar conta" }));
-    expect(await screen.findByText("@novo_user")).toBeInTheDocument(); // username vai em minúsculas
+    expect(await screen.findByText("Você ainda não está em nenhum servidor")).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
   });
 });

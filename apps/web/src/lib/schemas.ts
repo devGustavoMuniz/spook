@@ -47,3 +47,27 @@ export function validateAvatar(file: File): string | null {
   if (file.size === 0) return "O arquivo está vazio.";
   return null;
 }
+
+export const guildNameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Use de 2 a 100 caracteres.")
+    .max(100, "Use de 2 a 100 caracteres."),
+});
+export type GuildNameForm = z.infer<typeof guildNameSchema>;
+
+export const channelFormSchema = z.object({
+  name: z.string().trim().min(1, "Informe o nome.").max(100, "No máximo 100 caracteres."),
+  type: z.enum(["0", "1", "2"]),
+  parent_id: z.string(),
+});
+export type ChannelForm = z.infer<typeof channelFormSchema>;
+
+/** Aceita o código puro ou o link completo (`.../invite/<código>`) e devolve só o código. */
+export function parseInviteCode(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  const m = s.match(/(?:\/invite\/)?([A-Za-z0-9]+)\/?(?:[?#].*)?$/);
+  return m?.[1] ?? null;
+}

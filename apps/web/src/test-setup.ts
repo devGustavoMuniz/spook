@@ -4,6 +4,56 @@ import { server } from "@/test/server";
 
 window.scrollTo = () => {};
 
+// jsdom não faz layout: dá uma janela fixa para o TanStack Virtual e uma altura por item medido.
+Object.defineProperties(HTMLElement.prototype, {
+  clientHeight: { configurable: true, get: () => 600 },
+  clientWidth: { configurable: true, get: () => 800 },
+  offsetHeight: {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.hasAttribute("data-index") ? 40 : 0;
+    },
+  },
+});
+// scrollTop/scrollTo que funcionam (o jsdom ignora), para testar âncora no fim e preservação de posição.
+const scrollTops = new WeakMap<Element, number>();
+Object.defineProperty(Element.prototype, "scrollTop", {
+  configurable: true,
+  get(this: Element) {
+    return scrollTops.get(this) ?? 0;
+  },
+  set(this: Element, v: number) {
+    // como o navegador: limitado ao conteúdo
+    const max =
+      this.scrollHeight > 0 ? this.scrollHeight - this.clientHeight : Number.POSITIVE_INFINITY;
+    scrollTops.set(this, Math.min(Math.max(0, v), Math.max(0, max)));
+  },
+});
+// A altura do conteúdo rolável é a do primeiro filho (a lista virtual fixa `height` em style).
+Object.defineProperty(Element.prototype, "scrollHeight", {
+  configurable: true,
+  get(this: Element) {
+    const h = Number.parseFloat(
+      (this.firstElementChild as HTMLElement | null)?.style?.height ?? "",
+    );
+    return Number.isFinite(h) ? h : 0;
+  },
+});
+Element.prototype.scrollTo = function (this: Element, arg?: ScrollToOptions | number) {
+  this.scrollTop = typeof arg === "number" ? arg : (arg?.top ?? 0);
+  this.dispatchEvent(new Event("scroll"));
+} as Element["scrollTo"];
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+// Radix (Select) usa estes métodos de ponteiro, ausentes no jsdom.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
   // jsdom não traz fetch e o do Node exige URL absoluta; o front usa caminhos relativos (/api/...).

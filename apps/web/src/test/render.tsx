@@ -5,16 +5,20 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { createQueryClient } from "@/lib/query";
 import { createAppRouter } from "@/router";
-import { makeBackend, server } from "@/test/server";
+import { type Backend, makeBackend, server } from "@/test/server";
 
-export async function renderApp(path: string, backend: { signedIn?: boolean } = {}) {
+export async function renderApp(
+  path: string,
+  backend: { signedIn?: boolean; seed?: (state: Backend["state"]) => void } = {},
+) {
   const fake = makeBackend(backend);
+  backend.seed?.(fake.state);
   server.use(...fake.handlers);
   const queryClient = createQueryClient();
   queryClient.setDefaultOptions({ queries: { retry: false, staleTime: 0 } });
   const router = createAppRouter(queryClient, createMemoryHistory({ initialEntries: [path] }));
   await router.load();
-  render(
+  const view = render(
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
@@ -22,5 +26,5 @@ export async function renderApp(path: string, backend: { signedIn?: boolean } = 
       </QueryClientProvider>
     </ThemeProvider>,
   );
-  return { ...fake, router };
+  return { ...fake, router, unmount: view.unmount };
 }
