@@ -25,7 +25,9 @@ done | sed 's#^/##'
 cat <<'TXT'
 
 Como escolher o alvo interno: use a MESMA origem que o túnel da Cloudflare usa para o hostname público
-(Zero Trust > Networks > Tunnels > <túnel> > Public Hostnames > "Service"). Para o Spook é http://spook:8090.
-Para o antrax, pegue o Service do hostname antrax.dottadigital.com; se for um proxy por virtual host, passe também
-ANTRAX_HOST_HEADER=antrax.dottadigital.com (ver bench/README.md).
+(Zero Trust > Networks > Tunnels > <túnel> > Public Hostnames > "Service"). Padrões do run-internal.sh:
+  Spook : rede spook_default,       alvo http://spook:8090
+  antrax: rede antrax-prod_default, alvo http://web:80 (provável nginx, container antrax-prod-edge-1), enviando
+          Host: antrax.dottadigital.com e X-Forwarded-Proto: https como o túnel faz.
+Se a saída acima mostrar outra rede ou outro nome de serviço, passe ANTRAX_NET / ANTRAX_TARGET (ver bench/README.md).
 TXT

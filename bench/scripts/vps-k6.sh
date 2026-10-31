@@ -8,7 +8,8 @@
 #
 # Uso: vps-k6.sh <nome> <rede-docker> <cenário.js> [args do k6, ex.: -e BASE_URL=http://spook:8090 ...]
 # Variáveis: BENCH_DIR (padrão: pasta bench/ deste script), K6_IMAGE, K6_CPUS (0.25), K6_MEM (192m),
-#            LOGIN_PASSWORD_STDIN=1 (lê a senha da 1ª linha do stdin, para não ir na linha de comando).
+#            STDIN_SECRET=NOME (lê o valor da 1ª linha do stdin e o entrega ao k6 na variável NOME, p.ex. COOKIE,
+#            para o segredo não ir na linha de comando).
 # Saída: o log do k6 vai para stderr; o summary JSON vai para stdout entre os marcadores
 #        `===SUMMARY-JSON <nome>===` e `===FIM===`. O código de saída é o do k6 (99 = threshold estourado).
 #
@@ -30,16 +31,17 @@ if [ -z "${DOCKER_HOST:-}" ] && [ -S "/run/user/$uid/docker.sock" ]; then
   export DOCKER_HOST
 fi
 
-if [ "${LOGIN_PASSWORD_STDIN:-}" = 1 ]; then
-  IFS= read -r LOGIN_PASSWORD
-  export LOGIN_PASSWORD
+pass_env=()
+if [ -n "${STDIN_SECRET:-}" ]; then
+  [[ "$STDIN_SECRET" =~ ^[A-Z][A-Z0-9_]*$ ]] || { echo "STDIN_SECRET inválido: $STDIN_SECRET" >&2; exit 2; }
+  IFS= read -r secret_value
+  export "$STDIN_SECRET=$secret_value"
+  unset secret_value
+  pass_env=(-e "$STDIN_SECRET") # herda do ambiente: o valor não aparece no `ps`
 fi
 
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-
-pass_env=()
-[ -n "${LOGIN_PASSWORD:-}" ] && pass_env=(-e LOGIN_PASSWORD) # herda do ambiente: não aparece no `ps`
 
 # --user 0: em Docker rootless o root do container é o próprio usuário no host, que pode escrever em $out
 # (a imagem do k6 roda como uid 12345, que não consegue).

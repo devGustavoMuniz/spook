@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Mede os DOIS backends por dentro do VPS, sem Cloudflare/túnel/internet, alternando antrax e Spook
-# (healthz) e depois o login de cada um. Roda do SEU computador; cada medição executa no VPS via SSH, como o
-# usuário dono do Docker rootless daquele app, com o k6 em container na rede Docker do app (ver vps-k6.sh).
+# Mede os DOIS backends por dentro do VPS, sem Cloudflare/túnel/internet, alternando antrax e Spook:
+# healthz, endpoint autenticado leve (GET do usuário logado) e, só para o Spook, o login (sem comparação, ver README).
+# Roda do SEU computador; cada medição executa no VPS via SSH, como o usuário dono do Docker rootless daquele app,
+# com o k6 em container na rede Docker do app (ver vps-k6.sh).
 #
 # Uso: run-internal.sh <ssh-destino> <diretório-de-saída> [rodadas=3]
-#   ex.: ANTRAX_NET=antrax_default ANTRAX_TARGET=http://edge:80 ANTRAX_HOST_HEADER=antrax.dottadigital.com \
-#        ANTRAX_LOGIN_EMAIL=bench@… ANTRAX_LOGIN_PASSWORD=… \
+#   ex.: SPOOK_COOKIE='spook_session=…' ANTRAX_COOKIE='laravel_session=…; XSRF-TOKEN=…' \
 #        bench/scripts/run-internal.sh gustavo@<vps> /tmp/bench-interno 3
 #
-# Obrigatórias: ANTRAX_NET (rede Docker do antrax) e ANTRAX_TARGET (URL interna; use vps-discover.sh).
-# Opcionais:
-#   SPOOK_USER=spook  ANTRAX_USER=antrax  SPOOK_NET=spook_default  SPOOK_TARGET=http://spook:8090
-#   ANTRAX_HEALTH_PATH=/up  ANTRAX_HOST_HEADER  ANTRAX_FORWARDED_PROTO (https se HOST_HEADER definido)
-#   ANTRAX_PUBLIC_ORIGIN=https://antrax.dottadigital.com
-#   ANTRAX_LOGIN_EMAIL / ANTRAX_LOGIN_PASSWORD (conta de teste existente, sem 2FA; sem elas o login do antrax é pulado)
-#   RATE DURATION (healthz)  LOGIN_RATE_PER_MIN LOGIN_DURATION (login)  PAUSE (20)  REMOTE_DIR (/tmp/spook-bench)
+# Cookies (header Cookie copiado do navegador, de um login descartável feito por você; ver me.js):
+#   SPOOK_COOKIE e ANTRAX_COOKIE. Sem eles o cenário autenticado é pulado. Seguem por stdin, nunca na linha de comando.
+# Padrões (alvo = a origem que o túnel da Cloudflare usa para cada hostname; confirme com vps-discover.sh):
+#   ANTRAX_USER=antrax  ANTRAX_NET=antrax-prod_default  ANTRAX_TARGET=http://web:80
+#   ANTRAX_HOST_HEADER=antrax.dottadigital.com  ANTRAX_FORWARDED_PROTO=https   (o que o túnel/Cloudflare repassam ao origin)
+#   ANTRAX_HEALTH_PATH=/up  ANTRAX_ME_PATH=/settings/profile  (antrax: página Inertia, lida em JSON via X-Inertia)
+#   SPOOK_USER=spook  SPOOK_NET=spook_default  SPOOK_TARGET=http://spook:8090  SPOOK_ME_PATH=/api/users/me
+# Carga: RATE DURATION (healthz e autenticado)  LOGIN_RATE_PER_MIN LOGIN_DURATION (login do Spook)  PAUSE (20)  REMOTE_DIR
 # Exige no VPS: ssh como gustavo e `sudo -iu <usuário>` sem senha (ou rode os passos à mão, ver bench/README.md).
 set -euo pipefail
 
@@ -27,10 +28,13 @@ SPOOK_USER="${SPOOK_USER:-spook}"
 ANTRAX_USER="${ANTRAX_USER:-antrax}"
 SPOOK_NET="${SPOOK_NET:-spook_default}"
 SPOOK_TARGET="${SPOOK_TARGET:-http://spook:8090}"
-ANTRAX_NET="${ANTRAX_NET:?defina ANTRAX_NET (rede Docker do antrax); descubra com bench/scripts/vps-discover.sh}"
-ANTRAX_TARGET="${ANTRAX_TARGET:?defina ANTRAX_TARGET (URL interna do antrax); descubra com bench/scripts/vps-discover.sh}"
+SPOOK_ME_PATH="${SPOOK_ME_PATH:-/api/users/me}"
+ANTRAX_NET="${ANTRAX_NET:-antrax-prod_default}"
+ANTRAX_TARGET="${ANTRAX_TARGET:-http://web:80}"
+ANTRAX_HOST_HEADER="${ANTRAX_HOST_HEADER:-antrax.dottadigital.com}"
+ANTRAX_FORWARDED_PROTO="${ANTRAX_FORWARDED_PROTO:-https}"
 ANTRAX_HEALTH_PATH="${ANTRAX_HEALTH_PATH:-/up}"
-ANTRAX_PUBLIC_ORIGIN="${ANTRAX_PUBLIC_ORIGIN:-https://antrax.dottadigital.com}"
+ANTRAX_ME_PATH="${ANTRAX_ME_PATH:-/settings/profile}"
 REMOTE_DIR="${REMOTE_DIR:-/tmp/spook-bench}"
 PAUSE="${PAUSE:-20}"
 
@@ -42,7 +46,7 @@ out="$(cd "$out" && pwd)"
   echo "inicio=$(date '+%Y-%m-%d %H:%M:%S %z') (utc $(date -u '+%H:%M:%S'))"
   echo "tipo=interno (k6 em container na rede Docker de cada app, no VPS; sem Cloudflare/túnel)"
   echo "spook=$SPOOK_USER@$SPOOK_NET -> $SPOOK_TARGET"
-  echo "antrax=$ANTRAX_USER@$ANTRAX_NET -> $ANTRAX_TARGET host=${ANTRAX_HOST_HEADER:-<padrão>}"
+  echo "antrax=$ANTRAX_USER@$ANTRAX_NET -> $ANTRAX_TARGET host=$ANTRAX_HOST_HEADER proto=$ANTRAX_FORWARDED_PROTO"
   echo "rodadas=$rounds"
 } | tee "$out/meta-interno.txt"
 
@@ -50,20 +54,21 @@ out="$(cd "$out" && pwd)"
 tar -C bench -cz scenarios scripts | $SSH "$dest" \
   "rm -rf '$REMOTE_DIR' && mkdir -p '$REMOTE_DIR' && tar -xz -C '$REMOTE_DIR' && chmod -R a+rX '$REMOTE_DIR'"
 
-# k6 <usuário> <rede> <nome> <cenário> <stdin|-> [args do k6...]  →  grava internal-<nome>.json e .log
+# k6 <usuário> <rede> <nome> <cenário> <VAR-do-segredo|-> [args do k6...]  →  grava internal-<nome>.json e .log
+# O valor do segredo (nome da variável em $5, ex.: SPOOK_COOKIE) vai por stdin e chega ao k6 como COOKIE.
 k6() {
-  local user="$1" net="$2" name="$3" scenario="$4" stdin_mode="$5"
+  local user="$1" net="$2" name="$3" scenario="$4" secret_var="$5"
   shift 5
   local cmd=(sudo -iu "$user" env)
-  [ "$stdin_mode" = password ] && cmd+=(LOGIN_PASSWORD_STDIN=1)
+  [ "$secret_var" != - ] && cmd+=(STDIN_SECRET=COOKIE)
   cmd+=("$REMOTE_DIR/scripts/vps-k6.sh" "internal-$name" "$net" "$scenario" "$@")
   local quoted
   quoted="$(printf '%q ' "${cmd[@]}")"
 
   echo "== internal-$name ($(date '+%H:%M:%S'))"
   local code=0
-  if [ "$stdin_mode" = password ]; then
-    printf '%s\n' "${ANTRAX_LOGIN_PASSWORD:-}" | $SSH "$dest" "$quoted" >"$out/internal-$name.stdout" 2>"$out/internal-$name.log" || code=$?
+  if [ "$secret_var" != - ]; then
+    printf '%s\n' "${!secret_var}" | $SSH "$dest" "$quoted" >"$out/internal-$name.stdout" 2>"$out/internal-$name.log" || code=$?
   else
     $SSH "$dest" "$quoted" </dev/null >"$out/internal-$name.stdout" 2>"$out/internal-$name.log" || code=$?
   fi
@@ -76,37 +81,47 @@ k6() {
 }
 
 # argumentos de carga opcionais
-health_load=(); [ -n "${RATE:-}" ] && health_load+=(-e "RATE=$RATE"); [ -n "${DURATION:-}" ] && health_load+=(-e "DURATION=$DURATION")
+load=(); [ -n "${RATE:-}" ] && load+=(-e "RATE=$RATE"); [ -n "${DURATION:-}" ] && load+=(-e "DURATION=$DURATION")
 login_load=(); [ -n "${LOGIN_RATE_PER_MIN:-}" ] && login_load+=(-e "RATE_PER_MIN=$LOGIN_RATE_PER_MIN"); [ -n "${LOGIN_DURATION:-}" ] && login_load+=(-e "DURATION=$LOGIN_DURATION")
+antrax_edge=(-e "HOST_HEADER=$ANTRAX_HOST_HEADER" -e "FORWARDED_PROTO=$ANTRAX_FORWARDED_PROTO")
+antrax_me=(-e "BASE_URL=$ANTRAX_TARGET" -e "ME_PATH=$ANTRAX_ME_PATH" -e ME_STYLE=inertia "${antrax_edge[@]}")
+spook_me=(-e "BASE_URL=$SPOOK_TARGET" -e "ME_PATH=$SPOOK_ME_PATH" -e ME_STYLE=json)
 
-antrax_edge=()
-[ -n "${ANTRAX_HOST_HEADER:-}" ] && antrax_edge+=(-e "HOST_HEADER=$ANTRAX_HOST_HEADER" -e "FORWARDED_PROTO=${ANTRAX_FORWARDED_PROTO:-https}")
+have_me=0
+if [ -n "${SPOOK_COOKIE:-}" ] && [ -n "${ANTRAX_COOKIE:-}" ]; then have_me=1; fi
+[ "$have_me" = 1 ] || echo "(cenário autenticado pulado: defina SPOOK_COOKIE e ANTRAX_COOKIE)"
 
-# 2) pré-checagem: os dois alvos internos respondem? (1 req/s por 2 s)
+# 2) pré-checagem: alvos respondem e os cookies valem? (1 req/s por 2 s)
 echo "== pré-checagem"
-k6 "$ANTRAX_USER" "$ANTRAX_NET" preflight-laravel baseline.js none -e "BASE_URL=$ANTRAX_TARGET" -e "HEALTH_PATH=$ANTRAX_HEALTH_PATH" -e RATE=1 -e DURATION=2s ${antrax_edge[@]+"${antrax_edge[@]}"} \
-  || { echo "o antrax não respondeu em $ANTRAX_TARGET na rede $ANTRAX_NET; confira com vps-discover.sh"; exit 1; }
-k6 "$SPOOK_USER" "$SPOOK_NET" preflight-spook baseline.js none -e "BASE_URL=$SPOOK_TARGET" -e HEALTH_PATH=/healthz -e RATE=1 -e DURATION=2s \
+k6 "$ANTRAX_USER" "$ANTRAX_NET" preflight-laravel baseline.js - -e "BASE_URL=$ANTRAX_TARGET" -e "HEALTH_PATH=$ANTRAX_HEALTH_PATH" -e RATE=1 -e DURATION=2s "${antrax_edge[@]}" \
+  || { echo "o antrax não respondeu em $ANTRAX_TARGET (rede $ANTRAX_NET, Host $ANTRAX_HOST_HEADER); confira com vps-discover.sh"; exit 1; }
+k6 "$SPOOK_USER" "$SPOOK_NET" preflight-spook baseline.js - -e "BASE_URL=$SPOOK_TARGET" -e HEALTH_PATH=/healthz -e RATE=1 -e DURATION=2s \
   || { echo "o Spook não respondeu em $SPOOK_TARGET na rede $SPOOK_NET"; exit 1; }
+if [ "$have_me" = 1 ]; then
+  k6 "$ANTRAX_USER" "$ANTRAX_NET" preflight-me-laravel me.js ANTRAX_COOKIE "${antrax_me[@]}" -e RATE=1 -e DURATION=2s \
+    || { echo "cookie do antrax recusado em $ANTRAX_ME_PATH (expirou? veja internal-preflight-me-laravel.log)"; exit 1; }
+  k6 "$SPOOK_USER" "$SPOOK_NET" preflight-me-spook me.js SPOOK_COOKIE "${spook_me[@]}" -e RATE=1 -e DURATION=2s \
+    || { echo "cookie do Spook recusado em $SPOOK_ME_PATH (expirou? veja internal-preflight-me-spook.log)"; exit 1; }
+fi
 rm -f "$out"/internal-preflight-*.json "$out"/internal-preflight-*.log
 
-# 3) healthz alternado
+# 3) healthz e endpoint autenticado, alternando antrax e Spook
 for r in $(seq 1 "$rounds"); do
-  k6 "$ANTRAX_USER" "$ANTRAX_NET" "healthz-laravel-r$r" baseline.js none -e "BASE_URL=$ANTRAX_TARGET" -e "HEALTH_PATH=$ANTRAX_HEALTH_PATH" ${health_load[@]+"${health_load[@]}"} ${antrax_edge[@]+"${antrax_edge[@]}"} || true
+  k6 "$ANTRAX_USER" "$ANTRAX_NET" "healthz-laravel-r$r" baseline.js - -e "BASE_URL=$ANTRAX_TARGET" -e "HEALTH_PATH=$ANTRAX_HEALTH_PATH" ${load[@]+"${load[@]}"} "${antrax_edge[@]}" || true
   sleep "$PAUSE"
-  k6 "$SPOOK_USER" "$SPOOK_NET" "healthz-spook-r$r" baseline.js none -e "BASE_URL=$SPOOK_TARGET" -e HEALTH_PATH=/healthz ${health_load[@]+"${health_load[@]}"} || true
+  k6 "$SPOOK_USER" "$SPOOK_NET" "healthz-spook-r$r" baseline.js - -e "BASE_URL=$SPOOK_TARGET" -e HEALTH_PATH=/healthz ${load[@]+"${load[@]}"} || true
   sleep "$PAUSE"
-done
-
-# 4) login: Spook sempre; antrax se houver conta de teste
-for r in $(seq 1 "$rounds"); do
-  k6 "$SPOOK_USER" "$SPOOK_NET" "login-spook-r$r" login.js none -e "BASE_URL=$SPOOK_TARGET" ${login_load[@]+"${login_load[@]}"} || true
-  sleep "$PAUSE"
-  if [ -n "${ANTRAX_LOGIN_EMAIL:-}" ] && [ -n "${ANTRAX_LOGIN_PASSWORD:-}" ]; then
-    k6 "$ANTRAX_USER" "$ANTRAX_NET" "login-laravel-r$r" login-antrax.js password -e "BASE_URL=$ANTRAX_TARGET" -e "LOGIN_EMAIL=$ANTRAX_LOGIN_EMAIL" \
-      -e "PUBLIC_ORIGIN=$ANTRAX_PUBLIC_ORIGIN" ${login_load[@]+"${login_load[@]}"} ${antrax_edge[@]+"${antrax_edge[@]}"} || true
+  if [ "$have_me" = 1 ]; then
+    k6 "$ANTRAX_USER" "$ANTRAX_NET" "me-laravel-r$r" me.js ANTRAX_COOKIE "${antrax_me[@]}" ${load[@]+"${load[@]}"} || true
+    sleep "$PAUSE"
+    k6 "$SPOOK_USER" "$SPOOK_NET" "me-spook-r$r" me.js SPOOK_COOKIE "${spook_me[@]}" ${load[@]+"${load[@]}"} || true
     sleep "$PAUSE"
   fi
 done
-[ -n "${ANTRAX_LOGIN_EMAIL:-}" ] || echo "(login do antrax pulado: defina ANTRAX_LOGIN_EMAIL e ANTRAX_LOGIN_PASSWORD)"
+
+# 4) login: só o Spook (a latência de login entre os dois sistemas não é comparada; ver README)
+for r in $(seq 1 "$rounds"); do
+  k6 "$SPOOK_USER" "$SPOOK_NET" "login-spook-r$r" login.js - -e "BASE_URL=$SPOOK_TARGET" ${login_load[@]+"${login_load[@]}"} || true
+  sleep "$PAUSE"
+done
 echo "fim=$(date '+%Y-%m-%d %H:%M:%S %z')" | tee -a "$out/meta-interno.txt"

@@ -1,8 +1,8 @@
 // Fase 1: latência do login em produção (RNF01/RNF03). Mede p95 de POST /api/auth/login.
 //
 // O backend limita /api/auth/* a 10 req/min por IP (burst 10), então a carga é mínima de propósito:
-// o padrão é 4 logins/min por 6 min (24 amostras), a mesma taxa do login-antrax.js (o antrax limita a 5/min
-// por e-mail+IP). Acima de 10/min você mede 429, não o login. O setup cria UM usuário de teste
+// o padrão é 4 logins/min por 6 min (24 amostras). Acima de 10/min você mede 429, não o login. Este cenário mede só o
+// Spook: a latência de login não é comparada com o antrax (ver bench/README.md). O setup cria UM usuário de teste
 // (e-mail @bench.spook.invalid, ver bench/README.md para removê-lo depois).
 // Mede também o Server-Timing do backend (server_timing_app e server_timing_argon2): a diferença entre
 // login_duration e server_timing_app é o custo de rede (Cloudflare/túnel na medição pela internet).

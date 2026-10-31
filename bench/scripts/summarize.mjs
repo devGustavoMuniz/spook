@@ -35,15 +35,17 @@ for (const f of readdirSync(dir)
   .sort()) {
   const name = f.replace(/-r\d+\.json$/, "");
   const m = JSON.parse(readFileSync(join(dir, f), "utf8")).metrics;
-  // login-*.js medem a latência do login em login_duration; os demais em http_req_duration.
-  const d = m.login_duration ?? m.http_req_duration;
-  const failed = m.http_req_failed;
+  // login.js mede a latência do login em login_duration; me.js exporta só as requisições medidas, com a tag
+  // name=me (o setup que valida o cookie fica de fora); os demais usam as métricas globais.
+  const d = m.login_duration ?? m["http_req_duration{name:me}"] ?? m.http_req_duration;
+  const reqs = m["http_reqs{name:me}"] ?? m.http_reqs;
+  const failed = m["http_req_failed{name:me}"] ?? m.http_req_failed;
   if (!groups[name]) groups[name] = [];
   groups[name].push({
     run: f.match(/-r(\d+)\.json$/)[1],
     ...trend(d),
-    reqs: m.http_reqs.count,
-    rate: m.http_reqs.rate,
+    reqs: reqs.count,
+    rate: reqs.rate,
     failPct: (failed.value ?? 0) * 100,
     fails: failed.passes ?? 0,
     app: m.server_timing_app ? trend(m.server_timing_app) : null,
