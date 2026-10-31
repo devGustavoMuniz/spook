@@ -1,0 +1,5 @@
+# Windows (MSVC): o libwebrtc pré-compilado usa a runtime C estática (/MT). O Rust usa a dinâmica (/MD) por
+# padrão, o que dá LNK2038 ("mismatch detected for 'RuntimeLibrary'") na hora de linkar. O LiveKit recomenda
+# linkar a CRT de forma estática nesse alvo.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
