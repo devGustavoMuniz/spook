@@ -1,5 +1,6 @@
 export * from "./auth/auth";
 export * from "./channels/channels";
+export * from "./dms/dms";
 export * from "./gateway/gateway";
 export * from "./guilds/guilds";
 export * from "./invites/invites";

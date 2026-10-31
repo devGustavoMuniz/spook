@@ -475,3 +475,82 @@ export const useEditMessage = <TError = ErrorModel, TContext = unknown>(
 > => {
   return useMutation(getEditMessageMutationOptions(options), queryClient);
 };
+export const getStartTypingUrl = (channelId: string) => {
+  return `/api/channels/${channelId}/typing`;
+};
+
+/**
+ * @summary Avisa que o usuário está digitando (TYPING_START no canal; no máx. 1 evento a cada ~3 s por canal, o excedente é ignorado com 204)
+ */
+export const startTyping = async (
+  channelId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getStartTypingUrl(channelId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getStartTypingMutationKey = () => ["startTyping"] as const;
+
+export const getStartTypingMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startTyping>>,
+    TError,
+    StartTypingMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startTyping>>,
+  TError,
+  StartTypingMutationVariables,
+  TContext
+> => {
+  const mutationKey = getStartTypingMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startTyping>>,
+    StartTypingMutationVariables
+  > = (props) => {
+    const { channelId } = props ?? {};
+
+    return startTyping(channelId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartTypingMutationResult = NonNullable<Awaited<ReturnType<typeof startTyping>>>;
+
+export type StartTypingMutationError = ErrorModel;
+export type StartTypingMutationVariables = { channelId: string };
+
+/**
+ * @summary Avisa que o usuário está digitando (TYPING_START no canal; no máx. 1 evento a cada ~3 s por canal, o excedente é ignorado com 204)
+ */
+export const useStartTyping = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof startTyping>>,
+      TError,
+      StartTypingMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof startTyping>>,
+  TError,
+  StartTypingMutationVariables,
+  TContext
+> => {
+  return useMutation(getStartTypingMutationOptions(options), queryClient);
+};

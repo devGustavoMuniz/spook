@@ -115,3 +115,12 @@ export const EditMessageResponse = zod.object({
   edited_at: zod.iso.datetime({ offset: true }).nullable(),
   id: zod.string(),
 });
+
+/**
+ * @summary Avisa que o usuário está digitando (TYPING_START no canal; no máx. 1 evento a cada ~3 s por canal, o excedente é ignorado com 204)
+ */
+export const StartTypingParams = zod.object({
+  channel_id: zod.string().describe("ID do canal ou da DM"),
+});
+
+export const StartTypingResponse = zod.void();

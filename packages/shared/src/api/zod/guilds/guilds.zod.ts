@@ -18,9 +18,21 @@ export const ListGuildsResponseItem = zod.object({
         id: zod.string(),
         last_message_id: zod.string().nullable(),
         name: zod.string(),
+        owner_id: zod.string().optional().describe("Dono da DM em grupo"),
         parent_id: zod.string().nullable().describe("Categoria que contém o canal"),
         position: zod.int(),
-        type: zod.int().describe("0 texto, 1 voz, 2 categoria"),
+        recipients: zod
+          .array(
+            zod.object({
+              avatar_url: zod.string().optional(),
+              display_name: zod.string().optional(),
+              id: zod.string(),
+              username: zod.string(),
+            }),
+          )
+          .nullish()
+          .describe("Participantes da DM (todos, inclusive você)"),
+        type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
     .nullable()
@@ -70,9 +82,21 @@ export const CreateGuildResponse = zod.object({
         id: zod.string(),
         last_message_id: zod.string().nullable(),
         name: zod.string(),
+        owner_id: zod.string().optional().describe("Dono da DM em grupo"),
         parent_id: zod.string().nullable().describe("Categoria que contém o canal"),
         position: zod.int(),
-        type: zod.int().describe("0 texto, 1 voz, 2 categoria"),
+        recipients: zod
+          .array(
+            zod.object({
+              avatar_url: zod.string().optional(),
+              display_name: zod.string().optional(),
+              id: zod.string(),
+              username: zod.string(),
+            }),
+          )
+          .nullish()
+          .describe("Participantes da DM (todos, inclusive você)"),
+        type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
     .nullable()
@@ -127,9 +151,21 @@ export const GetGuildResponse = zod.object({
         id: zod.string(),
         last_message_id: zod.string().nullable(),
         name: zod.string(),
+        owner_id: zod.string().optional().describe("Dono da DM em grupo"),
         parent_id: zod.string().nullable().describe("Categoria que contém o canal"),
         position: zod.int(),
-        type: zod.int().describe("0 texto, 1 voz, 2 categoria"),
+        recipients: zod
+          .array(
+            zod.object({
+              avatar_url: zod.string().optional(),
+              display_name: zod.string().optional(),
+              id: zod.string(),
+              username: zod.string(),
+            }),
+          )
+          .nullish()
+          .describe("Participantes da DM (todos, inclusive você)"),
+        type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
     .nullable()

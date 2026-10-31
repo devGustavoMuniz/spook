@@ -317,6 +317,37 @@
       }
     }
   },
+  "dm_channel_create": {
+    "op": 0,
+    "t": "CHANNEL_CREATE",
+    "s": 2,
+    "d": {
+      "id": "500",
+      "type": 4,
+      "guild_id": null,
+      "parent_id": null,
+      "name": "Estudo de Go",
+      "position": 0,
+      "last_message_id": "901",
+      "created_at": "2026-10-31T12:00:00Z",
+      "owner_id": "11",
+      "recipients": [
+        {
+          "id": "11",
+          "username": "gustavo",
+          "display_name": "Gustavo"
+        },
+        {
+          "id": "12",
+          "username": "maria"
+        },
+        {
+          "id": "13",
+          "username": "joao"
+        }
+      ]
+    }
+  },
   "heartbeat": {
     "op": 1,
     "t": null,
@@ -419,6 +450,44 @@
             "400"
           ]
         }
+      ],
+      "private_channels": [
+        {
+          "id": "500",
+          "type": 4,
+          "guild_id": null,
+          "parent_id": null,
+          "name": "Estudo de Go",
+          "position": 0,
+          "last_message_id": "901",
+          "created_at": "2026-10-31T12:00:00Z",
+          "owner_id": "11",
+          "recipients": [
+            {
+              "id": "11",
+              "username": "gustavo",
+              "display_name": "Gustavo"
+            },
+            {
+              "id": "12",
+              "username": "maria"
+            },
+            {
+              "id": "13",
+              "username": "joao"
+            }
+          ]
+        }
+      ],
+      "presences": [
+        {
+          "user_id": "12",
+          "status": "online"
+        },
+        {
+          "user_id": "13",
+          "status": "idle"
+        }
       ]
     }
   },
@@ -438,6 +507,14 @@
     "d": {
       "session_id": "c2Vzc2lvbi1pZA",
       "replayed": 3
+    }
+  },
+  "set_presence": {
+    "op": 12,
+    "t": null,
+    "s": null,
+    "d": {
+      "status": "idle"
     }
   }
 }

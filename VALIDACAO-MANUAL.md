@@ -34,6 +34,15 @@ Cada fase acrescenta os seus passos aqui, em ordem curta. Marque `[x]` conforme 
 
 ## Fase 4 — Presença e DMs
 
+- [ ] Depois do deploy, com duas contas reais num servidor em comum (dois navegadores): ao conectar uma, a outra a vê **online** na hora; fechar a aba e conferir que o **offline** só aparece depois de ~15 s (e que recarregar a página dentro desse prazo não faz a bolinha piscar). Com a mesma conta em duas abas, fechar só uma não muda o status.
+- [ ] Ausente na prática (depende do front): deixar uma conta sem mexer o mouse/teclado por **10 minutos** (o cliente é quem mede e manda o op 12 `idle`) e conferir que a outra conta a vê "ausente"; mexer de novo volta a "online".
+- [ ] "Digitando…" com duas contas: o indicador aparece na outra conta ao digitar, some ~8 s depois de parar (o fim é do cliente) e não aparece para quem não vê o canal.
+- [ ] DM 1:1: abrir uma DM com alguém que compartilha servidor (aparece na lista da outra pessoa sem recarregar), trocar mensagens em tempo real, editar e excluir só a própria; tentar abrir DM com quem não compartilha servidor (deve recusar).
+- [ ] DM em grupo com 3+ contas: criar, renomear (só o dono), adicionar e remover participantes (só o dono), sair como participante e conferir que quem saiu **para de receber** as mensagens; o dono não consegue sair nem ser removido.
+- [ ] Atrás do Cloudflare, abrir 2 sessões da mesma conta e conferir que o status só vira offline quando as duas fecham.
+- [ ] Observabilidade: com `SPOOK_OTLP_ENDPOINT` definido (Fase B), conferir as métricas `spook.presence.users`, `spook.presence.transitions`, `spook.typing.started` e `spook.dm.created` no coletor.
+- [ ] Fase B: rodar `bench/scenarios/gateway-fanout.js` (passos em `bench/README.md`) com contas/canal de **teste** para registrar CPU e mensagens/s com N usuários conectados; combinar a carga antes (o k6 divide a CPU com o app na medição interna).
+
 ## Fase 5 — Voz, vídeo e tela
 
 ## Fase 6 — Uploads e notificações

@@ -4,6 +4,7 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { RecipientPayload } from "./recipientPayload";
 
 export interface ChannelPayload {
   created_at: string;
@@ -13,12 +14,19 @@ export interface ChannelPayload {
   /** @nullable */
   last_message_id: string | null;
   name: string;
+  /** Dono da DM em grupo */
+  owner_id?: string;
   /**
    * Categoria que contém o canal
    * @nullable
    */
   parent_id: string | null;
   position: number;
-  /** 0 texto, 1 voz, 2 categoria */
+  /**
+   * Participantes da DM (todos, inclusive você)
+   * @nullable
+   */
+  recipients?: RecipientPayload[] | null;
+  /** 0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo */
   type: number;
 }

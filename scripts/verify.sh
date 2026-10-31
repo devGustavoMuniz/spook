@@ -15,17 +15,18 @@ step "OpenAPI sem drift"
 scripts/go.sh run ./cmd/spook openapi | diff -u server/api/openapi.yaml - >/dev/null || { echo "openapi.yaml desatualizado"; exit 1; }
 
 step "sqlc sem drift"
+hash_dir() { find "$1" -type f -print0 | sort -z | xargs -0 cat | (md5 -q 2>/dev/null || md5sum); }
+before="$(hash_dir server/internal/platform/dbgen)"
 docker run --rm -v "$PWD/server":/src -w /src sqlc/sqlc:1.31.1 generate
-git diff --exit-code -- server/internal/platform/dbgen >/dev/null || { echo "sqlc gerou diferenças"; exit 1; }
+[ "$before" = "$(hash_dir server/internal/platform/dbgen)" ] || { echo "sqlc gerou diferenças em dbgen (rode e commite)"; exit 1; }
 
 step "fixtures do gateway"
 scripts/go.sh test ./internal/gateway -run Fixtures >/dev/null || { echo "fixture do gateway desatualizado (use -update)"; exit 1; }
 
 step "client da API (orval) sem drift"
-before="$(git diff --stat -- packages/shared/src/api | md5 -q 2>/dev/null || md5sum)"
+before="$(hash_dir packages/shared/src/api)"
 pnpm --filter @spook/shared generate >/dev/null
-after="$(git diff --stat -- packages/shared/src/api | md5 -q 2>/dev/null || md5sum)"
-[ "$before" = "$after" ] || { echo "orval gerou diferenças em packages/shared/src/api"; exit 1; }
+[ "$before" = "$(hash_dir packages/shared/src/api)" ] || { echo "orval gerou diferenças em packages/shared/src/api (rode e commite)"; exit 1; }
 
 step "lint, testes e build (turbo)"
 pnpm turbo run lint test build --force 2>&1 | grep -E "Tasks:|FAIL|ERROR|error TS|issues" || true
