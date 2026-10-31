@@ -15,6 +15,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
+	voicepkg "github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
 var update = flag.Bool("update", false, "regrava packages/shared/fixtures/gateway-events.json")
@@ -128,6 +129,7 @@ func buildFixtures(t *testing.T) map[string]any {
 			SessionID: "c2Vzc2lvbi1pZA", User: ReadyUser{ID: "11"}, Guilds: []guild.DetailPayload{detail},
 			PrivateChannels: []channel.ChannelPayload{dm},
 			Presences:       []presence.UpdatePayload{{UserID: "12", Status: presence.StatusOnline}, {UserID: "13", Status: presence.StatusIdle}},
+			VoiceStates:     []voicepkg.StatePayload{{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "12", SelfVideo: true}},
 		}),
 		"set_presence":      control(t, OpPresence, "", SetPresence{Status: presence.StatusIdle}),
 		"dm_channel_create": dispatch(t, 2, events.ChannelCreate, dm),

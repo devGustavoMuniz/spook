@@ -19,6 +19,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
 // maxFrameBytes é o maior frame aceito do cliente (IDENTIFY, RESUME e heartbeat são minúsculos).
@@ -261,13 +262,30 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		return false
 	}
 
+	voiceStates := []voice.StatePayload{}
+	if h.voice != nil {
+		visible := make([]int64, 0, len(details))
+		for _, g := range details {
+			if g.Member.Has(perm.ViewChannel) {
+				visible = append(visible, g.Guild.ID)
+			}
+		}
+		dmIDs := make([]int64, len(dmList))
+		for i, d := range dmList {
+			dmIDs[i] = d.ID
+		}
+		if v := h.voice.Snapshot(visible, dmIDs); v != nil {
+			voiceStates = v
+		}
+	}
+
 	payloads := make([]guild.DetailPayload, len(details))
 	for i, g := range details {
 		payloads[i] = g.Payload()
 	}
 	ready, err := json.Marshal(Ready{
 		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
-		PrivateChannels: channel.Payloads(dmList), Presences: presences,
+		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates,
 	})
 	if err != nil {
 		h.dropSession(s)

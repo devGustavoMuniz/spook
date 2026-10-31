@@ -22,6 +22,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
 var tracer = otel.Tracer("spook/gateway")
@@ -58,6 +59,12 @@ type Presence interface {
 	Snapshot(ctx context.Context, userID int64) ([]presence.UpdatePayload, error)
 }
 
+// Voice é o que o gateway pede à voz (implementada pelo voice.Service): o snapshot em memória dos
+// estados de voz dos servidores que o usuário vê e das DMs dele, para o READY.
+type Voice interface {
+	Snapshot(guildIDs, dmChannelIDs []int64) []voice.StatePayload
+}
+
 // Option liga uma dependência opcional do Hub.
 type Option func(*Hub)
 
@@ -67,6 +74,9 @@ func WithDMs(d DMs) Option { return func(h *Hub) { h.dms = d } }
 // WithPresence liga a presença (avisos de conexão, op 12 e presences no READY).
 func WithPresence(p Presence) Option { return func(h *Hub) { h.pres = p } }
 
+// WithVoice liga os voice_states do READY.
+func WithVoice(v Voice) Option { return func(h *Hub) { h.voice = v } }
+
 // Bus é o que o gateway precisa do barramento de eventos.
 type Bus interface {
 	Subscribe(fn func(events.Event)) (cancel func())
@@ -74,12 +84,13 @@ type Bus interface {
 
 // Hub mantém sessões, conexões e as assinaturas por tópico, e faz o fan-out dos eventos.
 type Hub struct {
-	cfg  Config
-	dir  Directory
-	dms  DMs
-	pres Presence
-	met  *metrics
-	tk   *tickets
+	cfg   Config
+	dir   Directory
+	dms   DMs
+	pres  Presence
+	voice Voice
+	met   *metrics
+	tk    *tickets
 
 	mu       sync.RWMutex
 	topics   map[string]map[*Session]struct{}
@@ -459,7 +470,7 @@ func (h *Hub) handle(ev events.Event) {
 func allows(s *Session, ev events.Event) bool {
 	switch ev.Type {
 	case events.MessageCreate, events.MessageUpdate, events.MessageDelete, events.TypingStart,
-		events.ChannelCreate, events.ChannelUpdate, events.ChannelDelete:
+		events.ChannelCreate, events.ChannelUpdate, events.ChannelDelete, events.VoiceStateUpdate:
 		if ev.GuildID != 0 {
 			return s.canView(ev.GuildID)
 		}

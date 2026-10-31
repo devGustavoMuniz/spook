@@ -12,6 +12,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
 // Op é o código de operação de um frame.
@@ -95,6 +96,7 @@ type Ready struct {
 	Guilds          []guild.DetailPayload    `json:"guilds" doc:"Lista de servidores completos (GET /api/guilds)"`
 	PrivateChannels []channel.ChannelPayload `json:"private_channels" doc:"DMs com participantes, da atividade mais recente para a mais antiga"`
 	Presences       []presence.UpdatePayload `json:"presences" doc:"Snapshot de presença (só online e idle)"`
+	VoiceStates     []voice.StatePayload     `json:"voice_states" doc:"Quem está em voz agora nos servidores que o usuário vê e nas DMs dele"`
 }
 
 // ReadyUser é o usuário autenticado no READY.
@@ -108,19 +110,12 @@ type Resumed struct {
 	Replayed  int    `json:"replayed" doc:"Quantos eventos perdidos foram reenviados antes do RESUMED"`
 }
 
-// ---- Payloads dos eventos das fases 5–6 (contrato fixo, ainda não emitidos) ----
+// ---- Payloads dos eventos das fases 5–6  ----
 // TYPING_START e PRESENCE_UPDATE (Fase 4) têm os payloads em typing.StartPayload e presence.UpdatePayload.
 
-// VoiceStateUpdate: estado de voz de um usuário (Fase 5). ChannelID nulo = saiu da voz.
-type VoiceStateUpdate struct {
-	GuildID    *string `json:"guild_id"`
-	ChannelID  *string `json:"channel_id"`
-	UserID     string  `json:"user_id"`
-	SelfMute   bool    `json:"self_mute"`
-	SelfDeaf   bool    `json:"self_deaf"`
-	SelfVideo  bool    `json:"self_video"`
-	SelfScreen bool    `json:"self_screen"`
-}
+// VoiceStateUpdate: estado de voz de um usuário (Fase 5). channel_id nulo = saiu da voz. O tipo
+// e a emissão ficam em internal/voice.
+type VoiceStateUpdate = voice.StatePayload
 
 // ReadStateUpdate: o estado de leitura de um canal mudou (Fase 6); só vai ao próprio usuário.
 type ReadStateUpdate struct {

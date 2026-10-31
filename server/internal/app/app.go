@@ -36,6 +36,9 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
 	"github.com/devGustavoMuniz/spook/server/internal/user"
+	"github.com/devGustavoMuniz/spook/server/internal/voice"
+	voicelivekit "github.com/devGustavoMuniz/spook/server/internal/voice/livekit"
+	voicememory "github.com/devGustavoMuniz/spook/server/internal/voice/memory"
 )
 
 // Pool é o que a aplicação precisa do pgxpool.
@@ -61,6 +64,11 @@ type Deps struct {
 	AuthLimiter    *ratelimit.Limiter // padrão: 10 tentativas por minuto por IP em /api/auth/*
 	DMLimiter      *ratelimit.Limiter // padrão: 10 DMs criadas por minuto por usuário
 	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
+
+	// Voz (testes): substitui o adaptador do LiveKit (nulo = o da configuração, ou voz desligada
+	// sem LIVEKIT_*) e muda o intervalo do reconciliador (padrão 60 s).
+	VoiceProvider       voice.Provider
+	VoiceReconcileEvery time.Duration
 }
 
 // App é a aplicação montada: o handler HTTP e o gateway, que precisa de um desligamento próprio
@@ -68,6 +76,7 @@ type Deps struct {
 type App struct {
 	Handler  http.Handler
 	Gateway  *gateway.Hub
+	Voice    *voice.Service
 	presence *presence.Service // acessado pelos testes de integração
 }
 
@@ -151,12 +160,37 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	typingSvc := typing.NewService(channelSvc, typingLimiter, bus)
 	presenceSvc := presence.NewService(ctx, d.Presence, presence.NewStore(pool), bus, bus)
 	messageSvc := message.NewService(message.NewStore(pool), channelSvc, msgLimiter, userSvc, ids, bus)
+
+	// Voz (hexagonal): porta do LiveKit, estado em memória e permissões ligadas a guild/dm/perm.
+	var voiceProv voice.Provider
+	switch {
+	case d.VoiceProvider != nil:
+		voiceProv = d.VoiceProvider
+	case d.Cfg.LiveKit.Enabled():
+		voiceProv = voicelivekit.New(voicelivekit.Config{
+			PublicURL: d.Cfg.LiveKit.URL, InternalURL: d.Cfg.LiveKit.InternalURL,
+			APIKey: d.Cfg.LiveKit.APIKey, APISecret: d.Cfg.LiveKit.APISecret,
+		})
+	}
+	voiceSvc := voice.NewService(voice.Deps{
+		Provider: voiceProv, Store: voicememory.New(), Pub: bus,
+		Access: voiceAccess{channels: channelSvc, guilds: guildSvc}, Users: voiceUsers{users: userSvc},
+	})
+	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam
+	go func() { <-ctx.Done(); cancelVoice() }()
+	reconcileEvery := d.VoiceReconcileEvery
+	if reconcileEvery <= 0 {
+		reconcileEvery = time.Minute
+	}
+	go voiceSvc.Run(ctx, reconcileEvery)
+	voiceH := voice.NewHandler(voiceSvc, auth.UserID)
+
 	gwCfg := d.Gateway
 	if gwCfg.AllowedOrigins == nil {
 		gwCfg.AllowedOrigins = d.Cfg.AllowedOrigins
 	}
 	gwCfg.Dev = d.Cfg.IsDev()
-	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc))
+	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc))
 	gatewayH := gateway.NewHandler(hub, authSvc, auth.UserID)
 	gwLimiter := d.GatewayLimiter
 	if gwLimiter == nil {
@@ -181,8 +215,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH, dmH, typingH, gatewayH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, inviteH, dmH, typingH, voiceH, gatewayH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
+
+	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
+	r.Method(http.MethodPost, voice.WebhookPath, voiceH.WebhookHandler())
 
 	if d.Cfg.IsDev() {
 		r.HandleFunc("/debug/pprof/", pprof.Index)
@@ -200,14 +237,14 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
 		}))
-	return &App{Handler: h, Gateway: hub, presence: presenceSvc}, nil
+	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
 	return api.OpenAPI().YAML()
 }
 
@@ -220,7 +257,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, inviteH *invite.Handler,
-	dmH *dm.Handler, typingH *typing.Handler, gatewayH *gateway.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, gatewayH *gateway.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -243,6 +280,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	inviteH.Register(api, authed, auth.Security)
 	dmH.Register(api, authed, auth.Security)
 	typingH.Register(api, authed, auth.Security)
+	voiceH.Register(api, authed, auth.Security)
 	gatewayH.Register(api, authed, auth.Security)
 	return api
 }
@@ -255,6 +293,8 @@ func limitByPath(realIPHeader string, authL, apiL, gwL *ratelimit.Limiter) func(
 		authNext, apiNext, gwNext := authMW(next), apiMW(next), gwMW(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
+			case r.URL.Path == voice.WebhookPath: // tráfego do container do LiveKit: sem limite por IP
+				next.ServeHTTP(w, r)
 			case r.URL.Path == "/api/gateway": // handshake: limite próprio, mais folgado
 				gwNext.ServeHTTP(w, r)
 			case strings.HasPrefix(r.URL.Path, "/api/auth/"):
