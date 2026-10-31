@@ -5,6 +5,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -150,5 +151,84 @@ func TestBucketCORS(t *testing.T) {
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusForbidden {
 		t.Fatalf("preflight de origem não autorizada = %d, esperado 403", resp2.StatusCode)
+	}
+}
+
+func TestStatGetRangePutDelete(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newStore(t)
+	key := "integration/ops-" + time.Now().Format("20060102T150405.000000000") + ".bin"
+	data := []byte("0123456789abcdefghij")
+
+	if _, err := s.Stat(ctx, key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Stat de objeto inexistente: %v", err)
+	}
+	if _, err := s.Get(ctx, key, 100); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get de objeto inexistente: %v", err)
+	}
+	if _, err := s.GetRange(ctx, key, 0, 4); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetRange de objeto inexistente: %v", err)
+	}
+	if err := s.Delete(ctx, key); err != nil {
+		t.Fatalf("Delete do que não existe não é erro: %v", err)
+	}
+
+	if err := s.Put(ctx, key, "application/zip", data); err != nil {
+		t.Fatal(err)
+	}
+	info, err := s.Stat(ctx, key)
+	if err != nil || info.Size != int64(len(data)) || info.ContentType != "application/zip" {
+		t.Fatalf("Stat = %+v, %v", info, err)
+	}
+	head, err := s.GetRange(ctx, key, 0, 4)
+	if err != nil || string(head) != "0123" {
+		t.Fatalf("GetRange(0,4) = %q, %v", head, err)
+	}
+	mid, err := s.GetRange(ctx, key, 10, 5)
+	if err != nil || string(mid) != "abcde" {
+		t.Fatalf("GetRange(10,5) = %q, %v", mid, err)
+	}
+	all, err := s.GetRange(ctx, key, 0, 512) // intervalo maior que o objeto: devolve o que existe
+	if err != nil || !bytes.Equal(all, data) {
+		t.Fatalf("GetRange(0,512) = %q, %v", all, err)
+	}
+	got, err := s.Get(ctx, key, int64(len(data)))
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("Get = %q, %v", got, err)
+	}
+	if _, err := s.Get(ctx, key, int64(len(data))-1); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("Get acima do limite: %v", err)
+	}
+
+	if err := s.Delete(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Stat(ctx, key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("depois de apagar: %v", err)
+	}
+}
+
+func TestEmptyObjectGetRange(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newStore(t)
+	key := "integration/empty-" + time.Now().Format("20060102T150405.000000000")
+	if err := s.Put(ctx, key, "text/plain", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Delete(ctx, key) }()
+	b, err := s.GetRange(ctx, key, 0, 512)
+	if err != nil || len(b) != 0 {
+		t.Fatalf("GetRange de objeto vazio = %q, %v", b, err)
+	}
+}
+
+func TestPresignedPutRejectsOtherSize(t *testing.T) {
+	s, _ := newStore(t)
+	putURL, err := s.PresignPut(context.Background(), "integration/size.bin", "image/png", 3, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp := do(t, http.MethodPut, putURL, "image/png", []byte("mais de três bytes")); resp.StatusCode == http.StatusOK {
+		t.Fatal("PUT com tamanho diferente do assinado deveria falhar")
 	}
 }

@@ -8,6 +8,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Attachment struct {
+	ID           int64
+	MessageID    *int64
+	UploaderID   int64
+	ObjectKey    string
+	Filename     string
+	ContentType  string
+	SizeBytes    int64
+	Width        *int32
+	Height       *int32
+	ThumbnailKey *string
+	CreatedAt    pgtype.Timestamptz
+}
+
 type Channel struct {
 	ID            int64
 	Type          int16
