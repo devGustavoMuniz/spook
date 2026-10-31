@@ -668,3 +668,16 @@ func (s *Service) publishGuildCreate(d Detail, userID int64) {
 		Type: events.GuildCreate, GuildID: d.Guild.ID, Topics: []string{userTopic(userID)}, Data: d.Payload(),
 	})
 }
+
+// ChannelIDs lista os canais do servidor (usado pelo gateway ao recalcular assinaturas).
+func (s *Service) ChannelIDs(ctx context.Context, guildID int64) ([]int64, error) {
+	cs, err := s.channels.ListByGuild(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids, nil
+}

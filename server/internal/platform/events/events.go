@@ -5,6 +5,7 @@ package events
 import (
 	"log/slog"
 	"sync"
+	"time"
 )
 
 // Tipos de evento (SPEC 5.3).
@@ -34,6 +35,9 @@ type Event struct {
 	ChannelID int64
 	Topics    []string
 	Data      any
+	// At é o instante da publicação (o Bus preenche se estiver zerado); o gateway mede
+	// a latência publicação → escrita no socket a partir dele.
+	At time.Time
 }
 
 // Publisher é o que os services precisam do barramento.
@@ -99,6 +103,9 @@ func (b *Bus) Subscribe(fn func(Event)) (cancel func()) {
 
 // Publish nunca bloqueia: assinante com a fila cheia perde o evento.
 func (b *Bus) Publish(ev Event) {
+	if ev.At.IsZero() {
+		ev.At = time.Now()
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for s := range b.subs {

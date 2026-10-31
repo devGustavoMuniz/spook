@@ -68,3 +68,20 @@ func TestCancelStopsDelivery(t *testing.T) {
 		t.Fatalf("recebeu %d eventos após cancelar", n)
 	}
 }
+
+func TestBusStampsPublishTime(t *testing.T) {
+	b := NewBus(4)
+	got := make(chan Event, 2)
+	cancel := b.Subscribe(func(e Event) { got <- e })
+	defer cancel()
+	before := time.Now()
+	b.Publish(Event{Type: "X"})
+	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	b.Publish(Event{Type: "Y", At: fixed})
+	if e := <-got; e.At.Before(before) {
+		t.Fatalf("At = %v, esperado >= %v", e.At, before)
+	}
+	if e := <-got; !e.At.Equal(fixed) {
+		t.Fatalf("At preenchido pelo publicador deve ser mantido: %v", e.At)
+	}
+}

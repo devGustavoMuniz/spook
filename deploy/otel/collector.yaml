@@ -9,9 +9,17 @@ exporters:
   otlp/tempo:
     endpoint: tempo:4317
     tls: { insecure: true }
+  # Métricas do gateway e do runtime do Go (Fase 3): expostas no formato Prometheus em :8889/metrics
+  # (um Prometheus/Grafana Cloud faz o scrape; a Fase B decide onde isso roda em produção).
+  prometheus:
+    endpoint: 0.0.0.0:8889
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
       exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

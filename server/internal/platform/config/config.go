@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type S3 struct {
@@ -27,7 +28,13 @@ type Config struct {
 	WebDir       string // build do front servido pelo backend; vazio desliga
 	RealIPHeader string // ex.: CF-Connecting-IP atrás do Cloudflare Tunnel
 	S3           S3
+	// AllowedOrigins são as origens extras aceitas no handshake do gateway, além do próprio host
+	// (SPOOK_ALLOWED_ORIGINS, separadas por vírgula).
+	AllowedOrigins []string
 }
+
+// DefaultAllowedOrigins são as origens do app desktop (Tauri) no macOS/Linux e no Windows.
+var DefaultAllowedOrigins = []string{"tauri://localhost", "http://tauri.localhost"}
 
 // Load lê as variáveis SPOOK_* e S3_*. SPOOK_DATABASE_URL é obrigatória.
 func Load() (Config, error) {
@@ -45,6 +52,10 @@ func Load() (Config, error) {
 			AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
 		},
+	}
+	c.AllowedOrigins = DefaultAllowedOrigins
+	if v, ok := os.LookupEnv("SPOOK_ALLOWED_ORIGINS"); ok {
+		c.AllowedOrigins = splitList(v)
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, errors.New("SPOOK_DATABASE_URL é obrigatória")
@@ -69,4 +80,14 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

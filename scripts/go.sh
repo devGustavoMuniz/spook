@@ -7,6 +7,7 @@ if command -v go >/dev/null 2>&1 && [ -z "${SPOOK_GO_DOCKER:-}" ] && [ -z "${DOC
   exec go "$@"
 fi
 version="$(awk '/^toolchain /{sub(/^go/,"",$2); print $2}' go.mod)"
+# Monta a raiz do repositório (e não só server/): alguns testes leem/gravam packages/shared/fixtures.
 # shellcheck disable=SC2086
-exec docker run --rm ${DOCKER_ARGS:-} -v "$PWD":/src -v spook-gomod:/go/pkg/mod -v spook-gobuild:/root/.cache/go-build \
-  -w /src -e CGO_ENABLED=0 "golang:${version}-alpine" go "$@"
+exec docker run --rm ${DOCKER_ARGS:-} -v "$PWD/..":/repo -v spook-gomod:/go/pkg/mod -v spook-gobuild:/root/.cache/go-build \
+  -w /repo/server -e CGO_ENABLED=0 "golang:${version}-alpine" go "$@"
