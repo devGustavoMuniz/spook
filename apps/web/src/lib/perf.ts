@@ -41,6 +41,8 @@ export function makePerfMessages(count: number, channelId = "perf"): MessagePayl
       edited_at: rnd() < 0.03 ? new Date(start + i * 45_000 + 5000).toISOString() : null,
       attachments: [],
       mention_ids: [],
+      reply_to: null,
+      pinned: false,
     });
   }
   return out;

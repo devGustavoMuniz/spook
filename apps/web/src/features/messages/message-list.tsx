@@ -4,7 +4,7 @@
 import type { MessagePayload } from "@spook/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useViewportStore } from "../notifications/viewport";
 import { MessageRow, type MessageRowProps } from "./message-row";
 import { buildRows } from "./rows";
@@ -23,6 +23,16 @@ export type MessageListProps = {
   /** Ponto de leitura de quando o canal foi aberto: a mensagem seguinte ganha "Novas mensagens". */
   newAfterId?: string | null;
   canManageMessages: boolean;
+  /** Pode responder e fixar (já calculado pelo canal: servidor ou DM). */
+  canReply: boolean;
+  canPin: boolean;
+  /** Mensagem a que o composer responde agora (ganha realce). */
+  replyingToId?: string | null;
+  /** Pedido de rolar até uma mensagem já carregada (citação, fixadas, ↑); `nonce` diferencia pedidos iguais. */
+  jump?: { messageId: string; nonce: number } | null;
+  onReply: MessageRowProps["onReply"];
+  onTogglePin: MessageRowProps["onTogglePin"];
+  onJumpTo: MessageRowProps["onJumpTo"];
   editingId: string | null;
   onStartEdit: MessageRowProps["onStartEdit"];
   onCancelEdit: MessageRowProps["onCancelEdit"];
@@ -54,7 +64,11 @@ export function MessageList(props: MessageListProps) {
     estimateSize: (i) => {
       const r = rows[i];
       if (!r || r.kind === "start") return 72;
-      return (r.header ? 64 + (r.day ? 40 : 0) : 26) + (r.marker ? 28 : 0);
+      return (
+        (r.header ? 64 + (r.day ? 40 : 0) : 26) +
+        (r.marker ? 28 : 0) +
+        (r.message.reply_to ? 24 : 0)
+      );
     },
     getItemKey: (i) => rows[i]?.key ?? i,
     overscan: 10,
@@ -70,6 +84,24 @@ export function MessageList(props: MessageListProps) {
   useEffect(() => {
     if (hasMessages) virtualizer.scrollToEnd();
   }, [hasMessages]);
+
+  // "Ir até a mensagem": rola até a linha (centralizada) e a destaca por um instante.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const handledJump = useRef(0);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { jump } = props;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: roda quando chega um pedido novo ou as linhas mudam (a mensagem pode entrar depois)
+  useEffect(() => {
+    if (!jump || handledJump.current === jump.nonce) return;
+    const index = rows.findIndex((r) => r.kind === "message" && r.message.id === jump.messageId);
+    if (index < 0) return;
+    handledJump.current = jump.nonce;
+    virtualizer.scrollToIndex(index, { align: "center" });
+    setHighlightId(jump.messageId);
+    clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightId(null), 2000);
+  }, [jump, rows]);
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
 
   // Minha própria mensagem sempre leva ao fim, mesmo se eu tinha rolado para cima.
   const lastId = messages.at(-1)?.id;
@@ -181,6 +213,13 @@ export function MessageList(props: MessageListProps) {
                     color={props.colors.get(row.message.author.id)}
                     canEdit={row.message.author.id === props.myId}
                     canDelete={row.message.author.id === props.myId || props.canManageMessages}
+                    canReply={props.canReply}
+                    canPin={props.canPin}
+                    highlighted={highlightId === row.message.id}
+                    replyTarget={props.replyingToId === row.message.id}
+                    onReply={props.onReply}
+                    onTogglePin={props.onTogglePin}
+                    onJumpTo={props.onJumpTo}
                     editing={props.editingId === row.message.id}
                     onStartEdit={props.onStartEdit}
                     onCancelEdit={props.onCancelEdit}

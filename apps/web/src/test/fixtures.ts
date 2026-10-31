@@ -91,6 +91,8 @@ export function messages(
     edited_at: null,
     attachments: [],
     mention_ids: [],
+    reply_to: null,
+    pinned: false,
   }));
 }
 

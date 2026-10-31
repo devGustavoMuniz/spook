@@ -12,7 +12,7 @@ import (
 )
 
 const getMessage = `-- name: GetMessage :one
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.id = $1 AND m.channel_id = $2 AND m.deleted_at IS NULL
@@ -30,6 +30,8 @@ type GetMessageRow struct {
 	Content     string
 	EditedAt    pgtype.Timestamptz
 	MentionIds  []int64
+	ReferenceID *int64
+	PinnedAt    pgtype.Timestamptz
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -45,6 +47,8 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 		&i.Content,
 		&i.EditedAt,
 		&i.MentionIds,
+		&i.ReferenceID,
+		&i.PinnedAt,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -52,24 +56,79 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 	return i, err
 }
 
+const getReferencedMessages = `-- name: GetReferencedMessages :many
+SELECT m.id, m.author_id, m.content, (m.deleted_at IS NOT NULL)::boolean AS deleted,
+       EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments,
+       u.username, u.display_name
+FROM messages m JOIN users u ON u.id = m.author_id
+WHERE m.id = ANY($2::bigint[]) AND m.channel_id = $1
+`
+
+type GetReferencedMessagesParams struct {
+	ChannelID int64
+	Ids       []int64
+}
+
+type GetReferencedMessagesRow struct {
+	ID             int64
+	AuthorID       int64
+	Content        string
+	Deleted        bool
+	HasAttachments bool
+	Username       string
+	DisplayName    *string
+}
+
+// Mensagens respondidas de um lote (inclui as apagadas, para o cliente mostrar "mensagem apagada"),
+// limitadas ao canal. Uma consulta para a página inteira.
+func (q *Queries) GetReferencedMessages(ctx context.Context, arg GetReferencedMessagesParams) ([]GetReferencedMessagesRow, error) {
+	rows, err := q.db.Query(ctx, getReferencedMessages, arg.ChannelID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetReferencedMessagesRow
+	for rows.Next() {
+		var i GetReferencedMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AuthorID,
+			&i.Content,
+			&i.Deleted,
+			&i.HasAttachments,
+			&i.Username,
+			&i.DisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertMessage = `-- name: InsertMessage :one
 WITH m AS (
-    INSERT INTO messages (id, channel_id, author_id, content, mention_ids) VALUES ($1, $2, $3, $4, $5::bigint[])
-    RETURNING id, channel_id, author_id, content, edited_at, mention_ids
+    INSERT INTO messages (id, channel_id, author_id, content, mention_ids, reference_id)
+    VALUES ($1, $2, $3, $4, $5::bigint[], $6)
+    RETURNING id, channel_id, author_id, content, edited_at, mention_ids, reference_id, pinned_at
 ), c AS (
     UPDATE channels SET last_message_id = $1 WHERE id = $2 AND (last_message_id IS NULL OR last_message_id < $1)
 )
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
        u.username, u.display_name, u.avatar_key
 FROM m JOIN users u ON u.id = m.author_id
 `
 
 type InsertMessageParams struct {
-	ID         int64
-	ChannelID  int64
-	AuthorID   int64
-	Content    string
-	MentionIds []int64
+	ID          int64
+	ChannelID   int64
+	AuthorID    int64
+	Content     string
+	MentionIds  []int64
+	ReferenceID *int64
 }
 
 type InsertMessageRow struct {
@@ -79,6 +138,8 @@ type InsertMessageRow struct {
 	Content     string
 	EditedAt    pgtype.Timestamptz
 	MentionIds  []int64
+	ReferenceID *int64
+	PinnedAt    pgtype.Timestamptz
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -92,6 +153,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		arg.AuthorID,
 		arg.Content,
 		arg.MentionIds,
+		arg.ReferenceID,
 	)
 	var i InsertMessageRow
 	err := row.Scan(
@@ -101,6 +163,8 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		&i.Content,
 		&i.EditedAt,
 		&i.MentionIds,
+		&i.ReferenceID,
+		&i.PinnedAt,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -109,7 +173,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 }
 
 const listMessages = `-- name: ListMessages :many
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.id < $2 AND m.deleted_at IS NULL
@@ -130,6 +194,8 @@ type ListMessagesRow struct {
 	Content     string
 	EditedAt    pgtype.Timestamptz
 	MentionIds  []int64
+	ReferenceID *int64
+	PinnedAt    pgtype.Timestamptz
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -151,6 +217,8 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.Content,
 			&i.EditedAt,
 			&i.MentionIds,
+			&i.ReferenceID,
+			&i.PinnedAt,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
@@ -165,8 +233,95 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 	return items, nil
 }
 
+const listPinnedMessages = `-- name: ListPinnedMessages :many
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
+       u.username, u.display_name, u.avatar_key
+FROM messages m JOIN users u ON u.id = m.author_id
+WHERE m.channel_id = $1 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
+ORDER BY m.pinned_at DESC, m.id DESC
+LIMIT $2
+`
+
+type ListPinnedMessagesParams struct {
+	ChannelID int64
+	Limit     int32
+}
+
+type ListPinnedMessagesRow struct {
+	ID          int64
+	ChannelID   int64
+	AuthorID    int64
+	Content     string
+	EditedAt    pgtype.Timestamptz
+	MentionIds  []int64
+	ReferenceID *int64
+	PinnedAt    pgtype.Timestamptz
+	Username    string
+	DisplayName *string
+	AvatarKey   *string
+}
+
+func (q *Queries) ListPinnedMessages(ctx context.Context, arg ListPinnedMessagesParams) ([]ListPinnedMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listPinnedMessages, arg.ChannelID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPinnedMessagesRow
+	for rows.Next() {
+		var i ListPinnedMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChannelID,
+			&i.AuthorID,
+			&i.Content,
+			&i.EditedAt,
+			&i.MentionIds,
+			&i.ReferenceID,
+			&i.PinnedAt,
+			&i.Username,
+			&i.DisplayName,
+			&i.AvatarKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pinMessage = `-- name: PinMessage :execrows
+UPDATE messages SET pinned_at = now(), pinned_by = $3
+WHERE messages.id = $1 AND messages.channel_id = $2 AND messages.deleted_at IS NULL AND messages.pinned_at IS NULL
+  AND (SELECT count(*) FROM messages p WHERE p.channel_id = $2 AND p.pinned_at IS NOT NULL AND p.deleted_at IS NULL) < $4::int
+`
+
+type PinMessageParams struct {
+	ID        int64
+	ChannelID int64
+	PinnedBy  *int64
+	MaxPins   int32
+}
+
+// Fixa só se ainda não está fixada e o canal tem menos de max_pins fixadas (checagem e escrita juntas).
+func (q *Queries) PinMessage(ctx context.Context, arg PinMessageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pinMessage,
+		arg.ID,
+		arg.ChannelID,
+		arg.PinnedBy,
+		arg.MaxPins,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const softDeleteMessage = `-- name: SoftDeleteMessage :execrows
-UPDATE messages SET deleted_at = now()
+UPDATE messages SET deleted_at = now(), pinned_at = NULL, pinned_by = NULL
 WHERE id = $1 AND channel_id = $2 AND deleted_at IS NULL
 `
 
@@ -175,8 +330,27 @@ type SoftDeleteMessageParams struct {
 	ChannelID int64
 }
 
+// Apagar também desafixa (a mensagem some das fixadas e não conta no limite).
 func (q *Queries) SoftDeleteMessage(ctx context.Context, arg SoftDeleteMessageParams) (int64, error) {
 	result, err := q.db.Exec(ctx, softDeleteMessage, arg.ID, arg.ChannelID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unpinMessage = `-- name: UnpinMessage :execrows
+UPDATE messages SET pinned_at = NULL, pinned_by = NULL
+WHERE id = $1 AND channel_id = $2 AND deleted_at IS NULL AND pinned_at IS NOT NULL
+`
+
+type UnpinMessageParams struct {
+	ID        int64
+	ChannelID int64
+}
+
+func (q *Queries) UnpinMessage(ctx context.Context, arg UnpinMessageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unpinMessage, arg.ID, arg.ChannelID)
 	if err != nil {
 		return 0, err
 	}

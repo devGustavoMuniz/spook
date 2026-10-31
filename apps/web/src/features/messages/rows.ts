@@ -42,6 +42,7 @@ export function buildRows(
     const header =
       newDay ||
       marker ||
+      !!message.reply_to ||
       !prev ||
       prev.author.id !== message.author.id ||
       Date.parse(message.created_at) - Date.parse(prev.created_at) > GROUP_WINDOW_MS;

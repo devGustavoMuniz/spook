@@ -55,6 +55,9 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     retryAfter: 1,
     /** Atraso (ms) da resposta do POST de mensagens, para testar o que acontece enquanto o envio está pendente. */
     sendDelayMs: 0,
+    /** Fixadas por canal (ids, a mais recentemente fixada primeiro); `pinError` força o status de PUT/DELETE em /pins. */
+    pins: {} as Record<string, string[]>,
+    pinError: null as null | { status: number; detail: string },
     /** Se definido, o POST de mensagens falha com este status. */
     sendError: null as null | { status: number; detail: string },
     requests: [] as { method: string; path: string; search: string; body?: unknown }[],
@@ -441,7 +444,12 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
         });
       }),
       http.post("*/api/channels/:channelId/messages", async ({ params, request }) => {
-        const b = (await request.json()) as { content: string; attachment_ids?: string[] | null };
+        const b = (await request.json()) as {
+          content: string;
+          attachment_ids?: string[] | null;
+          reply_to?: string;
+          mention_reply?: boolean;
+        };
         track(request, b);
         if (state.sendDelayMs > 0) await new Promise((r) => setTimeout(r, state.sendDelayMs));
         if (state.sendError) {
@@ -463,6 +471,27 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           );
         }
         const cid = params.channelId as string;
+        // Responder: a original precisa existir no canal (senão 422, como o servidor).
+        let replyTo: MessagePayload["reply_to"] = null;
+        let mentionIds: string[] = [];
+        if (b.reply_to) {
+          const orig = (state.messages[cid] ?? []).find((m) => m.id === b.reply_to);
+          if (!orig) {
+            return problem(
+              422,
+              "a mensagem respondida não existe mais, foi apagada ou é de outro canal",
+            );
+          }
+          replyTo = {
+            id: orig.id,
+            author: orig.author,
+            content: Array.from(orig.content).slice(0, 100).join(""),
+            has_attachments: orig.attachments.length > 0,
+            deleted: false,
+          };
+          if (b.mention_reply !== false && orig.author.id !== state.user.id)
+            mentionIds = [orig.author.id];
+        }
         const msg: MessagePayload = {
           id: nextId(),
           channel_id: cid,
@@ -477,7 +506,9 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
             size: 12,
             url: `https://storage.test/get/${id}`,
           })),
-          mention_ids: [],
+          mention_ids: mentionIds,
+          reply_to: replyTo,
+          pinned: false,
         };
         state.messages[cid] = [...(state.messages[cid] ?? []), msg];
         return HttpResponse.json(msg, { status: 201 });
@@ -492,6 +523,39 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
         const next = { ...cur, content: b.content, edited_at: new Date().toISOString() };
         list[i] = next;
         return HttpResponse.json(next);
+      }),
+      http.get("*/api/channels/:channelId/pins", ({ params, request }) => {
+        track(request);
+        const cid = params.channelId as string;
+        const all = state.messages[cid] ?? [];
+        const ids = state.pins[cid] ?? [];
+        return HttpResponse.json({
+          messages: ids.flatMap((id) => all.filter((m) => m.id === id && m.pinned)),
+        });
+      }),
+      http.put("*/api/channels/:channelId/pins/:messageId", ({ params, request }) => {
+        track(request);
+        if (state.pinError) return problem(state.pinError.status, state.pinError.detail);
+        const cid = params.channelId as string;
+        const list = state.messages[cid] ?? [];
+        const i = list.findIndex((m) => m.id === params.messageId);
+        const cur = list[i];
+        if (!cur) return problem(404, "mensagem não encontrada");
+        list[i] = { ...cur, pinned: true };
+        state.pins[cid] = [cur.id, ...(state.pins[cid] ?? []).filter((id) => id !== cur.id)];
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.delete("*/api/channels/:channelId/pins/:messageId", ({ params, request }) => {
+        track(request);
+        if (state.pinError) return problem(state.pinError.status, state.pinError.detail);
+        const cid = params.channelId as string;
+        const list = state.messages[cid] ?? [];
+        const i = list.findIndex((m) => m.id === params.messageId);
+        const cur = list[i];
+        if (!cur) return problem(404, "mensagem não encontrada");
+        list[i] = { ...cur, pinned: false };
+        state.pins[cid] = (state.pins[cid] ?? []).filter((id) => id !== cur.id);
+        return new HttpResponse(null, { status: 204 });
       }),
       http.delete("*/api/channels/:channelId/messages/:messageId", ({ params, request }) => {
         track(request);

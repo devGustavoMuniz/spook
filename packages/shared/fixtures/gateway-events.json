@@ -225,7 +225,19 @@
         ],
         "mention_ids": [
           "11"
-        ]
+        ],
+        "reply_to": {
+          "id": "899",
+          "author": {
+            "id": "11",
+            "username": "maria",
+            "display_name": "Maria"
+          },
+          "content": "Quem vai ao estudo de Go?",
+          "has_attachments": true,
+          "deleted": false
+        },
+        "pinned": true
       }
     },
     "MESSAGE_DELETE": {
@@ -273,7 +285,19 @@
         ],
         "mention_ids": [
           "11"
-        ]
+        ],
+        "reply_to": {
+          "id": "899",
+          "author": {
+            "id": "11",
+            "username": "maria",
+            "display_name": "Maria"
+          },
+          "content": "Quem vai ao estudo de Go?",
+          "has_attachments": true,
+          "deleted": false
+        },
+        "pinned": true
       }
     },
     "PRESENCE_UPDATE": {

@@ -1,6 +1,6 @@
 import type { MessagePayload } from "@spook/shared";
-import { Pencil, Trash2 } from "lucide-react";
-import { memo, type ReactNode, useState } from "react";
+import { CornerUpRight, Pencil, Pin, PinOff, Reply, Trash2 } from "lucide-react";
+import { type KeyboardEvent, memo, type ReactNode, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,7 +20,19 @@ export type MessageRowProps = {
   myUsername: string;
   canEdit: boolean;
   canDelete: boolean;
+  /** Pode responder (SEND_MESSAGES no servidor; sempre em DM). */
+  canReply: boolean;
+  /** Pode fixar/desafixar (MANAGE_MESSAGES no servidor; qualquer participante em DM). */
+  canPin: boolean;
   editing: boolean;
+  /** Linha destacada um instante depois de "ir até a mensagem". */
+  highlighted?: boolean;
+  /** É a mensagem a que o composer está respondendo agora. */
+  replyTarget?: boolean;
+  onReply: (message: MessagePayload) => void;
+  onTogglePin: (message: MessagePayload) => void;
+  /** Clique na citação: rola até a mensagem original (carregando páginas anteriores se preciso). */
+  onJumpTo: (messageId: string) => void;
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: (id: string, content: string) => Promise<void>;
@@ -33,12 +45,30 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   // mention_ids traz quem deve ser NOTIFICADO (o servidor exclui o próprio autor). Só ele destaca a linha;
   // o "@usuário" no texto é destacado sempre que cita você, inclusive numa mensagem sua.
   const mentionsMe = (m.mention_ids ?? []).includes(p.myId);
+  // Atalhos com a própria mensagem focada (Tab/clique): R responde, P fixa, E edita.
+  function onKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey || p.editing) return;
+    const key = e.key.toLowerCase();
+    if (key === "r" && p.canReply) p.onReply(m);
+    else if (key === "p" && p.canPin) p.onTogglePin(m);
+    else if (key === "e" && p.canEdit) p.onStartEdit(m.id);
+    else return;
+    e.preventDefault();
+  }
   return (
     <article
       aria-label={`Mensagem de ${name}`}
+      aria-keyshortcuts="R P E"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a mensagem recebe foco para revelar as ações e aceitar os atalhos (R, P, E)
+      tabIndex={0}
+      onKeyDown={onKeyDown}
       data-mention={mentionsMe || undefined}
-      className={`group relative flex flex-col px-4 hover:bg-accent/40 focus-within:bg-accent/40 ${
+      data-pinned={m.pinned || undefined}
+      data-highlighted={p.highlighted || undefined}
+      className={`group relative flex flex-col px-4 outline-none hover:bg-accent/40 focus-within:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset ${
         mentionsMe ? "border-l-2 border-primary bg-primary/10" : ""
+      } ${p.highlighted ? "bg-primary/20 transition-colors" : ""} ${
+        p.replyTarget ? "bg-accent/60" : ""
       }`}
     >
       {p.marker ? (
@@ -55,6 +85,7 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
           <hr className="flex-1 border-border" />
         </div>
       ) : null}
+      {m.reply_to ? <ReplyQuote reply={m.reply_to} onJumpTo={p.onJumpTo} /> : null}
       <div className={p.header ? "flex gap-3 pt-2 pb-0.5" : "flex gap-3"}>
         <div className="w-10 shrink-0 pt-0.5 text-right text-[10px] text-muted-foreground">
           {p.header ? (
@@ -102,12 +133,42 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                 </p>
               ) : null}
               <MessageAttachments attachments={m.attachments ?? []} />
+              {m.pinned ? (
+                <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <Pin className="size-3" role="img" aria-label="Mensagem fixada" />
+                  fixada
+                </p>
+              ) : null}
             </>
           )}
         </div>
       </div>
-      {!p.editing && (p.canEdit || p.canDelete) ? (
+      {!p.editing && (p.canEdit || p.canDelete || p.canReply || p.canPin) ? (
         <div className="absolute -top-3 right-4 hidden gap-0.5 rounded-md border bg-popover p-0.5 shadow-sm group-focus-within:flex group-hover:flex">
+          {p.canReply ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label="Responder"
+              title="Responder (R)"
+              onClick={() => p.onReply(m)}
+            >
+              <Reply />
+            </Button>
+          ) : null}
+          {p.canPin ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={m.pinned ? "Desafixar mensagem" : "Fixar mensagem"}
+              title={m.pinned ? "Desafixar (P)" : "Fixar (P)"}
+              onClick={() => p.onTogglePin(m)}
+            >
+              {m.pinned ? <PinOff /> : <Pin />}
+            </Button>
+          ) : null}
           {p.canEdit ? (
             <Button
               variant="ghost"
@@ -135,6 +196,40 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
     </article>
   );
 });
+
+/** Citação da mensagem respondida acima da resposta (autor + trecho). */
+function ReplyQuote({
+  reply,
+  onJumpTo,
+}: {
+  reply: NonNullable<MessagePayload["reply_to"]>;
+  onJumpTo: (messageId: string) => void;
+}) {
+  const author = reply.author.display_name || reply.author.username;
+  if (reply.deleted) {
+    return (
+      <div className="ml-[52px] flex items-center gap-1.5 pt-2 text-xs text-muted-foreground italic">
+        <CornerUpRight className="size-3 shrink-0" aria-hidden />
+        <span>Mensagem original apagada</span>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label={`Ir para a mensagem original de ${author}`}
+      onClick={() => onJumpTo(reply.id)}
+      className="ml-[52px] flex max-w-full items-center gap-1.5 self-start pt-2 text-left text-xs text-muted-foreground hover:text-foreground focus-visible:text-foreground"
+    >
+      <CornerUpRight className="size-3 shrink-0" aria-hidden />
+      <span className="shrink-0 font-medium">@{author}</span>
+      <span className="truncate">
+        {reply.content || (reply.has_attachments ? "Anexo" : "")}
+        {reply.content && reply.has_attachments ? " (com anexo)" : ""}
+      </span>
+    </button>
+  );
+}
 
 /** Destaca o `@username` do usuário no texto (sem diferenciar maiúsculas), só onde é uma menção de verdade. */
 export function highlightMention(content: string, username: string): ReactNode[] {

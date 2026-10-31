@@ -50,6 +50,8 @@ const incoming = (channel: string, id: string, author = "50") => ({
   created_at: "2026-10-31T12:00:00Z",
   attachments: [],
   mention_ids: [],
+  reply_to: null,
+  pinned: false,
 });
 
 describe("lista de conversas", () => {

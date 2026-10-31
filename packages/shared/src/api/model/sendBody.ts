@@ -16,4 +16,8 @@ export interface SendBody {
    * @maxLength 2000
    */
   content?: string;
+  /** Menciona o autor da mensagem respondida (padrão true): ele recebe contador de menção e push, como um @ direto */
+  mention_reply?: boolean;
+  /** ID da mensagem respondida; precisa existir, não estar apagada e ser deste canal (422 caso contrário) */
+  reply_to?: string;
 }

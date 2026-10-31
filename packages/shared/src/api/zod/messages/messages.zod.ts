@@ -59,6 +59,23 @@ export const ListMessagesResponse = zod.object({
           .describe(
             "IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)",
           ),
+        pinned: zod.boolean().describe("A mensagem está fixada no canal"),
+        reply_to: zod
+          .union([
+            zod.object({
+              author: zod.object({
+                display_name: zod.string().optional(),
+                id: zod.string(),
+                username: zod.string(),
+              }),
+              content: zod.string().describe("Até 100 caracteres (runes); vazio quando deleted"),
+              deleted: zod.boolean().describe("A mensagem original foi apagada (sem conteúdo)"),
+              has_attachments: zod.boolean(),
+              id: zod.string(),
+            }),
+            zod.null(),
+          ])
+          .describe("Mensagem respondida (null quando não é uma resposta)"),
       }),
     )
     .nullable()
@@ -86,6 +103,18 @@ export const SendMessageBody = zod.object({
     .max(sendMessageBodyContentMax)
     .optional()
     .describe("Até 2000 caracteres (runes); pode ser vazio se houver anexo"),
+  mention_reply: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Menciona o autor da mensagem respondida (padrão true): ele recebe contador de menção e push, como um @ direto",
+    ),
+  reply_to: zod
+    .string()
+    .optional()
+    .describe(
+      "ID da mensagem respondida; precisa existir, não estar apagada e ser deste canal (422 caso contrário)",
+    ),
 });
 
 export const SendMessageResponse = zod.object({
@@ -120,6 +149,23 @@ export const SendMessageResponse = zod.object({
   mention_ids: zod
     .array(zod.string())
     .describe("IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"),
+  pinned: zod.boolean().describe("A mensagem está fixada no canal"),
+  reply_to: zod
+    .union([
+      zod.object({
+        author: zod.object({
+          display_name: zod.string().optional(),
+          id: zod.string(),
+          username: zod.string(),
+        }),
+        content: zod.string().describe("Até 100 caracteres (runes); vazio quando deleted"),
+        deleted: zod.boolean().describe("A mensagem original foi apagada (sem conteúdo)"),
+        has_attachments: zod.boolean(),
+        id: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .describe("Mensagem respondida (null quando não é uma resposta)"),
 });
 
 /**
@@ -182,7 +228,110 @@ export const EditMessageResponse = zod.object({
   mention_ids: zod
     .array(zod.string())
     .describe("IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"),
+  pinned: zod.boolean().describe("A mensagem está fixada no canal"),
+  reply_to: zod
+    .union([
+      zod.object({
+        author: zod.object({
+          display_name: zod.string().optional(),
+          id: zod.string(),
+          username: zod.string(),
+        }),
+        content: zod.string().describe("Até 100 caracteres (runes); vazio quando deleted"),
+        deleted: zod.boolean().describe("A mensagem original foi apagada (sem conteúdo)"),
+        has_attachments: zod.boolean(),
+        id: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .describe("Mensagem respondida (null quando não é uma resposta)"),
 });
+
+/**
+ * @summary Mensagens fixadas do canal (até 50, a mais recentemente fixada primeiro)
+ */
+export const ListPinnedMessagesParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+});
+
+export const ListPinnedMessagesResponse = zod.object({
+  messages: zod
+    .array(
+      zod.object({
+        attachments: zod.array(
+          zod.object({
+            content_type: zod.string(),
+            filename: zod.string(),
+            height: zod.int().optional().describe("Altura original; imagens processadas pelo job"),
+            id: zod.string(),
+            size: zod.int(),
+            thumbnail_url: zod
+              .string()
+              .optional()
+              .describe(
+                "Só em imagens, depois que o job de thumbnail termina (chega por MESSAGE_UPDATE)",
+              ),
+            url: zod.string().describe("GET pré-assinado, válido por 1 h"),
+            width: zod.int().optional().describe("Largura original; imagens processadas pelo job"),
+          }),
+        ),
+        author: zod.object({
+          avatar_url: zod.string().optional(),
+          display_name: zod.string().optional(),
+          id: zod.string(),
+          username: zod.string(),
+        }),
+        channel_id: zod.string(),
+        content: zod.string(),
+        created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
+        edited_at: zod.iso.datetime({ offset: true }).nullable(),
+        id: zod.string(),
+        mention_ids: zod
+          .array(zod.string())
+          .describe(
+            "IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)",
+          ),
+        pinned: zod.boolean().describe("A mensagem está fixada no canal"),
+        reply_to: zod
+          .union([
+            zod.object({
+              author: zod.object({
+                display_name: zod.string().optional(),
+                id: zod.string(),
+                username: zod.string(),
+              }),
+              content: zod.string().describe("Até 100 caracteres (runes); vazio quando deleted"),
+              deleted: zod.boolean().describe("A mensagem original foi apagada (sem conteúdo)"),
+              has_attachments: zod.boolean(),
+              id: zod.string(),
+            }),
+            zod.null(),
+          ])
+          .describe("Mensagem respondida (null quando não é uma resposta)"),
+      }),
+    )
+    .describe("Fixadas (até 50), a mais recentemente fixada primeiro"),
+});
+
+/**
+ * @summary Desafixa a mensagem (idempotente; mesmas permissões de fixar)
+ */
+export const UnpinMessageParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+  message_id: zod.string().describe("ID da mensagem"),
+});
+
+export const UnpinMessageResponse = zod.void();
+
+/**
+ * @summary Fixa a mensagem (idempotente; MANAGE_MESSAGES em servidor, qualquer participante em DM; máximo 50 por canal)
+ */
+export const PinMessageParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+  message_id: zod.string().describe("ID da mensagem"),
+});
+
+export const PinMessageResponse = zod.void();
 
 /**
  * @summary Avisa que o usuário está digitando (TYPING_START no canal; no máx. 1 evento a cada ~3 s por canal, o excedente é ignorado com 204)

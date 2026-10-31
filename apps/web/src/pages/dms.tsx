@@ -11,6 +11,7 @@ import { GroupDialog } from "@/features/dms/group-dialog";
 import { NewGroupDialog } from "@/features/dms/new-group-dialog";
 import { useDms } from "@/features/dms/use-dms";
 import { ChannelView } from "@/features/messages/channel-view";
+import { PinnedMessagesButton } from "@/features/messages/pins-panel";
 import { usePresence } from "@/features/presence/store";
 import { DmCallButton, DmCallPanel } from "@/features/voice/call-panel";
 import { appMessage } from "@/lib/app-errors";
@@ -94,6 +95,7 @@ export function DmPage() {
           ) : (
             <HeaderStatus userId={other?.id} />
           )}
+          <PinnedMessagesButton channelId={channel.id} canUnpin />
           <DmCallButton channel={channel} />
         </div>
       </header>

@@ -10,7 +10,7 @@ import {
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Paperclip } from "lucide-react";
 import type { DragEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -38,7 +38,9 @@ import {
 import { makePerfMessages } from "@/lib/perf";
 import { queryKeys } from "@/lib/queryKeys";
 import { MessageComposer } from "./composer";
+import { MAX_JUMP_PAGES, useJumpStore } from "./jump";
 import { MessageList } from "./message-list";
+import { usePinToggle } from "./use-pin";
 
 const PAGE_SIZE = 50;
 
@@ -120,14 +122,66 @@ export function ChannelView({
 
   const edit = useEditMessage();
   const del = useDeleteMessage();
+  const pins = usePinToggle(channelId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<MessagePayload | null>(null);
+  // Responder: a mensagem alvo vale só no canal em que foi escolhida (o ChannelView do servidor não remonta).
+  const [replying, setReplying] = useState<{ channelId: string; message: MessagePayload } | null>(
+    null,
+  );
+  const replyTo = replying?.channelId === channelId ? replying.message : null;
+  const [focusToken, setFocusToken] = useState(0);
+  const [jump, setJump] = useState<{ messageId: string; nonce: number } | null>(null);
+
+  // Mensagens mais recentes sem entrar nas dependências dos efeitos/handlers abaixo.
+  const latest = useRef({ messages, query });
+  useEffect(() => {
+    latest.current = { messages, query };
+  });
+
+  /**
+   * Leva até uma mensagem: se não está carregada, busca páginas anteriores (até MAX_JUMP_PAGES) à procura
+   * dela; se não achar, avisa que está fora do histórico carregado.
+   */
+  const goTo = useCallback(async (messageId: string) => {
+    const has = (list: MessagePayload[]) => list.some((m) => m.id === messageId);
+    const found = () => setJump((j) => ({ messageId, nonce: (j?.nonce ?? 0) + 1 }));
+    if (has(latest.current.messages)) return found();
+    let more = latest.current.query.hasNextPage;
+    for (let page = 0; page < MAX_JUMP_PAGES && more; page++) {
+      const r = await latest.current.query.fetchNextPage({ cancelRefetch: false });
+      if (has(flattenPages(r.data))) return found();
+      more = r.hasNextPage;
+    }
+    toast.info("Essa mensagem está fora do histórico carregado.");
+  }, []);
+
+  // Pedidos de outras partes da tela (painel de fixadas) para ir até uma mensagem deste canal.
+  const jumpRequest = useJumpStore((s) => s.request);
+  useEffect(() => {
+    if (!jumpRequest || jumpRequest.channelId !== channelId) return;
+    useJumpStore.setState({ request: null });
+    void goTo(jumpRequest.messageId);
+  }, [jumpRequest, channelId, goTo]);
+
+  // ↑ com o campo vazio: edita a última mensagem do próprio usuário (a mais nova do cache).
+  function editLast() {
+    const mine = [...messages].reverse().find((m) => m.author.id === me?.id);
+    if (!mine) return;
+    setEditingId(mine.id);
+    setJump((j) => ({ messageId: mine.id, nonce: (j?.nonce ?? 0) + 1 }));
+  }
+
+  function stopEditing() {
+    setEditingId(null);
+    setFocusToken((n) => n + 1);
+  }
 
   async function saveEdit(id: string, content: string) {
     try {
       const msg = await edit.mutateAsync({ channelId, messageId: id, data: { content } });
       replaceMessage(qc, channelId, msg);
-      setEditingId(null);
+      stopEditing();
     } catch (e) {
       toast.error(appMessage(e));
     }
@@ -150,6 +204,8 @@ export function ChannelView({
   // Em DM quem participa vê e escreve; o servidor responde 404 para quem não participa.
   const canView = guild ? can(guild, Permission.VIEW_CHANNEL) : true;
   const canSend = guild ? canView && can(guild, Permission.SEND_MESSAGES) : true;
+  // Fixar: MANAGE_MESSAGES no servidor; qualquer participante em DM.
+  const canPin = guild ? canView && can(guild, Permission.MANAGE_MESSAGES) : true;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: soltar arquivos é um atalho; o botão "Anexar arquivo" faz o mesmo pelo teclado
@@ -193,9 +249,16 @@ export function ChannelView({
           myUsername={me.username}
           newAfterId={newAfterId}
           canManageMessages={guild ? can(guild, Permission.MANAGE_MESSAGES) : false}
+          canReply={canSend && !perfOn}
+          canPin={canPin && !perfOn}
+          replyingToId={replyTo?.id}
+          jump={jump}
+          onReply={(m) => setReplying({ channelId, message: m })}
+          onTogglePin={(m) => void pins.toggle(m)}
+          onJumpTo={(id) => void goTo(id)}
           editingId={editingId}
           onStartEdit={setEditingId}
-          onCancelEdit={() => setEditingId(null)}
+          onCancelEdit={stopEditing}
           onSaveEdit={saveEdit}
           onDelete={setToDelete}
         />
@@ -207,6 +270,10 @@ export function ChannelView({
         nameOf={nameOf}
         canSend={canSend && !perfOn}
         attachments={attachments}
+        replyTo={replyTo}
+        onCancelReply={() => setReplying(null)}
+        onEditLast={editLast}
+        focusToken={focusToken}
       />
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>

@@ -27,6 +27,7 @@ import type {
   ListMessagesParams,
   MessageListOutputBody,
   MessagePayload,
+  PinsOutputBody,
   SendBody,
 } from "../../model";
 
@@ -475,6 +476,294 @@ export const useEditMessage = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getEditMessageMutationOptions(options), queryClient);
+};
+export const getListPinnedMessagesUrl = (channelId: string) => {
+  return `/api/channels/${channelId}/pins`;
+};
+
+/**
+ * @summary Mensagens fixadas do canal (até 50, a mais recentemente fixada primeiro)
+ */
+export const listPinnedMessages = async (
+  channelId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<PinsOutputBody> => {
+  return http<PinsOutputBody>(getListPinnedMessagesUrl(channelId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPinnedMessagesQueryKey = (channelId: string) => {
+  return [`/api/channels/${channelId}/pins`] as const;
+};
+
+export const getListPinnedMessagesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPinnedMessages>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPinnedMessages>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPinnedMessagesQueryKey(channelId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPinnedMessages>>> = ({ signal }) =>
+    listPinnedMessages(channelId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: channelId !== null && channelId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listPinnedMessages>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListPinnedMessagesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPinnedMessages>>
+>;
+export type ListPinnedMessagesQueryError = ErrorModel;
+
+export function useListPinnedMessages<
+  TData = Awaited<ReturnType<typeof listPinnedMessages>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPinnedMessages>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPinnedMessages>>,
+          TError,
+          Awaited<ReturnType<typeof listPinnedMessages>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListPinnedMessages<
+  TData = Awaited<ReturnType<typeof listPinnedMessages>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listPinnedMessages>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPinnedMessages>>,
+          TError,
+          Awaited<ReturnType<typeof listPinnedMessages>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListPinnedMessages<
+  TData = Awaited<ReturnType<typeof listPinnedMessages>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPinnedMessages>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Mensagens fixadas do canal (até 50, a mais recentemente fixada primeiro)
+ */
+
+export function useListPinnedMessages<
+  TData = Awaited<ReturnType<typeof listPinnedMessages>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listPinnedMessages>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListPinnedMessagesQueryOptions(channelId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getUnpinMessageUrl = (channelId: string, messageId: string) => {
+  return `/api/channels/${channelId}/pins/${messageId}`;
+};
+
+/**
+ * @summary Desafixa a mensagem (idempotente; mesmas permissões de fixar)
+ */
+export const unpinMessage = async (
+  channelId: string,
+  messageId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getUnpinMessageUrl(channelId, messageId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getUnpinMessageMutationKey = () => ["unpinMessage"] as const;
+
+export const getUnpinMessageMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unpinMessage>>,
+    TError,
+    UnpinMessageMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unpinMessage>>,
+  TError,
+  UnpinMessageMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUnpinMessageMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unpinMessage>>,
+    UnpinMessageMutationVariables
+  > = (props) => {
+    const { channelId, messageId } = props ?? {};
+
+    return unpinMessage(channelId, messageId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnpinMessageMutationResult = NonNullable<Awaited<ReturnType<typeof unpinMessage>>>;
+
+export type UnpinMessageMutationError = ErrorModel;
+export type UnpinMessageMutationVariables = { channelId: string; messageId: string };
+
+/**
+ * @summary Desafixa a mensagem (idempotente; mesmas permissões de fixar)
+ */
+export const useUnpinMessage = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof unpinMessage>>,
+      TError,
+      UnpinMessageMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof unpinMessage>>,
+  TError,
+  UnpinMessageMutationVariables,
+  TContext
+> => {
+  return useMutation(getUnpinMessageMutationOptions(options), queryClient);
+};
+export const getPinMessageUrl = (channelId: string, messageId: string) => {
+  return `/api/channels/${channelId}/pins/${messageId}`;
+};
+
+/**
+ * @summary Fixa a mensagem (idempotente; MANAGE_MESSAGES em servidor, qualquer participante em DM; máximo 50 por canal)
+ */
+export const pinMessage = async (
+  channelId: string,
+  messageId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getPinMessageUrl(channelId, messageId), {
+    ...options,
+    method: "PUT",
+  });
+};
+
+export const getPinMessageMutationKey = () => ["pinMessage"] as const;
+
+export const getPinMessageMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pinMessage>>,
+    TError,
+    PinMessageMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pinMessage>>,
+  TError,
+  PinMessageMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPinMessageMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pinMessage>>,
+    PinMessageMutationVariables
+  > = (props) => {
+    const { channelId, messageId } = props ?? {};
+
+    return pinMessage(channelId, messageId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PinMessageMutationResult = NonNullable<Awaited<ReturnType<typeof pinMessage>>>;
+
+export type PinMessageMutationError = ErrorModel;
+export type PinMessageMutationVariables = { channelId: string; messageId: string };
+
+/**
+ * @summary Fixa a mensagem (idempotente; MANAGE_MESSAGES em servidor, qualquer participante em DM; máximo 50 por canal)
+ */
+export const usePinMessage = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof pinMessage>>,
+      TError,
+      PinMessageMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof pinMessage>>,
+  TError,
+  PinMessageMutationVariables,
+  TContext
+> => {
+  return useMutation(getPinMessageMutationOptions(options), queryClient);
 };
 export const getStartTypingUrl = (channelId: string) => {
   return `/api/channels/${channelId}/typing`;

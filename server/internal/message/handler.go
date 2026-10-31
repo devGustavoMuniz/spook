@@ -35,6 +35,20 @@ type ContentBody struct {
 type SendBody struct {
 	Content       string   `json:"content,omitempty" maxLength:"2000" doc:"Até 2000 caracteres (runes); pode ser vazio se houver anexo"`
 	AttachmentIDs []string `json:"attachment_ids,omitempty" doc:"Até 10 IDs de uploads já enviados ao storage (POST /channels/{id}/uploads); só anexos seus, deste canal, ainda sem mensagem e com menos de 1 h"`
+	ReplyTo       string   `json:"reply_to,omitempty" doc:"ID da mensagem respondida; precisa existir, não estar apagada e ser deste canal (422 caso contrário)"`
+	MentionReply  *bool    `json:"mention_reply,omitempty" doc:"Menciona o autor da mensagem respondida (padrão true): ele recebe contador de menção e push, como um @ direto"`
+}
+
+// PinPath identifica a mensagem fixada/desafixada.
+type PinPath struct {
+	ChannelPath
+	MessageID string `path:"message_id" doc:"ID da mensagem"`
+}
+
+type PinsOutput struct {
+	Body struct {
+		Messages []MessagePayload `json:"messages" nullable:"false" doc:"Fixadas (até 50), a mais recentemente fixada primeiro"`
+	}
 }
 
 type MessageOutput struct{ Body MessagePayload }
@@ -73,11 +87,53 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 				}
 				attIDs = append(attIDs, id)
 			}
-			m, err := h.svc.Send(ctx, h.userID(ctx), cid, in.Body.Content, attIDs)
+			opts := SendOptions{MentionReply: in.Body.MentionReply == nil || *in.Body.MentionReply}
+			if in.Body.ReplyTo != "" {
+				if opts.ReplyTo, ok = httpx.ParseID(in.Body.ReplyTo); !ok {
+					return nil, huma.Error422UnprocessableEntity("reply_to inválido")
+				}
+			}
+			m, err := h.svc.Send(ctx, h.userID(ctx), cid, in.Body.Content, attIDs, opts)
 			if err != nil {
 				return nil, httpx.Err(err)
 			}
 			return &MessageOutput{Body: m.Payload()}, nil
+		})
+
+	huma.Register(api, op("listPinnedMessages", http.MethodGet, "/api/channels/{channel_id}/pins", "Mensagens fixadas do canal (até 50, a mais recentemente fixada primeiro)", 0, forbidden),
+		func(ctx context.Context, in *struct{ ChannelPath }) (*PinsOutput, error) {
+			cid, ok := httpx.ParseID(in.ChannelID)
+			if !ok {
+				return nil, httpx.BadID("canal")
+			}
+			ms, err := h.svc.ListPins(ctx, h.userID(ctx), cid)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			out := &PinsOutput{}
+			out.Body.Messages = make([]MessagePayload, len(ms))
+			for i, m := range ms {
+				out.Body.Messages[i] = m.Payload()
+			}
+			return out, nil
+		})
+
+	huma.Register(api, op("pinMessage", http.MethodPut, "/api/channels/{channel_id}/pins/{message_id}", "Fixa a mensagem (idempotente; MANAGE_MESSAGES em servidor, qualquer participante em DM; máximo 50 por canal)", http.StatusNoContent, forbidden, http.StatusConflict),
+		func(ctx context.Context, in *struct{ PinPath }) (*struct{}, error) {
+			cid, mid, err := ids(in.ChannelID, in.MessageID)
+			if err != nil {
+				return nil, err
+			}
+			return nil, httpx.Err(h.svc.Pin(ctx, h.userID(ctx), cid, mid))
+		})
+
+	huma.Register(api, op("unpinMessage", http.MethodDelete, "/api/channels/{channel_id}/pins/{message_id}", "Desafixa a mensagem (idempotente; mesmas permissões de fixar)", http.StatusNoContent, forbidden),
+		func(ctx context.Context, in *struct{ PinPath }) (*struct{}, error) {
+			cid, mid, err := ids(in.ChannelID, in.MessageID)
+			if err != nil {
+				return nil, err
+			}
+			return nil, httpx.Err(h.svc.Unpin(ctx, h.userID(ctx), cid, mid))
 		})
 
 	huma.Register(api, op("listMessages", http.MethodGet, "/api/channels/{channel_id}/messages", "Histórico paginado por cursor, da mais nova para a mais antiga", 0, forbidden, invalid),

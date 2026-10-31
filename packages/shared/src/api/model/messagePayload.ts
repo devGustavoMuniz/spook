@@ -6,6 +6,7 @@
  */
 import type { AttachmentPayload } from "./attachmentPayload";
 import type { AuthorPayload } from "./authorPayload";
+import type { ReplyPreview } from "./replyPreview";
 
 export interface MessagePayload {
   attachments: AttachmentPayload[];
@@ -19,4 +20,8 @@ export interface MessagePayload {
   id: string;
   /** IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20) */
   mention_ids: string[];
+  /** A mensagem está fixada no canal */
+  pinned: boolean;
+  /** Mensagem respondida (null quando não é uma resposta) */
+  reply_to: ReplyPreview | null;
 }

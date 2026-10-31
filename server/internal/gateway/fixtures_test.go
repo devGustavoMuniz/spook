@@ -84,6 +84,12 @@ func buildFixtures(t *testing.T) map[string]any {
 		Author: message.AuthorPayload{ID: "10", Username: "gustavo"},
 	}
 	msg.MentionIDs = []string{"11"}
+	// Resposta a outra mensagem (a prévia da original) e fixada: o MESSAGE_UPDATE de fixar traz pinned = true.
+	msg.ReplyTo = &message.ReplyPayload{
+		ID: "899", Content: "Quem vai ao estudo de Go?", HasAttachments: true,
+		Author: message.ReplyAuthorPayload{ID: "11", Username: "maria", DisplayName: "Maria"},
+	}
+	msg.Pinned = true
 	msg.Attachments = []attachment.AttachmentPayload{
 		{ID: "950", Filename: "foto.jpg", ContentType: "image/jpeg", Size: 123456, URL: "https://files.spook.example/attachments/300/950/foto.jpg?X-Amz-Signature=abc"},
 		{ID: "951", Filename: "notas.pdf", ContentType: "application/pdf", Size: 2048, URL: "https://files.spook.example/attachments/300/951/notas.pdf?X-Amz-Signature=abc"},

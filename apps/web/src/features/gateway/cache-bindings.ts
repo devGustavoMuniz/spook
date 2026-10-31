@@ -23,6 +23,7 @@ import {
 } from "@/lib/guild-cache";
 import { dropRoleFromMembers, removeMember, upsertMember } from "@/lib/member-cache";
 import { addMessage, removeMessage, replaceMessage } from "@/lib/message-cache";
+import { applyPinUpdate, removePinned } from "@/lib/pins-cache";
 import { isMembersKey, isMessagesKey, queryKeys } from "@/lib/queryKeys";
 import { dmTitle } from "../dms/dm-utils";
 import {
@@ -121,9 +122,11 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
       return refetchIfLoading(qc, ev.d.channel_id);
     case "MESSAGE_UPDATE":
       replaceMessage(qc, ev.d.channel_id, ev.d);
+      applyPinUpdate(qc, ev.d.channel_id, ev.d);
       return refetchIfLoading(qc, ev.d.channel_id);
     case "MESSAGE_DELETE":
       removeMessage(qc, ev.d.channel_id, ev.d.id);
+      removePinned(qc, ev.d.channel_id, ev.d.id);
       return refetchIfLoading(qc, ev.d.channel_id);
 
     // ---- servidores ----

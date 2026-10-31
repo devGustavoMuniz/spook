@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,7 +29,21 @@ var (
 		metric.WithDescription("Mensagens enviadas com anexo"))
 	attachmentsSent, _ = otel.Meter("spook/message").Int64Counter("spook.messages.attachments",
 		metric.WithDescription("Anexos enviados em mensagens"))
+	repliesSent, _ = otel.Meter("spook/message").Int64Counter("spook.messages.replies",
+		metric.WithDescription("Mensagens enviadas como resposta a outra"))
+	pinOps, _ = otel.Meter("spook/message").Int64Counter("spook.messages.pin_ops",
+		metric.WithDescription("Fixações e desafixações de mensagens"))
 )
+
+// maxMentionIDs é o teto de mencionados por mensagem (igual a notification.MaxMentions).
+const maxMentionIDs = 20
+
+// SendOptions são os dados extras de um envio. ReplyTo = 0 envia uma mensagem comum.
+type SendOptions struct {
+	ReplyTo int64 // ID da mensagem respondida (mesmo canal, não apagada)
+	// MentionReply menciona o autor da mensagem respondida (como um @ direto: contador e push).
+	MentionReply bool
+}
 
 // Store é o que o service precisa do banco. O autor vem junto (join) para a resposta sair numa consulta só.
 type Store interface {
@@ -40,11 +55,20 @@ type Store interface {
 	List(ctx context.Context, channelID, before int64, limit int) ([]Message, error)
 	UpdateContent(ctx context.Context, id, channelID int64, content string) error
 	Delete(ctx context.Context, id, channelID int64) error // soft delete
+	// References devolve a prévia das mensagens respondidas (inclusive apagadas) do canal, por ID, numa consulta só.
+	References(ctx context.Context, channelID int64, ids []int64) (map[int64]Reply, error)
+	// ListPinned devolve as fixadas (apagadas não entram), a mais recentemente fixada primeiro.
+	ListPinned(ctx context.Context, channelID int64, limit int) ([]Message, error)
+	// Pin fixa se ainda não está fixada e o canal tem menos de max fixadas; false = nada mudou.
+	Pin(ctx context.Context, id, channelID, userID int64, max int) (bool, error)
+	// Unpin desafixa; false = não estava fixada.
+	Unpin(ctx context.Context, id, channelID int64) (bool, error)
 }
 
 // InsertParams são os dados de uma nova mensagem.
 type InsertParams struct {
 	ID, ChannelID, AuthorID int64
+	ReferenceID             *int64 // mensagem respondida
 	Content                 string
 	MentionIDs              []int64
 	AttachmentIDs           []int64
@@ -125,10 +149,10 @@ func (s *Service) resolveAvatar(ctx context.Context, m *Message) {
 
 // Send grava a mensagem. attachmentIDs são anexos já enviados ao storage (RF10.1); com anexo o conteúdo
 // pode ser vazio (SPEC 7.3).
-func (s *Service) Send(ctx context.Context, userID, channelID int64, content string, attachmentIDs []int64) (Message, error) {
+func (s *Service) Send(ctx context.Context, userID, channelID int64, content string, attachmentIDs []int64, opts SendOptions) (Message, error) {
 	ctx, span := tracer.Start(ctx, "message.Send")
 	defer span.End()
-	span.SetAttributes(attribute.Int64("channel.id", channelID), attribute.Int("attachments.count", len(attachmentIDs)))
+	span.SetAttributes(attribute.Int64("channel.id", channelID), attribute.Int("attachments.count", len(attachmentIDs)), attribute.Bool("reply", opts.ReplyTo != 0))
 
 	need := perm.SendMessages
 	if len(attachmentIDs) > 0 {
@@ -162,6 +186,14 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 		}
 	}
 
+	var reply *Reply
+	if opts.ReplyTo != 0 {
+		var err error
+		if reply, err = s.replyTarget(ctx, channelID, opts.ReplyTo); err != nil {
+			return Message{}, err
+		}
+	}
+
 	var mentionIDs []int64
 	if s.mentions != nil && text != "" {
 		// Falha ao resolver menções não impede a mensagem: ela sai sem destaque.
@@ -171,9 +203,17 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 		}
 	}
 
+	if reply != nil && opts.MentionReply && s.mentions != nil && reply.Author.ID != userID {
+		mentionIDs = s.mentionReplyAuthor(ctx, ch, userID, reply.Author, mentionIDs)
+	}
+
+	var refID *int64
+	if reply != nil {
+		refID = &reply.ID
+	}
 	_, insSpan := tracer.Start(ctx, "message.insert")
 	m, atts, err := s.store.Insert(ctx, InsertParams{
-		ID: s.ids.Next(), ChannelID: channelID, AuthorID: userID, Content: text, AttachmentIDs: attachmentIDs, MentionIDs: mentionIDs,
+		ID: s.ids.Next(), ChannelID: channelID, AuthorID: userID, ReferenceID: refID, Content: text, AttachmentIDs: attachmentIDs, MentionIDs: mentionIDs,
 		KeyPrefix: attachment.KeyPrefix(channelID), Since: s.now().Add(-attachment.ClaimWindow),
 	})
 	insSpan.End()
@@ -187,9 +227,47 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 		withAttachments.Add(ctx, 1)
 		attachmentsSent.Add(ctx, int64(len(atts)))
 	}
+	m.Reply = reply
+	if reply != nil {
+		repliesSent.Add(ctx, 1)
+	}
 	s.resolveAvatar(ctx, &m)
 	s.publish(events.MessageCreate, ch, m.Payload())
 	return m, nil
+}
+
+// replyTarget valida a mensagem respondida: precisa existir, não estar apagada e ser do mesmo canal.
+func (s *Service) replyTarget(ctx context.Context, channelID, replyTo int64) (*Reply, error) {
+	ctx, span := tracer.Start(ctx, "message.replyTarget")
+	defer span.End()
+	refs, err := s.store.References(ctx, channelID, []int64{replyTo})
+	if err != nil {
+		return nil, err
+	}
+	ref, ok := refs[replyTo]
+	if !ok || ref.Deleted {
+		return nil, ErrReplyTarget
+	}
+	return &ref, nil
+}
+
+// mentionReplyAuthor inclui o autor da mensagem respondida entre os mencionados, se ele vê o canal
+// (a checagem reaproveita a resolução de @username). Falha na resolução: a resposta sai sem a menção.
+func (s *Service) mentionReplyAuthor(ctx context.Context, ch channel.Channel, userID int64, author Author, ids []int64) []int64 {
+	resolved, err := s.mentions.Resolve(ctx, ch, userID, "@"+author.Username)
+	if err != nil {
+		slog.Warn("menção da resposta não resolvida", "channel", ch.ID, "err", err)
+		return ids
+	}
+	if !slices.Contains(resolved, author.ID) || slices.Contains(ids, author.ID) {
+		return ids
+	}
+	if len(ids) >= maxMentionIDs {
+		ids = ids[:maxMentionIDs-1]
+	}
+	ids = append(ids[:len(ids):len(ids)], author.ID)
+	slices.Sort(ids)
+	return ids
 }
 
 func hasDuplicates(ids []int64) bool {
@@ -203,21 +281,39 @@ func hasDuplicates(ids []int64) bool {
 	return false
 }
 
-// attach preenche os anexos de várias mensagens com uma consulta só (sem N+1).
+// attach preenche os anexos e a prévia das mensagens respondidas de várias mensagens, cada um com uma
+// consulta só (sem N+1). Todas as mensagens são do mesmo canal.
 func (s *Service) attach(ctx context.Context, msgs []Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
 	ids := make([]int64, len(msgs))
+	var refs []int64
 	for i, m := range msgs {
 		ids[i] = m.ID
+		if m.ReferenceID != nil && !slices.Contains(refs, *m.ReferenceID) {
+			refs = append(refs, *m.ReferenceID)
+		}
 	}
 	byMsg, err := s.atts.ForMessages(ctx, ids)
 	if err != nil {
 		return err
 	}
+	var replies map[int64]Reply
+	if len(refs) > 0 {
+		if replies, err = s.store.References(ctx, msgs[0].ChannelID, refs); err != nil {
+			return err
+		}
+	}
 	for i := range msgs {
 		msgs[i].Attachments = byMsg[msgs[i].ID]
+		if id := msgs[i].ReferenceID; id != nil {
+			r, ok := replies[*id]
+			if !ok {
+				r = Reply{ID: *id, Deleted: true} // a original não existe mais
+			}
+			msgs[i].Reply = &r
+		}
 	}
 	return nil
 }
@@ -272,6 +368,15 @@ func (s *Service) List(ctx context.Context, userID, channelID, before int64, lim
 	if len(msgs) > limit {
 		msgs, hasMore = msgs[:limit], true
 	}
+	s.resolveAvatars(ctx, msgs)
+	if err := s.attach(ctx, msgs); err != nil {
+		return nil, false, err
+	}
+	return msgs, hasMore, nil
+}
+
+// resolveAvatars preenche o avatar dos autores (uma resolução por autor distinto).
+func (s *Service) resolveAvatars(ctx context.Context, msgs []Message) {
 	cache := map[int64]string{}
 	for i := range msgs {
 		a := &msgs[i].Author
@@ -282,10 +387,84 @@ func (s *Service) List(ctx context.Context, userID, channelID, before int64, lim
 		}
 		a.AvatarURL = url
 	}
-	if err := s.attach(ctx, msgs); err != nil {
-		return nil, false, err
+}
+
+// ListPins devolve as mensagens fixadas do canal (até MaxPins), a mais recentemente fixada primeiro.
+func (s *Service) ListPins(ctx context.Context, userID, channelID int64) ([]Message, error) {
+	ctx, span := tracer.Start(ctx, "message.ListPins")
+	defer span.End()
+	if _, _, err := s.channels.Authorize(ctx, userID, channelID, 0); err != nil {
+		return nil, err
 	}
-	return msgs, hasMore, nil
+	msgs, err := s.store.ListPinned(ctx, channelID, MaxPins)
+	if err != nil {
+		return nil, err
+	}
+	s.resolveAvatars(ctx, msgs)
+	if err := s.attach(ctx, msgs); err != nil {
+		return nil, err
+	}
+	return msgs, nil
+}
+
+// Pin fixa a mensagem (idempotente). Em servidor exige MANAGE_MESSAGES; em DM, ser participante. Mudou
+// algo: publica MESSAGE_UPDATE com pinned = true.
+func (s *Service) Pin(ctx context.Context, userID, channelID, messageID int64) error {
+	return s.setPinned(ctx, userID, channelID, messageID, true)
+}
+
+// Unpin desafixa a mensagem (idempotente), com as mesmas regras de Pin.
+func (s *Service) Unpin(ctx context.Context, userID, channelID, messageID int64) error {
+	return s.setPinned(ctx, userID, channelID, messageID, false)
+}
+
+func (s *Service) setPinned(ctx context.Context, userID, channelID, messageID int64, pin bool) error {
+	ctx, span := tracer.Start(ctx, "message.SetPinned")
+	defer span.End()
+	span.SetAttributes(attribute.Int64("channel.id", channelID), attribute.Bool("pin", pin))
+	ch, _, err := s.channels.Authorize(ctx, userID, channelID, perm.ManageMessages)
+	if err != nil {
+		return err
+	}
+	cur, err := s.store.Get(ctx, messageID, channelID)
+	if err != nil {
+		return err
+	}
+	if (cur.PinnedAt != nil) == pin {
+		return nil // já está no estado pedido
+	}
+	var changed bool
+	if pin {
+		if changed, err = s.store.Pin(ctx, messageID, channelID, userID, MaxPins); err != nil {
+			return err
+		}
+	} else if changed, err = s.store.Unpin(ctx, messageID, channelID); err != nil {
+		return err
+	}
+	if !changed {
+		// Perdeu uma corrida (outro pedido já mudou) ou o canal está no limite: relê para distinguir.
+		again, gerr := s.store.Get(ctx, messageID, channelID)
+		if gerr != nil {
+			return gerr
+		}
+		if (again.PinnedAt != nil) == pin {
+			return nil
+		}
+		return ErrTooManyPins
+	}
+	pinOps.Add(ctx, 1, metric.WithAttributes(attribute.Bool("pin", pin)))
+	m, err := s.store.Get(ctx, messageID, channelID)
+	if err != nil {
+		return err
+	}
+	msgs := []Message{m}
+	if err := s.attach(ctx, msgs); err != nil {
+		return err
+	}
+	m = msgs[0]
+	s.resolveAvatar(ctx, &m)
+	s.publish(events.MessageUpdate, ch, m.Payload())
+	return nil
 }
 
 // Edit altera o conteúdo; só o autor edita.

@@ -38,9 +38,10 @@ func edited(t pgtype.Timestamptz) *time.Time {
 	return &t.Time
 }
 
-func build(id, channelID, authorID int64, content string, editedAt pgtype.Timestamptz, mentions []int64, username string, display, avatar *string) Message {
+func build(id, channelID, authorID int64, content string, editedAt pgtype.Timestamptz, mentions []int64, referenceID *int64, pinnedAt pgtype.Timestamptz, username string, display, avatar *string) Message {
 	return Message{
 		ID: id, ChannelID: channelID, Content: content, EditedAt: edited(editedAt), MentionIDs: mentions,
+		ReferenceID: referenceID, PinnedAt: edited(pinnedAt),
 		Author: Author{ID: authorID, Username: username, DisplayName: display, AvatarKey: avatar},
 	}
 }
@@ -55,11 +56,11 @@ func mentionIDs(ids []int64) []int64 {
 
 func (s *PGStore) Insert(ctx context.Context, p InsertParams) (Message, []attachment.Attachment, error) {
 	if len(p.AttachmentIDs) == 0 {
-		r, err := s.q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs)})
+		r, err := s.q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs), ReferenceID: p.ReferenceID})
 		if err != nil {
 			return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
 		}
-		return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.Username, r.DisplayName, r.AvatarKey), nil, nil
+		return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey), nil, nil
 	}
 	return s.insertWithAttachments(ctx, p)
 }
@@ -74,7 +75,7 @@ func (s *PGStore) insertWithAttachments(ctx context.Context, p InsertParams) (Me
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
 
-	r, err := q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs)})
+	r, err := q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs), ReferenceID: p.ReferenceID})
 	if err != nil {
 		return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
 	}
@@ -104,7 +105,7 @@ func (s *PGStore) insertWithAttachments(ctx context.Context, p InsertParams) (Me
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, nil, fmt.Errorf("confirmar mensagem: %w", err)
 	}
-	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.Username, r.DisplayName, r.AvatarKey), atts, nil
+	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey), atts, nil
 }
 
 func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error) {
@@ -115,7 +116,7 @@ func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error)
 	if err != nil {
 		return Message{}, fmt.Errorf("buscar mensagem: %w", err)
 	}
-	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.Username, r.DisplayName, r.AvatarKey), nil
+	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey), nil
 }
 
 func (s *PGStore) List(ctx context.Context, channelID, before int64, limit int) ([]Message, error) {
@@ -125,7 +126,7 @@ func (s *PGStore) List(ctx context.Context, channelID, before int64, limit int) 
 	}
 	out := make([]Message, len(rows))
 	for i, r := range rows {
-		out[i] = build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.Username, r.DisplayName, r.AvatarKey)
+		out[i] = build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey)
 	}
 	return out, nil
 }
@@ -150,4 +151,51 @@ func (s *PGStore) Delete(ctx context.Context, id, channelID int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// References devolve a prévia das mensagens respondidas (inclui as apagadas) que estão no canal, por ID.
+func (s *PGStore) References(ctx context.Context, channelID int64, ids []int64) (map[int64]Reply, error) {
+	rows, err := s.q.GetReferencedMessages(ctx, dbgen.GetReferencedMessagesParams{ChannelID: channelID, Ids: ids})
+	if err != nil {
+		return nil, fmt.Errorf("buscar mensagens respondidas: %w", err)
+	}
+	out := make(map[int64]Reply, len(rows))
+	for _, r := range rows {
+		rep := Reply{ID: r.ID, Author: Author{ID: r.AuthorID, Username: r.Username, DisplayName: r.DisplayName}, Deleted: r.Deleted}
+		if !r.Deleted {
+			rep.Content, rep.HasAttachments = truncateRunes(r.Content, ReplyPreviewRunes), r.HasAttachments
+		}
+		out[r.ID] = rep
+	}
+	return out, nil
+}
+
+func (s *PGStore) ListPinned(ctx context.Context, channelID int64, limit int) ([]Message, error) {
+	rows, err := s.q.ListPinnedMessages(ctx, dbgen.ListPinnedMessagesParams{ChannelID: channelID, Limit: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("listar fixadas: %w", err)
+	}
+	out := make([]Message, len(rows))
+	for i, r := range rows {
+		out[i] = build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey)
+	}
+	return out, nil
+}
+
+// Pin fixa a mensagem; false = não mudou nada (já fixada, apagada ou o canal está no limite).
+func (s *PGStore) Pin(ctx context.Context, id, channelID, userID int64, max int) (bool, error) {
+	n, err := s.q.PinMessage(ctx, dbgen.PinMessageParams{ID: id, ChannelID: channelID, PinnedBy: &userID, MaxPins: int32(max)})
+	if err != nil {
+		return false, fmt.Errorf("fixar mensagem: %w", err)
+	}
+	return n > 0, nil
+}
+
+// Unpin desafixa; false = não estava fixada.
+func (s *PGStore) Unpin(ctx context.Context, id, channelID int64) (bool, error) {
+	n, err := s.q.UnpinMessage(ctx, dbgen.UnpinMessageParams{ID: id, ChannelID: channelID})
+	if err != nil {
+		return false, fmt.Errorf("desafixar mensagem: %w", err)
+	}
+	return n > 0, nil
 }

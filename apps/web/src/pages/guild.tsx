@@ -1,3 +1,4 @@
+import { Permission } from "@spook/shared";
 import { Link, Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
 import { Hash } from "lucide-react";
 import { useEffect } from "react";
@@ -6,9 +7,10 @@ import { ChannelSidebar } from "@/features/channels/channel-sidebar";
 import { useGuild } from "@/features/guilds/use-guild";
 import { MembersPanel } from "@/features/members/members-panel";
 import { ChannelView } from "@/features/messages/channel-view";
+import { PinnedMessagesButton } from "@/features/messages/pins-panel";
 import { VoiceChannelView } from "@/features/voice/voice-channel-view";
 import { appMessage } from "@/lib/app-errors";
-import { CHANNEL_TEXT, CHANNEL_VOICE, channelsOf } from "@/lib/guild";
+import { CHANNEL_TEXT, CHANNEL_VOICE, can, channelsOf } from "@/lib/guild";
 import { lastLocation } from "@/lib/last-location";
 
 /** `/channels/$guildId`: barra de canais + conteúdo + membros. */
@@ -99,6 +101,12 @@ export function ChannelPage() {
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         <Hash className="size-5 text-muted-foreground" aria-hidden />
         <h1 className="truncate font-semibold">{channel.name}</h1>
+        <div className="ml-auto">
+          <PinnedMessagesButton
+            channelId={channel.id}
+            canUnpin={can(guild, Permission.MANAGE_MESSAGES)}
+          />
+        </div>
       </header>
       <ChannelView guild={guild} channelId={channel.id} channelName={channel.name} perf={perf} />
     </>

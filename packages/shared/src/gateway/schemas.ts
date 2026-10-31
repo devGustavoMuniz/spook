@@ -24,6 +24,19 @@ export const attachmentPayloadSchema = z.object({
   height: z.number().int().optional(),
 });
 
+/** Prévia da mensagem respondida (`reply_to`). `deleted`: a original foi apagada (sem conteúdo). */
+export const replyPayloadSchema = z.object({
+  id: z.string(),
+  author: z.object({
+    id: z.string(),
+    username: z.string(),
+    display_name: z.string().optional(),
+  }),
+  content: z.string(),
+  has_attachments: z.boolean(),
+  deleted: z.boolean(),
+});
+
 export const messagePayloadSchema = z.object({
   id: z.string(),
   channel_id: z.string(),
@@ -36,6 +49,10 @@ export const messagePayloadSchema = z.object({
   // Fase 6b: quem foi mencionado com @username (resolvido no envio). O servidor sempre manda array;
   // o `default` tolera um servidor anterior à 6b.
   mention_ids: z.array(z.string()).default([]),
+  // Responder: a mensagem respondida (null = não é resposta). `default` tolera servidor anterior.
+  reply_to: replyPayloadSchema.nullable().default(null),
+  // Fixar: a mensagem está fixada no canal.
+  pinned: z.boolean().default(false),
 });
 
 export const recipientPayloadSchema = z.object({
