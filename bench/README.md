@@ -19,47 +19,61 @@ medição interna do k6.
 
 ## 1. Cenários (`scenarios/`)
 
-| Cenário | Alvo | Mede |
-| --- | --- | --- |
-| `baseline.js` | `HEALTH_PATH` de qualquer sistema (`/up` no antrax, `/healthz` no Spook) | latência do health check |
-| `login.js` | Spook | `POST /api/auth/login`. O `setup` cadastra 1 usuário de teste por execução |
-| `login-antrax.js` | antrax (Laravel + Fortify) | `POST /login`, equivalente ao anterior. **Usa conta de teste existente** (não cadastra nada) |
+| Cenário | Alvo | Mede | Comparado entre os dois? |
+| --- | --- | --- | --- |
+| `baseline.js` | `HEALTH_PATH` (`/up` no antrax, `/healthz` no Spook) | latência do health check | sim |
+| `me.js` | Spook `GET /api/users/me`; antrax `GET /settings/profile` | endpoint autenticado leve: o usuário logado, sem efeitos colaterais | **sim** (é o cenário comparável de aplicação) |
+| `login.js` | só o Spook | `POST /api/auth/login` (cadastra 1 usuário de teste por execução) | **não** (ver abaixo) |
 
-Todos usam carga leve (é produção). Variáveis principais: `BASE_URL` (obrigatória), `RATE`/`DURATION` (health) e
-`RATE_PER_MIN`/`DURATION` (login, padrão **4/min por 6 min**, igual nos dois lados). `HOST_HEADER` e `FORWARDED_PROTO`
-servem à medição interna do antrax por trás de um proxy por virtual host.
+Todos usam carga leve (é produção). Variáveis comuns: `BASE_URL` (obrigatória), `RATE`/`DURATION` (padrão 5 req/s por 60 s),
+`HOST_HEADER` e `FORWARDED_PROTO` (medição interna do antrax por trás de um proxy por virtual host). O `login.js` usa
+`RATE_PER_MIN`/`DURATION` (padrão 4/min por 6 min).
 
-### O login não é equivalente "de graça": o que o antrax faz diferente
-- **Hash:** bcrypt custo 12 (antrax) contra Argon2id m=19 MiB, t=2, p=1 (Spook). Domina a latência do login: ver a seção 5.
-- **Piso de ~200 ms no antrax.** O `Fortify::authenticateUsing` envolve a checagem num `Timebox` de 200 ms (anti-enumeração de
-  contas): todo login demora **pelo menos ~200 ms**, não importa o hash. Se o hash passar disso, vale o hash.
-- **Limites:** antrax 5/min por e-mail+IP; Spook 10/min por IP. Por isso a taxa comum é 4/min.
-- **Fluxo:** o antrax exige sessão + `XSRF-TOKEN` (um `GET /login` antes do `POST`), que o `login-antrax.js` faz; só o `POST`
-  entra na métrica. A conta de teste não pode ter 2FA.
-- O `login-antrax.js` foi validado contra um mock do contrato do Fortify (`test/mock-fortify.mjs`: cookies `Secure`,
-  CSRF, Timebox, limite de 5/min), **não** contra o antrax real. Ajuste `LOGIN_PATH`/headers se o app divergir.
+### `me.js`: o endpoint autenticado, nos dois lados
+- **Spook:** `GET /api/users/me` devolve o usuário em JSON (leitura da sessão + do usuário no Postgres). Não escreve nada.
+- **antrax:** não há endpoint JSON "quem sou eu". O mais leve e sem efeitos colaterais é `GET /settings/profile` (rota só com
+  `auth`; a ação `edit` apenas lê). O usuário vem em `props.auth.user`. O cenário usa o modo XHR do Inertia (`X-Inertia: true` e a
+  versão dos assets, que o `setup` descobre lendo a página) para receber JSON, como o app faz a cada navegação depois do primeiro
+  carregamento, em vez do HTML da página. É uma página Inertia, portanto mais trabalho que um JSON puro; é o que o app tem.
+  (Como o antrax usa sessão em banco, toda requisição autenticada atualiza a linha da sessão: custo do framework, incluído.)
+- **Sem login em produção:** o cenário recebe o **cookie de sessão por variável de ambiente** (`COOKIE`), de um login que **você**
+  fez no navegador (use uma conta descartável). Nada é cadastrado nem logado pelo k6.
+- **Como obter o cookie:** com o login feito, abra o DevTools do navegador → *Network* → clique numa requisição ao site →
+  *Request Headers* → copie o valor do header `Cookie` inteiro. No Spook o cookie é `spook_session=<token>` (HttpOnly; aparece
+  em *Application → Cookies*). No antrax é `laravel_session=…; XSRF-TOKEN=…`. A sessão do Spook dura 30 dias e a do antrax o que o
+  `SESSION_LIFETIME` dele definir; se expirar, o `setup` falha com "cookie inválido ou expirado".
+- **Segurança:** o cookie vale uma sessão logada. Passe-o por ambiente (`SPOOK_COOKIE`, `ANTRAX_COOKIE`; os scripts o repassam por
+  stdin/`-e`, nunca na linha de comando), não o cole em issues nem em logs, e faça logout no navegador ao terminar.
+- As métricas do `me.js` têm a tag `name:me`, que deixa o `setup` (1 leitura de validação) fora dos números.
+
+### Login: não é comparado (achado registrado)
+A latência do login é dominada por **política**, não pelo framework: o custo de hash escolhido e o `Timebox` do Fortify. Por isso
+o login **não** entra na comparação entre os sistemas; o `login.js` mede só o Spook (p95 do critério da Fase 1 e `argon2` do
+`Server-Timing`). O que foi verificado no código do antrax e medido fica em `results/fase-1-spook-producao.md` (seção "Login:
+algoritmo e custo de hash"): bcrypt custo 12 contra Argon2id (19 MiB, t=2, p=1), o piso de ~200 ms do `Timebox`, e os limites de
+5/min (antrax, por e-mail+IP) e 10/min (Spook, por IP).
 
 ## 2. Medição pela internet (experiência do usuário)
 
-Da sua máquina (só precisa de Docker). Alterna Laravel e Spook e depois faz o login de cada um:
+Da sua máquina (só precisa de Docker). Alterna Laravel e Spook (healthz e `me`) e roda o login do Spook no fim:
 
 ```sh
-ANTRAX_LOGIN_EMAIL=<conta-de-teste> ANTRAX_LOGIN_PASSWORD=<senha> \
+SPOOK_COOKIE='spook_session=…' ANTRAX_COOKIE='laravel_session=…; XSRF-TOKEN=…' \
   bench/scripts/run-alternating.sh /tmp/bench-internet-$(date +%F) 3
 node bench/scripts/summarize.mjs /tmp/bench-internet-$(date +%F)
 ```
 
-`run-alternating.sh` (≈ 30 a 45 min conforme o login) aceita `RATE`, `DURATION`, `LOGIN_RATE_PER_MIN`, `LOGIN_DURATION`,
-`ANTRAX_URL`, `SPOOK_URL`, `PAUSE`. Sem `ANTRAX_LOGIN_*` o login do antrax é pulado. Cada execução grava
-`<nome>.json` (summary do k6) e `<nome>.log`. Rode antrax e Spook no mesmo horário e da mesma rede.
+`run-alternating.sh` (≈ 30 a 40 min) aceita `RATE`, `DURATION`, `LOGIN_RATE_PER_MIN`, `LOGIN_DURATION`, `ANTRAX_URL`,
+`SPOOK_URL`, `PAUSE`. Sem os cookies o cenário autenticado é pulado. Cada execução grava `<nome>.json` (summary do k6) e
+`<nome>.log`. Rode antrax e Spook no mesmo horário e da mesma rede.
 
 Comandos avulsos equivalentes:
 
 ```sh
 docker run --rm -i -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run \
   -e BASE_URL=https://antrax.dottadigital.com -e HEALTH_PATH=/up /bench/scenarios/baseline.js
-docker run --rm -i -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run \
-  -e BASE_URL=https://spook.dottadigital.com -e HEALTH_PATH=/healthz /bench/scenarios/baseline.js
+COOKIE='laravel_session=…; XSRF-TOKEN=…' docker run --rm -i -e COOKIE -v "$PWD/bench:/bench:ro" grafana/k6:1.3.0 run \
+  -e BASE_URL=https://antrax.dottadigital.com -e ME_PATH=/settings/profile -e ME_STYLE=inertia /bench/scenarios/me.js
 ```
 
 ## 3. Medição interna (backend, sem rede)
@@ -81,33 +95,33 @@ Use **a mesma origem que o túnel da Cloudflare usa** para o hostname público (
 | Sistema | Usuário (Docker) | Rede Docker | Alvo interno |
 | --- | --- | --- | --- |
 | Spook | `spook` (uid 1004) | `spook_default` (projeto Compose `spook`) | `http://spook:8090` (`/healthz`, `/api/auth/login`) |
-| antrax | `antrax` (uid 1003, socket `/run/user/1003/docker.sock`) | descubra (abaixo) | o *Service* do túnel para `antrax.dottadigital.com` |
+| antrax | `antrax` (uid 1003, socket `/run/user/1003/docker.sock`) | `antrax-prod_default` (provável; confirme) | `http://web:80` (o *Service* do túnel; provavelmente o nginx, container `antrax-prod-edge-1`) |
 
-Descobrir a rede e o endereço do antrax (lista redes, containers, IPs e portas do daemon dele):
+Estes são os padrões do `run-internal.sh`. Confirme a rede e o endereço do antrax (lista redes, containers, IPs e portas do daemon dele):
 
 ```sh
 ssh gustavo@<vps> "sudo -iu antrax bash -s" < bench/scripts/vps-discover.sh
 ssh gustavo@<vps> "sudo -iu spook  bash -s" < bench/scripts/vps-discover.sh   # confirma spook_default / spook:8090
 ```
 
-Se o alvo do antrax for um proxy por virtual host (nginx/Caddy/"edge"), ele só responde ao `Host` certo e o app só gera
-cookies `Secure`/URLs `https` com `X-Forwarded-Proto: https`: passe `ANTRAX_HOST_HEADER=antrax.dottadigital.com`
-(`ANTRAX_FORWARDED_PROTO` assume `https`).
+O alvo do antrax é um proxy (nginx) na frente do app: o `run-internal.sh` envia `Host: antrax.dottadigital.com` e
+`X-Forwarded-Proto: https` por padrão, que é o que o `cloudflared` repassa ao origin, para a requisição interna ser a mesma do
+caminho real. Mude com `ANTRAX_HOST_HEADER` / `ANTRAX_FORWARDED_PROTO` se o nginx se comportar diferente.
 
 ### Rodando
 Do seu computador (envia `bench/` para `/tmp/spook-bench` no VPS e roda cada medição lá, como o dono do Docker):
 
 ```sh
-ANTRAX_NET=<rede> ANTRAX_TARGET=<url-interna> ANTRAX_HOST_HEADER=antrax.dottadigital.com \
-ANTRAX_LOGIN_EMAIL=<conta-de-teste> ANTRAX_LOGIN_PASSWORD=<senha> \
+SPOOK_COOKIE='spook_session=…' ANTRAX_COOKIE='laravel_session=…; XSRF-TOKEN=…' \
   bench/scripts/run-internal.sh gustavo@<vps> /tmp/bench-interno-$(date +%F) 3
 node bench/scripts/summarize.mjs /tmp/bench-interno-$(date +%F)
 ```
 
-Antes das rodadas há uma pré-checagem (1 req/s por 2 s) nos dois alvos; se um não responder, o script para e manda
-usar o `vps-discover.sh`. A senha do antrax segue por stdin e `-e LOGIN_PASSWORD` (herdado do ambiente), nunca na linha de
-comando. Variáveis opcionais: `SPOOK_USER`, `ANTRAX_USER`, `SPOOK_NET`, `SPOOK_TARGET`, `ANTRAX_HEALTH_PATH`, `RATE`,
-`DURATION`, `LOGIN_RATE_PER_MIN`, `LOGIN_DURATION`, `PAUSE`, `REMOTE_DIR`.
+Antes das rodadas há uma pré-checagem (1 req/s por 2 s) nos dois alvos e dos dois cookies; se algo falhar, o script para e diz o
+quê (alvo errado: use o `vps-discover.sh`; cookie expirado: refaça o login no navegador). Os cookies seguem por stdin até o container
+(`STDIN_SECRET` no `vps-k6.sh`), nunca na linha de comando. Sem os cookies só healthz e login do Spook rodam. Variáveis opcionais:
+`SPOOK_USER`, `ANTRAX_USER`, `SPOOK_NET`, `SPOOK_TARGET`, `SPOOK_ME_PATH`, `ANTRAX_NET`, `ANTRAX_TARGET`, `ANTRAX_HEALTH_PATH`,
+`ANTRAX_ME_PATH`, `RATE`, `DURATION`, `LOGIN_RATE_PER_MIN`, `LOGIN_DURATION`, `PAUSE`, `REMOTE_DIR`.
 
 Pré-requisitos no VPS: SSH como `gustavo` e `sudo -iu spook` / `sudo -iu antrax` **sem senha**; cada daemon puxa
 `grafana/k6:1.3.0` do Docker Hub na primeira vez. Sem sudo sem senha, rode à mão (logado no VPS):

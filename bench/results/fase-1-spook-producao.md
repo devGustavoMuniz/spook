@@ -13,9 +13,10 @@ medição **interna** (backend, k6 na rede Docker do app no VPS, sem Cloudflare/
 | Resultado (mediana de 3 rodadas) | Internet: Laravel | Internet: Spook | Interno: Laravel | Interno: Spook |
 | --- | --- | --- | --- | --- |
 | healthz p50 / p95 / p99 | 58,6 / 132,6 / 142,7 ms | 48,0 / 123,1 / 140,0 ms | _pendente_ | _pendente_ |
-| login p50 / p95 / p99 | _pendente_ (sem conta de teste) | 110,7 / 177,7 / 190,0 ms (8/min) | _pendente_ | _pendente_ |
-| Server-Timing `app` (processamento no backend) | n/a | _pendente_ (pós-deploy) | n/a | _pendente_ |
-| Server-Timing `argon2` (hash) | n/a | _pendente_ (pós-deploy) | n/a | _pendente_ |
+| **GET autenticado** (`me`) p50 / p95 / p99 | _pendente_ | _pendente_ | _pendente_ | _pendente_ |
+| Server-Timing `app` do `me` (processamento no backend) | n/a | _pendente_ (pós-deploy) | n/a | _pendente_ |
+| Login (**só Spook**, não comparado; ver seção 3) p50 / p95 / p99 | n/a | 110,7 / 177,7 / 190,0 ms (8/min) | n/a | _pendente_ |
+| Server-Timing `argon2` no login do Spook | n/a | _pendente_ (pós-deploy) | n/a | _pendente_ |
 
 ## Contexto
 | Campo | Valor |
@@ -82,12 +83,38 @@ que o introduziu.
 | Server-Timing `app` p50 / p95 / p99 | n/a (o antrax não expõe) | _pendente_ |
 | http_req_failed | _pendente_ | _pendente_ |
 
-## 2. Login
+## 2. Endpoint autenticado leve (`me.js`) — comparado nos dois sistemas
 
-### 2A. Internet — Spook (`login.js`, 8 logins/min por 5 min, 3 rodadas, medido em 30/10/2026)
+`GET` do usuário logado, sem efeitos colaterais: Spook `GET /api/users/me` (JSON), antrax `GET /settings/profile` (página Inertia lida em
+JSON via `X-Inertia`; o usuário vem em `props.auth.user`). Recebem o cookie de uma sessão iniciada no navegador (`COOKIE`); o k6 não
+cadastra nem faz login. Mesma carga leve nos dois (5 req/s por 60 s), alternando, 3 rodadas.
 
-A taxa padrão do `login.js` mudou depois desta medição: agora é **4/min por 6 min**, igual à do antrax (que limita a 5/min por
-e-mail+IP). Esta medição usou 8/min.
+### 2A. Internet (experiência do usuário) — PENDENTE
+
+| Métrica (mediana de 3 rodadas) | Laravel (`GET /settings/profile`) | Spook (`GET /api/users/me`) |
+| --- | --- | --- |
+| http_req_duration p50 / p95 / p99 | _pendente_ | _pendente_ |
+| Server-Timing `app` p50 / p95 / p99 | n/a (o antrax não expõe) | _pendente_ |
+| http_req_failed | _pendente_ | _pendente_ |
+
+### 2B. Interno (backend, sem Cloudflare/túnel) — PENDENTE
+
+| Métrica (mediana de 3 rodadas) | Laravel (`GET /settings/profile`) | Spook (`GET /api/users/me`) |
+| --- | --- | --- |
+| http_req_duration p50 / p95 / p99 | _pendente_ | _pendente_ |
+| Server-Timing `app` p50 / p95 / p99 | n/a (o antrax não expõe) | _pendente_ |
+| http_req_failed | _pendente_ | _pendente_ |
+
+Como o antrax usa sessão em banco, cada requisição autenticada lá atualiza a linha da sessão; é custo do framework e está incluído.
+
+### 2C. Login do Spook (`login.js`) — só Spook, não comparado
+
+A comparação de login entre os sistemas foi descartada: a latência é dominada por política (custo de hash e `Timebox`), não pelo framework;
+os achados estão na seção 3. O `login.js` fica para o critério de p95 de login do Spook e para o `argon2` do `Server-Timing`.
+
+#### Internet — medido em 30/10/2026 (`login.js`, 8 logins/min por 5 min, 3 rodadas)
+
+A taxa padrão do `login.js` mudou depois desta medição: agora é **4/min por 6 min**. Esta medição usou 8/min.
 
 Cada rodada faz 41 logins (mais 1 cadastro no `setup`; por isso `reqs` = 42). `login_duration` mede **só** o `POST /api/auth/login`
 (Argon2id incluído). A taxa fica abaixo do limite de 10/min por IP: houve 0 respostas 429.
@@ -100,7 +127,7 @@ Cada rodada faz 41 logins (mais 1 cadastro no `setup`; por isso `reqs` = 42). `l
 | login_duration avg | 119,5 ms |
 | http_req_failed | 0,00% (0 falhas, 0 respostas 429) |
 
-### Por rodada
+#### Por rodada
 | Rodada | reqs | req/s | falhas | avg | p50 | p90 | p95 | p99 | max |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 42 | 0.14 | 0.00% (0) | 120.9 ms | 111.9 ms | 164.4 ms | 187.1 ms | 215.4 ms | 226.4 ms |
@@ -109,28 +136,20 @@ Cada rodada faz 41 logins (mais 1 cadastro no `setup`; por isso `reqs` = 42). `l
 | **mediana** | 42 | 0.14 | 0.00% | 119.5 ms | 110.7 ms | 164.4 ms | 177.7 ms | 190.0 ms | 194.7 ms |
 
 Parte relevante desses ~110 ms é a rede (o piso do `/healthz` já é ~48 ms); o custo isolado do Argon2id (m=19 MiB, t=2, p=1) **não
-foi medido** aqui. O Laravel não tem cenário de login equivalente medido (a comparação de login fica para um cenário comum aos
-dois, se quisermos).
+foi medido** aqui.
 
-### 2B. Internet — antrax (`login-antrax.js`) — PENDENTE
-Precisa de uma conta de teste existente, sem 2FA, no antrax. Rodar `run-alternating.sh` com `ANTRAX_LOGIN_EMAIL`/`ANTRAX_LOGIN_PASSWORD`.
-Lembrete: o login do antrax tem **piso de ~200 ms** (Timebox), ver a seção "Login: algoritmo e custo de hash".
+#### Interno (backend) — PENDENTE
 
-| Métrica (mediana de 3 rodadas) | Laravel | Spook |
-| --- | --- | --- |
-| login_duration p50 / p95 / p99 | _pendente_ | _pendente_ (a 4/min) |
+| Métrica (mediana de 3 rodadas) | Spook |
+| --- | --- |
+| login_duration p50 / p95 / p99 | _pendente_ |
+| Server-Timing `app` p50 / p95 | _pendente_ |
+| Server-Timing `argon2` p50 / p95 | _pendente_ |
 
-### 2C. Interno (backend) — PENDENTE
+## 3. Achado: login não é comparável (algoritmo e custo de hash)
 
-| Métrica (mediana de 3 rodadas) | Laravel | Spook |
-| --- | --- | --- |
-| login_duration p50 / p95 / p99 | _pendente_ | _pendente_ |
-| Server-Timing `app` p50 / p95 | n/a | _pendente_ |
-| Server-Timing `argon2` p50 / p95 | n/a | _pendente_ |
-
-## 3. Login: algoritmo e custo de hash
-
-O hash domina a latência do login. Configuração de cada lado (lida do código) e custo medido **na mesma máquina**:
+O login **não é comparado** entre os sistemas: sua latência é dominada por política (custo de hash escolhido, `Timebox` de 200 ms do
+Fortify, limites de tentativas) e não pelo framework. Fica registrado como achado. O hash domina a latência do login. Configuração de cada lado (lida do código) e custo medido **na mesma máquina**:
 
 | | Spook | antrax (Laravel + Fortify) |
 | --- | --- | --- |

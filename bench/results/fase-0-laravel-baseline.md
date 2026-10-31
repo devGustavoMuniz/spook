@@ -56,12 +56,13 @@ a origem que o túnel usa para `antrax.dottadigital.com`. Preencher com `node be
 | --- | --- |
 | Data/hora, origem | |
 | Rede Docker / alvo interno / Host header | |
-| Cenário | `baseline.js` (`/up`), 5 req/s por 60 s, 3 rodadas |
+| Alvo | `http://web:80` na rede `antrax-prod_default`, com `Host: antrax.dottadigital.com` (confirmar com `vps-discover.sh`) |
+| Cenários | `baseline.js` (`/up`) e `me.js` (`GET /settings/profile`, cookie de sessão), 5 req/s por 60 s, 3 rodadas |
 
-| Métrica (mediana de 3 rodadas) | Valor |
-| --- | --- |
-| http_req_duration p50 / p95 / p99 | |
-| http_req_failed | |
+| Métrica (mediana de 3 rodadas) | `/up` | `GET /settings/profile` (autenticado) |
+| --- | --- | --- |
+| http_req_duration p50 / p95 / p99 | | |
+| http_req_failed | | |
 
 ## Observações
 - O `/up` do Laravel mede principalmente o caminho de rede (origem → Cloudflare → túnel → app) mais o custo mínimo do
