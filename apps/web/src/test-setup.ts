@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest";
+import { FakeSocket } from "@spook/shared/testing";
 import { afterAll, afterEach, beforeAll } from "vitest";
+import { setGatewaySocketFactory } from "@/features/gateway/socket";
 import { server } from "@/test/server";
 
 window.scrollTo = () => {};
+
+// O gateway abre um WebSocket ao montar a área autenticada; nos testes ele é falso (nada abre
+// sozinho) e os testes de tempo real o comandam por `FakeSocket.last`.
+setGatewaySocketFactory((url) => new FakeSocket(url));
 
 // jsdom não faz layout: dá uma janela fixa para o TanStack Virtual e uma altura por item medido.
 Object.defineProperties(HTMLElement.prototype, {
@@ -67,6 +73,7 @@ beforeAll(() => {
   }) as typeof fetch;
 });
 afterEach(() => {
+  FakeSocket.reset();
   server.resetHandlers();
   document.documentElement.classList.remove("dark");
 });

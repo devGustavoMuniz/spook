@@ -24,3 +24,11 @@ export const queryKeys = {
   /** Páginas do histórico do canal (`InfiniteData`), da mais nova para a mais antiga. */
   messages: (channelId: string) => [...getListMessagesQueryKey(channelId), "infinite"] as const,
 };
+
+/** Casa com o histórico de qualquer canal (`useInfiniteQuery` de mensagens). */
+export const isMessagesKey = (key: readonly unknown[]) =>
+  typeof key[0] === "string" && /^\/api\/channels\/[^/]+\/messages$/.test(key[0]);
+
+/** Casa com a lista de membros de qualquer servidor. */
+export const isMembersKey = (key: readonly unknown[]) =>
+  typeof key[0] === "string" && /^\/api\/guilds\/[^/]+\/members$/.test(key[0]);
