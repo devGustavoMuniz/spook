@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
-use super::apm::AudioProcessingSettings;
+use super::apm::{AudioProcessingSettings, NoiseSuppressionLevel};
 use super::audio::DeviceInfo;
 use super::core::{DeviceKind, Emit, ScreenOptions, ViewOptions, VoiceCore};
 use super::error::{ConnectCode, VoiceError};
@@ -96,7 +96,8 @@ pub fn voice_set_deafened(state: State<'_, VoiceState>, deafened: bool) {
 pub fn voice_set_audio_processing(
     state: State<'_, VoiceState>,
     echo_cancellation: bool,
-    noise_suppression: bool,
+    // Texto (`off|standard|strong`); o booleano das interfaces antigas também é aceito (true = standard).
+    noise_suppression: NoiseSuppressionLevel,
     auto_gain_control: bool,
 ) {
     state.0.set_audio_processing(AudioProcessingSettings {
@@ -241,6 +242,21 @@ mod tests {
             Some(DeviceKind::VideoInput)
         );
         assert!(parse_kind("lixo").is_err());
+    }
+
+    #[test]
+    fn audio_processing_payload_accepts_the_level_and_the_legacy_boolean() {
+        let new: AudioProcessingSettings = serde_json::from_str(
+            r#"{"echoCancellation":true,"noiseSuppression":"strong","autoGainControl":false}"#,
+        )
+        .unwrap();
+        assert_eq!(new.noise_suppression, NoiseSuppressionLevel::Strong);
+        assert!(!new.auto_gain_control);
+        let old: AudioProcessingSettings = serde_json::from_str(
+            r#"{"echoCancellation":true,"noiseSuppression":false,"autoGainControl":true}"#,
+        )
+        .unwrap();
+        assert_eq!(old.noise_suppression, NoiseSuppressionLevel::Off);
     }
 
     #[test]

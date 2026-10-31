@@ -1,4 +1,5 @@
-//! Processamento de áudio do WebRTC (APM: cancelamento de eco, supressão de ruído e controle de ganho).
+//! Processamento de áudio do microfone: APM do WebRTC (cancelamento de eco, supressão de ruído "Padrão" e
+//! controle de ganho) mais o RNNoise nativo ("Forte", `rnnoise.rs`).
 //!
 //! O `NativeAudioSource` do LiveKit NÃO passa pelo APM (ele só atua no caminho do ADM do WebRTC, que não
 //! usamos porque capturamos e tocamos com o cpal). Por isso fazemos a ponte à mão com o
@@ -8,27 +9,73 @@
 //!   (48 kHz mono, o mesmo PCM que sai do mixer) a `push_far`, no callback de áudio, sem alocar nem bloquear
 //!   (`try_lock`: se a captura estiver usando o APM naquele instante, esse quadro de referência é pulado).
 //! * **near-end (stream):** cada quadro de 10 ms do MICROFONE passa por `process_near` ANTES de ir ao
-//!   `NativeAudioSource`, junto com a dica de atraso (`set_stream_delay_ms`).
+//!   `NativeAudioSource`. Ordem: **AEC primeiro** (precisa do microfone cru e do far-end), depois NS/AGC do APM e,
+//!   no nível Forte, o RNNoise por último (com o NS do APM desligado: não se processa ruído duas vezes).
+//! * **dica de atraso:** estimada a cada ~1 s pelos timestamps do cpal (`delay.rs`); 60 ms sem timestamps.
+//!
+//! Níveis de ruído: `off` (NS do APM desligado), `standard` (NS do APM) e `strong` (APM sem NS + RNNoise).
+//! A API do APM do libwebrtc 0.3 só expõe quatro interruptores (`echo_cancellation`, `gain_control`,
+//! `high_pass_filter`, `noise_suppression`): o filtro passa-altas fica sempre ligado; não há como escolher o
+//! nível de supressão de eco nem o modo "móvel" por aqui (o AEC3 usa os padrões do WebRTC).
 //!
 //! Sem reprodução ativa não há far-end e o APM só aplica supressão de ruído e ganho. O APM não troca
-//! configuração em execução, então mudar um interruptor recria o módulo (o AEC reconverge em ~1 s).
+//! configuração em execução, então mudar AEC/AGC/Padrão recria o módulo (o AEC reconverge em ~1 s). Ligar ou
+//! desligar o Forte NÃO recria o APM (só liga/desliga o RNNoise, com crossfade).
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use libwebrtc::native::apm::AudioProcessingModule;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::audio::{FRAME_SAMPLES, SAMPLE_RATE};
+use super::delay::{DelayEstimator, LatencyProbe, DEFAULT_DELAY_MS};
+use super::rnnoise::Denoiser;
 
-/// Dica de atraso entre o que tocamos e o que o microfone ouve de volta (buffers de saída + entrada do
-/// cpal + acústica). O AEC3 estima o atraso sozinho; a dica só acelera a convergência.
-pub const DEFAULT_STREAM_DELAY_MS: i32 = 60;
+/// Dica de atraso padrão (sem timestamps do cpal).
+pub const DEFAULT_STREAM_DELAY_MS: i32 = DEFAULT_DELAY_MS;
+
+/// Atualiza a estimativa de atraso a cada 100 quadros (~1 s).
+const DELAY_UPDATE_FRAMES: u32 = 100;
+
+/// Nível de supressão de ruído (mesmo vocabulário da interface: `"off" | "standard" | "strong"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NoiseSuppressionLevel {
+    Off,
+    Standard,
+    Strong,
+}
+
+impl<'de> Deserialize<'de> for NoiseSuppressionLevel {
+    /// Aceita o texto novo e também o booleano das versões anteriores da interface
+    /// (`true` = padrão, `false` = desligada).
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "lowercase")]
+        enum Named {
+            Off,
+            Standard,
+            Strong,
+        }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Legacy(bool),
+            Level(Named),
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Legacy(true) | Raw::Level(Named::Standard) => Self::Standard,
+            Raw::Legacy(false) | Raw::Level(Named::Off) => Self::Off,
+            Raw::Level(Named::Strong) => Self::Strong,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AudioProcessingSettings {
     pub echo_cancellation: bool,
-    pub noise_suppression: bool,
+    pub noise_suppression: NoiseSuppressionLevel,
     pub auto_gain_control: bool,
 }
 
@@ -37,53 +84,81 @@ impl Default for AudioProcessingSettings {
     fn default() -> Self {
         Self {
             echo_cancellation: true,
-            noise_suppression: true,
+            noise_suppression: NoiseSuppressionLevel::Standard,
             auto_gain_control: true,
         }
     }
 }
 
 impl AudioProcessingSettings {
+    /// O APM só é necessário para AEC, AGC ou NS "Padrão" (o Forte roda fora dele).
+    pub fn needs_apm(&self) -> bool {
+        self.echo_cancellation
+            || self.auto_gain_control
+            || self.noise_suppression == NoiseSuppressionLevel::Standard
+    }
+
     pub fn any(&self) -> bool {
-        self.echo_cancellation || self.noise_suppression || self.auto_gain_control
+        self.needs_apm() || self.noise_suppression == NoiseSuppressionLevel::Strong
+    }
+
+    /// O que define a configuração do APM (o nível Forte não entra: não exige recriá-lo).
+    fn apm_key(&self) -> (bool, bool, bool) {
+        (
+            self.echo_cancellation,
+            self.auto_gain_control,
+            self.noise_suppression == NoiseSuppressionLevel::Standard,
+        )
     }
 }
 
 struct Inner {
     settings: AudioProcessingSettings,
     apm: Option<AudioProcessingModule>,
+    denoiser: Denoiser,
     delay_ms: i32,
+    estimator: DelayEstimator,
+    frames_since_delay_update: u32,
     /// Cópia do quadro far-end (o APM escreve no buffer que recebe); pré-alocada: nada de alocar no callback.
     far: [i16; FRAME_SAMPLES],
     far_frames: u64,
 }
 
 fn build(settings: AudioProcessingSettings) -> Option<AudioProcessingModule> {
-    settings.any().then(|| {
+    settings.needs_apm().then(|| {
         AudioProcessingModule::new(
             settings.echo_cancellation,
             settings.auto_gain_control,
             // O filtro passa-altas acompanha qualquer processamento (tira ruído grave de DC/vento).
             true,
-            settings.noise_suppression,
+            // Só o nível Padrão usa o NS do APM; no Forte quem suprime é o RNNoise.
+            settings.noise_suppression == NoiseSuppressionLevel::Standard,
         )
     })
 }
 
 pub struct ApmBridge {
     inner: Mutex<Inner>,
+    /// Latências medidas nos callbacks do cpal (átomos; ver `delay.rs`).
+    probe: Arc<LatencyProbe>,
 }
 
 impl ApmBridge {
     pub fn new(settings: AudioProcessingSettings) -> Self {
+        let mut denoiser = Denoiser::new();
+        denoiser.set_enabled(settings.noise_suppression == NoiseSuppressionLevel::Strong);
         Self {
             inner: Mutex::new(Inner {
                 settings,
                 apm: build(settings),
+                denoiser,
                 delay_ms: DEFAULT_STREAM_DELAY_MS,
+                estimator: DelayEstimator::new(),
+                frames_since_delay_update: 0,
                 far: [0; FRAME_SAMPLES],
                 far_frames: 0,
             }),
+            probe: Arc::new(LatencyProbe::new()),
         }
     }
 
@@ -95,33 +170,59 @@ impl ApmBridge {
         self.lock().settings
     }
 
-    /// Aplica novos interruptores (recria o módulo se mudou algo).
-    pub fn configure(&self, settings: AudioProcessingSettings) {
-        let mut g = self.lock();
-        if g.settings == settings && (g.apm.is_some() == settings.any()) {
-            return;
-        }
-        g.settings = settings;
-        g.apm = build(settings);
+    /// Sonda de latência que os callbacks do cpal alimentam.
+    pub fn probe(&self) -> Arc<LatencyProbe> {
+        self.probe.clone()
     }
 
+    /// Aplica novos interruptores. Recria o APM só se AEC, AGC ou o NS "Padrão" mudaram; o Forte liga/desliga
+    /// o RNNoise sem tocar no APM (o AEC não reconverge).
+    pub fn configure(&self, settings: AudioProcessingSettings) {
+        let mut g = self.lock();
+        if g.settings.apm_key() != settings.apm_key() || g.apm.is_some() != settings.needs_apm() {
+            g.apm = build(settings);
+        }
+        g.denoiser
+            .set_enabled(settings.noise_suppression == NoiseSuppressionLevel::Strong);
+        g.settings = settings;
+    }
+
+    /// Define a dica de atraso à mão (e a mantém até a próxima estimativa).
     pub fn set_stream_delay_ms(&self, delay_ms: i32) {
         self.lock().delay_ms = delay_ms.clamp(0, 500);
     }
 
-    /// Passa um quadro de 10 ms do microfone (48 kHz mono) pelo APM, no lugar. Devolve `true` se processou.
+    /// Dica de atraso em uso agora.
+    pub fn stream_delay_ms(&self) -> i32 {
+        self.lock().delay_ms
+    }
+
+    /// Passa um quadro de 10 ms do microfone (48 kHz mono) pelo AEC/NS/AGC e, no Forte, pelo RNNoise, no
+    /// lugar. Devolve `true` se algum processamento foi aplicado.
     pub fn process_near(&self, frame: &mut [i16]) -> bool {
         if frame.len() != FRAME_SAMPLES {
             return false;
         }
         let mut g = self.lock();
+
+        // Estimativa dinâmica do atraso, ~1x/s (só lê átomos).
+        g.frames_since_delay_update += 1;
+        if g.frames_since_delay_update >= DELAY_UPDATE_FRAMES {
+            g.frames_since_delay_update = 0;
+            let raw = DelayEstimator::raw_from(&self.probe);
+            g.delay_ms = g.estimator.update(raw);
+        }
+
         let delay = g.delay_ms;
-        let Some(apm) = g.apm.as_mut() else {
-            return false;
-        };
-        // Se a dica falhar, o AEC3 ainda estima o atraso sozinho.
-        let _ = apm.set_stream_delay_ms(delay);
-        apm.process_stream(frame, SAMPLE_RATE as i32, 1).is_ok()
+        let mut processed = false;
+        // 1) AEC + NS "Padrão" + AGC. Se a dica falhar, o AEC3 ainda estima o atraso sozinho.
+        if let Some(apm) = g.apm.as_mut() {
+            let _ = apm.set_stream_delay_ms(delay);
+            processed = apm.process_stream(frame, SAMPLE_RATE as i32, 1).is_ok();
+        }
+        // 2) RNNoise (Forte), por último, logo antes do NativeAudioSource.
+        processed |= g.denoiser.process(frame);
+        processed
     }
 
     /// Entrega ao APM um quadro de 10 ms do que está tocando (referência do eco). Seguro para o callback de
@@ -212,7 +313,7 @@ mod tests {
     fn aec_only() -> AudioProcessingSettings {
         AudioProcessingSettings {
             echo_cancellation: true,
-            noise_suppression: false,
+            noise_suppression: NoiseSuppressionLevel::Off,
             auto_gain_control: false,
         }
     }
@@ -224,7 +325,7 @@ mod tests {
         let (without, input2) = run_echo(
             AudioProcessingSettings {
                 echo_cancellation: false,
-                noise_suppression: false,
+                noise_suppression: NoiseSuppressionLevel::Off,
                 auto_gain_control: false,
             },
             1920,
@@ -269,7 +370,7 @@ mod tests {
     fn disabled_settings_bypass_the_module() {
         let off = AudioProcessingSettings {
             echo_cancellation: false,
-            noise_suppression: false,
+            noise_suppression: NoiseSuppressionLevel::Off,
             auto_gain_control: false,
         };
         let b = ApmBridge::new(off);
@@ -284,14 +385,14 @@ mod tests {
         let b = ApmBridge::new(AudioProcessingSettings::default());
         assert!(
             b.settings().echo_cancellation
-                && b.settings().noise_suppression
+                && b.settings().noise_suppression == NoiseSuppressionLevel::Standard
                 && b.settings().auto_gain_control
         );
         let mut q = vec![0i16; FRAME_SAMPLES];
         assert!(b.process_near(&mut q));
         b.configure(AudioProcessingSettings {
             echo_cancellation: false,
-            noise_suppression: false,
+            noise_suppression: NoiseSuppressionLevel::Off,
             auto_gain_control: false,
         });
         assert!(!b.process_near(&mut q));
@@ -323,8 +424,111 @@ mod tests {
         assert_eq!(s, AudioProcessingSettings::default());
         let s: AudioProcessingSettings =
             serde_json::from_str(r#"{"echoCancellation":false}"#).unwrap();
-        assert!(!s.echo_cancellation && s.noise_suppression && s.auto_gain_control);
+        assert!(
+            !s.echo_cancellation
+                && s.noise_suppression == NoiseSuppressionLevel::Standard
+                && s.auto_gain_control
+        );
         let v = serde_json::to_value(AudioProcessingSettings::default()).unwrap();
         assert_eq!(v["autoGainControl"], true);
+    }
+
+    #[test]
+    fn noise_level_json_accepts_text_and_the_legacy_boolean() {
+        let parse = |j: &str| -> AudioProcessingSettings { serde_json::from_str(j).unwrap() };
+        assert_eq!(
+            parse(r#"{"noiseSuppression":"strong"}"#).noise_suppression,
+            NoiseSuppressionLevel::Strong
+        );
+        assert_eq!(
+            parse(r#"{"noiseSuppression":"standard"}"#).noise_suppression,
+            NoiseSuppressionLevel::Standard
+        );
+        assert_eq!(
+            parse(r#"{"noiseSuppression":"off"}"#).noise_suppression,
+            NoiseSuppressionLevel::Off
+        );
+        // Formato antigo da interface: booleano.
+        assert_eq!(
+            parse(r#"{"noiseSuppression":true}"#).noise_suppression,
+            NoiseSuppressionLevel::Standard
+        );
+        assert_eq!(
+            parse(r#"{"noiseSuppression":false}"#).noise_suppression,
+            NoiseSuppressionLevel::Off
+        );
+        assert!(
+            serde_json::from_str::<AudioProcessingSettings>(r#"{"noiseSuppression":"max"}"#)
+                .is_err()
+        );
+        let v = serde_json::to_value(AudioProcessingSettings {
+            noise_suppression: NoiseSuppressionLevel::Strong,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(v["noiseSuppression"], "strong");
+    }
+
+    fn strong(aec: bool, agc: bool) -> AudioProcessingSettings {
+        AudioProcessingSettings {
+            echo_cancellation: aec,
+            noise_suppression: NoiseSuppressionLevel::Strong,
+            auto_gain_control: agc,
+        }
+    }
+
+    #[test]
+    fn strong_runs_without_the_apm_when_aec_and_agc_are_off() {
+        let b = ApmBridge::new(strong(false, false));
+        assert!(b.lock().apm.is_none());
+        assert!(b.settings().any());
+        let mut q = noise(FRAME_SAMPLES, 0.3, 5);
+        // O primeiro quadro é de aquecimento do RNNoise (devolve o original), mas conta como processado.
+        assert!(b.process_near(&mut q));
+    }
+
+    #[test]
+    fn switching_to_strong_keeps_aec_and_agc_in_the_apm() {
+        let b = ApmBridge::new(AudioProcessingSettings::default());
+        b.configure(strong(true, true));
+        {
+            let g = b.lock();
+            assert!(g.apm.is_some(), "AEC e AGC seguem no APM no Forte");
+            assert!(g.denoiser.is_enabled());
+        }
+        b.configure(AudioProcessingSettings::default());
+        assert!(!b.lock().denoiser.is_enabled());
+    }
+
+    #[test]
+    fn strong_noise_switch_does_not_recreate_the_apm() {
+        // Forte <-> Desligada com AEC/AGC iguais: a chave do APM não muda, então o módulo é mantido.
+        let off = AudioProcessingSettings {
+            noise_suppression: NoiseSuppressionLevel::Off,
+            ..Default::default()
+        };
+        let s = strong(true, true);
+        assert_eq!(off.apm_key(), s.apm_key());
+        assert_ne!(AudioProcessingSettings::default().apm_key(), s.apm_key());
+    }
+
+    #[test]
+    fn delay_hint_starts_at_default_and_follows_the_probe() {
+        use std::time::Duration;
+        let b = ApmBridge::new(AudioProcessingSettings::default());
+        assert_eq!(b.stream_delay_ms(), DEFAULT_STREAM_DELAY_MS);
+        let probe = b.probe();
+        probe.store_output(Some(Duration::from_millis(50)));
+        probe.store_input(Some(Duration::from_millis(20)));
+        let mut q = vec![0i16; FRAME_SAMPLES];
+        for _ in 0..DELAY_UPDATE_FRAMES {
+            b.process_near(&mut q);
+        }
+        assert_eq!(b.stream_delay_ms(), 70);
+        probe.store_output(Some(Duration::from_millis(100)));
+        for _ in 0..(DELAY_UPDATE_FRAMES * 5) {
+            b.process_near(&mut q);
+        }
+        assert_eq!(b.stream_delay_ms(), 120);
     }
 }

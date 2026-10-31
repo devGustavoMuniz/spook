@@ -39,6 +39,8 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 cpal = "0.15"
 scap = "0.0.8"
 jpeg-encoder = "0.7"
+# Supressão de ruído "Forte" (RNNoise do Xiph em Rust puro, BSD-3-Clause; sem libclang nem código nativo).
+nnnoiseless = { version = "=0.5.2", default-features = false }
 thiserror = "2"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["humantime"] }

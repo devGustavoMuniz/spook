@@ -381,11 +381,12 @@ impl VoiceCore {
         }
         let device = self.prefs().input;
         let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
+        let probe = self.apm.probe();
         let capture = match self.synthetic() {
             Some(syn) => MicInput::Synthetic(synth::start_tone(syn.tone_hz, tx)),
             // A abertura do dispositivo é bloqueante (CoreAudio pode mostrar o diálogo de permissão).
             None => MicInput::Device(
-                tokio::task::spawn_blocking(move || audio::start_mic(device, tx))
+                tokio::task::spawn_blocking(move || audio::start_mic(device, tx, Some(probe)))
                     .await
                     .map_err(|e| VoiceError::other(e.to_string()))??,
             ),

@@ -13,6 +13,7 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 
 use super::apm::ApmBridge;
+use super::delay::LatencyProbe;
 use super::error::{classify_backend_message, MediaCode, MediaDevice, VoiceError};
 use super::mixer::Mixer;
 use super::resample::{downmix_to_mono, f32_to_i16, i16_to_f32, FrameChunker, LinearResampler};
@@ -168,11 +169,16 @@ pub struct MicCapture {
 }
 
 /// Abre o microfone e envia quadros de 10 ms (48 kHz mono, i16) em `tx`. Se `tx` encher, descarta.
+/// `probe` (opcional) recebe a latência de entrada medida pelos timestamps do cpal (dica de atraso do AEC).
 pub fn start_mic(
     device_id: Option<String>,
     tx: mpsc::Sender<Vec<i16>>,
+    probe: Option<Arc<LatencyProbe>>,
 ) -> Result<MicCapture, VoiceError> {
     let thread = StreamThread::spawn("spook-mic", move || {
+        if let Some(p) = &probe {
+            p.reset_input(); // a medição do dispositivo anterior não vale
+        }
         let device = find_device(Direction::Input, device_id.as_deref())?;
         let config = device.default_input_config().map_err(|e| match e {
             cpal::DefaultStreamConfigError::DeviceNotAvailable => {
@@ -185,10 +191,10 @@ pub fn start_mic(
         let format = config.sample_format();
         let cfg: cpal::StreamConfig = config.into();
         let stream = match format {
-            SampleFormat::F32 => build_input::<f32>(&device, &cfg, channels, rate, tx),
-            SampleFormat::I16 => build_input::<i16>(&device, &cfg, channels, rate, tx),
-            SampleFormat::U16 => build_input::<u16>(&device, &cfg, channels, rate, tx),
-            SampleFormat::I32 => build_input::<i32>(&device, &cfg, channels, rate, tx),
+            SampleFormat::F32 => build_input::<f32>(&device, &cfg, channels, rate, tx, probe),
+            SampleFormat::I16 => build_input::<i16>(&device, &cfg, channels, rate, tx, probe),
+            SampleFormat::U16 => build_input::<u16>(&device, &cfg, channels, rate, tx, probe),
+            SampleFormat::I32 => build_input::<i32>(&device, &cfg, channels, rate, tx, probe),
             _ => Err(VoiceError::media(
                 MediaCode::Unsupported,
                 MediaDevice::Microphone,
@@ -208,6 +214,7 @@ fn build_input<T>(
     channels: usize,
     rate: u32,
     tx: mpsc::Sender<Vec<i16>>,
+    probe: Option<Arc<LatencyProbe>>,
 ) -> Result<Stream, VoiceError>
 where
     T: SizedSample,
@@ -221,7 +228,12 @@ where
     device
         .build_input_stream(
             cfg,
-            move |data: &[T], _| {
+            move |data: &[T], info: &cpal::InputCallbackInfo| {
+                if let Some(p) = &probe {
+                    // Átomo: sem alocar nem bloquear no callback.
+                    let ts = info.timestamp();
+                    p.store_input(ts.callback.duration_since(&ts.capture));
+                }
                 floats.clear();
                 floats.extend(data.iter().map(|&s| f32::from_sample(s)));
                 mono.clear();
@@ -252,6 +264,8 @@ pub struct OutputRenderer {
     resampler: LinearResampler,
     pending: VecDeque<f32>,
     channels: usize,
+    out_rate: u32,
+    probe: Option<Arc<LatencyProbe>>,
     pcm: Vec<i16>,
     floats: Vec<f32>,
     resampled: Vec<f32>,
@@ -264,12 +278,15 @@ impl OutputRenderer {
         out_rate: u32,
         channels: usize,
     ) -> Self {
+        let probe = apm.as_ref().map(|a| a.probe());
         Self {
             mixer,
             apm,
             resampler: LinearResampler::new(SAMPLE_RATE, out_rate),
             pending: VecDeque::new(),
             channels: channels.max(1),
+            out_rate: out_rate.max(1),
+            probe,
             pcm: vec![0; FRAME_SAMPLES],
             floats: Vec::with_capacity(FRAME_SAMPLES),
             resampled: Vec::with_capacity(FRAME_SAMPLES * 2),
@@ -298,6 +315,18 @@ impl OutputRenderer {
             let s = self.pending.pop_front().unwrap_or(0.0);
             frame.fill(s);
         }
+        // O que sobrou na fila ainda não chegou ao dispositivo: entra no atraso do eco.
+        if let Some(p) = &self.probe {
+            let ns = self.pending.len() as u64 * 1_000_000_000 / u64::from(self.out_rate);
+            p.store_queued(std::time::Duration::from_nanos(ns));
+        }
+    }
+
+    /// Registra a latência de saída (`playback − callback` do cpal) na sonda da dica de atraso.
+    pub fn note_output_latency(&self, latency: Option<std::time::Duration>) {
+        if let Some(p) = &self.probe {
+            p.store_output(latency);
+        }
     }
 }
 
@@ -308,6 +337,9 @@ pub fn start_playback(
     apm: Option<Arc<ApmBridge>>,
 ) -> Result<Playback, VoiceError> {
     let thread = StreamThread::spawn("spook-out", move || {
+        if let Some(apm) = &apm {
+            apm.probe().reset_output(); // a medição do dispositivo anterior não vale
+        }
         let device = find_device(Direction::Output, device_id.as_deref())?;
         let config = device.default_output_config().map_err(|e| match e {
             cpal::DefaultStreamConfigError::DeviceNotAvailable => {
@@ -353,7 +385,9 @@ where
     device
         .build_output_stream(
             cfg,
-            move |data: &mut [T], _| {
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+                let ts = info.timestamp();
+                renderer.note_output_latency(ts.playback.duration_since(&ts.callback));
                 scratch.resize(data.len(), 0.0);
                 renderer.fill(&mut scratch);
                 for (o, &s) in data.iter_mut().zip(scratch.iter()) {
@@ -443,6 +477,22 @@ mod tests {
         let mut out = vec![0f32; 480 * 2 * 5]; // 5 quadros de 10 ms
         r.fill(&mut out);
         assert!((5..=6).contains(&apm.far_frames()), "{}", apm.far_frames());
+    }
+
+    #[test]
+    fn renderer_reports_latency_for_the_echo_delay_hint() {
+        use crate::voice::apm::{ApmBridge, AudioProcessingSettings};
+        use std::time::Duration;
+        let apm = Arc::new(ApmBridge::new(AudioProcessingSettings::default()));
+        let mixer = mixer_with(&tone(440.0, 0, 4800, 0.5));
+        let mut r = OutputRenderer::new(mixer, Some(apm.clone()), 48_000, 1);
+        assert_eq!(apm.probe().output_ms(), None);
+        r.note_output_latency(Some(Duration::from_millis(23)));
+        let mut out = vec![0f32; 240]; // meio quadro: sobram 240 amostras (5 ms) na fila
+        r.fill(&mut out);
+        let p = apm.probe();
+        assert!((p.output_ms().unwrap() - 23.0).abs() < 0.01);
+        assert!((p.queued_ms() - 5.0).abs() < 0.1, "{}", p.queued_ms());
     }
 
     #[test]
