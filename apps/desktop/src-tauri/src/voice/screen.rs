@@ -125,20 +125,29 @@ pub async fn start(
             MediaDevice::Screen,
         ));
     }
-    let target = find_target(source_id_str)?;
-    let options = Options {
-        fps,
-        show_cursor: true,
-        show_highlight: false,
-        target,
-        crop_area: None,
-        output_type: FrameType::BGRAFrame,
-        output_resolution: Resolution::Captured,
-        excluded_targets: None,
-    };
+    // `Target`/`Options` carregam HWND/HMONITOR crus (`!Send` no Windows): só dados `Send` cruzam para a
+    // thread, e alvo, opções e `Capturer` nascem e morrem lá dentro.
+    let source_id_owned = source_id_str.to_string();
 
     let (thread, ready) =
         CaptureThread::spawn::<VoiceError, _>("spook-screen", move |stop, ready| {
+            let target = match find_target(&source_id_owned) {
+                Ok(t) => t,
+                Err(e) => {
+                    let _ = ready.send(Err(e));
+                    return;
+                }
+            };
+            let options = Options {
+                fps,
+                show_cursor: true,
+                show_highlight: false,
+                target,
+                crop_area: None,
+                output_type: FrameType::BGRAFrame,
+                output_resolution: Resolution::Captured,
+                excluded_targets: None,
+            };
             // O scap usa `expect`/`panic` em vários caminhos (portal cancelado, alvo inválido): contém.
             let built = catch_unwind(AssertUnwindSafe(|| Capturer::build(options)));
             let mut capturer = match built {
