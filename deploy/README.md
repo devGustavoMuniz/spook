@@ -193,8 +193,14 @@ Teste: `websocat -H "Cookie: spook_session=<token>" wss://spook.dottadigital.com
 Quem é administrador: coluna `users.is_admin` (migration `00009_admin.sql`). Para promover contas no boot, defina a Variable
 `ADMIN_USERNAMES` do GitHub (usernames separados por vírgula; o `write-env` a grava no `.env` e o compose a passa ao container
 `spook`). A promoção é idempotente e roda a cada partida do backend; **a conta precisa existir antes** (cadastre-se, defina a
-Variable e refaça o deploy, ou reinicie o `spook`). Nada rebaixa ninguém: para tirar o acesso,
-`docker compose exec postgres psql -U spook -c "UPDATE users SET is_admin = false WHERE username = 'fulano'"` (vale na hora).
+Variable e refaça o deploy, ou reinicie o `spook`). A `ADMIN_USERNAMES` nunca rebaixa ninguém. Para promover ou rebaixar direto no VPS, sem redeploy (vale na hora), use
+`deploy/admin.sh` (o `receive-deploy` o instala junto do resto de `deploy/`):
+```sh
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/admin.sh grant nyak"    # promove
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/admin.sh revoke nyak"   # rebaixa
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/admin.sh list"          # lista
+```
+(É o subcomando `spook admin grant|revoke|list` do binário, executado no contêiner `spook`.)
 Sem a Variable ninguém é promovido e `/admin` responde 403 a todos.
 
 O painel lê o Prometheus do LiveKit em `http://livekit:6789/metrics` (rede interna; `prometheus.port: 6789` em

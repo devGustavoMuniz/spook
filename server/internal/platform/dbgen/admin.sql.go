@@ -199,6 +199,30 @@ func (q *Queries) AdminLargestTables(ctx context.Context) ([]AdminLargestTablesR
 	return items, nil
 }
 
+const adminListAdmins = `-- name: AdminListAdmins :many
+SELECT username::text AS username FROM users WHERE is_admin ORDER BY username
+`
+
+func (q *Queries) AdminListAdmins(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, adminListAdmins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		items = append(items, username)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const adminListGuilds = `-- name: AdminListGuilds :many
 SELECT t.id, t.name, t.owner, t.created_at, t.members, t.channels, t.messages, t.invites_active, (count(*) OVER ())::bigint AS total FROM (
     SELECT g.id, g.name, o.username::text AS owner, g.created_at,
@@ -457,6 +481,25 @@ func (q *Queries) AdminPromoteUsernames(ctx context.Context, usernames []string)
 		return nil, err
 	}
 	return items, nil
+}
+
+const adminSetAdmin = `-- name: AdminSetAdmin :one
+UPDATE users SET is_admin = $1::boolean
+WHERE username = $2::text::citext
+RETURNING username::text AS username
+`
+
+type AdminSetAdminParams struct {
+	IsAdmin  bool
+	Username string
+}
+
+// Liga ou desliga o administrador de um username (usado pelo comando `spook admin`); sem linha = conta inexistente.
+func (q *Queries) AdminSetAdmin(ctx context.Context, arg AdminSetAdminParams) (string, error) {
+	row := q.db.QueryRow(ctx, adminSetAdmin, arg.IsAdmin, arg.Username)
+	var username string
+	err := row.Scan(&username)
+	return username, err
 }
 
 const adminUsernames = `-- name: AdminUsernames :many

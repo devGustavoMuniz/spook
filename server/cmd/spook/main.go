@@ -1,7 +1,8 @@
 // Comando spook: wiring de configuração, dependências e start do servidor.
 //
 // Subcomandos: (nenhum) inicia o servidor; `openapi` imprime o contrato OpenAPI;
-// `healthcheck` consulta /healthz local (usado pelo HEALTHCHECK do container).
+// `healthcheck` consulta /healthz local (usado pelo HEALTHCHECK do container);
+// `admin grant|revoke <username>|list` gerencia administradores do painel /admin.
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/devGustavoMuniz/spook/server/internal/admin"
 	"github.com/devGustavoMuniz/spook/server/internal/app"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
@@ -32,6 +34,8 @@ func main() {
 		err = printOpenAPI()
 	case len(os.Args) > 1 && os.Args[1] == "healthcheck":
 		err = healthcheck()
+	case len(os.Args) > 1 && os.Args[1] == "admin":
+		err = adminCommand(os.Args[2:])
 	default:
 		err = run()
 	}
@@ -39,6 +43,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, "erro fatal:", err)
 		os.Exit(1)
 	}
+}
+
+// adminCommand liga/desliga administradores direto no banco (docker exec no container do backend).
+func adminCommand(args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	return admin.RunCLI(ctx, pool, args, os.Stdout)
 }
 
 func printOpenAPI() error {

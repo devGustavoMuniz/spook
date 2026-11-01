@@ -3,12 +3,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
 	"time"
 
 	lk "github.com/livekit/protocol/livekit"
+
+	"github.com/devGustavoMuniz/spook/server/internal/admin"
 )
 
 func (e *testEnv) makeAdmin(t *testing.T, a *actor) {
@@ -266,5 +269,33 @@ func TestAdminSystem(t *testing.T) {
 	}
 	if jobs := asJ(s["jobs"]); jobs["available"] != true {
 		t.Fatalf("jobs = %v", jobs)
+	}
+}
+
+func TestAdminCLIGrantRevokeList(t *testing.T) {
+	e := newEnvWith(t, notifCfg)
+	a := e.newActor(t, "cli")
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := admin.RunCLI(context.Background(), e.pool, args, &out)
+		return out.String(), err
+	}
+	a.call(t, "GET", "/api/admin/overview", nil, 403)
+	if out, err := run("grant", "@"+strings.ToUpper(a.name)); err != nil || !strings.Contains(out, "agora é administrador") {
+		t.Fatalf("grant = %q, %v", out, err)
+	}
+	a.call(t, "GET", "/api/admin/overview", nil, 200)
+	if out, err := run("list"); err != nil || !strings.Contains(out, a.name) {
+		t.Fatalf("list = %q, %v", out, err)
+	}
+	if _, err := run("revoke", a.name); err != nil {
+		t.Fatal(err)
+	}
+	a.call(t, "GET", "/api/admin/overview", nil, 403)
+	if _, err := run("grant", "nao_existe_xyz"); err == nil {
+		t.Fatal("conta inexistente deveria falhar")
+	}
+	if _, err := run("grant"); err == nil {
+		t.Fatal("sem username deveria falhar")
 	}
 }

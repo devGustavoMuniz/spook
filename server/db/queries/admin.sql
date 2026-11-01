@@ -9,6 +9,15 @@ UPDATE users SET is_admin = true
 WHERE username = ANY(sqlc.arg(usernames)::text[]::citext[]) AND NOT is_admin
 RETURNING username::text AS username;
 
+-- Liga ou desliga o administrador de um username (usado pelo comando `spook admin`); sem linha = conta inexistente.
+-- name: AdminSetAdmin :one
+UPDATE users SET is_admin = sqlc.arg(is_admin)::boolean
+WHERE username = sqlc.arg(username)::text::citext
+RETURNING username::text AS username;
+
+-- name: AdminListAdmins :many
+SELECT username::text AS username FROM users WHERE is_admin ORDER BY username;
+
 -- Contagens do painel. Períodos usam o ID Snowflake (chave primária) em vez de uma coluna de data.
 -- name: AdminCounts :one
 SELECT
