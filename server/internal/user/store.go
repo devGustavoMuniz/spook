@@ -18,7 +18,7 @@ func NewStore(db dbgen.DBTX) *PGStore { return &PGStore{q: dbgen.New(db)} }
 func toUser(u dbgen.User) User {
 	return User{
 		ID: u.ID, Email: u.Email, Username: u.Username,
-		DisplayName: u.DisplayName, AvatarKey: u.AvatarKey, CreatedAt: u.CreatedAt.Time,
+		DisplayName: u.DisplayName, AvatarKey: u.AvatarKey, CreatedAt: u.CreatedAt.Time, IsAdmin: u.IsAdmin,
 	}
 }
 

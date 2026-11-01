@@ -13,5 +13,7 @@ export interface View {
   email: string;
   /** ID Snowflake (string, pois excede 53 bits) */
   id: string;
+  /** Administrador do painel /admin (só para mostrar o link; o backend decide o acesso) */
+  is_admin: boolean;
   username: string;
 }

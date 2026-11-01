@@ -125,6 +125,9 @@ jobs:
       - name: Instala o Chromium do Playwright
         run: pnpm --filter @spook/web exec playwright install --with-deps chromium
       - name: Suíte E2E
+        env:
+          # e2e/admin.spec.ts promove a conta do teste direto no banco (o painel /admin exige is_admin).
+          E2E_PROMOTE_CMD: psql postgres://spook:spook@localhost:5432/spook -c "UPDATE users SET is_admin = true WHERE username = '{username}'"
         run: pnpm --filter @spook/web e2e
       - name: Derruba o Garage
         if: always()

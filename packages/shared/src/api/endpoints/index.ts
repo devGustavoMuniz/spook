@@ -1,3 +1,4 @@
+export * from "./admin/admin";
 export * from "./auth/auth";
 export * from "./channels/channels";
 export * from "./dms/dms";

@@ -10,8 +10,13 @@ import {
 import { fetchSession } from "@/auth/session";
 import { PageShell } from "@/components/app-shell";
 import { AuthedLayout } from "@/components/authed-layout";
+import { AdminLayout } from "@/features/admin/admin-layout";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
+import { AdminCallsPage } from "@/pages/admin/calls";
+import { AdminDashboardPage } from "@/pages/admin/dashboard";
+import { AdminServersPage } from "@/pages/admin/servers";
+import { AdminUsersPage } from "@/pages/admin/users";
 import { AppSettingsPage } from "@/pages/app-settings";
 import { DmIndex, DmLayout, DmPage } from "@/pages/dms";
 import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
@@ -145,7 +150,41 @@ const inviteRoute = createRoute({
   component: InvitePage,
 });
 
+// Painel administrativo: layout próprio (sem a barra de servidores). A checagem de verdade é no backend
+// (/api/admin/** responde 403); aqui o guard só evita mostrar uma tela que daria erro a quem não é admin.
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  beforeLoad: async ({ context, location }) => {
+    const me = await fetchSession(context.queryClient);
+    if (!me) throw redirect({ to: "/login", search: { redirect: safeRedirect(location.href) } });
+    if (!me.is_admin) throw redirect({ to: "/" });
+  },
+  component: AdminLayout,
+});
+const adminIndexRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "/",
+  component: AdminDashboardPage,
+});
+const adminUsersRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "users",
+  component: AdminUsersPage,
+});
+const adminServersRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "servers",
+  component: AdminServersPage,
+});
+const adminCallsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "calls",
+  component: AdminCallsPage,
+});
+
 const routeTree = rootRoute.addChildren([
+  adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminServersRoute, adminCallsRoute]),
   loginRoute,
   registerRoute,
   authedRoute.addChildren([

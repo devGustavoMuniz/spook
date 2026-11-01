@@ -15,6 +15,7 @@ export type FakeUser = {
   username: string;
   display_name?: string;
   avatar_url?: string;
+  is_admin?: boolean;
   created_at: string;
 };
 

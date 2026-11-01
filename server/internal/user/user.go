@@ -13,6 +13,7 @@ type User struct {
 	DisplayName *string
 	AvatarKey   *string
 	CreatedAt   time.Time
+	IsAdmin     bool
 }
 
 var (

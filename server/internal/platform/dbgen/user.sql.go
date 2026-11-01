@@ -12,7 +12,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, username, password_hash)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin
 `
 
 type CreateUserParams struct {
@@ -42,12 +42,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CustomStatusText,
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at FROM users WHERE email = $1
+SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin FROM users WHERE email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -65,12 +66,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.CustomStatusText,
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
+		&i.IsAdmin,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at FROM users WHERE id = $1
+SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
@@ -88,6 +90,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.CustomStatusText,
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
+		&i.IsAdmin,
 	)
 	return i, err
 }
@@ -96,7 +99,7 @@ const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET display_name = $2, avatar_key = $3
 WHERE id = $1
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin
 `
 
 type UpdateUserProfileParams struct {
@@ -120,6 +123,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.CustomStatusText,
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
+		&i.IsAdmin,
 	)
 	return i, err
 }

@@ -101,6 +101,9 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # Painel /admin (usernames separados por vírgula, promovidos no boot). O Prometheus do LiveKit é lido de
+      # http://livekit:6789/metrics (rede interna do Compose).
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
     ports: ["8090:8090"]
     depends_on:
       postgres: { condition: service_healthy }

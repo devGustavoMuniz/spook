@@ -107,6 +107,24 @@ Desktop. No Linux/GNOME a bandeja precisa da extensão AppIndicator. Roteiro de 
 
 **Ressalvas:** push real respeitando DND/silêncio, a aparência nos dois temas, o menu por botão direito (sem componente de menu de contexto, abre o mesmo menu de clique) e a expiração com o app fechado só você consegue validar (`VALIDACAO-MANUAL.md`, seção "Adicionais"). Menus de submenu foram testados no jsdom com clique direto no item (o jsdom fecha o submenu ao mover o ponteiro); o E2E real de menu de submenu cobre o servidor, não o submenu de nível.
 
+## Painel administrativo /admin (backend + web)
+
+**Pedido:** painel `/admin` com informações em tempo real, inspirado no admin do Antrax: dashboard (cartões, gráficos de 14 dias, ao vivo, contagens, LiveKit, aplicação e armazenamento), usuários, servidores e chamadas.
+
+| Parte | Estado |
+| --- | --- |
+| Migration aditiva `00009` (`users.is_admin`; índice `messages(author_id)`) e bootstrap por `ADMIN_USERNAMES` (idempotente, só promove) | Feito; variável no `.env.example`, compose dev/prod, `write-env` do deploy e `deploy/README.md` |
+| `/api/admin/{overview,live,system,users,servers,calls}` (401/403, spans OTel, sem dados sensíveis, cache com singleflight) | Feito |
+| Chamadas ao vivo pelo LiveKit (`voice.Service.LiveRooms`, porta existente) e Prometheus do LiveKit (habilitado só na rede interna) | Feito; métricas de mídia (perda, jitter, RTT) dependem de tráfego real: ver `VALIDACAO-MANUAL.md` |
+| Web: layout, dashboard, gráficos SVG com tabela, tabelas ordenáveis/busca/paginação, polling 5 s/30 s, link só para admin | Feito |
+| Testes: Go unitário e integração, Vitest/MSW (15), E2E Playwright (executado no Docker; passou) | Feitos |
+| Cenário k6 do admin | Não feito (opcional) |
+| SSE/gateway para o ao vivo; verificados, login social, banimentos, amizades (não existem no Spook) | Não feito / não se aplica |
+
+**Decisões:** polling em vez de SSE; cache de 30 s/5 s/60 s no servidor; períodos de mensagens pela PK Snowflake; "última atividade" = último login; sem promover automaticamente quem se cadastra com um username da lista (evita corrida por nome de admin). Detalhes em `SPEC.md` 5.5.
+
+**Ressalvas:** a aparência nos dois temas e no celular, os números contra a produção e as métricas de mídia do Prometheus numa chamada real só o dono valida (`VALIDACAO-MANUAL.md`). Ordenar usuários por mensagens varre todos os usuários (~375 ms com 10 mil usuários e 175 mil mensagens); a ordenação padrão é rápida.
+
 ## Controles de voz no painel do usuário
 
 Os controles de voz saíram da barra inferior da tela e foram para o rodapé da barra lateral (servidores e DMs, pois o `UserPanel` é compartilhado), como no Discord. Em chamada, um cartão "Voz conectada" (qualidade do enlace, canal, servidor, botão de sair, câmera e compartilhar tela) aparece acima da linha do usuário; na linha do usuário, ao lado do nome, ficam microfone, fone e Dispositivos (só em chamada), antes do seletor de status. A região continua com o nome "Controles de voz" (só existe em chamada). Fora da chamada, microfone e fone continuam disponíveis e só guardam a preferência no store (`toggleMute`/`toggleDeafen` agora atualizam o estado quando ocioso; ela vale na próxima entrada). Sem mudança no `VoiceEngine`, no desktop ou nos seletores do E2E. Código: `voice-bar.tsx` (`VoiceDock`, `VoiceCallCard`, `VoiceUserControls`) e `presence/user-panel.tsx`.

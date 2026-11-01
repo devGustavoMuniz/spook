@@ -1,6 +1,7 @@
 import miniLogo from "@spook/brand/assets/mini-logo.svg";
+import { useGetMe } from "@spook/shared";
 import { Link } from "@tanstack/react-router";
-import { BellOff, LogOut, Plus, Settings } from "lucide-react";
+import { BellOff, LogOut, Plus, Settings, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -100,6 +101,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
   const [adding, setAdding] = useState(false);
   const { signOut, pending } = useSignOut();
   const dms = useDmTotals();
+  const { data: me } = useGetMe();
   return (
     <nav
       aria-label="Servidores"
@@ -145,6 +147,20 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
         <TooltipContent side="right">Criar servidor ou entrar com convite</TooltipContent>
       </Tooltip>
       <div className="mt-auto flex flex-col items-center gap-1">
+        {me?.is_admin ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/admin"
+                aria-label="Painel de administração"
+                className="flex size-9 items-center justify-center rounded-md hover:bg-accent"
+              >
+                <ShieldCheck className="size-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">Painel de administração</TooltipContent>
+          </Tooltip>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <Link

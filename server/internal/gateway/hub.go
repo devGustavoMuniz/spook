@@ -191,12 +191,16 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 }
 
 // Stats é um retrato para testes e diagnóstico.
-type Stats struct{ Conns, Sessions int }
+type Stats struct {
+	Conns, Sessions int
+	Users           int   // usuários distintos com ao menos uma sessão viva
+	Dispatched      int64 // eventos entregues às filas das sessões desde o boot (acumulado)
+}
 
 func (h *Hub) Stats() Stats {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return Stats{Conns: len(h.conns), Sessions: len(h.sessions)}
+	return Stats{Conns: len(h.conns), Sessions: len(h.sessions), Users: len(h.byUser), Dispatched: h.met.dispatchedN.Load()}
 }
 
 // ---- registro ----
@@ -485,6 +489,7 @@ func (h *Hub) handle(ev events.Event) {
 
 	span.SetAttributes(attribute.Int("recipients", len(recips)), attribute.Int("delivered", delivered))
 	if delivered > 0 {
+		h.met.dispatchedN.Add(int64(delivered))
 		h.met.dispatched.Add(ctx, int64(delivered), metric.WithAttributes(attribute.String("event", ev.Type)))
 	}
 }

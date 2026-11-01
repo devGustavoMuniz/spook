@@ -141,3 +141,24 @@ func TestLoadS3InternalEndpoint(t *testing.T) {
 		t.Fatalf("S3 = %+v", c.S3)
 	}
 }
+
+func TestLoadAdminUsernamesAndMetricsURL(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("ADMIN_USERNAMES", " Gustavo , ,admin2 ")
+	t.Setenv("LIVEKIT_METRICS_URL", "")
+	t.Setenv("LIVEKIT_INTERNAL_URL", "http://livekit:7880")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.AdminUsernames) != 2 || c.AdminUsernames[0] != "gustavo" || c.AdminUsernames[1] != "admin2" {
+		t.Fatalf("AdminUsernames = %v", c.AdminUsernames)
+	}
+	if c.LiveKit.MetricsURL != "http://livekit:6789/metrics" {
+		t.Fatalf("MetricsURL = %q", c.LiveKit.MetricsURL)
+	}
+	t.Setenv("LIVEKIT_METRICS_URL", "http://outro:1/m")
+	if c, _ = Load(); c.LiveKit.MetricsURL != "http://outro:1/m" {
+		t.Fatalf("MetricsURL explícita ignorada: %q", c.LiveKit.MetricsURL)
+	}
+}

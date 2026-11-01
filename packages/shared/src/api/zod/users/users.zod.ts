@@ -15,6 +15,9 @@ export const GetMeResponse = zod.object({
   display_name: zod.string().optional(),
   email: zod.string(),
   id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
+  is_admin: zod
+    .boolean()
+    .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
   username: zod.string(),
 });
 
@@ -45,6 +48,9 @@ export const UpdateMeResponse = zod.object({
   display_name: zod.string().optional(),
   email: zod.string(),
   id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
+  is_admin: zod
+    .boolean()
+    .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
   username: zod.string(),
 });
 

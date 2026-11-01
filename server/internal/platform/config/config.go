@@ -4,6 +4,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -28,6 +30,9 @@ type LiveKit struct {
 	APIKey      string
 	APISecret   string
 	InternalURL string // API server-to-server (padrão http://livekit:7880)
+	// MetricsURL é o endpoint Prometheus do LiveKit (rede interna), lido pelo painel /admin. Padrão: a
+	// mesma máquina de InternalURL na porta 6789, /metrics. Vazio desliga a leitura.
+	MetricsURL string
 }
 
 func (l LiveKit) Enabled() bool { return l.URL != "" && l.APIKey != "" && l.APISecret != "" }
@@ -70,6 +75,13 @@ type Config struct {
 	// (SPOOK_PRESENCE_OFFLINE_GRACE, duration do Go; zero = padrão de 15 s). Existe para o E2E usar
 	// um valor curto; em produção deixe sem definir.
 	PresenceOfflineGrace time.Duration
+	// AdminUsernames (ADMIN_USERNAMES, separados por vírgula) são promovidos a administradores do painel
+	// /admin no boot, de forma idempotente. Nunca rebaixa ninguém.
+	AdminUsernames []string
+	// Version identifica o build no painel (SPOOK_VERSION; em produção, a imagem). Vazio = "dev".
+	Version string
+	// Commit é opcional (SPOOK_COMMIT); sem ele o painel usa o vcs.revision do build, se houver.
+	Commit string
 }
 
 // DefaultAllowedOrigins são as origens do app desktop (Tauri) no macOS/Linux e no Windows.
@@ -104,6 +116,14 @@ func Load() (Config, error) {
 			InternalURL: getenv("LIVEKIT_INTERNAL_URL", "http://livekit:7880"),
 		},
 	}
+	c.Version, c.Commit = strings.TrimSpace(os.Getenv("SPOOK_VERSION")), strings.TrimSpace(os.Getenv("SPOOK_COMMIT"))
+	for _, u := range splitList(os.Getenv("ADMIN_USERNAMES")) {
+		c.AdminUsernames = append(c.AdminUsernames, strings.ToLower(u))
+	}
+	c.LiveKit.MetricsURL = os.Getenv("LIVEKIT_METRICS_URL")
+	if c.LiveKit.MetricsURL == "" {
+		c.LiveKit.MetricsURL = defaultMetricsURL(c.LiveKit.InternalURL)
+	}
 	c.AllowedOrigins = DefaultAllowedOrigins
 	if v, ok := os.LookupEnv("SPOOK_ALLOWED_ORIGINS"); ok {
 		c.AllowedOrigins = splitList(v)
@@ -129,6 +149,15 @@ func Load() (Config, error) {
 		return Config{}, errors.New("S3_ENDPOINT definido sem S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY")
 	}
 	return c, nil
+}
+
+// defaultMetricsURL deriva o Prometheus do LiveKit (porta 6789) do host da API interna.
+func defaultMetricsURL(internal string) string {
+	u, err := url.Parse(internal)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(u.Hostname(), "6789") + "/metrics"
 }
 
 func (c Config) IsDev() bool { return c.Env == "development" }

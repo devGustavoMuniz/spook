@@ -17,6 +17,7 @@ type View struct {
 	DisplayName string    `json:"display_name,omitempty"`
 	AvatarURL   string    `json:"avatar_url,omitempty" doc:"URL temporária de leitura do avatar"`
 	CreatedAt   time.Time `json:"created_at"`
+	IsAdmin     bool      `json:"is_admin" doc:"Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"`
 }
 
 type Handler struct {
@@ -32,7 +33,7 @@ func NewHandler(svc *Service, userID func(context.Context) int64) *Handler {
 func (h *Handler) View(ctx context.Context, u User) View {
 	v := View{
 		ID: strconv.FormatInt(u.ID, 10), Email: u.Email, Username: u.Username,
-		CreatedAt: u.CreatedAt, AvatarURL: h.svc.AvatarURL(ctx, u),
+		CreatedAt: u.CreatedAt, AvatarURL: h.svc.AvatarURL(ctx, u), IsAdmin: u.IsAdmin,
 	}
 	if u.DisplayName != nil {
 		v.DisplayName = *u.DisplayName

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/devGustavoMuniz/spook/server/internal/admin"
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
@@ -303,6 +304,26 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	notifyH := notification.NewHandler(notifySvc, auth.UserID)
 	presenceH := presence.NewHandler(presenceSvc, auth.UserID)
 
+	// Painel administrativo (/admin): leituras agregadas; voz, gateway, pool e Prometheus entram por interfaces.
+	adminDeps := admin.Deps{
+		Store: admin.NewStore(pool), Gateway: adminGateway{hub},
+		Env: d.Cfg.Env, Version: d.Cfg.Version, Commit: d.Cfg.Commit,
+	}
+	if voiceSvc.Enabled() {
+		adminDeps.Calls = adminCalls{voiceSvc}
+	}
+	if pp, ok := d.Pool.(*pgxpool.Pool); ok {
+		adminDeps.Pool = adminPool{pp}
+	}
+	if d.Cfg.LiveKit.Enabled() && d.Cfg.LiveKit.MetricsURL != "" {
+		adminDeps.Media = admin.NewPromClient(d.Cfg.LiveKit.MetricsURL)
+	}
+	adminSvc := admin.NewService(adminDeps)
+	if _, err := adminSvc.Bootstrap(ctx, d.Cfg.AdminUsernames); err != nil {
+		return nil, err
+	}
+	adminH := admin.NewHandler(adminSvc, auth.UserID)
+
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
 	r.Use(middleware.RequestID, httpx.LogServerErrors, middleware.Recoverer)
@@ -313,7 +334,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
@@ -342,7 +363,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 func OpenAPIYAML() ([]byte, error) {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
 	return api.OpenAPI().YAML()
 }
 
@@ -355,7 +376,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
-	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -383,6 +404,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	notifyH.Register(api, authed, auth.Security)
 	presenceH.Register(api, authed, auth.Security)
 	gatewayH.Register(api, authed, auth.Security)
+	adminH.Register(api, authed, auth.Security)
 	return api
 }
 

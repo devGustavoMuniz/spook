@@ -56,3 +56,13 @@ func (g *Generator) Next() int64 {
 func Time(id int64) time.Time {
 	return epoch.Add(time.Duration(id>>(nodeBits+seqBits)) * time.Millisecond)
 }
+
+// MinID devolve o menor ID possível no instante t: serve para filtrar por período usando só a chave
+// primária (WHERE id >= MinID(t)), sem coluna de data nem índice extra.
+func MinID(t time.Time) int64 {
+	ms := t.Sub(epoch).Milliseconds()
+	if ms < 0 {
+		return 0
+	}
+	return ms << (nodeBits + seqBits)
+}

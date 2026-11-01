@@ -9,6 +9,10 @@ rtc:
   tcp_port: 7891
   udp_port: 7892
   use_external_ip: false
+# Métricas Prometheus (lidas pelo painel /admin). A porta 6789 NÃO é publicada no host: só o backend a alcança,
+# pela rede interna do Compose (LIVEKIT_METRICS_URL, padrão http://livekit:6789/metrics).
+prometheus:
+  port: 6789
 # Webhooks para o backend pela rede interna do Compose (o serviço `spook`). O LiveKit assina cada chamada com o
 # segredo da chave abaixo, que precisa ser a mesma de LIVEKIT_KEYS (LIVEKIT_API_KEY). A chave NÃO é segredo (o
 # segredo é o LIVEKIT_API_SECRET), mas o valor vem do .env do servidor e não está no git.

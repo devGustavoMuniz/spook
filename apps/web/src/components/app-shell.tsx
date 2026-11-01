@@ -12,6 +12,7 @@ import { isTauri } from "@/desktop/runtime";
 /** Páginas "comuns" (perfil): cabeçalho com marca e menu, conteúdo central. */
 export function PageShell() {
   const { signOut, pending } = useSignOut();
+  const { data: me } = useGetMe();
   return (
     <div className="h-full overflow-y-auto">
       <header className="flex items-center justify-between border-b px-4 py-3">
@@ -25,6 +26,11 @@ export function PageShell() {
           <Button asChild variant="ghost" size="sm">
             <Link to="/settings/notifications">Notificações</Link>
           </Button>
+          {me?.is_admin ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/admin">Painel de administração</Link>
+            </Button>
+          ) : null}
           {isTauri() ? (
             <Button asChild variant="ghost" size="sm">
               <Link to="/settings/app">Aplicativo</Link>

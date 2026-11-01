@@ -116,7 +116,7 @@ Em **Settings → Secrets and variables → Actions** (repositório). O workflow
 
 **Variables** (opcionais; o padrão está entre parênteses):
 `PUBLIC_URL` (`https://spook.dottadigital.com`), `GARAGE_CAPACITY` (`50GB`), `LIVEKIT_NODE_IP` (`187.127.26.46`),
-`S3_ENDPOINT` (`https://spook-files.dottadigital.com`), `S3_CORS_ORIGINS` (`https://spook.dottadigital.com,tauri://localhost,http://tauri.localhost`: a web e o app desktop).
+`ADMIN_USERNAMES` (vazio; usernames separados por vírgula promovidos a administrador do painel `/admin` no boot do backend: cadastre a conta, defina a Variable e refaça o deploy; nunca rebaixa ninguém, para isso use `UPDATE users SET is_admin = false WHERE username = '...'`), `S3_ENDPOINT` (`https://spook-files.dottadigital.com`), `S3_CORS_ORIGINS` (`https://spook.dottadigital.com,tauri://localhost,http://tauri.localhost`: a web e o app desktop).
 
 `GITHUB_TOKEN` (automático) publica a imagem e segue pelo stdin do comando `deploy` para o `docker login` no GHCR; o
 `deploy.sh` faz `docker logout` ao terminar. Nada de PAT.
@@ -189,6 +189,19 @@ o próprio host `spook.dottadigital.com` é sempre aceito). O padrão serve à p
 `docker-compose.prod.yml`; defina-a no `.env` só se precisar de outra origem. Handshake limitado a 50/s por IP (rajada de 200).
 Teste: `websocat -H "Cookie: spook_session=<token>" wss://spook.dottadigital.com/api/gateway` deve mostrar o `{"op":10,...}` (HELLO).
 
+### 6.1.1b Painel administrativo `/admin` (adicional)
+Quem é administrador: coluna `users.is_admin` (migration `00009_admin.sql`). Para promover contas no boot, defina a Variable
+`ADMIN_USERNAMES` do GitHub (usernames separados por vírgula; o `write-env` a grava no `.env` e o compose a passa ao container
+`spook`). A promoção é idempotente e roda a cada partida do backend; **a conta precisa existir antes** (cadastre-se, defina a
+Variable e refaça o deploy, ou reinicie o `spook`). Nada rebaixa ninguém: para tirar o acesso,
+`docker compose exec postgres psql -U spook -c "UPDATE users SET is_admin = false WHERE username = 'fulano'"` (vale na hora).
+Sem a Variable ninguém é promovido e `/admin` responde 403 a todos.
+
+O painel lê o Prometheus do LiveKit em `http://livekit:6789/metrics` (rede interna; `prometheus.port: 6789` em
+`deploy/livekit/livekit.prod.yaml.tmpl`; **a porta não é publicada no host** e o Cloudflare Tunnel não a expõe). Mudar essa
+config recria o `livekit` (hash da config). Outro endereço: `LIVEKIT_METRICS_URL` no `.env`. Sem o endpoint, o painel mostra
+"indisponível" no bloco do LiveKit e o resto continua funcionando.
+
 ### 6.1.2 CORS da API e do storage para o app desktop (Fase 7a)
 O webview do Tauri tem origem `tauri://localhost` (macOS/Linux) ou `http://tauri.localhost` (Windows), diferente de
 `spook.dottadigital.com`; por isso a API passou a responder CORS **só** para as origens de `SPOOK_ALLOWED_ORIGINS` (a mesma
@@ -240,6 +253,8 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
 | Push responde 503 | faltam `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` no container `spook` (o push fica desligado sem as três; o log da partida avisa se só algumas foram definidas). |
 | Voz responde 503 | faltam `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` no container `spook` (a voz fica desligada sem elas). |
 | Chamada conecta mas a lista de quem está em voz não atualiza | o webhook não chega ao backend (6.2); o reconciliador (60 s) acaba corrigindo, mas confira os logs do `livekit`. |
+| `/admin` responde 403 / o link não aparece | a conta não é administradora: confira `ADMIN_USERNAMES` (Variable do repositório, 2) e reinicie o `spook`; veja 6.1.1b. |
+| "Uso do servidor LiveKit" aparece como indisponível | o Prometheus do LiveKit não responde em `http://livekit:6789/metrics`: confira `prometheus.port` no `livekit.prod.yaml` renderizado e os logs do `livekit`. |
 | Workflow termina em "healthz não respondeu ok" | túnel sem os hostnames, token errado (`logs cloudflared`) ou `spook` não healthy (`logs spook`). |
 | Upload do avatar: `SignatureDoesNotMatch` | o túnel está reescrevendo o Host (6.3), ou `S3_ENDPOINT` ≠ hostname público. |
 | Upload do avatar: erro de CORS | `S3_CORS_ORIGINS` diferente da origem real; rode `deploy/deploy.sh` de novo (reaplica o CORS). |

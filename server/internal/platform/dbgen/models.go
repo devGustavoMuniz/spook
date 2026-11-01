@@ -145,4 +145,5 @@ type User struct {
 	CustomStatusText      *string
 	CustomStatusEmoji     *string
 	CustomStatusExpiresAt pgtype.Timestamptz
+	IsAdmin               bool
 }

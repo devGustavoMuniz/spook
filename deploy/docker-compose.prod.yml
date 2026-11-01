@@ -52,6 +52,10 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # Painel /admin: usernames (separados por vírgula) promovidos a administrador no boot. Opcional.
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
+      # Identifica o build no painel (a imagem, com o tag). O Prometheus do LiveKit é lido de http://livekit:6789/metrics.
+      SPOOK_VERSION: ${SPOOK_IMAGE:-}
       GOMEMLIMIT: 400MiB # o GC trabalha mais antes de o cgroup (512M) matar o processo
     mem_limit: 512m
     mem_reservation: 64m

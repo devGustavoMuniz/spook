@@ -133,6 +133,7 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          ADMIN_USERNAMES: ${{ vars.ADMIN_USERNAMES }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           GARAGE_CAPACITY: ${{ vars.GARAGE_CAPACITY || '50GB' }}
           LIVEKIT_NODE_IP: ${{ vars.LIVEKIT_NODE_IP || '187.127.26.46' }}
@@ -150,6 +151,8 @@ jobs:
             printf 'LIVEKIT_API_KEY=%s\nLIVEKIT_API_SECRET=%s\nLIVEKIT_NODE_IP=%s\n' "$LIVEKIT_API_KEY" "$LIVEKIT_API_SECRET" "$LIVEKIT_NODE_IP"
             # Web Push (Fase 6b): opcionais; sem os três o push fica desligado (os endpoints respondem 503).
             printf 'VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\nVAPID_SUBJECT=%s\n' "$VAPID_PUBLIC_KEY" "$VAPID_PRIVATE_KEY" "$VAPID_SUBJECT"
+            # Painel /admin: usernames promovidos a administrador no boot (Variable, não é segredo); vazio = ninguém.
+            printf 'ADMIN_USERNAMES=%s\n' "$ADMIN_USERNAMES"
             printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN"
           } > "$RUNNER_TEMP/env"
           .github/scripts/ssh-retry.sh "$RUNNER_TEMP/env" write-env

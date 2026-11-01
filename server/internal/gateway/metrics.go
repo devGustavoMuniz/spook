@@ -17,6 +17,7 @@ const meterName = "spook/gateway"
 type metrics struct {
 	conns, sessions atomic.Int64
 	slowN           atomic.Int64 // espelho do contador de consumidores lentos (testes)
+	dispatchedN     atomic.Int64 // espelho acumulado de eventos entregues (painel admin)
 
 	dispatched   metric.Int64Counter
 	resumes      metric.Int64Counter

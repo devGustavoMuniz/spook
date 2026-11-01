@@ -7,6 +7,10 @@ rtc:
   use_external_ip: false
 keys:
   devkey: devsecret-devsecret-devsecret-32
+# Métricas Prometheus (lidas pelo painel /admin). A porta 6789 NÃO é publicada no host: só o backend a alcança,
+# pela rede interna do Compose (LIVEKIT_METRICS_URL, padrão http://livekit:6789/metrics).
+prometheus:
+  port: 6789
 # Webhooks para o backend (rede do Compose): estado de voz do Spook (Fase 5). A chave é a de `keys` acima.
 webhook:
   api_key: devkey
