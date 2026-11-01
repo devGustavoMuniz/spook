@@ -29,16 +29,18 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - Notificações in-app e web push; contagem de não lidas
 - Cliente web e cliente desktop (Tauri)
 - Observabilidade e suíte de benchmark comparativa
+- Adicionais de qualidade de vida (entraram depois das fases 0 a 7; requisitos RF13 a RF21): responder com citação, fixar mensagens e editar com ↑; Não perturbar, Invisível e status personalizado; silenciar e nível de notificação; volume por pessoa, ruído em 3 níveis, porta de ruído e teste de microfone; qualidade da tela e Picture-in-Picture; bandeja, início com o sistema, contador no ícone e clique na notificação no desktop; painel administrativo `/admin`
 
 ### 2.2 Fica de fora (por enquanto)
 
 - **Fase 8:** app mobile (Expo). Começa só após uso real e feedback da fase 7.
 - **Fase 9:** overengineering (NATS com múltiplas instâncias do gateway, busca com Meilisearch, cache, testes de caos).
 - Bots e API pública
+- Do bloco de adicionais, continuam fora: respostas em thread, evento/aviso de "mensagem fixada" no canal, mais de 50 fixadas, horário agendado de Não perturbar, push para nível "tudo" em servidor, silêncio por categoria, nível padrão global por usuário, emoji picker completo, Picture-in-Picture no desktop, push-to-talk, Ctrl+K e rascunho por canal (descartados pelo dono), DeepFilterNet3, SSE no `/admin`, banimentos, amizades e bloqueios (não existem no Spook)
 - Criptografia ponta a ponta
 - Gravação de chamadas
-- Moderação avançada (automod, logs de auditoria)
-- Reações, threads, menções com autocomplete, embeds de links
+- Moderação avançada (automod, logs de auditoria); o painel `/admin` (RF21) é só de leitura e não modera
+- Reações, threads, menções com autocomplete, embeds de links (responder com citação e fixar mensagens **entraram**, ver RF13 e RF14)
 - Permissões por canal (overwrites); só há permissões por cargo no servidor
 - Multi-idioma (i18n)
 - Login social (OAuth) e 2FA
@@ -108,6 +110,76 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - RF12.1 O app Tauri oferece todas as funcionalidades da web.
 - RF12.2 Voz, vídeo e tela no desktop usam captura nativa em Rust, não o WebRTC do WebView.
 - RF12.3 Instaladores para Windows, macOS e Linux.
+
+### Adicionais (qualidade de vida, fora das fases 0 a 7)
+
+Entraram depois do checkpoint do SPEC (`checkpoint-spec-completo`). As decisões de implementação estão nos blocos "Adicional: ..." da seção 5.5; as regras e os limites, em 7.9; o aceite, na seção 8 ("Adicionais"). "Teste" indica o que verifica automaticamente; o que só o dono valida está em `VALIDACAO-MANUAL.md`.
+
+### RF13 — Responder e editar a última (adicional)
+- RF13.1 Responder a uma mensagem do mesmo canal ou DM: `POST /channels/{id}/messages` aceita `reply_to` (ID) e `mention_reply` (padrão `true`). A mensagem traz `reply_to` (`{id, author, content, has_attachments, deleted}`) com o texto truncado em 100 runes; se a original foi apagada depois, `deleted=true` e `content` vazio.
+- RF13.2 Com `mention_reply` e outro autor que vê o canal, o autor respondido entra em `mention_ids` (contador de menção, destaque e push como um `@`); quem responde a si mesmo não se menciona.
+- RF13.3 Original inexistente, apagada ou de outro canal: 422 e nada é gravado.
+- RF13.4 Na interface, clicar na citação rola até a original (carrega até 10 páginas anteriores; fora disso avisa "fora do histórico carregado"). Atalho **R** na mensagem focada; Esc cancela a resposta.
+- RF13.5 Com o campo vazio, ↑ abre a edição da última mensagem não apagada do próprio usuário entre as carregadas (ignorado durante composição IME e com modificadores).
+- Aceite: responder cria citação nos dois clientes, com e sem `mention_reply`; original apagada vira "Mensagem original apagada"; `reply_to` de outro canal dá 422; o histórico não faz N+1 para as citações; ↑ edita a própria última mensagem e não faz nada sem mensagem própria carregada.
+- Teste: `server/internal/app/replies_pins_integration_test.go`, unitários de `internal/message`, `apps/web/src/replies-pins.test.tsx`, `reply-pins-cache.test.ts` e `e2e/replies-pins.spec.ts`.
+
+### RF14 — Fixar mensagens (adicional)
+- RF14.1 Fixar e desafixar: `PUT|DELETE /channels/{id}/pins/{message_id}` (204, idempotentes). `GET /channels/{id}/pins` lista as fixadas, a mais recente primeiro (até 50).
+- RF14.2 Máximo de 50 fixadas por canal; a 51ª dá 409.
+- RF14.3 Fixar/desafixar publica `MESSAGE_UPDATE` com `pinned` novo (não há evento de lista); apagar uma fixada a desafixa.
+- RF14.4 Interface: botão "Mensagens fixadas" no cabeçalho do canal/DM (painel com "Ir para a mensagem" e "Desafixar"), alfinete na mensagem, atalho **P**.
+- Aceite: quem tem `MANAGE_MESSAGES` (ou qualquer participante de DM) fixa; os outros veem o painel mas não o botão de fixar; o 51º dá 409 e apagar uma fixada libera vaga.
+- Teste: `replies_pins_integration_test.go` (limite de 50, cargo com MANAGE_MESSAGES, DM, WebSocket) e os testes web acima.
+
+### RF15 — Status e presença avançada (adicional)
+- RF15.1 A pessoa escolhe a preferência: Online, Não perturbar (`dnd`) ou Invisível; "Ausente" continua automático (10 min sem interação). Os outros veem `online | idle | dnd | offline`.
+- RF15.2 Invisível aparece offline (sem status personalizado) para terceiros; a conexão, a voz e o recebimento de mensagens não mudam, e a própria pessoa se vê invisível. Vale em todas as abas (`PRESENCE_SELF_UPDATE`).
+- RF15.3 Status personalizado: texto (até 128), emoji (até 32; ao menos um dos dois) e expiração opcional de até 48 h (opções do cliente: não limpar, 30 min, 1 h, 4 h, hoje). Vencido, deixa de existir sem job.
+- RF15.4 `GET|PATCH /api/users/@me/presence`; a preferência e o status persistem e voltam no `READY`.
+- Aceite: `dnd` vale mesmo ausente; invisível não "pisca" online ao conectar; status vencido não aparece nem no banco velho; expiração acima de 48 h ou no passado dá 422.
+- Teste: unitários de `internal/presence`, `status_mute_integration_test.go`, testes web do seletor e `e2e/status-mute.spec.ts`.
+
+### RF16 — Silenciar e nível de notificação (adicional)
+- RF16.1 Silenciar servidor, canal ou DM por 15 min, 1 h, 8 h, 24 h ou até reativar; reativar a qualquer momento.
+- RF16.2 Nível `all` (tudo), `mentions` (só menções) ou `none` (nada), com herança canal/DM -> servidor -> padrão (servidor: só menções; DM: tudo).
+- RF16.3 Silêncio e nível suprimem push, toast e notificação nativa; a contagem de não lidas e de menções continua. Não perturbar suprime os mesmos avisos.
+- RF16.4 `GET|PUT|DELETE /api/users/@me/notification-settings[/{scope}/{target_id}]`; `NOTIFICATION_SETTINGS_UPDATE` sincroniza as sessões.
+- Aceite: silêncio vencido deixa de valer sem job; em DM com "só menções", mensagem sem `@` não avisa; o contador cresce mesmo silenciado.
+- Teste: unitários de `internal/notification`, `notifications_integration_test.go`/`status_mute_integration_test.go` (push com DND, silêncio, nível e vencido), testes web do menu e da página, `e2e/status-mute.spec.ts`.
+
+### RF17 — Áudio e microfone (adicional)
+- RF17.1 Volume por pessoa e do áudio da tela dela, separados, de 0 a 100% na web e até 200% no desktop; "silenciar só para mim"; persiste enquanto a pessoa está na sala e é reaplicado ao republicar. Só afeta quem ouve.
+- RF17.2 Supressão de ruído em três níveis (Desligada, Padrão do navegador/AEC+NS, Forte com RNNoise), cancelamento de eco e ganho automático, com interruptores; trocar durante a chamada não derruba a sala. O Forte rebaixa sozinho para Padrão, com aviso, se não houver suporte, o download falhar ou a CPU não acompanhar.
+- RF17.3 Porta de ruído (sensibilidade de entrada) automática ou manual, com medidor de nível.
+- RF17.4 Teste de microfone: grava ~5 s do microfone processado e toca no alto-falante escolhido; desabilitado com o microfone aberto na chamada.
+- Aceite: volume 0 silencia só localmente; níveis de ruído trocam sem recriar a sala; o teste nunca toca a voz ao vivo.
+- Teste: `features/voice/*.test.ts(x)` (porta real em `vm`, mixer, MicTester, engine web, diálogos) e, no desktop, módulos Rust `gate`, `mixer`, `mictest` (SPEC 5.5).
+
+### RF18 — Compartilhamento de tela: qualidade e janela flutuante (adicional)
+- RF18.1 Presets de qualidade (Nitidez, Equilibrado, Fluidez, Alta) e avançado (altura 720/1080/1440, fps 15/30/60, prioridade nitidez/fluidez), com estimativa de banda e aviso de custo; o padrão é o comportamento anterior (1080p, 15 fps, 2,5 Mbps).
+- RF18.2 Picture-in-Picture nos vídeos de outra pessoa, só na web e onde o navegador suporta; fecha quando a faixa ou a chamada termina. No desktop o botão não aparece.
+- Teste: `screen-quality.test.ts`, `screen-share-dialog.test.tsx`, PiP simulado em `video-grid.test.tsx`; Rust `quality`.
+
+### RF19 — Controles de voz no painel do usuário (adicional)
+- RF19.1 No canto inferior esquerdo, o cartão "Voz conectada" (canal, servidor, sair, câmera, tela) fica acima da linha do usuário, e mic/fone/Dispositivos ficam ao lado do nome.
+- RF19.2 Fora da chamada, mutar/ensurdecer só guarda a preferência e vale ao entrar.
+- Teste: `apps/web/src/voice.test.tsx` e `e2e/voice.spec.ts` exercitam a barra; aparência na validação manual.
+
+### RF20 — Casca do app desktop (adicional)
+- RF20.1 Ícone na bandeja (Abrir/Sair; clique alterna) e "Fechar vai para a bandeja" (padrão ligado, com aviso único).
+- RF20.2 Iniciar com o sistema (padrão desligado) e iniciar minimizado (só vale nas aberturas automáticas).
+- RF20.3 Contador de menções + DMs não lidas no ícone (Dock no macOS, sobreposição no Windows, título no Linux).
+- RF20.4 Clicar na notificação nativa abre o canal (heurística de 10 s sobre o foco da janela).
+- RF20.5 Página `/settings/app`, só no desktop, com os três interruptores persistidos e erro com reversão.
+- Teste: Rust `settings`, `badge`; web `shell.test.ts`, `app-settings.test.tsx`; bandeja, autostart e badge reais só na validação manual.
+
+### RF21 — Painel administrativo (adicional)
+- RF21.1 Administrador = `users.is_admin`; promovido por `ADMIN_USERNAMES` no boot (nunca rebaixa) ou por `spook admin grant|revoke|list` (via `deploy/admin.sh` por SSH).
+- RF21.2 `/admin` (Dashboard, Usuários, Servidores, Chamadas) mostra contagens, séries de 14 dias, comparação de 6 dias, chamadas ao vivo e uso do LiveKit, aplicação, banco, jobs e gateway. Somente leitura.
+- RF21.3 Atualização em tempo real por polling (5 s ao vivo/sistema, 30 s visão geral), com cache no servidor.
+- RF21.4 Qualquer não admin: 401 sem sessão e 403 com sessão; a lista de usuários nunca devolve senha, token ou chave de avatar.
+- Teste: `server/internal/admin/service_test.go`, `server/internal/app/admin_integration_test.go`, Vitest + MSW e `apps/web/e2e/admin.spec.ts`.
 
 ---
 
@@ -542,6 +614,8 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Chamadas ao vivo (voz hexagonal).** `voice.Service.LiveRooms` usa a porta que já existia (`Provider.ListRooms`/`ListParticipants`, sem tocar no SDK) e devolve sala, participantes, câmera, tela e a entrada mais antiga; o `admin` define a sua interface (`CallSource`) e o pacote `app` adapta, então `admin` não importa `voice`. Voz desligada vira "indisponível" com o motivo; falha do LiveKit também, sem vazar o erro.
 - **Prometheus do LiveKit.** O LiveKit 1.13 expõe métricas em `prometheus.port` (6789): foi habilitado em `deploy/livekit/livekit.yaml` e no template de produção, **sem publicar a porta** (só a rede interna do Compose; o túnel não a alcança). O backend lê `LIVEKIT_METRICS_URL` (padrão `http://<host de LIVEKIT_INTERNAL_URL>:6789/metrics`) com timeout de 3 s. Usa `livekit_room_total`, `livekit_participant_total`, `livekit_track_published_total`/`subscribed_total`, `livekit_packet_bytes`/`livekit_packet_total` por `direction`, `livekit_packet_loss_total` e as médias (soma/contagem) de `livekit_jitter_us`, `livekit_rtt_ms` e `livekit_quality_score`; o que o LiveKit ainda não expôs fica nulo ("—"), nunca zero. Taxas por segundo (bits, pacotes) são a diferença entre duas leituras (contador que reinicia vira 0). Verificado contra o LiveKit 1.13.11 de dev: o endpoint responde na rede do Compose, mas **sem tráfego de mídia** só aparecem os contadores de sala/participante/qualidade; os nomes dos demais vêm do código do LiveKit e devem ser conferidos numa chamada real (`VALIDACAO-MANUAL.md`).
 - **Aplicação e armazenamento.** Versão (`SPOOK_VERSION`, em produção a imagem com o tag; senão "dev"), commit (`SPOOK_COMMIT` ou `vcs.revision` do build), ambiente, hora do servidor, uptime, Go, goroutines, heap, RSS (`/proc/self/status`; nulo fora do Linux), tamanho do banco e 6 maiores tabelas (`pg_total_relation_size`, linhas estimadas), pool do pgx (máximo, abertas, ociosas, em uso, esperas), fila do River (`river_job` por estado; indisponível se a tabela não existe) e gateway (conexões, sessões, usuários distintos, eventos entregues por segundo pela diferença do contador acumulado `Hub.Stats().Dispatched`). Armazenamento: anexos têm contagem e bytes (coluna `size_bytes`); avatares e ícones só contagem, porque o tamanho não é gravado (contar objetos no S3 por requisição seria varredura).
+
+**Segurança do `/admin` e do Invisível (adicional).** Controle de acesso do admin: só `users.is_admin` define quem é admin (`ADMIN_USERNAMES` no boot, `spook admin grant|revoke|list` via `deploy/admin.sh` por SSH; nenhuma rota HTTP promove alguém); o `requireAdmin` consulta o banco a cada requisição, sem cache (401 sem sessão, 403 genérico para comum, rebaixar vale na hora); o "tempo real" é polling HTTP das mesmas rotas protegidas e nenhum dado de admin trafega pelo gateway; o guard do web é só conveniência. A cobertura é por construção: um teste enumera as operações `/api/admin/**` do OpenAPI e exige 401/403/2xx em todas, então rota nova sem guard falha. O `ci-entry.sh` do VPS não foi ampliado (continua com `receive-deploy`, `write-env` e `deploy`); `admin.sh` só roda por quem já tem shell (`gustavo` com `sudo`). Cloudflare Access em `/admin*` está documentada em `deploy/README.md` como camada extra opcional e **não foi configurada**. Invisível: três brechas do gateway foram corrigidas (RESUME após a presença expirar recriava o estado como "online"; corrida de PATCH entre o READY e o `Connect`; corrida do snapshot do READY, agora montado depois de assinar os tópicos, com falha fechada se `Self` falhar). Decisões: `TYPING_START` continua chegando (ação explícita na conversa) sem criar presença; participantes da voz continuam listados (estar em chamada é público); o contador `gateway.online_users` do admin inclui invisíveis (só número, só admin).
 - **Instrumentação e vazamentos.** Cada requisição já é um span (`otelhttp`); o `admin` abre spans `admin.Overview`/`Live`/`System`/`Users`/`Servers`/`Calls`. A lista de usuários só devolve id, username, e-mail, contagens, último login e data de entrada: nunca hash de senha, token, chave de avatar ou sessão (teste de integração confere o corpo). Erros 5xx saem genéricos pelo hook global do projeto.
 - **Web.** Rota `/admin` com layout próprio (barra lateral recolhível com Dashboard, Usuários, Servidores e Chamadas, "Voltar ao app", usuário/tema/sair; breadcrumb), componentes no estilo shadcn dos tokens do tema (claro/escuro pelo `ThemeProvider`), tabelas ordenáveis com `aria-sort`, busca com debounce de 300 ms e paginação, estados de carga/erro/vazio. Link "Painel de administração" na barra de servidores e no cabeçalho das páginas de configurações, só para admins. Sem dependência nova.
 - **Testes.** Go: unitários do service (autorização, séries com dias vazios, comparação, cache/singleflight, filtro e resumo de chamadas, taxa de eventos, validação de ordenação) e do parser Prometheus; integração (401/403, rebaixar vale na hora, bootstrap idempotente, 14 dias e cache, usuários com busca/ordenação/paginação e sem dados sensíveis, servidores, chamadas com LiveKit falso, sistema). Web: Vitest + MSW (guarda, link, dashboard, polling com relógio falso, ordenação, busca, paginação, estados) e E2E `apps/web/e2e/admin.spec.ts` (precisa de `E2E_PROMOTE_CMD`, ver `apps/web/README.md`).
@@ -696,6 +770,17 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | level | text NULL | `all`, `mentions`, `none`; nulo herda (canal -> servidor -> padrão) |
 | updated_at | timestamptz | |
 
+### Mapa de migrations
+
+Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrations).
+
+| Migration | Conteúdo |
+| --- | --- |
+| 00001 a 00006 | usuários, sessões, servidores/canais/mensagens, DMs, anexos, notificações (fases 1 a 6) |
+| 00007_reply_pins | `messages.reference_id`, `pinned_at`, `pinned_by` e índice parcial das fixadas (adicional) |
+| 00008_status_notifications | `users.status_pref`, `custom_status_*` e a tabela `notification_settings` (adicional) |
+| 00009_admin | `users.is_admin` e índice `messages (author_id)` (adicional) |
+
 ### Estado só em memória (não persistido)
 - Presença e sessões do gateway
 - Indicadores de "digitando"
@@ -769,6 +854,40 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 - Push apenas para DMs e menções diretas.
 - Adicional: silenciar (15 min, 1 h, 8 h, 24 h ou até reativar) e nível (tudo, só menções, nada) por servidor, canal ou DM suprimem push, toast e notificação nativa, mas não a contagem de não lidas; Não perturbar suprime os avisos e o push. Detalhes em 5.5.
 
+### 7.9 Adicionais: limites, permissões e visibilidade
+
+**Limites**
+
+| Regra | Valor | Fonte |
+| --- | --- | --- |
+| Mensagens fixadas por canal | 50 (a 51ª dá 409; fixar uma já fixada com o canal cheio continua 204) | `message.MaxPins` |
+| Prévia da mensagem respondida | 100 runes, vazia se a original foi apagada | `message.ReplyPreviewRunes` |
+| Mencionados por mensagem (inclui o respondido, que tem prioridade) | 20 | `maxMentionIDs`, `notification.MaxMentions` |
+| Status personalizado | texto até 128 e emoji até 32 runes; expiração futura de até 48 h | `presence.MaxCustom*` |
+| Nível padrão sem configuração | servidor: só menções; DM e DM em grupo: tudo | `notification` (SPEC 5.5) |
+| Silêncios oferecidos | 15 min, 1 h, 8 h, 24 h ou até reativar (`muted_until` ausente) | cliente + `PUT notification-settings` |
+| Admin: página das listas | 25 itens | 5.5 (admin) |
+
+**Permissões e erros**
+- Responder: quem pode enviar no canal (mesmas regras de 7.3, inclusive o rate limit de 5 mensagens a cada 5 s). Original inválida: 422.
+- Fixar e desafixar: `MANAGE_MESSAGES` em canal de servidor (403 sem ela; 404 sem acesso ao canal); em DM, qualquer participante. Mensagem apagada ou de outro canal: 404. Mais de 50: 409. Listar as fixadas: basta ver o canal.
+- Editar com ↑ segue a regra de 7.3: só o autor edita.
+- Silenciar, definir nível e status: sempre o próprio usuário, sobre si mesmo (rotas `@me`); não existe configuração de terceiros. `scope=guild` exige ser membro (404); `scope=channel` usa a autorização do canal ou DM (404/403). `muted_until` no passado ou sem `muted=true`, ou status com expiração no passado/acima de 48 h, ou preferência inválida: 422. `DELETE` de configuração é idempotente (204) e não exige acesso ao alvo.
+- Admin: 401 sem sessão e 403 com sessão de conta comum em toda `/api/admin/**`; ordenação fora da lista fixa: 422. O painel é somente leitura (só `GET`): administrador não ganha poder sobre mensagens, canais ou usuários por ser admin. A checagem lê `users.is_admin` do banco a cada requisição (rebaixar vale na hora).
+- 429: o limite geral da API (30 req/s por IP, rajada de 90) e o de mensagens valem para todas as rotas acima; não há limite próprio para fixar, presença ou admin.
+
+**Visibilidade e expiração**
+- Invisível: terceiros veem `offline`, sem status personalizado e sem entrar no snapshot do `READY`; a conexão, a voz e o recebimento continuam normais. Como o push depende de "não ter sessão de gateway ativa", invisível com a aba aberta não recebe push e, sem sessão, recebe como qualquer usuário.
+- Não perturbar vale também ausente e suprime push, toast e notificação nativa; as contagens de não lidas e de menções continuam.
+- Apagar uma mensagem fixada a desafixa; editar a original não republica as respostas (o cliente atualiza a citação).
+- Silêncio vencido deixa de valer sem job (comparado com `now` na leitura e no envio do push); status personalizado vencido é tratado como inexistente na leitura, e um temporizador por usuário conectado avisa a expiração em tempo real.
+- Nível `all` em servidor vale para toast e notificação nativa, mas não amplia o push (continua só DMs e menções diretas).
+- Cache do admin: visão geral e contagens 30 s, ao vivo/chamadas/sistema 5 s, tamanho do banco 60 s; chamadas simultâneas se juntam (singleflight); listas sem cache. Séries em dias UTC.
+- Desktop: "Fechar vai para a bandeja" padrão ligado; iniciar com o sistema e minimizado padrão desligados; "minimizado" só vale em aberturas automáticas.
+
+- **Invisível (testado por todos os caminhos):** nenhum `PRESENCE_UPDATE`, `READY` de terceiros, payload REST (membros, servidores, DMs, mensagens, convites) nem rota do admin revela presença ou status de quem está Invisível; digitar e estar na voz seguem visíveis por serem ações explícitas; o push segue a regra da conexão real (sessão aberta: aviso in-app sem push; sem sessão: push), e escolher Não perturbar substitui o Invisível (o status é um valor só) e suprime o push.
+- **Acesso ao admin:** 401 sem sessão, 403 para conta comum, checagem no banco a cada requisição, sem eventos de admin no gateway.
+
 ---
 
 ## 8. Critérios de aceite por fase
@@ -839,6 +958,19 @@ Reúne tudo que mede e observa, executado depois da Fase 7 (as fases só entrega
 - [ ] Fase 5: CPU e banda do VPS por participante; jitter, perda e RTT.
 - [ ] Fase 6: throughput de upload e tempo do job de thumbnail.
 - [ ] Fase 7: RAM ociosa, RAM em call, tamanho do instalador e tempo de boot, Tauri vs Electron.
+
+### Adicionais (fora das fases)
+Cada item abaixo é aceito pelos critérios do RF correspondente (seção 3) e pelas regras de 7.9. Os testes automáticos estão nos blocos "Adicional: ..." da 5.5; o que depende de ouvido, hardware, SO ou produção está em `VALIDACAO-MANUAL.md` ("Adicionais").
+
+- [x] Responder com citação, `mention_reply` e ↑ para editar (RF13).
+- [x] Fixar e desafixar mensagens, limite de 50 e painel (RF14).
+- [x] Não perturbar, Invisível e status personalizado com expiração (RF15).
+- [x] Silenciar e níveis de notificação com herança, sem perder a contagem de não lidas (RF16).
+- [ ] Qualidade da voz nos três níveis de ruído, porta, teste de microfone e volume (inclusive 200% no desktop) em máquinas reais (RF17; lógica coberta por testes, áudio real só manual).
+- [ ] Qualidade da tela e Picture-in-Picture em navegador e SO reais (RF18).
+- [x] Controles de voz no painel do usuário (RF19; aparência na validação manual).
+- [ ] Bandeja, início com o sistema, contador no ícone e clique na notificação nos três SOs (RF20).
+- [x] Painel `/admin` e `spook admin` verificados por testes; [ ] conferência dos números e da mídia do LiveKit contra a produção (RF21).
 
 ---
 

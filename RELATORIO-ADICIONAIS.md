@@ -178,3 +178,11 @@ Os controles de voz saíram da barra inferior da tela e foram para o rodapé da 
 `spook admin grant|revoke <username>` e `spook admin list` (subcomando do binário, `server/internal/admin/cli.go`) e `deploy/admin.sh`, que o
 executa no contêiner `spook` do VPS (`ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/admin.sh grant <username>"`). Vale na hora, sem redeploy;
 aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevokeList`. Em produção, o `nyak` foi promovido por esse comando.
+
+## Segurança do /admin e do Invisível (01/11/2026)
+
+**Pedido:** documentar e provar o controle de acesso do `/admin`, provar que o Invisível não vaza como online por nenhum caminho e atualizar SPEC e `VALIDACAO-MANUAL.md`.
+
+- **Admin:** nenhuma brecha achada. Teste novo enumera todas as rotas `/api/admin/**` do OpenAPI (401 sem sessão, 403 comum, 2xx admin), cobre Bearer do desktop, rebaixar na hora e que nenhum evento de admin existe no gateway. O `ci-entry.sh` do VPS segue com 3 operações (conferido em 01/11, arquivo de 31/10). Cloudflare Access documentada, não configurada.
+- **Invisível:** 3 brechas do gateway corrigidas (RESUME depois que a presença expirou aparecia online; corrida de PATCH entre READY e `Connect`; corrida do snapshot do READY) e 7 testes de integração novos.
+- **SPEC:** RF13 a RF21, regras 7.9, mapa de migrations 00001 a 00009 e exclusões atualizadas. `VALIDACAO-MANUAL.md`: 46 itens agrupados.
