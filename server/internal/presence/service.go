@@ -456,6 +456,10 @@ func (s *Service) Update(ctx context.Context, userID int64, in Update) (SelfPayl
 		st.pref, st.custom = next.Pref, next.Custom
 		s.armCustomLocked(userID, st)
 		s.refreshLocked(userID, st)
+	} else if _, ok := s.pending[userID]; ok {
+		// Entre o READY (Self) e o Connect: sem isto o Connect usaria a preferência velha e o usuário
+		// que acabou de ficar invisível apareceria online.
+		s.pending[userID] = next
 	}
 	s.mu.Unlock()
 

@@ -248,24 +248,6 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 			return false
 		}
 	}
-	presences := []presence.UpdatePayload{}
-	if h.pres != nil {
-		// A presença é complementar: se falhar, o READY sai sem o snapshot (os eventos seguem valendo).
-		if p, perr := h.pres.Snapshot(ctx, c.userID); perr != nil {
-			slog.Warn("gateway: snapshot de presença indisponível", "user", c.userID, "err", perr)
-		} else if p != nil {
-			presences = p
-		}
-	}
-	selfPresence := presence.SelfPayload{StatusPref: presence.PrefOnline}
-	if h.pres != nil {
-		// Também deixa a preferência pronta para o Connect (invisível não pode piscar como online).
-		if sp, perr := h.pres.Self(ctx, c.userID); perr != nil {
-			slog.Warn("gateway: preferência de status indisponível", "user", c.userID, "err", perr)
-		} else {
-			selfPresence = sp
-		}
-	}
 	notifSettings := []notification.SettingPayload{}
 	if h.notifSettings != nil {
 		if ns, nerr := h.notifSettings.ReadySettings(ctx, c.userID); nerr != nil {
@@ -311,17 +293,6 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	for i, g := range details {
 		payloads[i] = g.Payload()
 	}
-	ready, err := json.Marshal(Ready{
-		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
-		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates, ReadStates: readStates,
-		SelfPresence: selfPresence, NotificationSettings: notifSettings,
-	})
-	if err != nil {
-		h.dropSession(s)
-		c.fail(websocket.StatusInternalError, "erro interno")
-		return false
-	}
-
 	// Assina ANTES de liberar o READY: eventos publicados a partir daqui ficam retidos na sessão e saem
 	// logo depois do READY (s=1), em vez de se perderem na janela entre o READY e a assinatura.
 	s.subscribeUser()
@@ -334,6 +305,44 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	}
 	for _, d := range dmList {
 		s.dmAdded(d.ID)
+	}
+
+	// O snapshot de presença e a preferência saem DEPOIS de assinar os tópicos: um PRESENCE_UPDATE publicado
+	// entre o snapshot e a assinatura se perderia (o observador veria online alguém que acabou de ficar
+	// invisível). Assinado antes, o evento fica retido e sai logo depois do READY.
+	presences := []presence.UpdatePayload{}
+	if h.pres != nil {
+		// A presença é complementar: se falhar, o READY sai sem o snapshot (os eventos seguem valendo).
+		if p, perr := h.pres.Snapshot(ctx, c.userID); perr != nil {
+			slog.Warn("gateway: snapshot de presença indisponível", "user", c.userID, "err", perr)
+		} else if p != nil {
+			presences = p
+		}
+	}
+	selfPresence := presence.SelfPayload{StatusPref: presence.PrefOnline}
+	if h.pres != nil {
+		// Também deixa a preferência pronta para o Connect (invisível não pode piscar como online). Falhar
+		// fechado: sem a preferência, quem está invisível apareceria online para os outros.
+		sp, perr := h.pres.Self(ctx, c.userID)
+		if perr != nil {
+			span.SetStatus(codes.Error, perr.Error())
+			slog.Error("gateway: preferência de status indisponível", "user", c.userID, "err", perr)
+			h.dropSession(s)
+			c.fail(websocket.StatusInternalError, "erro interno")
+			return false
+		}
+		selfPresence = sp
+	}
+
+	ready, err := json.Marshal(Ready{
+		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
+		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates, ReadStates: readStates,
+		SelfPresence: selfPresence, NotificationSettings: notifSettings,
+	})
+	if err != nil {
+		h.dropSession(s)
+		c.fail(websocket.StatusInternalError, "erro interno")
+		return false
 	}
 
 	c.sess = s
@@ -375,6 +384,15 @@ func (c *conn) resume(ctx context.Context, d json.RawMessage) (ok bool) {
 	var upTo int64
 	resumed := false
 	if s != nil && s.userID == c.userID {
+		if h.pres != nil {
+			// Se a tolerância de offline já venceu, a presença do usuário foi descartada: relê a preferência
+			// para o Connect do resume (quem está invisível não pode voltar como online).
+			if _, perr := h.pres.Self(ctx, c.userID); perr != nil {
+				slog.Warn("gateway: preferência de status indisponível no resume", "user", c.userID, "err", perr)
+				c.fail(websocket.StatusInternalError, "erro interno")
+				return false
+			}
+		}
 		c.resumeFrom = r.Seq
 		c.sent.Store(r.Seq)
 		old, upTo, resumed = s.tryResume(c, r.Seq)

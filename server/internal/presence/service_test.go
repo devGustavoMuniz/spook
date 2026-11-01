@@ -625,3 +625,23 @@ func TestUpdateValidation(t *testing.T) {
 		t.Fatalf("limpar: %+v %v", self, err)
 	}
 }
+
+// Corrida READY→Connect: a pessoa fica invisível (PATCH) depois que o READY leu a preferência e antes do
+// Connect da sessão. O Connect precisa usar a preferência nova, senão ela apareceria online para os outros.
+func TestUpdateBetweenSelfAndConnectIsNotLost(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.svc.Self(context.Background(), 1); err != nil { // READY: ainda online
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Update(context.Background(), 1, Update{
+		StatusPref: ptrS(PrefInvisible), Custom: &CustomStatus{Text: "x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.svc.Connect(1, "s1")
+	r.want("1") // nunca piscou online, nem com o status personalizado
+	r.store.sharing[2] = []int64{1}
+	if snap, _ := r.svc.Snapshot(context.Background(), 2); len(snap) != 0 {
+		t.Fatalf("invisível no snapshot: %+v", snap)
+	}
+}
