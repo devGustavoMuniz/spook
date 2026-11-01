@@ -75,6 +75,13 @@ alfanumérico (o workflow valida os dois antes e falha com mensagem clara, em ve
 Consequência prática: **o CI não consegue inspecionar o servidor** (`docker ps`, logs). Diagnóstico exige o seu acesso
 administrativo ao VPS (ex.: `sudo -iu spook`).
 
+> **`admin.sh` não amplia a chave de CI.** O `deploy/admin.sh` e o subcomando `spook admin` **não** alteram o `ci-entry.sh`
+> nem a chave de CI. O `ci-entry.sh` é instalado à mão (o deploy não o substitui) e continua aceitando só `receive-deploy`,
+> `write-env` e `deploy <imagem> <usuário>`; qualquer outro comando, inclusive `admin.sh`, sai com **exit 126**. O `admin.sh`
+> só roda por quem já tem shell no VPS (usuário administrativo com sudo), via
+> `ssh <host administrador> "sudo -iu spook /srv/spook/prod/deploy/admin.sh ..."`; o host administrativo vem da config SSH
+> do dono, não do repositório. Nenhum workflow (`ci.yml`, `deploy.yml`) chama o `admin.sh`.
+
 ### 1.4 Túnel da Cloudflare 🔒
 Se o túnel ainda não existir, no painel **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**:
 1. Nome: `spook`. **Copie o token** (vai para o secret `CLOUDFLARE_TUNNEL_TOKEN`). Não instale o conector no host: o conector é o container `cloudflared` do Compose.
@@ -202,6 +209,37 @@ ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/admin.sh list"          # lista
 ```
 (É o subcomando `spook admin grant|revoke|list` do binário, executado no contêiner `spook`.)
 Sem a Variable ninguém é promovido e `/admin` responde 403 a todos.
+
+**Como o acesso ao painel é controlado**
+1. **Quem é admin:** só a coluna `users.is_admin`. Ela muda por `ADMIN_USERNAMES` (no boot, só promove), por `spook admin grant|revoke|list`
+   (via `deploy/admin.sh`, por SSH) ou direto no banco. Não existe rota HTTP que promova alguém.
+2. **Onde é checado:** no backend, em **cada** rota `/api/admin/**`: o middleware de sessão (cookie `spook_session` ou
+   `Authorization: Bearer`) responde **401** sem sessão e, em seguida, o `requireAdmin` consulta `users.is_admin` **no banco a
+   cada requisição** (sem cache) e responde **403** com corpo genérico ("acesso restrito a administradores") a quem não é admin.
+   Rebaixar vale na hora, na mesma sessão. O cabeçalho `X-Spook-Client: desktop` sozinho não autentica nada, e um Bearer de usuário
+   comum também recebe 403.
+3. **"Tempo real":** o painel **não** usa stream, SSE nem WebSocket. É polling HTTP das mesmas rotas protegidas (`live`, `system` e
+   `calls` a cada 5 s; `overview` a cada 30 s, com cache de servidor de igual duração). Nenhum dado de administração trafega pelo gateway
+   WebSocket: o catálogo de eventos (`server/internal/platform/events`) e os ops do gateway não têm nada de admin.
+4. **Web:** o guard de `/admin` no roteador e o link "Painel de administração" são só conveniência de UI; a verificação real é a do
+   backend. O campo `is_admin` de `/users/@me` só afeta a UI (forjá-lo no cliente não abre nenhuma rota).
+5. **Cobertura por construção:** `TestAdminEveryRouteIsGuarded` (`server/internal/app/admin_integration_test.go`) enumera as rotas
+   `/api/admin/**` do OpenAPI gerado e exige, para todos os métodos, 401 sem sessão, 403 para usuário comum e 2xx para admin; uma rota
+   nova sem o guard falha o CI. Outros testes cobrem Bearer/desktop, rebaixamento imediato e a ausência de dados de admin no gateway.
+
+#### Camada extra: Cloudflare Access em `/admin` (opcional; **não configurada**)
+O backend já protege tudo (acima). Se quiser uma segunda barreira antes mesmo de a requisição chegar ao app, decida e faça no painel
+da Cloudflare (nada disto foi aplicado):
+1. **Zero Trust → Access → Applications → Add an application → Self-hosted.**
+2. Domínio `spook.dottadigital.com`, paths `admin*` (cobre `/admin` e `/admin/*`) **e** `api/admin*`. O web chama `/api/admin/**` no mesmo
+   host; se só a página ficar protegida, a API continua alcançável (só pela proteção do backend). Com os dois paths na mesma
+   application, o cookie `CF_Authorization` vai junto automaticamente nas chamadas do mesmo domínio. Teste no navegador: abra `/admin`,
+   faça o login do Access e confirme que os gráficos carregam (uma API bloqueada aparece como erro de leitura no painel).
+3. Política **Allow** só com o seu e-mail, método **One-time PIN** por e-mail. Defina a duração da sessão (ex.: 24 h).
+4. Ressalvas: **não** crie política "Bypass" nem mexa na configuração global da zona (afeta outros sites; aplique só a esta
+   application). O app desktop (Tauri) usa o mesmo host com Bearer: com `api/admin*` atrás do Access ele não alcança o admin
+   (aceitável: admin só no navegador). O restante de `/api/**`, o gateway e `/` ficam fora e seguem iguais.
+5. Para desligar: exclua a application no Zero Trust; nada no repositório precisa mudar.
 
 O painel lê o Prometheus do LiveKit em `http://livekit:6789/metrics` (rede interna; `prometheus.port: 6789` em
 `deploy/livekit/livekit.prod.yaml.tmpl`; **a porta não é publicada no host** e o Cloudflare Tunnel não a expõe). Mudar essa

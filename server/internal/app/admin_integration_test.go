@@ -5,13 +5,31 @@ package app
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/go-chi/chi/v5"
 	lk "github.com/livekit/protocol/livekit"
 
 	"github.com/devGustavoMuniz/spook/server/internal/admin"
+	"github.com/devGustavoMuniz/spook/server/internal/attachment"
+	"github.com/devGustavoMuniz/spook/server/internal/auth"
+	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/dm"
+	"github.com/devGustavoMuniz/spook/server/internal/gateway"
+	"github.com/devGustavoMuniz/spook/server/internal/guild"
+	"github.com/devGustavoMuniz/spook/server/internal/invite"
+	"github.com/devGustavoMuniz/spook/server/internal/message"
+	"github.com/devGustavoMuniz/spook/server/internal/notification"
+	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/typing"
+	"github.com/devGustavoMuniz/spook/server/internal/user"
+	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
 func (e *testEnv) makeAdmin(t *testing.T, a *actor) {
@@ -297,5 +315,186 @@ func TestAdminCLIGrantRevokeList(t *testing.T) {
 	}
 	if _, err := run("grant"); err == nil {
 		t.Fatal("sem username deveria falhar")
+	}
+}
+
+// ---------- segurança: cobertura por construção de /api/admin/** ----------
+
+// adminOps enumera, a partir do OpenAPI gerado pelo mesmo registerAPI do app, cada (método, caminho) sob
+// /api/admin. Nada de lista manual: uma rota nova entra aqui sozinha e passa a ser testada.
+func adminOps(t *testing.T) (ops []struct{ method, path string }) {
+	t.Helper()
+	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
+		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
+	for path, item := range api.OpenAPI().Paths {
+		for method, op := range map[string]*huma.Operation{
+			"GET": item.Get, "POST": item.Post, "PUT": item.Put, "PATCH": item.Patch,
+			"DELETE": item.Delete, "HEAD": item.Head, "OPTIONS": item.Options, "TRACE": item.Trace,
+		} {
+			if op == nil {
+				continue
+			}
+			isAdminPath := path == "/api/admin" || strings.HasPrefix(path, "/api/admin/")
+			tagged := false
+			for _, tag := range op.Tags {
+				tagged = tagged || tag == "admin"
+			}
+			if isAdminPath != tagged {
+				t.Fatalf("%s %s: caminho sob /api/admin e tag \"admin\" devem andar juntos (caminho=%v, tag=%v)", method, path, isAdminPath, tagged)
+			}
+			if !isAdminPath {
+				continue
+			}
+			if len(op.Security) == 0 {
+				t.Fatalf("%s %s: sem esquema de segurança no contrato", method, path)
+			}
+			ops = append(ops, struct{ method, path string }{method, path})
+		}
+	}
+	return ops
+}
+
+func TestAdminEveryRouteIsGuarded(t *testing.T) {
+	ops := adminOps(t)
+	if len(ops) < len(adminRoutes) {
+		t.Fatalf("a enumeração achou %d rotas /api/admin; a lista conhecida tem %d (a enumeração quebrou?)", len(ops), len(adminRoutes))
+	}
+	found := map[string]bool{}
+	for _, o := range ops {
+		if o.method == "GET" {
+			found[o.path] = true
+		}
+	}
+	for _, p := range adminRoutes { // rede de segurança: uma rota conhecida não pode sumir da enumeração
+		if !found[p] {
+			t.Fatalf("rota conhecida %s ausente da enumeração do OpenAPI", p)
+		}
+	}
+
+	e := newEnvWith(t, notifCfg)
+	plain, adm := e.newActor(t, "comum"), e.newActor(t, "adm")
+	e.makeAdmin(t, adm)
+	for _, o := range ops {
+		path := strings.NewReplacer("{id}", "1", "{userId}", "1", "{guildId}", "1", "{channelId}", "1").Replace(o.path)
+		if strings.Contains(path, "{") {
+			t.Fatalf("%s %s tem parâmetro de caminho sem valor de teste: ajuste o substituidor", o.method, o.path)
+		}
+		var body any
+		if o.method != "GET" && o.method != "HEAD" && o.method != "DELETE" && o.method != "OPTIONS" && o.method != "TRACE" {
+			body = J{}
+		}
+		// sem sessão: 401
+		resp, b := e.do(t, o.method, path, body, nil)
+		status(t, resp, b, 401)
+		// usuário comum: 403 com corpo genérico
+		resp, b = plain.do(t, o.method, path, body)
+		status(t, resp, b, 403)
+		if o.method != "HEAD" && (!strings.Contains(string(b), "administradores") || strings.Contains(string(b), "overview")) {
+			t.Fatalf("%s %s: 403 deve ser genérico: %s", o.method, o.path, b)
+		}
+		// admin: 2xx
+		resp, b = adm.do(t, o.method, path, body)
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			t.Fatalf("%s %s como admin = %d: %s", o.method, o.path, resp.StatusCode, b)
+		}
+	}
+}
+
+func TestAdminDesktopBearerAndSessionKinds(t *testing.T) {
+	e := newEnvWith(t, notifCfg)
+	email, username := uniq("desk")
+	resp, b := e.do(t, "POST", "/api/auth/register", J{"email": email, "username": username, "password": "senha-forte-123"}, nil)
+	status(t, resp, b, 201)
+	bare := &testEnv{srv: e.srv, client: &http.Client{}} // sem cookie
+	resp, b = bare.do(t, "POST", "/api/auth/login", J{"email": email, "password": "senha-forte-123"}, map[string]string{"X-Spook-Client": "desktop"})
+	status(t, resp, b, 200)
+	token := str(obj(t, b), "token")
+	if token == "" {
+		t.Fatalf("desktop deveria receber o token: %s", b)
+	}
+	for _, p := range adminRoutes {
+		// X-Spook-Client: desktop sozinho não autentica nada
+		resp, b = bare.do(t, "GET", p, nil, map[string]string{"X-Spook-Client": "desktop"})
+		status(t, resp, b, 401)
+		// Bearer de usuário comum: 403
+		resp, b = bare.do(t, "GET", p, nil, map[string]string{"Authorization": "Bearer " + token})
+		status(t, resp, b, 403)
+		// Bearer inválido: 401
+		resp, b = bare.do(t, "GET", p, nil, map[string]string{"Authorization": "Bearer " + token + "x"})
+		status(t, resp, b, 401)
+		// cookie de sessão de usuário comum (o register acima deixou o cookie no jar de e.client)
+		resp, b = e.do(t, "GET", p, nil, nil)
+		status(t, resp, b, 403)
+	}
+	// o mesmo Bearer, depois de promovido, passa na hora (e perde ao ser rebaixado)
+	var id int64
+	if err := e.pool.QueryRow(context.Background(), "SELECT id FROM users WHERE username = $1", username).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	hdr := map[string]string{"Authorization": "Bearer " + token}
+	if _, err := e.pool.Exec(context.Background(), "UPDATE users SET is_admin = true WHERE id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+	resp, b = bare.do(t, "GET", "/api/admin/overview", nil, hdr)
+	status(t, resp, b, 200)
+	if _, err := e.pool.Exec(context.Background(), "UPDATE users SET is_admin = false WHERE id = $1", id); err != nil {
+		t.Fatal(err)
+	}
+	resp, b = bare.do(t, "GET", "/api/admin/overview", nil, hdr)
+	status(t, resp, b, 403)
+}
+
+func TestAdminDemotedUserLosesEveryRouteAtOnce(t *testing.T) {
+	e := newEnvWith(t, notifCfg)
+	adm := e.newActor(t, "adm")
+	e.makeAdmin(t, adm)
+	for _, p := range adminRoutes {
+		adm.call(t, "GET", p, nil, 200)
+	}
+	if _, err := e.pool.Exec(context.Background(), "UPDATE users SET is_admin = false WHERE id = $1", adm.id); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range adminRoutes { // mesma sessão, sem novo login e sem esperar cache
+		adm.call(t, "GET", p, nil, 403)
+	}
+}
+
+// O painel é polling HTTP: nenhum dado de administração passa pelo gateway WebSocket.
+func TestAdminDataNeverTravelsThroughGateway(t *testing.T) {
+	// 1) o catálogo de eventos do barramento (que o gateway converte em frames) não tem nada de admin.
+	src, err := os.ReadFile("../platform/events/events.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := regexp.MustCompile(`=\s*"([A-Z_]+)"`).FindAllStringSubmatch(string(src), -1)
+	if len(names) < 15 {
+		t.Fatalf("catálogo de eventos não lido (%d nomes)", len(names))
+	}
+	for _, n := range names {
+		if strings.Contains(n[1], "ADMIN") {
+			t.Fatalf("evento de admin no catálogo: %s", n[1])
+		}
+	}
+	// 2) na prática: um usuário comum conectado não recebe nada enquanto o admin usa o painel.
+	e := newEnvWith(t, notifCfg)
+	plain, adm := e.newActor(t, "comum"), e.newActor(t, "adm")
+	e.makeAdmin(t, adm)
+	c, _ := plain.connectReady(t)
+	ac, _ := adm.connectReady(t)
+	for _, p := range adminRoutes {
+		adm.call(t, "GET", p, nil, 200)
+	}
+	c.none(700 * time.Millisecond)
+	// 3) nem o admin recebe dados do painel pelo socket: só chegam eventos do catálogo normal.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		f, err := ac.read(time.Until(deadline))
+		if err != nil {
+			break
+		}
+		if f.T != nil && strings.Contains(strings.ToUpper(*f.T), "ADMIN") {
+			t.Fatalf("evento de admin no gateway: %s", *f.T)
+		}
 	}
 }
