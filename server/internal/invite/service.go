@@ -19,8 +19,8 @@ var tracer = otel.Tracer("spook/invite")
 const (
 	CodeLength   = 8
 	codeAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789" // sem caracteres ambíguos (0/O, 1/l/I)
-	maxMaxUses   = 1_000_000
-	maxExpiresIn = 30 * 24 * time.Hour
+	MaxMaxUses   = 1_000_000
+	MaxExpiresIn = 30 * 24 * time.Hour
 	codeAttempts = 5
 )
 
@@ -108,12 +108,12 @@ func (s *Service) Create(ctx context.Context, userID, guildID int64, in CreatePa
 	if !m.Has(perm.CreateInvite) {
 		return Invite{}, ErrForbidden
 	}
-	if in.MaxUses != nil && (*in.MaxUses < 1 || *in.MaxUses > maxMaxUses) {
+	if in.MaxUses != nil && (*in.MaxUses < 1 || *in.MaxUses > MaxMaxUses) {
 		return Invite{}, apperr.Invalid("max_uses deve ser de 1 a 1000000")
 	}
 	inv := Invite{GuildID: guildID, CreatorID: userID, MaxUses: in.MaxUses}
 	if in.ExpiresIn != nil {
-		if *in.ExpiresIn < time.Second || *in.ExpiresIn > maxExpiresIn {
+		if *in.ExpiresIn < time.Second || *in.ExpiresIn > MaxExpiresIn {
 			return Invite{}, apperr.Invalid("expires_in deve ser de 1 segundo a 30 dias")
 		}
 		t := s.now().Add(*in.ExpiresIn)

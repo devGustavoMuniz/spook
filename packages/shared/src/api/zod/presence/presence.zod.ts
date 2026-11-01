@@ -10,7 +10,7 @@ import * as zod from "zod";
  * Status personalizado vencido já vem ausente (a expiração é avaliada no servidor).
  * @summary Preferência de status e status personalizado do usuário
  */
-export const getMyPresenceResponseCustomStatusEmojiMax = 128;
+export const getMyPresenceResponseCustomStatusEmojiMax = 32;
 
 export const getMyPresenceResponseCustomStatusTextMax = 128;
 
@@ -32,7 +32,7 @@ export const GetMyPresenceResponse = zod.object({
  * Invisível aparece como offline para os outros; Não perturbar aparece como dnd e suprime push e avisos. Publica PRESENCE_UPDATE para quem vê o usuário e PRESENCE_SELF_UPDATE nas sessões dele.
  * @summary Muda o status (online, não perturbar, invisível) e/ou o status personalizado
  */
-export const updateMyPresenceBodyCustomStatusEmojiMax = 128;
+export const updateMyPresenceBodyCustomStatusEmojiMax = 32;
 
 export const updateMyPresenceBodyCustomStatusTextMax = 128;
 
@@ -57,7 +57,7 @@ export const UpdateMyPresenceBody = zod.object({
     .describe("online (ausente é automático), dnd (Não perturbar) ou invisible"),
 });
 
-export const updateMyPresenceResponseCustomStatusEmojiMax = 128;
+export const updateMyPresenceResponseCustomStatusEmojiMax = 32;
 
 export const updateMyPresenceResponseCustomStatusTextMax = 128;
 

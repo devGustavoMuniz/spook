@@ -43,7 +43,7 @@ var (
 // servidor o trata como inexistente (ver Service).
 type CustomStatus struct {
 	Text      string     `json:"text,omitempty" maxLength:"128"`
-	Emoji     string     `json:"emoji,omitempty" maxLength:"128"`
+	Emoji     string     `json:"emoji,omitempty" maxLength:"32"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty" doc:"Instante em que o status some sozinho; ausente = não expira"`
 }
 

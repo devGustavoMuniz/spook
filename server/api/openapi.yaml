@@ -363,7 +363,7 @@ components:
       additionalProperties: false
       properties:
         emoji:
-          maxLength: 128
+          maxLength: 32
           type: string
         expires_at:
           description: Instante em que o status some sozinho; ausente = não expira

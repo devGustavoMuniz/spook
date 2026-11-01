@@ -361,10 +361,15 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
 func OpenAPIYAML() ([]byte, error) {
+	return buildOpenAPI().YAML()
+}
+
+// buildOpenAPI monta o contrato sem dependências reais (só os tipos das rotas), para o YAML e para os testes.
+func buildOpenAPI() *huma.OpenAPI {
 	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
-	return api.OpenAPI().YAML()
+	return api.OpenAPI()
 }
 
 // lateAccess resolve a dependência circular channel -> guild na montagem.

@@ -6,7 +6,7 @@
  */
 
 export interface CustomStatus {
-  /** @maxLength 128 */
+  /** @maxLength 32 */
   emoji?: string;
   /** Instante em que o status some sozinho; ausente = não expira */
   expires_at?: string;
