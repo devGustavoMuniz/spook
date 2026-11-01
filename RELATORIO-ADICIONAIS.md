@@ -3,6 +3,50 @@
 Tudo aqui foi pedido **depois** do checkpoint `checkpoint-spec-completo` (commit `e39b794`, 31/10/2026). A lista bruta sai de
 `git log checkpoint-spec-completo..HEAD`. Este arquivo é atualizado a cada adicional e vira o relatório final.
 
+## Resumo executivo (01/11/2026)
+
+Desde o checkpoint foram entregues **9 commits em `main`** (267 arquivos, +26,8 mil / −0,6 mil linhas), todos com CI, Deploy e
+Desktop (Windows, macOS arm64/x64, Linux) verdes e em produção. Os pedidos eram de qualidade de vida e nenhum estava no SPEC.
+
+| # | Adicional | Commit | Onde |
+| --- | --- | --- | --- |
+| 1 | Supressão de ruído em 3 níveis (Forte = RNNoise grátis), eco e ganho, áudio da tela sem eco | `cbc3db1` (web), `915a713` (desktop) | Web + desktop |
+| 2 | Volume por pessoa (web até 100%, desktop até 200%), áudio da tela com volume próprio | `fb060e8`, `6431522` | Web + desktop |
+| 3 | Teste de microfone com medidor de nível e porta de ruído (sensibilidade) | `fb060e8`, `6431522` | Web + desktop |
+| 4 | Não perturbar, Invisível e status personalizado (texto, emoji, expiração) | `9518246` | Backend + web |
+| 5 | Silenciar servidor/canal/DM (15 min a "até reativar") e nível tudo/menções/nada | `9518246` | Backend + web |
+| 8 | Responder com citação, editar a última com ↑, fixar mensagens | `44a834d` | Backend + web |
+| 9 | Qualidade do compartilhamento de tela (presets, resolução, fps, prioridade) e Picture-in-Picture (só web) | `fb060e8`, `6431522` | Web + desktop |
+| 10 | Desktop: bandeja, iniciar com o sistema, contador no ícone, clique na notificação abre o canal | `6431522` | Desktop |
+| A | Controles de voz acima do perfil do usuário (canto inferior esquerdo) | `80cbda9` | Web |
+| B | Painel administrativo `/admin` em tempo real | `48a7fa2` | Backend + web + deploy |
+| C | Comando `spook admin grant|revoke|list` e `deploy/admin.sh` (gerir admins por SSH) | `cb7ec7f` | Backend + deploy |
+
+(A numeração 1 a 10 segue a lista de funcionalidades que o dono escolheu; 1, 6 e 7 — push-to-talk, Ctrl+K e rascunho por canal — ficaram de fora por decisão dele.)
+
+**Infra e migrations novas:** `00007_reply_pins`, `00008_status_notifications`, `00009_admin` (todas aditivas); Prometheus do LiveKit habilitado
+só na rede interna; variável `ADMIN_USERNAMES` (opcional agora, pois existe o `spook admin`); novas dependências Rust (`nnnoiseless`,
+`tauri-plugin-autostart`, feature `tray-icon`) e `@sapphi-red/web-noise-suppressor` no web.
+
+**Decisões que merecem seu olho:** DeepFilterNet3 descartado (pacote depende de CDN de terceiros); expiração do status sem job (avaliada na
+leitura + temporizador por usuário conectado); `@everyone`/`@here` não existem no Spook (a regra de menção direta já cobre o silêncio);
+"Tudo" em servidor não amplia o push (só DMs e menções); heurística de 10 s para "clicar na notificação" no desktop (limitação do plugin);
+admin por polling (não SSE), com cache de 5/30/60 s; ninguém é promovido automaticamente ao se cadastrar com um username "reservado".
+
+**Limitações conhecidas:** PiP indisponível no desktop; contador do ícone no Linux só aparece no título da janela; ícone da bandeja no GNOME
+exige a extensão AppIndicator; alt-tab dentro de 10 s após uma notificação também navega; ordenar usuários por mensagens no admin varre todos os
+usuários (~375 ms com 10 mil); métricas de mídia do admin (perda, jitter, RTT) dependem de tráfego real do LiveKit.
+
+**O que só o dono consegue validar** (roteiros em `VALIDACAO-MANUAL.md`, seção "Adicionais"): qualidade percebida da voz nos três níveis de ruído e
+o CPU em notebook comum; áudio real, ganho de 200%, porta e teste de microfone no desktop; bandeja, autostart, badge e clique na notificação
+nos três SOs; push real respeitando Não perturbar e silêncio com o app fechado; aparência de tudo nos dois temas e em tela estreita; números e
+métricas de mídia do `/admin` contra a produção.
+
+**Não feito (opcional):** cenário k6 do admin; SSE para o "ao vivo" do admin.
+
+**Próximo passo planejado:** `PLANO-ADICIONAIS-2.md` documenta, em ondas, as funcionalidades do Antrax que o dono escolheu trazer para o Spook
+(contas, social, servidores, mensagens, voz, perfil, desktop e gráficos do admin), com as decisões que dependem dele antes de começar.
+
 ## 1. Supressão de ruído e cancelamento de eco melhores (qualidade de vida)
 
 **Pedido:** "ligar, desligar ou melhorar a supressão de ruído, como o Krisp do Discord, com a melhor alternativa gratuita; cancelamento de
@@ -14,7 +58,7 @@ eco para não ouvir a própria voz, ao mostrar a tela ou vazando na call".
 | --- | --- |
 | Web: 3 níveis de ruído (Desligada, Padrão do navegador, Forte com RNNoise), eco e ganho com interruptores, diálogo de compartilhar tela | Feito |
 | Web: DeepFilterNet3 em vez de RNNoise | Não usado: o pacote comunitário depende de CDN de terceiros (403) e não traz WASM/modelo; custo de CPU maior |
-| Desktop: nível Forte (RNNoise nativo) e atraso do eco medido em vez de fixo | Em andamento |
+| Desktop: nível Forte (RNNoise nativo) e atraso do eco medido em vez de fixo | Feito |
 
 **Ressalvas:** a qualidade percebida da voz humana nos três níveis, o CPU em notebook comum e o comportamento real do Chrome com as opções de
 compartilhamento só podem ser julgados por você (`VALIDACAO-MANUAL.md`, seção "Adicionais").
@@ -128,3 +172,9 @@ Desktop. No Linux/GNOME a bandeja precisa da extensão AppIndicator. Roteiro de 
 ## Controles de voz no painel do usuário
 
 Os controles de voz saíram da barra inferior da tela e foram para o rodapé da barra lateral (servidores e DMs, pois o `UserPanel` é compartilhado), como no Discord. Em chamada, um cartão "Voz conectada" (qualidade do enlace, canal, servidor, botão de sair, câmera e compartilhar tela) aparece acima da linha do usuário; na linha do usuário, ao lado do nome, ficam microfone, fone e Dispositivos (só em chamada), antes do seletor de status. A região continua com o nome "Controles de voz" (só existe em chamada). Fora da chamada, microfone e fone continuam disponíveis e só guardam a preferência no store (`toggleMute`/`toggleDeafen` agora atualizam o estado quando ocioso; ela vale na próxima entrada). Sem mudança no `VoiceEngine`, no desktop ou nos seletores do E2E. Código: `voice-bar.tsx` (`VoiceDock`, `VoiceCallCard`, `VoiceUserControls`) e `presence/user-panel.tsx`.
+
+## Gerir administradores por SSH
+
+`spook admin grant|revoke <username>` e `spook admin list` (subcomando do binário, `server/internal/admin/cli.go`) e `deploy/admin.sh`, que o
+executa no contêiner `spook` do VPS (`ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/admin.sh grant <username>"`). Vale na hora, sem redeploy;
+aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevokeList`. Em produção, o `nyak` foi promovido por esse comando.
