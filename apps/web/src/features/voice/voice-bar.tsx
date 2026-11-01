@@ -81,46 +81,66 @@ const statusText = {
   idle: "",
 } as const;
 
-/** Barra persistente enquanto o usuário está em uma chamada: canal, mudo, surdo, câmera, tela e sair. */
-export function VoiceBar() {
-  const s = useVoiceStore();
+/** Em chamada (conectando, conectada ou reconectando). */
+export function useInCall() {
+  return useVoiceStore((s) => s.status !== "idle" && !!s.channelId);
+}
+
+/** Permissões de voz do servidor da chamada atual (DM: tudo liberado). */
+function useCallPermissions() {
+  const guildId = useVoiceStore((s) => s.guildId);
   const guilds = useListGuilds();
-  const [devices, setDevices] = useState(false);
+  const guild = guildId ? guilds.data?.find((g) => g.id === guildId) : null;
+  return voicePermissions(guild);
+}
+
+/**
+ * Invólucro do rodapé da barra lateral: em chamada vira a região "Controles de voz"
+ * (cartão + linha do usuário); fora dela é um bloco comum.
+ */
+export function VoiceDock({ children }: { children: React.ReactNode }) {
+  const inCall = useInCall();
+  return inCall ? (
+    <section aria-label="Controles de voz" className="shrink-0 border-t bg-sidebar">
+      {children}
+    </section>
+  ) : (
+    <div className="shrink-0 border-t">{children}</div>
+  );
+}
+
+/** Cartão "Voz conectada" acima do painel do usuário: canal, sair, câmera e tela. */
+export function VoiceCallCard() {
+  const s = useVoiceStore();
+  const perms = useCallPermissions();
+  const guilds = useListGuilds();
   const [shareDialog, setShareDialog] = useState(false);
   if (s.status === "idle" || !s.channelId) return null;
 
   const guild = s.guildId ? guilds.data?.find((g) => g.id === s.guildId) : null;
-  const perms = voicePermissions(guild);
   const live = s.status === "connected";
-  const micBlocked = !perms.speak;
   const videoBlocked = !perms.video;
 
+  const linkClass = "truncate text-xs text-muted-foreground hover:underline";
   const channelLink = s.guildId ? (
     <Link
       to="/channels/$guildId/$channelId"
       params={{ guildId: s.guildId, channelId: s.channelId }}
-      className="truncate text-xs text-muted-foreground hover:underline"
+      className={linkClass}
     >
       {s.channelName}
     </Link>
   ) : (
-    <Link
-      to="/channels/@me/$channelId"
-      params={{ channelId: s.channelId }}
-      className="truncate text-xs text-muted-foreground hover:underline"
-    >
+    <Link to="/channels/@me/$channelId" params={{ channelId: s.channelId }} className={linkClass}>
       {s.channelName}
     </Link>
   );
 
   return (
-    <section
-      aria-label="Controles de voz"
-      className="flex shrink-0 flex-wrap items-center gap-3 border-t bg-sidebar px-3 py-2"
-    >
-      <div className="flex min-w-0 items-center gap-2">
+    <div className="mx-2 mt-2 flex flex-col gap-1 rounded-md bg-muted/50 p-2">
+      <div className="flex items-center gap-2">
         <QualityIndicator quality={live ? s.quality : "unknown"} />
-        <div className="flex min-w-0 flex-col leading-tight">
+        <div className="flex min-w-0 flex-1 flex-col leading-tight">
           <output
             className={cn(
               "text-sm font-medium",
@@ -132,32 +152,27 @@ export function VoiceBar() {
             {statusText[s.status]}
           </output>
           {channelLink}
+          {guild ? (
+            <span className="truncate text-xs text-muted-foreground">{guild.name}</span>
+          ) : null}
         </div>
+        <Button
+          variant="destructive"
+          size="icon"
+          className="size-8 shrink-0"
+          aria-label="Sair da chamada"
+          title="Sair da chamada"
+          onClick={() => void leaveCall()}
+        >
+          <PhoneOff />
+        </Button>
       </div>
-
-      <div className="ml-auto flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {s.audioBlocked ? (
           <Button variant="outline" size="sm" onClick={() => void resumeAudio()}>
             <Volume2 /> Ativar áudio
           </Button>
         ) : null}
-        <BarButton
-          label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
-          pressed={s.selfMute}
-          disabled={micBlocked || !live}
-          reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
-          onClick={() => void toggleMute()}
-        >
-          {s.selfMute ? <MicOff /> : <Mic />}
-        </BarButton>
-        <BarButton
-          label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
-          pressed={s.selfDeaf}
-          disabled={!live}
-          onClick={() => void toggleDeafen()}
-        >
-          {s.selfDeaf ? <HeadphoneOff /> : <Headphones />}
-        </BarButton>
         <BarButton
           label={s.camera ? "Desligar câmera" : "Ligar câmera"}
           pressed={s.camera}
@@ -176,26 +191,56 @@ export function VoiceBar() {
         >
           {s.screen ? <Monitor /> : <MonitorOff />}
         </BarButton>
-        <BarButton label="Dispositivos" onClick={() => setDevices(true)}>
-          <Settings />
-        </BarButton>
-        <Button
-          variant="destructive"
-          size="icon"
-          aria-label="Sair da chamada"
-          title="Sair da chamada"
-          onClick={() => void leaveCall()}
-        >
-          <PhoneOff />
-        </Button>
       </div>
-      <DeviceDialog open={devices} onOpenChange={setDevices} />
       <ScreenShareDialog
         open={shareDialog}
         onOpenChange={setShareDialog}
         onConfirm={(opts) => void toggleScreenShare(opts)}
       />
-    </section>
+    </div>
+  );
+}
+
+/**
+ * Microfone, fone e (em chamada) dispositivos, na linha do usuário.
+ * Fora da chamada só guardam a preferência, que vale na próxima entrada.
+ */
+export function VoiceUserControls() {
+  const s = useVoiceStore();
+  const perms = useCallPermissions();
+  const [devices, setDevices] = useState(false);
+  const inCall = s.status !== "idle" && !!s.channelId;
+  const live = s.status === "connected";
+  const micBlocked = inCall && !perms.speak;
+
+  return (
+    <>
+      <BarButton
+        label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
+        pressed={s.selfMute}
+        disabled={micBlocked || (inCall && !live)}
+        reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
+        onClick={() => void toggleMute()}
+      >
+        {s.selfMute ? <MicOff /> : <Mic />}
+      </BarButton>
+      <BarButton
+        label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
+        pressed={s.selfDeaf}
+        disabled={inCall && !live}
+        onClick={() => void toggleDeafen()}
+      >
+        {s.selfDeaf ? <HeadphoneOff /> : <Headphones />}
+      </BarButton>
+      {inCall ? (
+        <>
+          <BarButton label="Dispositivos" onClick={() => setDevices(true)}>
+            <Settings />
+          </BarButton>
+          <DeviceDialog open={devices} onOpenChange={setDevices} />
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -219,6 +264,7 @@ function BarButton({
     <Button
       variant={pressed ? "secondary" : "ghost"}
       size="icon"
+      className="size-8 shrink-0"
       aria-label={label}
       aria-pressed={pressed}
       title={reason ?? label}

@@ -101,6 +101,10 @@ describe("entrar e a barra de controle", () => {
     expect(await within(bar).findByText("Voz conectada")).toBeInTheDocument();
     expect(state.voice.tokensFor).toEqual([VOICE]);
     expect(within(bar).getByText("Geral")).toBeInTheDocument();
+    expect(within(bar).getByText("Alfa")).toBeInTheDocument(); // servidor no cartão
+    // o cartão fica acima do painel do usuário, no rodapé da barra lateral
+    expect(nav.parentElement).toContainElement(bar);
+    expect(within(bar).getByRole("link", { name: "Meu perfil" })).toBeInTheDocument();
     // abre o painel do canal (cabeçalho com "Sair do canal")
     expect(await screen.findByRole("button", { name: "Sair do canal" })).toBeInTheDocument();
     expect(fake.mic).toBe(true);
@@ -262,6 +266,25 @@ describe("painel de vídeo", () => {
     expect(within(video).getAllByTestId("video-tile")[0]).toHaveAttribute("data-kind", "camera");
     act(() => fake.fire("video-track-removed", { id: "cam1" }));
     await waitFor(() => expect(within(video).getAllByTestId("video-tile")).toHaveLength(1));
+  });
+});
+
+describe("microfone e fone fora da chamada", () => {
+  it("ficam no painel do usuário, guardam a preferência e valem ao entrar", async () => {
+    const user = userEvent.setup();
+    const { nav } = await open();
+    expect(screen.queryByRole("region", { name: "Controles de voz" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sair da chamada" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Silenciar microfone" }));
+    expect(useVoiceStore.getState().selfMute).toBe(true);
+    expect(useVoiceStore.getState().status).toBe("idle");
+    await user.click(voiceButton(nav));
+    const bar = await screen.findByRole("region", { name: "Controles de voz" });
+    await within(bar).findByText("Voz conectada");
+    expect(within(bar).getByRole("button", { name: "Ativar microfone" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });
 

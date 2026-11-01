@@ -6,7 +6,6 @@ import { GatewayProvider } from "@/features/gateway/gateway-provider";
 import { ServerRail } from "@/features/guilds/server-rail";
 import { useUnreadTitle } from "@/features/notifications/use-unread-title";
 import { usePushSync } from "@/features/push/use-push";
-import { VoiceBar } from "@/features/voice/voice-bar";
 
 /** Área autenticada: barra de servidores à esquerda e a tela atual ao lado. */
 export function AuthedLayout() {
@@ -24,7 +23,6 @@ export function AuthedLayout() {
               <Outlet />
             </div>
           </div>
-          <VoiceBar />
         </div>
       </GatewayProvider>
     </TooltipProvider>

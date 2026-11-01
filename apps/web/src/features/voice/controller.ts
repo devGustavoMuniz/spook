@@ -229,8 +229,16 @@ export async function leaveCall() {
 
 export async function toggleMute() {
   const s = session();
-  if (s.status === "idle") return;
   const mute = !s.selfMute;
+  if (s.status === "idle") {
+    // Fora da chamada só guarda a preferência (vale ao entrar; `clear` a preserva).
+    s.patch({
+      selfMute: mute,
+      muteBeforeDeaf: mute,
+      ...(!mute && s.selfDeaf ? { selfDeaf: false } : {}),
+    });
+    return;
+  }
   // Desmutar ensurdecido também volta a ouvir (como no Discord).
   const undeaf = !mute && s.selfDeaf;
   session().patch({
@@ -245,7 +253,11 @@ export async function toggleMute() {
 
 export async function toggleDeafen() {
   const s = session();
-  if (s.status === "idle") return;
+  if (s.status === "idle") {
+    if (!s.selfDeaf) s.patch({ selfDeaf: true, selfMute: true, muteBeforeDeaf: s.selfMute });
+    else s.patch({ selfDeaf: false, selfMute: s.muteBeforeDeaf });
+    return;
+  }
   if (!s.selfDeaf) {
     session().patch({ selfDeaf: true, selfMute: true, muteBeforeDeaf: s.selfMute });
     engine?.setDeafened(true);
