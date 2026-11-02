@@ -1,0 +1,12 @@
+# Build de produção ANTES da repaginação (bytes; JS+CSS, sem fontes/wasm/imagens)
+arquivo                                                 bruto         gzip
+gate-worklet-BjP8kQVi.js                                 5883         2375
+index-BTUO8XDb.js                                      395004       115000
+noise-processor-HEpLmxMf.js                              3430         1601
+radix-BOG814-y.js                                       96163        29010
+react-CmYRMVnZ.js                                      187609        58943
+settings-dialog-BsQJ34kZ.js                             19707         6997
+vendor--gjPWQeq.js                                    1045810       292542
+workletProcessor-CTUsFnsu.js                            64483        11636
+index-k35dGErS.css                                      41993         8357
+TOTAL                                                 1860082       526461

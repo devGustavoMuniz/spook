@@ -1,0 +1,4 @@
+membros (claro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded.
+composer-resposta (claro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded.
+membros (escuro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded.
+composer-resposta (escuro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded.
