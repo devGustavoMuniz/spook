@@ -4,7 +4,7 @@ import { ArrowLeft, LayoutDashboard, LogOut, PanelLeft, Phone, Server, Users } f
 import { useState } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
 import { useSessionGuard } from "@/components/app-shell";
-import { Logo } from "@/components/brand";
+import { LogoMark } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ export function AdminLayout() {
         )}
       >
         <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-          <Logo size={28} />
+          <LogoMark size={28} />
           <div className="leading-tight">
             <p className="font-semibold">Spook</p>
             <p className="text-xs text-muted-foreground">Painel de administração</p>

@@ -2,7 +2,7 @@ import { useListGuilds } from "@spook/shared";
 import { Navigate } from "@tanstack/react-router";
 import { ArrowRight, Compass, Plus } from "lucide-react";
 import { useState } from "react";
-import { Logo } from "@/components/brand";
+import { LogoMark } from "@/components/brand";
 import { NavToggle } from "@/components/shell";
 import { ErrorState } from "@/components/state-screen";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,7 +41,7 @@ export function HomePage() {
     <main className="relative flex h-full flex-col items-center justify-center gap-8 overflow-y-auto bg-brand-glow p-6 text-center">
       <NavToggle className="absolute top-2 left-4" />
       <div className="flex flex-col items-center gap-4">
-        <Logo size={112} />
+        <LogoMark size={112} glow />
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
             Você ainda não está em nenhum servidor

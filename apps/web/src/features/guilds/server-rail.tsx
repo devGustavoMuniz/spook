@@ -1,9 +1,9 @@
-import miniLogo from "@spook/brand/assets/mini-logo.svg";
 import { useGetMe } from "@spook/shared";
 import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { BellOff, LogOut, Plus, Settings, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
+import { LogoMark } from "@/components/brand";
 import { useShell } from "@/components/shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { avatarColor } from "@/components/ui/avatar";
@@ -173,7 +173,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
                     : `${shapeIdle} bg-surface-3 hover:bg-primary`,
                 )}
               >
-                <img src={miniLogo} alt="" className="size-8" />
+                <LogoMark size={36} alt="" />
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={14}>

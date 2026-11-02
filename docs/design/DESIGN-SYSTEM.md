@@ -93,7 +93,7 @@ Todos aceitam `className` (mesclado com `cn`) e repassam as props nativas. Varia
 | `Tooltip` | `TooltipProvider` com atraso de 300 ms; combina com `Kbd`. |
 | `Tabs` | `variant`: pill (padrão), underline (em `TabsList` e `TabsTrigger`). |
 | `Toaster` (sonner) | superfície `popover`, raio `lg`, cores semânticas (sucesso, erro, aviso, info) por tokens. Texto de toast: verbo no passado, uma linha. |
-| `Avatar` | `size`: xs 20, sm 28, md 40, lg 64, xl 96, 2xl 128 ou número. `fallback`: `initials` (padrão: iniciais sobre gradiente derivado de `seed`/nome por hash, sempre com texto branco AA) ou `logo` (mini logo; só casos de marca). `speaking` acende o anel verde; `status` põe a bolinha de presença com anel. Helpers: `avatarColor`, `initialsOf`, `StatusDot`. `components/avatar.tsx` re-exporta. |
+| `Avatar` | `size`: xs 20, sm 28, md 40, lg 64, xl 96, 2xl 128 ou número. `fallback`: `initials` (padrão: iniciais sobre gradiente derivado de `seed`/nome por hash, sempre com texto branco AA) ou `logo` (`LogoMark` transparente num círculo `surface-3`; só casos de marca). `speaking` acende o anel verde; `status` põe a bolinha de presença com anel. Helpers: `avatarColor`, `initialsOf`, `StatusDot`. `components/avatar.tsx` re-exporta. |
 | `Badge` | `variant`: default, brand, secondary, outline, success, warning, destructive, info. `CountBadge`: "99+" acima de `max`, números tabulares, `tone` mention (vermelho) ou brand. |
 | `Switch` | `size`: default, sm; polegar com `--ease-spring`. |
 | `Slider` | Radix; 1 valor ou intervalo; polegar com anel de foco. |
@@ -105,7 +105,9 @@ Todos aceitam `className` (mesclado com `cn`) e repassam as props nativas. Varia
 | `Spinner` | `motion-essential`; use dentro de `Button loading` ou isolado. |
 | `Card` | refinado (borda, raio `xl`, `shadow-sm`). |
 
-Ilustrações (`components/illustrations/`, cada uma bem abaixo de 4 KB): `EmptyChatIllustration` (canal sem mensagens), `VoiceInviteIllustration` (convite para a voz), `NotFoundIllustration` (404 e erros). São SVG próprios derivados do corpo do mascote do logo, coloridos pelos tokens `ghost-*` (trocam com o tema), `aria-hidden`. Uso: `<EmptyState illustration={<EmptyChatIllustration />} title="..." />`.
+Ilustrações (`components/illustrations/`, cada uma bem abaixo de 4 KB): `EmptyChatIllustration` (canal sem mensagens), `VoiceInviteIllustration` (convite para a voz), `NotFoundIllustration` (404 e erros). São SVG próprios derivados do corpo do mascote do logo, centrados no eixo x=160 da moldura (corpo, sombra, barras e arcos simétricos; o corpo do mascote fica em translate(160-200·s)), coloridos pelos tokens `ghost-*` (trocam com o tema), `aria-hidden`. Uso: `<EmptyState illustration={<EmptyChatIllustration />} title="..." />`.
+
+Logo: `LogoMark` (`components/brand.tsx`; props `size`, `glow`, `alt`) é o único ponto de entrada do mascote na interface. Usa `packages/brand/assets/mascote-fundo-{claro,escuro}.svg` (fundo transparente, viewBox quadrado centrado no corpo, sem as ondas), por isso cabe em qualquer círculo/tile sem quadrado escuro. `Lettering` mantém a proporção do SVG do lettering.
 
 ## Como usar nas próximas etapas
 

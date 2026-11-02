@@ -6,7 +6,7 @@ export function NotFoundIllustration(props: SVGProps<SVGSVGElement>) {
   return (
     <IllustrationFrame {...props}>
       <ellipse cx="160" cy="238" rx="64" ry="8" className="fill-ghost-line" opacity=".18" />
-      <Ghost mood="lost" transform="translate(66 30) scale(.6) rotate(-6 200 200)" />
+      <Ghost mood="lost" transform="translate(40 30) scale(.6) rotate(-6 200 200)" />
       <path
         d="M246,48q0,-18 16,-18t16,16q0,10 -10,16t-6,16"
         className="stroke-ghost-accent"

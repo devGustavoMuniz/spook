@@ -6,7 +6,7 @@ export function EmptyChatIllustration(props: SVGProps<SVGSVGElement>) {
   return (
     <IllustrationFrame {...props}>
       <ellipse cx="160" cy="236" rx="62" ry="8" className="fill-ghost-line" opacity=".18" />
-      <Ghost mood="sleepy" transform="translate(70 28) scale(.6)" />
+      <Ghost mood="sleepy" transform="translate(40 28) scale(.6)" />
       <g className="stroke-ghost-line fill-ghost-body" strokeWidth="3" strokeLinejoin="round">
         <path d="M34,52h58a10,10 0 0 1 10,10v22a10,10 0 0 1 -10,10h-34l-14,12v-12h-10a10,10 0 0 1 -10,-10v-22a10,10 0 0 1 10,-10Z" />
         <path d="M232,96h50a10,10 0 0 1 10,10v18a10,10 0 0 1 -10,10h-6v10l-12,-10h-32a10,10 0 0 1 -10,-10v-18a10,10 0 0 1 10,-10Z" />

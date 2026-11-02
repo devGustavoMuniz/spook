@@ -6,7 +6,7 @@ export function ErrorIllustration(props: SVGProps<SVGSVGElement>) {
   return (
     <IllustrationFrame {...props}>
       <ellipse cx="160" cy="238" rx="64" ry="8" className="fill-ghost-line" opacity=".18" />
-      <Ghost mood="sleepy" transform="translate(70 30) scale(.6) rotate(4 200 200)" />
+      <Ghost mood="sleepy" transform="translate(40 30) scale(.6) rotate(4 200 200)" />
       <g className="stroke-ghost-line" fill="none" strokeWidth="5" strokeLinecap="round">
         <path d="M24,206q22,-4 34,10t14,20" />
         <path d="M296,206q-22,-4 -34,10t-14,20" />

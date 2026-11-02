@@ -1,5 +1,5 @@
-import miniLogo from "@spook/brand/assets/mini-logo.svg";
 import type * as React from "react";
+import { LogoMark } from "@/components/brand";
 import { cn } from "@/lib/utils";
 
 export type PresenceStatus = "online" | "idle" | "dnd" | "invisible" | "offline";
@@ -112,10 +112,25 @@ export function Avatar({
   const wrapped = speaking || Boolean(status);
   const faceClass = wrapped ? undefined : className;
   let face: React.ReactNode;
-  if (url || fallback === "logo") {
+  if (!url && fallback === "logo") {
+    // Marca com fundo transparente dentro de um círculo do tema, com respiro uniforme.
+    face = (
+      <span
+        role="img"
+        aria-label={label}
+        style={box}
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-3",
+          faceClass,
+        )}
+      >
+        <LogoMark size={Math.round(px * 0.8)} alt="" />
+      </span>
+    );
+  } else if (url) {
     face = (
       <img
-        src={url || miniLogo}
+        src={url}
         alt={label}
         width={px}
         height={px}
