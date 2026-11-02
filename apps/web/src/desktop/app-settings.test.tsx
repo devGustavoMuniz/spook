@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "@/test/render";
@@ -61,7 +61,11 @@ describe("/settings/app", () => {
     it("mostra o link, carrega os valores do Rust e cada interruptor chama o comando", async () => {
       const { state } = fakeShell();
       await renderApp("/settings/notifications", { signedIn: true });
-      expect(await screen.findByRole("link", { name: "Aplicativo" })).toBeInTheDocument();
+      expect(
+        within(
+          await screen.findByRole("navigation", { name: "Seções das configurações" }),
+        ).getByRole("link", { name: "Aplicativo" }),
+      ).toBeInTheDocument();
       await userEvent.click(await screen.findByRole("link", { name: "Aplicativo" }));
 
       const close = await screen.findByRole("switch", { name: /Fechar vai para a bandeja/ });

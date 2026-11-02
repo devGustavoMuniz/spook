@@ -9,10 +9,10 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { fetchSession } from "@/auth/session";
-import { PageShell } from "@/components/app-shell";
 import { AuthedLayout } from "@/components/authed-layout";
 import { NotFoundPage } from "@/components/not-found";
 import { AdminLayout } from "@/features/admin/admin-layout";
+import { SettingsLayout } from "@/features/settings/settings-layout";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
 import { AdminCallsPage } from "@/pages/admin/calls";
@@ -28,6 +28,8 @@ import { LoginPage } from "@/pages/login";
 import { NotificationsPage } from "@/pages/notifications";
 import { ProfilePage } from "@/pages/profile";
 import { RegisterPage } from "@/pages/register";
+import { AppearancePage } from "@/pages/settings-appearance";
+import { VoiceSettingsPage } from "@/pages/settings-voice";
 
 export type RouterContext = { queryClient: QueryClient };
 
@@ -84,35 +86,53 @@ const authedRoute = createRoute({
   component: AuthedLayout,
 });
 
-// Páginas comuns (perfil) dentro da área autenticada.
-const pageRoute = createRoute({
-  getParentRoute: () => authedRoute,
-  id: "page",
-  component: PageShell,
-});
-
 const homeRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/",
   component: HomePage,
 });
+// Configurações em tela cheia (layout próprio, sem a barra de servidores). `/settings` é a lista no celular
+// e vai para o perfil no desktop (o layout decide); as seções são rotas irmãs para deep link.
+const settingsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/settings",
+  component: SettingsLayout,
+});
+const settingsIndexRoute = createRoute({ getParentRoute: () => settingsRoute, path: "/" });
 const profileRoute = createRoute({
-  getParentRoute: () => pageRoute,
-  path: "/settings/profile",
+  getParentRoute: () => settingsRoute,
+  path: "profile",
   component: ProfilePage,
 });
-
 const notificationsRoute = createRoute({
-  getParentRoute: () => pageRoute,
-  path: "/settings/notifications",
+  getParentRoute: () => settingsRoute,
+  path: "notifications",
   component: NotificationsPage,
 });
-
-// Só tem efeito no desktop (bandeja, início com o sistema); na web a página apenas explica.
+const voiceSettingsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "voice",
+  component: VoiceSettingsPage,
+});
+const appearanceRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "appearance",
+  component: AppearancePage,
+});
+// Só tem efeito no desktop (bandeja, início com o sistema); na web a seção some da navegação e a rota apenas explica.
 const appSettingsRoute = createRoute({
-  getParentRoute: () => pageRoute,
-  path: "/settings/app",
+  getParentRoute: () => settingsRoute,
+  path: "app",
   component: AppSettingsPage,
+});
+
+// Endereço antigo do perfil.
+const legacyProfileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/profile",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/profile", replace: true });
+  },
 });
 
 const guildRoute = createRoute({
@@ -206,9 +226,17 @@ const routeTree = rootRoute.addChildren([
   adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminServersRoute, adminCallsRoute]),
   loginRoute,
   registerRoute,
+  legacyProfileRoute,
   authedRoute.addChildren([
     homeRoute,
-    pageRoute.addChildren([profileRoute, notificationsRoute, appSettingsRoute]),
+    settingsRoute.addChildren([
+      settingsIndexRoute,
+      profileRoute,
+      notificationsRoute,
+      voiceSettingsRoute,
+      appearanceRoute,
+      appSettingsRoute,
+    ]),
     dmRoute.addChildren([dmIndexRoute, dmChannelRoute]),
     guildRoute.addChildren([guildIndexRoute, channelRoute]),
     inviteRoute,

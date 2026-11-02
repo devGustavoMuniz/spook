@@ -1,6 +1,6 @@
 import { useGetMe } from "@spook/shared";
-import { Link } from "@tanstack/react-router";
-import { ChevronUp, Smile } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronUp, Settings, Smile, UserRound } from "lucide-react";
 import { useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { PresenceDot, statusLabel } from "@/components/presence-dot";
@@ -29,6 +29,7 @@ export function UserPanel() {
   const status = usePresence(me?.id);
   const custom = useCustomStatus(me?.id);
   const [editing, setEditing] = useState(false);
+  const navigate = useNavigate();
   if (!me) return null;
   const name = me.display_name || me.username;
   return (
@@ -56,6 +57,14 @@ export function UserPanel() {
           </span>
         </Link>
         <VoiceUserControls />
+        <Link
+          to="/settings/profile"
+          aria-label="Configurações do usuário"
+          title="Configurações do usuário"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Settings className="size-4" aria-hidden />
+        </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -89,6 +98,13 @@ export function UserPanel() {
                 Limpar status personalizado
               </DropdownMenuItem>
             ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void navigate({ to: "/settings/profile" })}>
+              <UserRound /> Meu perfil
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void navigate({ to: "/settings" })}>
+              <Settings /> Configurações
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <CustomStatusDialog open={editing} onOpenChange={setEditing} />

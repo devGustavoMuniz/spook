@@ -1,5 +1,5 @@
+import { Monitor } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
@@ -9,6 +9,7 @@ import {
   setAppSettings,
   shellErrorMessage,
 } from "@/desktop/shell";
+import { SettingsGroup } from "@/features/settings/ui";
 
 type Key = keyof AppSettings;
 
@@ -35,14 +36,11 @@ export function AppSettingsPage() {
   return isTauri() ? (
     <DesktopOptions />
   ) : (
-    <Card>
-      <CardHeader>
-        <CardTitle>Aplicativo</CardTitle>
-        <CardDescription>
-          Estas opções (bandeja, início com o sistema) existem só no app para computador.
-        </CardDescription>
-      </CardHeader>
-    </Card>
+    <SettingsGroup
+      icon={Monitor}
+      title="Só no app para computador"
+      description="Estas opções (bandeja, início com o sistema) existem só no app para computador."
+    />
   );
 }
 
@@ -76,34 +74,30 @@ function DesktopOptions() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Aplicativo</CardTitle>
-        <CardDescription>
-          Como o Spook se comporta no seu computador. Estas escolhas valem só neste dispositivo.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        {OPTIONS.map(({ key, label, hint }) => (
-          <div key={key} className="flex items-center justify-between gap-4">
-            <Label htmlFor={`app-${key}`} className="flex flex-col gap-1">
-              {label}
-              <span className="text-xs font-normal text-muted-foreground">{hint}</span>
-            </Label>
-            <Switch
-              id={`app-${key}`}
-              checked={settings?.[key] ?? false}
-              disabled={!settings || busy}
-              onCheckedChange={(v) => void change(key, v)}
-            />
-          </div>
-        ))}
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+    <SettingsGroup
+      icon={Monitor}
+      title="Comportamento"
+      description="Como o Spook se comporta no seu computador. Estas escolhas valem só neste dispositivo."
+    >
+      {OPTIONS.map(({ key, label, hint }) => (
+        <div key={key} className="flex items-center justify-between gap-4">
+          <Label htmlFor={`app-${key}`} className="flex flex-col gap-1">
+            {label}
+            <span className="text-xs font-normal text-muted-foreground">{hint}</span>
+          </Label>
+          <Switch
+            id={`app-${key}`}
+            checked={settings?.[key] ?? false}
+            disabled={!settings || busy}
+            onCheckedChange={(v) => void change(key, v)}
+          />
+        </div>
+      ))}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive-text">
+          {error}
+        </p>
+      ) : null}
+    </SettingsGroup>
   );
 }

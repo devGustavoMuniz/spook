@@ -352,6 +352,7 @@ test("DM fora de vista: badge no Início, toast e silenciar notificações", asy
   // silenciado: sem toast novo (a contagem segue)
   await b.page.goto("/settings/notifications");
   await b.page.getByRole("switch", { name: /Silenciar notificações/ }).click();
+  await b.page.getByRole("button", { name: "Fechar configurações" }).click();
   await b.page.getByRole("link", { name: "Início" }).first().click();
   await expect(b.page.getByRole("heading", { name: "Mensagens diretas" })).toBeVisible();
   await composer.fill("segunda mensagem");

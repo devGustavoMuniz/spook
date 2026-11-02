@@ -7,14 +7,15 @@ import {
   type View,
 } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
+import { AtSign, Image as ImageIcon, Mail, UserRound } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Avatar } from "@/components/avatar";
 import { describedBy, Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SettingsGroup } from "@/features/settings/ui";
 import { applyServerError, messageFor } from "@/lib/errors";
 import { type ProfileForm, profileSchema, validateAvatar } from "@/lib/schemas";
 import { putWithProgress } from "@/lib/upload";
@@ -26,6 +27,7 @@ export function ProfilePage() {
     <div className="flex flex-col gap-6">
       <AvatarCard me={me} />
       <NameCard me={me} />
+      <AccountCard me={me} />
     </div>
   );
 }
@@ -62,30 +64,60 @@ function NameCard({ me }: { me: View }) {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Nome de exibição</CardTitle>
-        <CardDescription>
-          Como você aparece para os outros. Deixe em branco para usar @{me.username}.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-          <Field id="display_name" label="Nome de exibição" error={errors.display_name?.message}>
-            <Input
-              id="display_name"
-              maxLength={32}
-              aria-invalid={!!errors.display_name}
-              aria-describedby={describedBy("display_name", errors.display_name?.message)}
-              {...register("display_name")}
-            />
-          </Field>
-          <Button type="submit" className="self-start" disabled={isSubmitting}>
-            {isSubmitting ? "Salvando…" : "Salvar"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <SettingsGroup
+      icon={UserRound}
+      title="Nome de exibição"
+      description={`Como você aparece para os outros. Deixe em branco para usar @${me.username}.`}
+    >
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+        <Field id="display_name" label="Nome de exibição" error={errors.display_name?.message}>
+          <Input
+            id="display_name"
+            maxLength={32}
+            aria-invalid={!!errors.display_name}
+            aria-describedby={describedBy("display_name", errors.display_name?.message)}
+            {...register("display_name")}
+          />
+        </Field>
+        <Button type="submit" className="self-start" loading={isSubmitting}>
+          Salvar
+        </Button>
+      </form>
+    </SettingsGroup>
+  );
+}
+
+function ReadOnly({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof AtSign;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <dt className="w-24 shrink-0 text-sm text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate text-sm font-medium">{value}</dd>
+    </div>
+  );
+}
+
+/** Dados que ainda não dá para editar: só leitura. */
+function AccountCard({ me }: { me: View }) {
+  return (
+    <SettingsGroup
+      icon={AtSign}
+      title="Conta"
+      description="Seu nome de usuário e e-mail identificam você no Spook. Por enquanto não dá para alterá-los."
+    >
+      <dl className="flex flex-col gap-3">
+        <ReadOnly icon={AtSign} label="Usuário" value={`@${me.username}`} />
+        <ReadOnly icon={Mail} label="E-mail" value={me.email} />
+      </dl>
+    </SettingsGroup>
   );
 }
 
@@ -136,12 +168,8 @@ function AvatarCard({ me }: { me: View }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Avatar</CardTitle>
-        <CardDescription>PNG, JPEG ou WebP, de até 5 MB.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-4">
+    <SettingsGroup icon={ImageIcon} title="Avatar" description="PNG, JPEG ou WebP, de até 5 MB.">
+      <div className="flex flex-wrap items-center gap-4">
         <Avatar url={me.avatar_url} name={name} size={80} />
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
@@ -182,7 +210,7 @@ function AvatarCard({ me }: { me: View }) {
             </p>
           ) : null}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsGroup>
   );
 }

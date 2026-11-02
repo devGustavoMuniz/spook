@@ -1,14 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { Bell, BellOff } from "lucide-react";
+import { Bell, BellOff, BellRing, MessageSquareDot, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
 import { useNotificationPrefs } from "@/features/notifications/prefs";
 import { NotificationDefaultsCard } from "@/features/notifications/settings-card";
 import type { PushStatus } from "@/features/push/push";
 import { usePushSettings } from "@/features/push/use-push";
+import { SettingRow, SettingsGroup } from "@/features/settings/ui";
 
 /** `/settings/notifications`: silenciar avisos in-app e ativar o push neste dispositivo. */
 export function NotificationsPage() {
@@ -25,46 +24,34 @@ function InAppCard() {
   const muted = useNotificationPrefs((s) => s.muted);
   const setMuted = useNotificationPrefs((s) => s.setMuted);
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Avisos no app</CardTitle>
-        <CardDescription>
-          Enquanto o Spook está aberto, mostramos um aviso quando chega uma mensagem direta ou uma
-          menção em um canal que você não está vendo.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex items-center justify-between gap-4">
-        <Label htmlFor="mute-notifications" className="flex flex-col gap-1">
-          Silenciar notificações
-          <span className="text-xs font-normal text-muted-foreground">
-            Vale só neste navegador ou app. As contagens de não lidas continuam aparecendo.
-          </span>
-        </Label>
+    <SettingsGroup
+      icon={MessageSquareDot}
+      title="Avisos no app"
+      description="Enquanto o Spook está aberto, mostramos um aviso quando chega uma mensagem direta ou uma menção em um canal que você não está vendo."
+    >
+      <SettingRow
+        htmlFor="mute-notifications"
+        label="Silenciar notificações"
+        hint="Vale só neste navegador ou app. As contagens de não lidas continuam aparecendo."
+      >
         <Switch id="mute-notifications" checked={muted} onCheckedChange={setMuted} />
-      </CardContent>
-    </Card>
+      </SettingRow>
+    </SettingsGroup>
   );
 }
 
 /** No app desktop não há Web Push: os avisos saem como notificações nativas do sistema. */
 function NativeCard() {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Notificações do sistema</CardTitle>
-        <CardDescription>
-          Este app usa notificações nativas do sistema. Quando o Spook não está em foco, mensagens
-          diretas e menções aparecem como notificações do seu sistema operacional. Para ajustar ou
-          bloquear, use as configurações de notificações do sistema. Ao clicar numa notificação, o
-          Spook volta à frente e abre a conversa dela.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/settings/app">Bandeja e início com o sistema</Link>
-        </Button>
-      </CardContent>
-    </Card>
+    <SettingsGroup
+      icon={MonitorSmartphone}
+      title="Notificações do sistema"
+      description="Este app usa notificações nativas do sistema. Quando o Spook não está em foco, mensagens diretas e menções aparecem como notificações do seu sistema operacional. Para ajustar ou bloquear, use as configurações de notificações do sistema. Ao clicar numa notificação, o Spook volta à frente e abre a conversa dela."
+    >
+      <Button asChild variant="outline" size="sm" className="self-start">
+        <Link to="/settings/app">Bandeja e início com o sistema</Link>
+      </Button>
+    </SettingsGroup>
   );
 }
 
@@ -83,44 +70,39 @@ const STATUS_TEXT: Record<PushStatus, string> = {
 function PushCard() {
   const { status, busy, error, enable, disable } = usePushSettings();
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Notificações push</CardTitle>
-        <CardDescription>
-          Receba mensagens diretas e menções mesmo com o Spook fechado. O aviso só chega quando você
-          não está com o app aberto, e o navegador vai pedir sua permissão ao ativar.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <output className="flex items-start gap-2 text-sm" data-status={status}>
-          {status === "active" ? (
-            <Bell
-              className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
-              aria-hidden
-            />
-          ) : (
-            <BellOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-          )}
-          <span>{STATUS_TEXT[status]}</span>
-        </output>
-        <div className="flex gap-2">
-          {status === "inactive" ? (
-            <Button onClick={() => void enable()} disabled={busy}>
-              {busy ? "Ativando…" : "Ativar notificações"}
-            </Button>
-          ) : null}
-          {status === "active" ? (
-            <Button variant="outline" onClick={() => void disable()} disabled={busy}>
-              {busy ? "Desativando…" : "Desativar notificações"}
-            </Button>
-          ) : null}
-        </div>
-        {error ? (
-          <p role="alert" className="text-sm text-destructive-text">
-            {error}
-          </p>
+    <SettingsGroup
+      icon={BellRing}
+      title="Notificações push"
+      description="Receba mensagens diretas e menções mesmo com o Spook fechado. O aviso só chega quando você não está com o app aberto, e o navegador vai pedir sua permissão ao ativar."
+    >
+      <output
+        className="flex items-start gap-2 rounded-lg bg-surface-1 px-3 py-2.5 text-sm"
+        data-status={status}
+      >
+        {status === "active" ? (
+          <Bell className="mt-0.5 size-4 shrink-0 text-success-text" aria-hidden />
+        ) : (
+          <BellOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        )}
+        <span>{STATUS_TEXT[status]}</span>
+      </output>
+      <div className="flex gap-2">
+        {status === "inactive" ? (
+          <Button onClick={() => void enable()} loading={busy}>
+            Ativar notificações
+          </Button>
         ) : null}
-      </CardContent>
-    </Card>
+        {status === "active" ? (
+          <Button variant="outline" onClick={() => void disable()} loading={busy}>
+            Desativar notificações
+          </Button>
+        ) : null}
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive-text">
+          {error}
+        </p>
+      ) : null}
+    </SettingsGroup>
   );
 }

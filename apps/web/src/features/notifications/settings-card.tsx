@@ -1,9 +1,10 @@
 import { useGetMe, useListGuilds } from "@spook/shared";
+import { BellOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { dmTitle } from "@/features/dms/dm-utils";
 import { useDms } from "@/features/dms/use-dms";
+import { SettingsGroup } from "@/features/settings/ui";
 import { appMessage } from "@/lib/app-errors";
 import {
   defaultLevel,
@@ -48,52 +49,43 @@ export function NotificationDefaultsCard() {
     .sort((a, b) => nameOf(a.scope, a.target_id).localeCompare(nameOf(b.scope, b.target_id)));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Silenciados e níveis</CardTitle>
-        <CardDescription>
-          Padrão dos servidores: {levelLabel(defaultLevel(true)).toLowerCase()}. Padrão das
-          conversas diretas: {levelLabel(defaultLevel(false)).toLowerCase()}. Para mudar, abra o
-          menu do servidor, do canal ou da conversa. Silenciar e o nível só mudam os avisos: as
-          contagens de não lidas e menções continuam aparecendo.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nada personalizado por enquanto.</p>
-        ) : (
-          <ul className="flex flex-col divide-y">
-            {rows.map((e) => (
-              <li key={`${e.scope}:${e.target_id}`} className="flex items-center gap-3 py-2">
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm font-medium">
-                    {nameOf(e.scope, e.target_id)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {[
-                      isMutedEntry(e) ? mutedText(e.muted_until) : null,
-                      e.level ? levelLabel(e.level) : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
+    <SettingsGroup
+      icon={BellOff}
+      title="Silenciados e níveis"
+      description={`Padrão dos servidores: ${levelLabel(defaultLevel(true)).toLowerCase()}. Padrão das conversas diretas: ${levelLabel(defaultLevel(false)).toLowerCase()}. Para mudar, abra o menu do servidor, do canal ou da conversa. Silenciar e o nível só mudam os avisos: as contagens de não lidas e menções continuam aparecendo.`}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nada personalizado por enquanto.</p>
+      ) : (
+        <ul className="flex flex-col divide-y">
+          {rows.map((e) => (
+            <li key={`${e.scope}:${e.target_id}`} className="flex items-center gap-3 py-2">
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-medium">{nameOf(e.scope, e.target_id)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {[
+                    isMutedEntry(e) ? mutedText(e.muted_until) : null,
+                    e.level ? levelLabel(e.level) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void resetSetting(e.scope, e.target_id).catch((err) =>
-                      toast.error(appMessage(err)),
-                    )
-                  }
-                >
-                  Restaurar padrão
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  void resetSetting(e.scope, e.target_id).catch((err) =>
+                    toast.error(appMessage(err)),
+                  )
+                }
+              >
+                Restaurar padrão
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SettingsGroup>
   );
 }

@@ -15,9 +15,13 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return <div className={cn("flex flex-col gap-1.5 px-6", className)} {...props} />;
 }
-function CardTitle({ className, ...props }: React.ComponentProps<"h1">) {
+function CardTitle({
+  className,
+  as: Tag = "h1",
+  ...props
+}: React.ComponentProps<"h1"> & { as?: "h1" | "h2" | "h3" }) {
   return (
-    <h1
+    <Tag
       className={cn("text-xl leading-tight font-semibold tracking-tight", className)}
       {...props}
     />
