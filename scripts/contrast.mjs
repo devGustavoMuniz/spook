@@ -6,7 +6,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../packages/brand/src/tokens.css"), "utf8");
+const css = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../packages/brand/src/tokens.css"),
+  "utf8",
+);
 
 function block(selector) {
   const m = css.match(new RegExp(`${selector}\\s*\\{([\\s\\S]*?)\\n\\}`));
@@ -63,7 +66,10 @@ let failed = 0;
 const rows = [];
 for (const [label, fg, bgs, min] of pairs) {
   const out = [];
-  for (const [theme, vars] of [["claro", light], ["escuro", dark]]) {
+  for (const [theme, vars] of [
+    ["claro", light],
+    ["escuro", dark],
+  ]) {
     const f = resolve(vars, fg);
     const results = bgs.map((b) => ratio(f, resolve(vars, b)));
     const worst = Math.min(...results);
@@ -73,11 +79,19 @@ for (const [label, fg, bgs, min] of pairs) {
   rows.push([label, fg, resolve(light, fg), resolve(dark, fg), out[0], out[1], `${min}:1`]);
 }
 if (md) {
-  console.log("| Par | Token | Claro | Escuro | Pior contraste (claro) | Pior contraste (escuro) | Mínimo |");
+  console.log(
+    "| Par | Token | Claro | Escuro | Pior contraste (claro) | Pior contraste (escuro) | Mínimo |",
+  );
   console.log("| --- | --- | --- | --- | --- | --- | --- |");
-  for (const r of rows) console.log(`| ${r[0]} | \`${r[1]}\` | \`${r[2]}\` | \`${r[3]}\` | ${r[4]} | ${r[5]} | ${r[6]} |`);
+  for (const r of rows)
+    console.log(
+      `| ${r[0]} | \`${r[1]}\` | \`${r[2]}\` | \`${r[3]}\` | ${r[4]} | ${r[5]} | ${r[6]} |`,
+    );
 } else {
-  for (const r of rows) console.log(`${r[0].padEnd(34)} claro ${r[4].padEnd(10)} escuro ${r[5].padEnd(10)} (mín. ${r[6]})`);
+  for (const r of rows)
+    console.log(
+      `${r[0].padEnd(34)} claro ${r[4].padEnd(10)} escuro ${r[5].padEnd(10)} (mín. ${r[6]})`,
+    );
 }
 if (failed) {
   console.error(`${failed} par(es) abaixo do mínimo`);

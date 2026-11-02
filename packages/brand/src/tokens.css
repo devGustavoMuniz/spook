@@ -83,7 +83,8 @@
   --elev-md: 0 4px 10px -2px rgb(38 27 71 / 0.1), 0 2px 4px -2px rgb(38 27 71 / 0.06);
   --elev-lg: 0 12px 28px -6px rgb(38 27 71 / 0.16), 0 4px 8px -4px rgb(38 27 71 / 0.08);
   --elev-xl: 0 28px 56px -12px rgb(38 27 71 / 0.28), 0 8px 16px -8px rgb(38 27 71 / 0.12);
-  --elev-glow: 0 0 0 1px rgb(124 92 196 / 0.35), 0 0 18px 2px rgb(124 92 196 / 0.28); /* brilho do mascote, só para realces */
+  --elev-glow:
+    0 0 0 1px rgb(124 92 196 / 0.35), 0 0 18px 2px rgb(124 92 196 / 0.28); /* brilho do mascote, só para realces */
   --elev-speaking: 0 0 0 2px var(--speaking), 0 0 14px 1px rgb(24 138 63 / 0.4);
 
   /* ---- z-index ---- */
