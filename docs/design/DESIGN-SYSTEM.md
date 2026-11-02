@@ -115,8 +115,32 @@ Ilustrações (`components/illustrations/`, cada uma bem abaixo de 4 KB): `Empty
 - Estado vazio: `EmptyState` com ilustração e uma ação.
 - Antes de subir: `node scripts/contrast.mjs` (falha se algum par dos tokens ficar abaixo de AA).
 
+## Shell (barra de servidores, canais e responsividade)
+
+Código em `apps/web/src/components/shell.tsx` e `components/authed-layout.tsx`. Desktop (>= 768 px) é o fluxo de sempre: barra de servidores (72 px) + lista lateral (240 px) + conteúdo + membros (>= 1024 px). Abaixo disso o app é usável assim:
+
+- **< 768 px: drawer de navegação.** Barra de servidores e lista lateral (canais ou DMs) ficam num único painel que desliza pela esquerda (`Drawer`, `role="dialog"`, `aria-modal`, foco preso e devolvido ao botão, Esc, toque no fundo e navegação para um canal fecham; `inert` quando fechado e `inert` no conteúdo quando aberto). Escolher um **servidor** na barra mantém o drawer aberto para mostrar os canais dele (`holdNav`). Só `transform` e `opacity` animam; `100dvh` e `env(safe-area-inset-*)` já estão aplicados (`viewport-fit=cover`).
+- **< 1024 px: membros viram sheet pela direita**, aberto por `MembersToggle` (`lg:hidden`).
+- Sem `matchMedia` (jsdom) vale o layout de desktop; os testes simulam a largura (veja `src/shell.test.tsx`).
+
+Como as próximas etapas devem usar (nenhuma reimplementa drawer, medição ou foco):
+
+| Âncora | Uso |
+| --- | --- |
+| `NavToggle` | Primeiro item do **cabeçalho** de toda tela do app (`<header>` do canal, da DM, da voz, páginas). Só aparece < 768 px. Telas sem cabeçalho (avisos, vazios) usam `<NavToggle className="absolute top-2 left-4" />` (`Notice` já faz). |
+| `MembersToggle` | Botão do cabeçalho do canal de servidor que abre o painel de membros < 1024 px. |
+| `ShellSidebar` | Envolve a lista lateral esquerda de uma tela (`ChannelSidebar`, `DmSidebar`). Em desktop é no fluxo; em tela estreita é montado dentro do drawer (portal). A largura/borda continuam no elemento filho. |
+| `SideSheet label className` | Painel lateral direito (membros; fixadas/detalhes no futuro). `className` é o visual de desktop (largura, borda, fundo); abaixo de 1024 px o conteúdo vai para um `Drawer` à direita. O conteúdo deve preencher a altura (`min-h-0 flex-1`, lista com `overflow-y-auto`). |
+| `Drawer open onClose side label` | Primitiva para novos painéis modais laterais; use no lugar de criar outro. |
+| `useShell()` | `compact`, `navOpen/setNavOpen`, `membersOpen/setMembersOpen`. `null` fora da área autenticada. |
+| `useMediaQuery(NAV_COMPACT_QUERY \| SIDE_COMPACT_QUERY)` | Para decisões de layout em JS; prefira classes `md:`/`lg:` quando bastar CSS. |
+
+Regras do conteúdo: o contêiner do conteúdo é `min-w-0 flex-1` com altura da tela (`h-dvh`); telas devem rolar **por dentro** (lista de mensagens, painéis), nunca a página. Cabeçalho do canal: `h-12`, `NavToggle` à esquerda, ações à direita (`ml-auto`), `truncate` no título.
+
+Barra de servidores: pílula lateral (ativo alto; hover/foco médio; não lidas ponto), ícone circular que vira quadrado arredondado, dica à direita (120 ms), badge vermelho de menções (99+), servidor silenciado atenuado com sino, cor/iniciais derivadas do id quando não há ícone, ação "+" em verde. Lista de canais: categorias recolhíveis (estado por servidor em `localStorage` `spook:collapsed-categories:<id>`, com try/catch; recolhida mantém visíveis o canal aberto, os com novidades e a voz com gente), ativo em `brand-500/15`, não lidas em semibold + marcador lateral, participantes de voz aninhados com anel `speaking` animado.
+
 ## Pendências para as etapas seguintes
 
 - Avatar sem imagem continua com a mini logo (SPEC 9.4); a troca para iniciais coloridas é uma decisão por tela (a API já suporta).
 - Cores de cargo vêm do servidor (`color`) e não passam por garantia de contraste; as telas devem escolher texto/fundo conforme a luminância.
-- O app não é responsivo ainda (P0 da auditoria): barras e painéis precisam virar drawers em telas estreitas.
+- Shell responsivo feito (seção "Shell"); o conteúdo do chat, membros e fixadas ainda precisa ser revisto para 390 px nas etapas seguintes.

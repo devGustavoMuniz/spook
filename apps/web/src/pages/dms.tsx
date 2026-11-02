@@ -4,6 +4,7 @@ import { MessageCircle, Users } from "lucide-react";
 import { useState } from "react";
 import { Notice } from "@/components/notice";
 import { PresenceDot, StatusAvatar, statusLabel } from "@/components/presence-dot";
+import { NavToggle } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { DmSidebar } from "@/features/dms/dm-sidebar";
 import { dmTitle, isGroupDm, otherRecipient, recipientsOf } from "@/features/dms/dm-utils";
@@ -35,7 +36,8 @@ export function DmIndex() {
   const [creating, setCreating] = useState(false);
   if (dms.isPending) return null;
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+    <div className="relative flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+      <NavToggle className="absolute top-2 left-4" />
       <MessageCircle className="size-12 text-muted-foreground" aria-hidden />
       <div>
         <h1 className="text-lg font-semibold">
@@ -82,6 +84,7 @@ export function DmPage() {
   return (
     <>
       <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-4">
+        <NavToggle />
         {group ? (
           <Users className="size-5 text-muted-foreground" aria-hidden />
         ) : (

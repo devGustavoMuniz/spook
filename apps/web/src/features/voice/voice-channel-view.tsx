@@ -1,6 +1,7 @@
 import type { ChannelPayload } from "@spook/shared";
 import { Phone, Volume2 } from "lucide-react";
 import { Notice } from "@/components/notice";
+import { NavToggle } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import type { Guild } from "@/lib/guild";
 import { useCallParticipants } from "./call-panel";
@@ -23,6 +24,7 @@ export function VoiceChannelView({ guild, channel }: { guild: Guild; channel: Ch
   return (
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+        <NavToggle />
         <Volume2 className="size-5 text-muted-foreground" aria-hidden />
         <h1 className="truncate font-semibold">{channel.name}</h1>
         <div className="ml-auto">

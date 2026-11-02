@@ -24,7 +24,7 @@ import {
 //   DESIGN_OUT=antes pnpm --filter @spook/web exec playwright test -c design/playwright.config.ts design/capture.spec.ts
 //
 // Opcional: DESIGN_PROMOTE_CMD (com {username}) promove o admin para /admin; o padrão usa o Postgres do
-// Compose. DESIGN_ONLY=chave filtra as telas (substring do nome). É idempotente: cada execução cria
+// Compose. DESIGN_ONLY=chave[,chave] filtra as telas (substring do nome; a numeração dos arquivos não muda). É idempotente: cada execução cria
 // contas e servidores novos (sufixo único). Telas que não puderem ser capturadas vão para `_falhas.txt`.
 
 const OUT = process.env.DESIGN_OUT ?? "antes";
@@ -337,8 +337,8 @@ async function newPass(
 
 /** Espera o app estabilizar e salva o PNG como NN-tela-tema-viewport.png. */
 async function shot(page: Page, screen: string, theme: string, vp: string) {
-  if (ONLY && !screen.includes(ONLY)) return;
   if (!numbers.has(screen)) numbers.set(screen, numbers.size + 1);
+  if (ONLY && !ONLY.split(",").some((k) => screen.includes(k.trim()))) return;
   const name = `${String(numbers.get(screen)).padStart(2, "0")}-${screen}-${theme}-${vp}.png`;
   await page.waitForLoadState("networkidle").catch(() => undefined);
   await page.waitForTimeout(500);
@@ -357,6 +357,15 @@ async function step(label: string, vp: string, theme: string, fn: () => Promise<
 async function open(page: Page, url: string) {
   await page.goto(url);
   await page.waitForLoadState("domcontentloaded");
+}
+
+/** Em 390 px a navegação é um drawer: abre se estiver fechado (idempotente). */
+async function openNav(page: Page, vp: (typeof VIEWPORTS)[number]) {
+  if (vp.width >= 768) return;
+  const drawer = page.getByRole("dialog", { name: "Navegação", includeHidden: true });
+  if ((await drawer.getAttribute("data-state")) === "open") return;
+  await page.getByRole("button", { name: "Abrir menu de navegação" }).first().click();
+  await page.waitForTimeout(350);
 }
 
 const chUrl = (id: string) => `/channels/${guildId}/${id}`;
@@ -385,7 +394,7 @@ test("captura de telas", async ({ browser }) => {
       });
       await step("login-erro", vk, theme, async () => {
         await ap.getByLabel("E-mail").fill("ninguem@spook.dev");
-        await ap.getByLabel("Senha").fill("senha-errada-123");
+        await ap.getByLabel("Senha", { exact: true }).fill("senha-errada-123");
         await ap
           .getByRole("button", { name: /entrar/i })
           .first()
@@ -460,9 +469,7 @@ test("captura de telas", async ({ browser }) => {
         await shot(page, "canal-texto-topo-mensagens-antigas", theme, vk);
       });
       await step("membros", vk, theme, async () => {
-        const members = page
-          .getByRole("complementary", { name: "Membros" })
-          .or(page.getByLabel("Membros"));
+        const members = page.getByRole("complementary", { name: "Membros" });
         if (
           !(await members
             .first()
@@ -507,9 +514,60 @@ test("captura de telas", async ({ browser }) => {
         await shot(page, "canal-texto-com-mencao", theme, vk);
       });
 
+      // Barra de servidores e lista de canais (repaginação: etapas b/c/d)
+      await step("rail-hover", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        await expect(page.getByRole("log").first()).toBeVisible();
+        if (vp.width >= 768) {
+          await page
+            .getByRole("navigation", { name: "Servidores" })
+            .getByRole("link")
+            .nth(1)
+            .hover();
+          await page.waitForTimeout(400);
+          await shot(page, "barra-servidores-hover", theme, vk);
+        }
+      });
+      await step("categoria-recolhida", vk, theme, async () => {
+        const nav = page.getByRole("navigation", { name: "Canais" });
+        if (vp.width < 768) {
+          await page.getByRole("button", { name: "Abrir menu de navegação" }).click();
+          await page.waitForTimeout(400);
+          await shot(page, "drawer-aberto", theme, vk);
+        }
+        await nav
+          .getByRole("button", { name: /^(Canais|Texto)/i })
+          .first()
+          .click();
+        await page.waitForTimeout(300);
+        await shot(page, "categoria-recolhida", theme, vk);
+        await nav
+          .getByRole("button", { name: /^(Canais|Texto)/i })
+          .first()
+          .click();
+        if (vp.width < 768) await page.keyboard.press("Escape");
+      });
+      await step("drawer-dms", vk, theme, async () => {
+        await open(page, "/channels/@me");
+        if (vp.width < 768) {
+          await page.getByRole("button", { name: "Abrir menu de navegação" }).first().click();
+          await page.waitForTimeout(400);
+          await shot(page, "drawer-dms", theme, vk);
+        }
+      });
+      await step("membros-sheet", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        if (vp.width < 1024) {
+          await page.getByRole("button", { name: "Mostrar membros" }).click();
+          await page.waitForTimeout(400);
+          await shot(page, "membros-sheet", theme, vk);
+        }
+      });
+
       // Diálogos do servidor
       await step("menu-servidor", vk, theme, async () => {
         await open(page, chUrl(ids.general));
+        await openNav(page, vp);
         await page
           .getByRole("button", { name: /Menu do servidor/ })
           .first()
@@ -551,6 +609,7 @@ test("captura de telas", async ({ browser }) => {
         await page.keyboard.press("Escape");
       });
       await step("criar-canal", vk, theme, async () => {
+        await openNav(page, vp);
         await page
           .getByRole("button", { name: /Menu do servidor/ })
           .first()
@@ -561,11 +620,13 @@ test("captura de telas", async ({ browser }) => {
         await page.keyboard.press("Escape");
       });
       await step("adicionar-servidor", vk, theme, async () => {
+        await openNav(page, vp);
         await page.getByRole("button", { name: "Adicionar um servidor" }).click();
         await shot(page, "dialogo-adicionar-servidor", theme, vk);
         await page.keyboard.press("Escape");
       });
       await step("membro-opcoes", vk, theme, async () => {
+        await openNav(page, vp);
         await page
           .getByRole("button", { name: /^Opções de / })
           .first()
@@ -586,6 +647,7 @@ test("captura de telas", async ({ browser }) => {
       });
       await step("dm-grupo", vk, theme, async () => {
         await open(page, "/channels/@me");
+        await openNav(page, vp);
         await page.getByRole("button", { name: "Nova conversa em grupo" }).click();
         await shot(page, "dialogo-novo-grupo", theme, vk);
         await page.keyboard.press("Escape");
@@ -605,6 +667,7 @@ test("captura de telas", async ({ browser }) => {
       }
       await step("painel-usuario", vk, theme, async () => {
         await open(page, chUrl(ids.general));
+        await openNav(page, vp);
         await page
           .getByRole("button", { name: /status|presença/i })
           .first()
@@ -662,6 +725,7 @@ test("captura de telas", async ({ browser }) => {
           .getByRole("button", { name: /Sala de estudos \(canal de voz/ });
       await step("voz-sozinho", vk, theme, async () => {
         await open(page, chUrl(ids.general));
+        await openNav(page, vp);
         await voiceBtn(page).click();
         await expect(page.getByText("Voz conectada")).toBeVisible({ timeout: 25_000 });
         await shot(page, "voz-sozinho", theme, vk);
@@ -680,6 +744,7 @@ test("captura de telas", async ({ browser }) => {
         await shot(page, "voz-com-outras-pessoas", theme, vk);
       });
       await step("voz-camera", vk, theme, async () => {
+        await openNav(page, vp);
         const bar = page.getByRole("region", { name: "Controles de voz" });
         await bar.getByRole("button", { name: "Ligar câmera" }).click();
         await bPage
@@ -699,6 +764,7 @@ test("captura de telas", async ({ browser }) => {
         await shot(page, "voz-tela-compartilhada", theme, vk);
       });
       await step("voz-dispositivos", vk, theme, async () => {
+        await openNav(page, vp);
         await page
           .getByRole("region", { name: "Controles de voz" })
           .getByRole("button", {

@@ -11,6 +11,7 @@ import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { StatusAvatar } from "@/components/presence-dot";
+import { SideSheet } from "@/components/shell";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,10 +63,7 @@ export function MembersPanel({ guild }: { guild: Guild }) {
   const canAssign = rolesOf(guild).some((r) => !r.is_everyone && canManageRole(guild, r));
 
   return (
-    <aside
-      aria-label="Membros"
-      className="hidden w-60 shrink-0 flex-col border-l bg-sidebar lg:flex"
-    >
+    <SideSheet label="Membros" className="w-60 shrink-0 flex-col border-l bg-sidebar">
       <h2 className="px-4 pt-4 pb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         Membros{members.data ? ` — ${list.length}` : ""}
       </h2>
@@ -142,7 +140,7 @@ export function MembersPanel({ guild }: { guild: Guild }) {
       ) : null}
       <MemberRolesDialog guild={guild} member={rolesFor} onClose={() => setRolesFor(null)} />
       <KickDialog guild={guild} member={kicking} onClose={() => setKicking(null)} />
-    </aside>
+    </SideSheet>
   );
 }
 

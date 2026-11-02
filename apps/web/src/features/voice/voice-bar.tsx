@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   leaveCall,
@@ -64,8 +65,8 @@ export function QualityIndicator({ quality }: { quality: LinkQuality }) {
             "w-1 rounded-sm",
             n <= bars
               ? quality === "poor" || quality === "lost"
-                ? "bg-amber-500"
-                : "bg-emerald-500"
+                ? "bg-warning"
+                : "bg-success"
               : "bg-muted-foreground/30",
           )}
         />
@@ -101,7 +102,7 @@ function useCallPermissions() {
 export function VoiceDock({ children }: { children: React.ReactNode }) {
   const inCall = useInCall();
   return inCall ? (
-    <section aria-label="Controles de voz" className="shrink-0 border-t bg-sidebar">
+    <section aria-label="Controles de voz" className="shrink-0 border-t bg-surface-2/60">
       {children}
     </section>
   ) : (
@@ -115,13 +116,14 @@ export function VoiceCallCard() {
   const perms = useCallPermissions();
   const guilds = useListGuilds();
   const [shareDialog, setShareDialog] = useState(false);
+  const [devices, setDevices] = useState(false);
   if (s.status === "idle" || !s.channelId) return null;
 
   const guild = s.guildId ? guilds.data?.find((g) => g.id === s.guildId) : null;
   const live = s.status === "connected";
   const videoBlocked = !perms.video;
 
-  const linkClass = "truncate text-xs text-muted-foreground hover:underline";
+  const linkClass = "truncate text-xs font-medium text-foreground hover:underline";
   const channelLink = s.guildId ? (
     <Link
       to="/channels/$guildId/$channelId"
@@ -137,16 +139,14 @@ export function VoiceCallCard() {
   );
 
   return (
-    <div className="mx-2 mt-2 flex flex-col gap-1 rounded-md bg-muted/50 p-2">
-      <div className="flex items-center gap-2">
+    <div className="mx-2 mt-2 flex flex-col gap-2 rounded-xl border bg-card p-2.5 shadow-xs">
+      <div className="flex items-center gap-2.5">
         <QualityIndicator quality={live ? s.quality : "unknown"} />
         <div className="flex min-w-0 flex-1 flex-col leading-tight">
           <output
             className={cn(
-              "text-sm font-medium",
-              live
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-amber-600 dark:text-amber-400",
+              "text-sm font-semibold",
+              live ? "text-success-text" : "text-warning-text",
             )}
           >
             {statusText[s.status]}
@@ -156,18 +156,22 @@ export function VoiceCallCard() {
             <span className="truncate text-xs text-muted-foreground">{guild.name}</span>
           ) : null}
         </div>
-        <Button
-          variant="destructive"
-          size="icon"
-          className="size-8 shrink-0"
-          aria-label="Sair da chamada"
-          title="Sair da chamada"
-          onClick={() => void leaveCall()}
-        >
-          <PhoneOff />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="destructive"
+              size="icon"
+              className="size-8 shrink-0"
+              aria-label="Sair da chamada"
+              onClick={() => void leaveCall()}
+            >
+              <PhoneOff />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Sair da chamada</TooltipContent>
+        </Tooltip>
       </div>
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
         {s.audioBlocked ? (
           <Button variant="outline" size="sm" onClick={() => void resumeAudio()}>
             <Volume2 /> Ativar áudio
@@ -175,7 +179,9 @@ export function VoiceCallCard() {
         ) : null}
         <BarButton
           label={s.camera ? "Desligar câmera" : "Ligar câmera"}
+          text="Câmera"
           pressed={s.camera}
+          tone="brand"
           disabled={videoBlocked || !live}
           reason={videoBlocked ? "Você não tem permissão para usar vídeo neste canal." : undefined}
           onClick={() => void toggleCamera()}
@@ -184,14 +190,20 @@ export function VoiceCallCard() {
         </BarButton>
         <BarButton
           label={s.screen ? "Parar de compartilhar a tela" : "Compartilhar tela"}
+          text="Tela"
           pressed={s.screen}
+          tone="brand"
           disabled={videoBlocked || !live}
           reason={videoBlocked ? "Você não tem permissão para usar vídeo neste canal." : undefined}
           onClick={() => (s.screen ? void toggleScreenShare() : setShareDialog(true))}
         >
           {s.screen ? <Monitor /> : <MonitorOff />}
         </BarButton>
+        <BarButton label="Dispositivos" onClick={() => setDevices(true)}>
+          <Settings />
+        </BarButton>
       </div>
+      <DeviceDialog open={devices} onOpenChange={setDevices} />
       <ScreenShareDialog
         open={shareDialog}
         onOpenChange={setShareDialog}
@@ -208,7 +220,6 @@ export function VoiceCallCard() {
 export function VoiceUserControls() {
   const s = useVoiceStore();
   const perms = useCallPermissions();
-  const [devices, setDevices] = useState(false);
   const inCall = s.status !== "idle" && !!s.channelId;
   const live = s.status === "connected";
   const micBlocked = inCall && !perms.speak;
@@ -218,6 +229,7 @@ export function VoiceUserControls() {
       <BarButton
         label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
         pressed={s.selfMute}
+        tone="danger"
         disabled={micBlocked || (inCall && !live)}
         reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
         onClick={() => void toggleMute()}
@@ -227,52 +239,66 @@ export function VoiceUserControls() {
       <BarButton
         label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
         pressed={s.selfDeaf}
+        tone="danger"
         disabled={inCall && !live}
         onClick={() => void toggleDeafen()}
       >
         {s.selfDeaf ? <HeadphoneOff /> : <Headphones />}
       </BarButton>
-      {inCall ? (
-        <>
-          <BarButton label="Dispositivos" onClick={() => setDevices(true)}>
-            <Settings />
-          </BarButton>
-          <DeviceDialog open={devices} onOpenChange={setDevices} />
-        </>
-      ) : null}
     </>
   );
 }
 
 function BarButton({
   label,
+  text,
   pressed,
+  tone = "neutral",
   disabled,
   reason,
   onClick,
   children,
 }: {
   label: string;
+  /** Rótulo visível ao lado do ícone (botões do cartão da chamada). */
+  text?: string;
   pressed?: boolean;
+  /** `danger`: ligado = alerta (mudo/surdo); `brand`: ligado = em uso (câmera/tela). */
+  tone?: "neutral" | "danger" | "brand";
   disabled?: boolean;
   /** Por que está desabilitado (permissão): aparece como dica. */
   reason?: string;
   onClick: () => void;
   children: React.ReactNode;
 }) {
-  return (
+  const button = (
     <Button
-      variant={pressed ? "secondary" : "ghost"}
-      size="icon"
-      className="size-8 shrink-0"
+      variant="ghost"
+      size={text ? "sm" : "icon"}
+      className={cn(
+        "shrink-0 text-muted-foreground hover:text-foreground",
+        text ? "h-8 flex-1 gap-1.5 bg-secondary/60" : "size-8",
+        pressed &&
+          (tone === "danger"
+            ? "bg-danger-soft text-destructive-text hover:bg-danger-soft hover:text-destructive-text"
+            : "bg-brand-500/20 text-brand-text hover:bg-brand-500/25 hover:text-brand-text"),
+      )}
       aria-label={label}
       aria-pressed={pressed}
-      title={reason ?? label}
+      title={reason}
       disabled={disabled}
       onClick={onClick}
     >
       {children}
+      {text ? <span aria-hidden>{text}</span> : null}
       {reason ? <span className="sr-only"> ({reason})</span> : null}
     </Button>
+  );
+  if (disabled) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }

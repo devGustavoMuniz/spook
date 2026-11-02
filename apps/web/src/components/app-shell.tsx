@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import { useEffect } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
 import { Lettering } from "@/components/brand";
+import { NavToggle } from "@/components/shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { isTauri } from "@/desktop/runtime";
@@ -16,9 +17,12 @@ export function PageShell() {
   return (
     <div className="h-full overflow-y-auto">
       <header className="flex items-center justify-between border-b px-4 py-3">
-        <Link to="/" aria-label="Início">
-          <Lettering height={28} />
-        </Link>
+        <div className="flex items-center gap-2">
+          <NavToggle />
+          <Link to="/" aria-label="Início">
+            <Lettering height={28} />
+          </Link>
+        </div>
         <nav className="flex items-center gap-1" aria-label="Principal">
           <Button asChild variant="ghost" size="sm">
             <Link to="/settings/profile">Perfil</Link>

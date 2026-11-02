@@ -37,16 +37,20 @@ export function UserPanel() {
       <div className="flex items-center gap-1 p-2">
         <Link
           to="/settings/profile"
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md p-1 hover:bg-accent"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1 transition-colors hover:bg-accent"
           aria-label="Meu perfil"
         >
           <span className="relative inline-flex shrink-0">
             <Avatar url={me.avatar_url} name={name} size={32} />
-            <PresenceDot status={status} size={10} className="absolute -right-0.5 -bottom-0.5" />
+            <PresenceDot
+              status={status}
+              size={11}
+              className="absolute -right-0.5 -bottom-0.5 ring-[3px] ring-surface-1"
+            />
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{name}</span>
-            <span className="block truncate text-xs text-muted-foreground">
+            <span className="block truncate text-sm leading-tight font-semibold">{name}</span>
+            <span className="block truncate text-xs leading-tight text-muted-foreground">
               {custom ? `${custom.emoji ?? ""} ${custom.text ?? ""}`.trim() : `@${me.username}`}
             </span>
           </span>
@@ -57,7 +61,7 @@ export function UserPanel() {
             <button
               type="button"
               aria-label={`Status: ${statusLabel[status]}. Mudar status`}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent data-[state=open]:bg-accent"
+              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
             >
               <ChevronUp className="size-4" aria-hidden />
             </button>

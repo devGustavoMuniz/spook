@@ -43,7 +43,7 @@ export function VoiceParticipants({
   participants,
   lookup,
   speaking,
-  size = 20,
+  size = 24,
   className,
 }: {
   participants: VoiceStatePayload[];
@@ -67,18 +67,30 @@ export function VoiceParticipants({
           <li
             key={p.user_id}
             data-speaking={talking || undefined}
-            className="flex flex-col gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground"
+            className="group flex flex-col gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent"
           >
             <div className="flex items-center gap-2">
+              <span className="relative inline-flex shrink-0 rounded-full">
+                <Avatar
+                  url={person.avatarUrl}
+                  name={person.name}
+                  size={size}
+                  fallback="initials"
+                  seed={p.user_id}
+                />
+                {talking ? (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute -inset-0.5 animate-speaking rounded-full border-2 border-speaking"
+                  />
+                ) : null}
+              </span>
               <span
                 className={cn(
-                  "inline-flex rounded-full ring-2 ring-transparent transition-shadow",
-                  talking && "ring-emerald-500",
+                  "min-w-0 flex-1 truncate",
+                  talking ? "font-medium text-foreground" : "group-hover:text-foreground",
                 )}
               >
-                <Avatar url={person.avatarUrl} name={person.name} size={size} />
-              </span>
-              <span className={cn("min-w-0 flex-1 truncate", talking && "text-foreground")}>
                 {person.name}
                 {talking ? <span className="sr-only"> (falando)</span> : null}
               </span>

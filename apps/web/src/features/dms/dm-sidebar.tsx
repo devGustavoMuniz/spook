@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { BellOff, MoreVertical, Plus, Users } from "lucide-react";
 import { useState } from "react";
 import { StatusAvatar } from "@/components/presence-dot";
+import { ShellSidebar } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,46 +25,48 @@ export function DmSidebar() {
   const dms = useDms();
   const [creating, setCreating] = useState(false);
   return (
-    <aside
-      aria-label="Mensagens diretas"
-      className="flex w-60 shrink-0 flex-col border-r bg-sidebar"
-    >
-      <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
-        <h2 className="text-sm font-semibold">Mensagens diretas</h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          aria-label="Nova conversa em grupo"
-          onClick={() => setCreating(true)}
-        >
-          <Plus />
-        </Button>
-      </div>
-      <nav aria-label="Conversas" className="min-h-0 flex-1 overflow-y-auto p-2">
-        {dms.isPending ? (
-          <p className="px-2 text-sm text-muted-foreground">Carregando conversas…</p>
-        ) : dms.isError ? (
-          <p className="px-2 text-sm text-destructive-text">{appMessage(dms.error)}</p>
-        ) : dms.list.length === 0 ? (
-          <p className="px-2 text-sm text-muted-foreground">
-            Nenhuma conversa ainda. Abra o menu de um membro e escolha "Enviar mensagem".
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {me
-              ? dms.list.map((c) => (
-                  <li key={c.id}>
-                    <DmItem channel={c} myId={me.id} />
-                  </li>
-                ))
-              : null}
-          </ul>
-        )}
-      </nav>
-      <UserPanel />
-      <NewGroupDialog open={creating} onOpenChange={setCreating} />
-    </aside>
+    <ShellSidebar>
+      <aside
+        aria-label="Mensagens diretas"
+        className="flex w-60 shrink-0 flex-col border-r bg-sidebar"
+      >
+        <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
+          <h2 className="text-sm font-semibold">Mensagens diretas</h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label="Nova conversa em grupo"
+            onClick={() => setCreating(true)}
+          >
+            <Plus />
+          </Button>
+        </div>
+        <nav aria-label="Conversas" className="min-h-0 flex-1 overflow-y-auto p-2">
+          {dms.isPending ? (
+            <p className="px-2 text-sm text-muted-foreground">Carregando conversas…</p>
+          ) : dms.isError ? (
+            <p className="px-2 text-sm text-destructive-text">{appMessage(dms.error)}</p>
+          ) : dms.list.length === 0 ? (
+            <p className="px-2 text-sm text-muted-foreground">
+              Nenhuma conversa ainda. Abra o menu de um membro e escolha "Enviar mensagem".
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-0.5">
+              {me
+                ? dms.list.map((c) => (
+                    <li key={c.id}>
+                      <DmItem channel={c} myId={me.id} />
+                    </li>
+                  ))
+                : null}
+            </ul>
+          )}
+        </nav>
+        <UserPanel />
+        <NewGroupDialog open={creating} onOpenChange={setCreating} />
+      </aside>
+    </ShellSidebar>
   );
 }
 
@@ -75,13 +78,19 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
   const muted = useIsMuted("channel", channel.id);
   return (
     <div
-      className={`group flex items-center rounded-md hover:bg-accent ${muted ? "opacity-60" : ""}`}
+      className={`group relative flex items-center rounded-md transition-colors hover:bg-accent ${muted ? "opacity-60 hover:opacity-100" : ""}`}
       data-muted={muted || undefined}
     >
+      {unread && !muted ? (
+        <span
+          aria-hidden
+          className="absolute top-1/2 -left-2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-foreground"
+        />
+      ) : null}
       <Link
         to="/channels/@me/$channelId"
         params={{ channelId: channel.id }}
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-sm data-[status=active]:bg-accent"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground data-[status=active]:bg-brand-500/15 data-[status=active]:font-medium data-[status=active]:text-foreground"
       >
         {isGroupDm(channel) ? (
           <span
@@ -94,7 +103,11 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
           <StatusAvatar userId={other?.id} url={other?.avatar_url} name={title} size={32} />
         )}
         <span
-          className={unread ? "min-w-0 flex-1 truncate font-semibold" : "min-w-0 flex-1 truncate"}
+          className={
+            unread
+              ? "min-w-0 flex-1 truncate font-semibold text-foreground"
+              : "min-w-0 flex-1 truncate"
+          }
         >
           {title}
         </span>
