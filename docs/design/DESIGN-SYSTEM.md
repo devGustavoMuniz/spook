@@ -93,7 +93,7 @@ Todos aceitam `className` (mesclado com `cn`) e repassam as props nativas. Varia
 | `Tooltip` | `TooltipProvider` com atraso de 300 ms; combina com `Kbd`. |
 | `Tabs` | `variant`: pill (padrão), underline (em `TabsList` e `TabsTrigger`). |
 | `Toaster` (sonner) | superfície `popover`, raio `lg`, cores semânticas (sucesso, erro, aviso, info) por tokens. Texto de toast: verbo no passado, uma linha. |
-| `Avatar` | `size`: xs 20, sm 28, md 40, lg 64, xl 96, 2xl 128 ou número. `fallback`: `logo` (padrão, SPEC 9.4) ou `initials` (iniciais sobre gradiente derivado de `seed`/nome por hash, sempre com texto branco AA). `speaking` acende o anel verde; `status` põe a bolinha de presença com anel. Helpers: `avatarColor`, `initialsOf`, `StatusDot`. `components/avatar.tsx` re-exporta. |
+| `Avatar` | `size`: xs 20, sm 28, md 40, lg 64, xl 96, 2xl 128 ou número. `fallback`: `initials` (padrão: iniciais sobre gradiente derivado de `seed`/nome por hash, sempre com texto branco AA) ou `logo` (mini logo; só casos de marca). `speaking` acende o anel verde; `status` põe a bolinha de presença com anel. Helpers: `avatarColor`, `initialsOf`, `StatusDot`. `components/avatar.tsx` re-exporta. |
 | `Badge` | `variant`: default, brand, secondary, outline, success, warning, destructive, info. `CountBadge`: "99+" acima de `max`, números tabulares, `tone` mention (vermelho) ou brand. |
 | `Switch` | `size`: default, sm; polegar com `--ease-spring`. |
 | `Slider` | Radix; 1 valor ou intervalo; polegar com anel de foco. |
@@ -139,8 +139,42 @@ Regras do conteúdo: o contêiner do conteúdo é `min-w-0 flex-1` com altura da
 
 Barra de servidores: pílula lateral (ativo alto; hover/foco médio; não lidas ponto), ícone circular que vira quadrado arredondado, dica à direita (120 ms), badge vermelho de menções (99+), servidor silenciado atenuado com sino, cor/iniciais derivadas do id quando não há ícone, ação "+" em verde. Lista de canais: categorias recolhíveis (estado por servidor em `localStorage` `spook:collapsed-categories:<id>`, com try/catch; recolhida mantém visíveis o canal aberto, os com novidades e a voz com gente), ativo em `brand-500/15`, não lidas em semibold + marcador lateral, participantes de voz aninhados com anel `speaking` animado.
 
+## Configurações
+
+Código em `apps/web/src/features/settings/` e `pages/` (`profile`, `notifications`, `settings-voice`, `settings-appearance`, `app-settings`). Rotas em `router.tsx` (`/settings` + `profile|notifications|voice|appearance|app`; `/profile` redireciona).
+
+- **Layout.** Tela cheia, sem barra de servidores (o `Frame` de `authed-layout.tsx` só renderiza o `Outlet` em `/settings*`). Desktop: navegação à esquerda (`w-72`/`lg:w-80`, fundo `sidebar`, cartão do usuário no topo, item ativo com `aria-current="page"` em `accent`, "Sair" no rodapé) + conteúdo (`max-w-[44rem]`) que rola por dentro; botão fechar redondo com `Kbd` Esc no canto superior direito. < 768 px: `/settings` é a lista (h1 "Configurações"), cada seção é uma tela com barra superior "voltar às configurações" + fechar.
+- **Acessibilidade.** Um `h1` por tela (título da seção, recebe o foco ao entrar e a cada troca de seção), `nav` "Seções das configurações", `main` rotulado pelo `h1`, grupos com `h2`. Esc e fechar voltam para a rota anterior (`return-path.ts`; fallback `/`).
+- **Peças** (`features/settings/ui.tsx`): `SettingsGroup` (cartão com ícone, `h2`, ajuda e conteúdo), `SettingRow` (rótulo + ajuda + controle), `ChoiceCard` (opção em radio nativo com `has-[:checked]`), `Hint`, `selectClass`. Use-as para qualquer configuração nova; `CardTitle` ganhou a prop `as` (`h1` padrão) para virar `h2`.
+- **Aparência.** Cartões de tema com prévia em miniatura; as cores da prévia são os valores literais de `tokens.css` (a prévia precisa mostrar o tema ESCOLHIDO, não o ativo): atualize se os tokens mudarem.
+
+## Chat e lista de membros
+
+Código em `apps/web/src/features/messages/`, `features/members/` e `features/attachments/`.
+
+- **Mensagens.** Agrupamento em `rows.ts` (mesmo autor em até 7 min, quebra por dia, resposta e "Novas mensagens"). Cabeçalho: nome na cor do cargo ajustada por `lib/role-color.ts` (`readableRoleColor` clareia/escurece até 4,7:1 sobre `surface-1` do tema; `textOn` escolhe preto/branco por luminância), hora tabular com tooltip de data completa. Separador de dia = pílula entre linhas; "Novas mensagens" = linha + pílula `danger-soft`. Menção: `@usuário` de quem está na conversa vira pílula (`mark`, a minha com realce forte); mensagem que me menciona ganha fundo `brand-500/10` e marcador lateral.
+- **Ações.** Barra flutuante no canto superior direito (`role="toolbar"`, `opacity` no hover e no `focus-within`; Tab alcança) com responder, fixar, editar, excluir e "Mais" (copiar texto/ID), tooltips com `Kbd` (R, P, E). Em telas sem hover (`@media (hover:none)`) a barra some e o botão "Ações da mensagem de X" fica sempre visível; toque longo (450 ms) na mensagem abre o mesmo menu completo.
+- **Citação** com curva até o avatar, avatar mini, `@nome` e prévia truncada (clique pula para a original).
+- **Anexos.** Imagens com proporção reservada, skeleton enquanto carregam e raio `xl`; cartão de arquivo com ícone por tipo e extensão. Visualizador (`lightbox.tsx` + `viewer-context.tsx`): um só por conversa, setas passam por todas as imagens carregadas, clique amplia a partir do ponto (só `transform`), baixar, `Esc`, foco preso e devolvido.
+- **Composer.** Superfície `surface-2` com raio `2xl` e borda de foco; anexar à esquerda, campo auto-altura, enviar à direita (`secondary` quando desabilitado); contador `n/2000` só a partir de 1800 (`COUNTER_FROM`); faixa "Respondendo a…" no topo da superfície; chips de anexos com prévia; dica de atalhos (`Kbd`) só em telas largas; arrastar e soltar mostra área tracejada.
+- **Estados.** Vazio com `EmptyChatIllustration` + ação "Escrever a primeira mensagem"; carregamento com skeleton de mensagens; botão "Pular para o presente" (conta as novas de outras pessoas enquanto você está longe); fixadas num diálogo com skeleton, vazio e erro com "Tentar de novo".
+- **Membros.** `groups.ts`: cada cargo (maior posição primeiro) com quem está online e o tem como mais alto, depois "Online" e "Offline" (invisível conta como offline); título `text-xs` com contagem. Acima de 150 linhas a lista é virtualizada. Item: avatar + status com anel, nome na cor do cargo (AA), status personalizado em linha secundária, offline com avatar atenuado (o texto mantém contraste).
+- **Cartão de perfil** (`profile-card.tsx`, hospedado por `MemberUiProvider` em `member-ui.tsx`, junto dos diálogos de cargos/expulsar): popover ancorado >= 640 px (Radix Dialog não modal, sem biblioteca nova) ou bottom sheet no celular. Só mostra o que a API tem: nome, `@username`, status, cargos, membro desde, enviar mensagem, copiar ID, gerenciar cargos e expulsar (com permissão).
+- **Avatar.** Sem imagem = iniciais sobre cor derivada do id (as letras vêm de `attr(data-initials)` em CSS, fora do texto da página).
+
+## Palco de voz
+
+Código em `apps/web/src/features/voice/stage/` (usado por `voice-channel-view.tsx` e, em DM, por `call-panel.tsx`).
+
+- **Grade** (`layout.ts`, `bestGrid`): tiles 16:9 `rounded-xl` com largura calculada pela área medida (`ResizeObserver`), centralizados, `gap` de 12 px; duas pessoas ficam lado a lado e, em < 600 px, uma coluna com rolagem. Recalcula ao entrar/sair gente.
+- **Tile** (`participant-tile.tsx`): avatar grande (iniciais, `fallback="initials"`) sobre gradiente da cor dominante do avatar (`dominant-color.ts`: canvas 8x8, cache por URL, sem imagem ou com falha de CORS cai na cor derivada do id) com escurecimento embaixo; rodapé em pílula `bg-black/60` com nome e ícones (mudo/surdo em `destructive`, câmera, tela). Falando = anel `speaking` estático no tile + anel pulsante (`animate-speaking`, só `transform`/`opacity`) no avatar. Câmera ocupa o tile (`object-cover`); tela é um tile à parte "Tela de X" (`object-contain`).
+- **Foco**: clicar/Enter no tile de vídeo o destaca (tile grande + tira inferior); de novo ou `Esc` volta; o foco do teclado acompanha o tile. Tela cheia (Fullscreen API) no tile e no botão do palco. Menu do tile ("⋯" ou clique direito): destacar, volume, janela flutuante (PiP), tela cheia.
+- **Barra flutuante** (`control-bar.tsx`, `role="toolbar"`): microfone (`M`), câmera (`V`), tela, dispositivos e sair (redondo, vermelho). `use-auto-hide.ts`: some após 3 s sem movimento; fica visível com foco de teclado na barra, mouse sobre ela, menu/diálogo aberto (`useStageHold`), conectando/reconectando e, em toque, o toque no palco alterna (o primeiro toque na barra escondida só a mostra).
+- **Convite** (`invite-tile.tsx`): com uma só pessoa, tile tracejado com `VoiceInviteIllustration` e "Convidar para voz", que abre as configurações do servidor na aba Convites (sem permissão: desabilitado com o motivo). Em DM não há tile de convite.
+- **Estados**: conectando/reconectando (pílula com `Spinner`), áudio bloqueado ("Ativar áudio"), falha de mídia (faixa `role="alert"` com a mensagem de `media-errors.ts`, dispensável), voz desligada no servidor (`EmptyState` "Voz indisponível").
+
 ## Pendências para as etapas seguintes
 
-- Avatar sem imagem continua com a mini logo (SPEC 9.4); a troca para iniciais coloridas é uma decisão por tela (a API já suporta).
-- Cores de cargo vêm do servidor (`color`) e não passam por garantia de contraste; as telas devem escolher texto/fundo conforme a luminância.
-- Shell responsivo feito (seção "Shell"); o conteúdo do chat, membros e fixadas ainda precisa ser revisto para 390 px nas etapas seguintes.
+- (feito na etapa de chat) Avatar sem imagem agora usa iniciais coloridas por padrão em todo o app.
+- Cores de cargo vêm do servidor (`color`): use `readableRoleColor`/`useReadableRoleColor` (`lib/role-color.ts`) ao exibir o nome (chat e membros já usam).
+- Shell responsivo, chat, membros e fixadas já foram revistos para 390 px.

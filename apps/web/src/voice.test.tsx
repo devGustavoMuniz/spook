@@ -168,7 +168,9 @@ describe("entrar e a barra de controle", () => {
     await user.click(voiceButton(nav));
     await screen.findByText("Voz conectada");
     act(() => fake.fire("audio-blocked", { blocked: true }));
-    await user.click(await screen.findByRole("button", { name: /Ativar áudio/ }));
+    // o palco também avisa (faixa no topo) e oferece o mesmo botão
+    const stage = await screen.findByRole("region", { name: "Vídeo da chamada" });
+    await user.click(await within(stage).findByRole("button", { name: /Ativar áudio/ }));
     expect(fake.calls).toContain("resume-audio");
   });
 
@@ -205,7 +207,11 @@ describe("erros", () => {
     fake.failMic = new VoiceMediaError("permission-denied", "microphone");
     const { nav } = await open();
     await user.click(voiceButton(nav));
-    expect(await screen.findByText(/O navegador bloqueou o microfone/)).toBeInTheDocument();
+    // aviso passageiro (toast) e faixa persistente no palco
+    expect((await screen.findAllByText(/O navegador bloqueou o microfone/)).length).toBeGreaterThan(
+      0,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/O navegador bloqueou o microfone/);
     const bar = await screen.findByRole("region", { name: "Controles de voz" });
     expect(within(bar).getByRole("button", { name: "Ativar microfone" })).toBeInTheDocument();
   });
@@ -219,7 +225,9 @@ describe("erros", () => {
     fake.failScreen = new VoiceMediaError("cancelled", "screen");
     await user.click(within(bar).getByRole("button", { name: "Compartilhar tela" }));
     await user.click(await screen.findByRole("button", { name: "Compartilhar" }));
-    expect(await screen.findByText("Compartilhamento de tela cancelado.")).toBeInTheDocument();
+    expect(
+      (await screen.findAllByText("Compartilhamento de tela cancelado.")).length,
+    ).toBeGreaterThan(0);
     expect(within(bar).getByRole("button", { name: "Compartilhar tela" })).toBeInTheDocument();
   });
 
@@ -248,7 +256,7 @@ describe("erros", () => {
 });
 
 describe("painel de vídeo", () => {
-  it("destaca a tela compartilhada e mostra a câmera numa faixa; clicar troca o destaque", async () => {
+  it("câmera no tile da pessoa e tela à parte; clicar destaca e troca o destaque", async () => {
     const user = userEvent.setup();
     const { nav } = await open();
     await user.click(voiceButton(nav));
@@ -260,10 +268,17 @@ describe("painel de vídeo", () => {
     const video = await screen.findByRole("region", { name: "Vídeo da chamada" });
     const tiles = within(video).getAllByTestId("video-tile");
     expect(tiles).toHaveLength(2);
-    expect(tiles[0]).toHaveAttribute("data-kind", "screen");
-    expect(tiles[0]?.querySelector("canvas[data-track=scr1]")).not.toBeNull(); // a engine desenha como quiser
+    const kinds = tiles.map((t) => t.getAttribute("data-kind"));
+    expect(kinds.sort()).toEqual(["camera", "screen"]);
+    const screenTile = tiles.find((t) => t.getAttribute("data-kind") === "screen");
+    expect(screenTile?.querySelector("canvas[data-track=scr1]")).not.toBeNull(); // a engine desenha como quiser
+    await user.click(within(video).getByRole("button", { name: "Destacar tela de bia" }));
+    const main = within(video).getByRole("list", { name: "Em destaque" });
+    expect(within(main).getByTestId("video-tile")).toHaveAttribute("data-kind", "screen");
     await user.click(within(video).getByRole("button", { name: "Destacar câmera de bia" }));
-    expect(within(video).getAllByTestId("video-tile")[0]).toHaveAttribute("data-kind", "camera");
+    expect(
+      within(within(video).getByRole("list", { name: "Em destaque" })).getByTestId("video-tile"),
+    ).toHaveAttribute("data-kind", "camera");
     act(() => fake.fire("video-track-removed", { id: "cam1" }));
     await waitFor(() => expect(within(video).getAllByTestId("video-tile")).toHaveLength(1));
   });

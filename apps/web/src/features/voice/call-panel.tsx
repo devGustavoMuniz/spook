@@ -1,17 +1,41 @@
-import { type ChannelPayload, useGetMe } from "@spook/shared";
+import { type ChannelPayload, useGetMe, type VoiceStatePayload } from "@spook/shared";
 import { Phone, PhoneOff } from "lucide-react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { dmTitle } from "@/features/dms/dm-utils";
+import { cn } from "@/lib/utils";
 import { joinVoice, leaveCall } from "./controller";
+import { VoiceStage } from "./stage/voice-stage";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "./store";
 import { usePersonLookup } from "./use-person-lookup";
-import { VideoGrid } from "./video-grid";
 import { VoiceParticipants } from "./voice-participants";
 
 /** Quantas pessoas estão na chamada do canal (DM ou canal de voz). */
 export function useCallParticipants(channelId: string) {
   const byUser = useVoiceStatesStore((s) => s.byUser);
   return participantsOf(byUser, channelId);
+}
+
+/**
+ * Quem aparece no palco: os estados do servidor e, enquanto o meu ainda não chegou (o voice state vem do
+ * webhook do LiveKit), um tile provisório meu: quem está na chamada sempre se vê.
+ */
+export function useStageParticipants(channelId: string, guildId: string | null, inCall: boolean) {
+  const { data: me } = useGetMe();
+  const list = useCallParticipants(channelId);
+  return useMemo(() => {
+    if (!inCall || !me || list.some((p) => p.user_id === me.id)) return list;
+    const mine: VoiceStatePayload = {
+      guild_id: guildId,
+      channel_id: channelId,
+      user_id: me.id,
+      self_mute: false,
+      self_deaf: false,
+      self_video: false,
+      self_screen: false,
+    };
+    return [mine, ...list];
+  }, [list, me, inCall, channelId, guildId]);
 }
 
 /** Botão de chamada no cabeçalho da DM (mesmo fluxo do canal de voz; sala = ID da DM). */
@@ -50,16 +74,17 @@ export function DmCallButton({ channel }: { channel: ChannelPayload }) {
 
 /** Faixa no topo da DM: chamada em andamento (quem está nela) e, se estou nela, o vídeo. */
 export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
-  const participants = useCallParticipants(channel.id);
   const inThis = useVoiceStore((s) => s.channelId === channel.id && s.status !== "idle");
-  const speaking = useVoiceStore((s) => s.speaking);
-  const hasVideo = useVoiceStore((s) => s.videoTracks.length > 0);
+  const participants = useStageParticipants(channel.id, null, inThis);
   const lookup = usePersonLookup({ guildId: null, dmId: channel.id });
   if (participants.length === 0 && !inThis) return null;
   return (
     <section
       aria-label="Chamada em andamento"
-      className={`flex flex-col border-b bg-muted/40 ${inThis && hasVideo ? "h-[55%] min-h-48" : ""}`}
+      className={cn(
+        "flex flex-col border-b bg-muted/40",
+        inThis && "h-[60%] min-h-80 shrink-0 bg-surface-1",
+      )}
     >
       <div className="flex items-center gap-2 px-4 py-2 text-sm">
         <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
@@ -68,14 +93,22 @@ export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
           {participants.length} {participants.length === 1 ? "pessoa" : "pessoas"}
         </span>
       </div>
-      {inThis ? <VideoGrid lookup={lookup} /> : null}
-      <VoiceParticipants
-        participants={participants}
-        lookup={lookup}
-        speaking={inThis ? speaking : undefined}
-        size={24}
-        className="px-3 pb-2"
-      />
+      {inThis ? (
+        <VoiceStage
+          participants={participants}
+          lookup={lookup}
+          inCall
+          leaveLabel="Desligar a chamada"
+        />
+      ) : (
+        <VoiceParticipants
+          participants={participants}
+          lookup={lookup}
+          speaking={undefined}
+          size={24}
+          className="px-3 pb-2"
+        />
+      )}
     </section>
   );
 }

@@ -62,6 +62,8 @@ const voiceChannel = (p: Page) =>
     .getByRole("button", { name: /Geral \(canal de voz/ });
 const connected = (p: Page) =>
   p.getByRole("region", { name: "Controles de voz" }).getByText("Voz conectada");
+// O palco também tem microfone/câmera/tela: os controles da barra lateral ficam na região "Controles de voz".
+const dock = (p: Page) => p.getByRole("region", { name: "Controles de voz" });
 const inList = (p: Page, who: string) =>
   p
     .getByRole("navigation", { name: "Canais" })
@@ -92,10 +94,7 @@ test("duas contas na mesma sala: lista, conexão ao LiveKit, mídia, mudo e saí
   await expect(b.page.locator("[data-voice-audio] audio")).toHaveCount(1, { timeout: 20_000 });
 
   // ... e o vídeo: a câmera falsa de A chega a B com quadros decodificados.
-  await a.page
-    .getByRole("region", { name: "Controles de voz" })
-    .getByRole("button", { name: "Ligar câmera" })
-    .click();
+  await dock(a.page).getByRole("button", { name: "Ligar câmera" }).click();
   await expect(inList(b.page, a.username)).toBeVisible();
   const remoteVideo = b.page.getByRole("region", { name: "Vídeo da chamada" }).locator("video");
   await expect(remoteVideo).toHaveCount(1, { timeout: 20_000 });
@@ -104,14 +103,14 @@ test("duas contas na mesma sala: lista, conexão ao LiveKit, mídia, mudo e saí
     .toBeGreaterThan(0);
 
   // Mudo de A reflete no lado de B (e some ao desmutar).
-  await a.page.getByRole("button", { name: "Silenciar microfone" }).click();
+  await dock(a.page).getByRole("button", { name: "Silenciar microfone" }).click();
   await expect(
     b.page
       .getByRole("list", { name: "Conectados" })
       .first()
       .getByRole("img", { name: "Microfone silenciado" }),
   ).toBeVisible();
-  await a.page.getByRole("button", { name: "Ativar microfone" }).click();
+  await dock(a.page).getByRole("button", { name: "Ativar microfone" }).click();
   await expect(b.page.getByRole("img", { name: "Microfone silenciado" })).toHaveCount(0);
 
   // Sair remove da lista dos dois lados.
@@ -134,14 +133,14 @@ test("tela compartilhada de A chega a B em destaque; parar remove o painel", asy
   await voiceChannel(b.page).click();
   await expect(connected(b.page)).toBeVisible({ timeout: 20_000 });
 
-  await a.page.getByRole("button", { name: "Compartilhar tela" }).click();
+  await dock(a.page).getByRole("button", { name: "Compartilhar tela" }).click();
   // diálogo de compartilhar (áudio desligado por padrão, para não gerar eco)
   await a.page.getByRole("button", { name: "Compartilhar", exact: true }).click();
   const tile = b.page.getByTestId("video-tile").and(b.page.locator('[data-kind="screen"]'));
   await expect(tile).toHaveCount(1, { timeout: 20_000 });
   await expect(b.page.getByRole("img", { name: "Compartilhando a tela" }).first()).toBeVisible();
 
-  await a.page.getByRole("button", { name: "Parar de compartilhar a tela" }).click();
+  await dock(a.page).getByRole("button", { name: "Parar de compartilhar a tela" }).click();
   await expect(tile).toHaveCount(0, { timeout: 20_000 });
   await expect(b.page.getByRole("img", { name: "Compartilhando a tela" })).toHaveCount(0);
 

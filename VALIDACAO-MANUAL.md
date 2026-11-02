@@ -227,6 +227,12 @@ Migration `00009` aplicada no deploy sem erro.
 - [ ] **Invisível e push:** com a conta Invisível sem nenhuma aba aberta, mande uma DM de outra conta e confirme que o push chega; com Não perturbar, confirme que não chega.
 - [ ] **Cloudflare Access (opcional):** só se você decidir aplicar (`deploy/README.md`, "Camada extra"); depois, teste `/admin` no navegador.
 
+### Repaginação — palco de voz (web)
+
+- [ ] **Falar de verdade:** em duas contas com microfone real, confirme que o anel verde acende no tile de quem fala (e só nele) e pulsa de leve; com "reduzir movimento" no sistema o anel fica parado.
+- [ ] **Tela cheia e PiP:** num navegador de verdade, destaque uma tela compartilhada, use "Tela cheia" (Esc sai) e a janela flutuante pelo menu "⋯" do tile; em tela cheia confirme que a barra some após ~3 s e volta ao mexer o mouse.
+- [ ] **Toque:** no celular (ou Chrome com emulação de toque), toque no palco para mostrar/ocultar a barra; o primeiro toque na barra escondida só a mostra.
+- [ ] **Cor do avatar:** com avatar enviado por você (no Garage com CORS liberado para a origem), o fundo do tile deve usar a cor dominante da imagem; sem CORS ele cai na cor derivada do usuário (esperado).
 
 ## Pendências gerais de configuração
 

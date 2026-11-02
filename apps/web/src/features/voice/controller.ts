@@ -36,6 +36,7 @@ import {
   useAudioStatusStore,
   useInputLevelStore,
   useMicTestStore,
+  useVoiceAvailabilityStore,
   useVoiceStatesStore,
   useVoiceStore,
 } from "./store";
@@ -158,12 +159,16 @@ async function connectWithToken(eng: VoiceEngine, target: JoinTarget, gen: numbe
     try {
       token = await fetchToken(target.channelId);
     } catch (err) {
-      if (gen === generation) toast.error(voiceMessage(err));
+      if (gen === generation) {
+        toast.error(voiceMessage(err));
+        if (isApiError(err) && err.status === 503) useVoiceAvailabilityStore.getState().set(true);
+      }
       return false;
     }
     if (gen !== generation) return false;
     try {
       await eng.connect({ url: token.url, token: token.token });
+      useVoiceAvailabilityStore.getState().set(false);
       return gen === generation;
     } catch (err) {
       if (gen !== generation) return false;
@@ -192,7 +197,7 @@ async function afterConnect(eng: VoiceEngine, target: JoinTarget, gen: number) {
     } catch (err) {
       if (gen !== generation) return;
       // Sem microfone: entra mudo (como ouvinte) e explica.
-      toast.error(mediaMessage(err));
+      reportMediaIssue(err);
       session().patch({ selfMute: true, muteBeforeDeaf: true });
     }
   }
@@ -271,13 +276,21 @@ export async function toggleDeafen() {
   await syncState();
 }
 
+/** Aviso passageiro (toast) e persistente (faixa no palco) para falha de microfone/câmera/tela. */
+function reportMediaIssue(err: unknown) {
+  const message = mediaMessage(err);
+  toast.error(message);
+  session().patch({ mediaIssue: message });
+}
+
 async function applyMic(on: boolean) {
   if (!engine) return;
   try {
     await engine.setMicrophoneEnabled(on);
+    if (on) session().patch({ mediaIssue: null });
   } catch (err) {
     if (!on) return;
-    toast.error(mediaMessage(err));
+    reportMediaIssue(err);
     session().patch({ selfMute: true, muteBeforeDeaf: true });
   }
 }
@@ -287,9 +300,9 @@ export async function toggleCamera() {
   const on = !session().camera;
   try {
     await engine.setCameraEnabled(on);
-    session().patch({ camera: on });
+    session().patch({ camera: on, mediaIssue: null });
   } catch (err) {
-    toast.error(mediaMessage(err));
+    reportMediaIssue(err);
   }
 }
 
@@ -311,9 +324,9 @@ export async function toggleScreenShare(opts?: { audio?: boolean; quality?: Scre
   if (on && opts?.quality) saveScreenQuality(opts.quality);
   try {
     await engine.setScreenShareEnabled(on, quality ? { audio, quality } : { audio });
-    session().patch({ screen: on });
+    session().patch({ screen: on, mediaIssue: null });
   } catch (err) {
-    toast.error(mediaMessage(err));
+    reportMediaIssue(err);
   }
 }
 

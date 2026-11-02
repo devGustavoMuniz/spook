@@ -48,6 +48,20 @@ type Person = { id: string; username: string; ctx: BrowserContext };
 const people = {} as Record<Who, Person>;
 const failures: string[] = [];
 const numbers = new Map<string, number>();
+// Capturas acrescentadas depois da numeração original: número fixo, para não deslocar as demais.
+const FIXED_NUMBERS: Record<string, number> = {
+  "voz-tile-convite": 91,
+  "voz-foco": 92,
+  "voz-barra-visivel": 93,
+  "voz-menu-do-tile": 94,
+  "voz-barra-oculta": 95,
+  "chat-lightbox": 81,
+  "chat-cartao-perfil": 82,
+  "chat-acoes-hover": 83,
+  "chat-acoes-toque": 84,
+  "chat-composer-anexos": 85,
+  "chat-membros-grupos": 86,
+};
 let guildId = "";
 const ids = {
   general: "",
@@ -337,9 +351,10 @@ async function newPass(
 
 /** Espera o app estabilizar e salva o PNG como NN-tela-tema-viewport.png. */
 async function shot(page: Page, screen: string, theme: string, vp: string) {
-  if (!numbers.has(screen)) numbers.set(screen, numbers.size + 1);
+  const fixed = FIXED_NUMBERS[screen];
+  if (fixed === undefined && !numbers.has(screen)) numbers.set(screen, numbers.size + 1);
   if (ONLY && !ONLY.split(",").some((k) => screen.includes(k.trim()))) return;
-  const name = `${String(numbers.get(screen)).padStart(2, "0")}-${screen}-${theme}-${vp}.png`;
+  const name = `${String(fixed ?? numbers.get(screen)).padStart(2, "0")}-${screen}-${theme}-${vp}.png`;
   await page.waitForLoadState("networkidle").catch(() => undefined);
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(outDir, name), animations: "disabled" });
@@ -495,7 +510,11 @@ test("captura de telas", async ({ browser }) => {
       await step("composer-resposta", vk, theme, async () => {
         const row = page.locator("[aria-label^='Mensagem de']").nth(3);
         await row.hover();
-        await page.getByRole("button", { name: "Responder" }).first().click();
+        if (vp.width >= 768) await row.getByRole("button", { name: "Responder" }).click();
+        else {
+          await row.getByRole("button", { name: /^Ações da mensagem de/ }).click();
+          await page.getByRole("menuitem", { name: "Responder" }).click();
+        }
         await page
           .getByLabel(/Mensagem em #/)
           .fill("Rascunho de uma resposta que ainda não foi enviada");
@@ -512,6 +531,91 @@ test("captura de telas", async ({ browser }) => {
       await step("canal-dev-menções", vk, theme, async () => {
         await open(page, chUrl(ids.dev));
         await shot(page, "canal-texto-com-mencao", theme, vk);
+      });
+
+      // Chat e membros (repaginação: etapas d/e)
+      await step("chat-lightbox", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        await page
+          .getByRole("button", { name: /^Abrir imagem/ })
+          .first()
+          .click();
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await page.waitForTimeout(400);
+        await shot(page, "chat-lightbox", theme, vk);
+        await page.keyboard.press("Escape");
+      });
+      await step("chat-cartao-perfil", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        await page
+          .getByRole("log")
+          .first()
+          .getByRole("button", { name: /^Ver perfil de/ })
+          .first()
+          .click();
+        await expect(page.getByTestId("profile-card")).toBeVisible();
+        await shot(page, "chat-cartao-perfil", theme, vk);
+        await page.keyboard.press("Escape");
+      });
+      await step("chat-acoes", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        const row = page.locator("article[aria-label^='Mensagem de']").nth(-3);
+        if (vp.width >= 768) {
+          await row.hover();
+          await row.getByRole("button", { name: "Responder" }).focus();
+          await shot(page, "chat-acoes-hover", theme, vk);
+        } else {
+          await row.scrollIntoViewIfNeeded();
+          await row.getByRole("button", { name: /^Ações da mensagem de/ }).click();
+          await expect(page.getByRole("menuitem", { name: "Responder" })).toBeVisible();
+          await shot(page, "chat-acoes-toque", theme, vk);
+          await page.keyboard.press("Escape");
+        }
+      });
+      await step("chat-composer-anexos", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        await page.route(/:3900\//, (route) =>
+          // só o envio (PUT/OPTIONS) é simulado; as imagens já enviadas continuam vindo do Garage
+          route.request().method() === "GET"
+            ? route.continue()
+            : route.fulfill({
+                status: 200,
+                headers: {
+                  "access-control-allow-origin": "*",
+                  "access-control-allow-headers": "*",
+                  "access-control-allow-methods": "*",
+                },
+              }),
+        );
+        await page.getByTestId("attachment-input").setInputFiles([
+          { name: "paisagem.png", mimeType: "image/png", buffer: makePng(640, 400) },
+          {
+            name: "relatorio.pdf",
+            mimeType: "application/pdf",
+            buffer: Buffer.from("%PDF-1.4\n".repeat(300)),
+          },
+        ]);
+        await page.getByLabel(/Mensagem em #/).fill("Segue o material da reunião");
+        await page.waitForTimeout(600);
+        await shot(page, "chat-composer-anexos", theme, vk);
+        await page.unroute(/:3900\//);
+      });
+      await step("chat-membros-grupos", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        const members = page.getByRole("complementary", { name: "Membros" });
+        if (
+          !(await members
+            .first()
+            .isVisible()
+            .catch(() => false))
+        ) {
+          await page
+            .getByRole("button", { name: /membros/i })
+            .first()
+            .click();
+        }
+        await page.waitForTimeout(400);
+        await shot(page, "chat-membros-grupos", theme, vk);
       });
 
       // Barra de servidores e lista de canais (repaginação: etapas b/c/d)
@@ -723,12 +827,23 @@ test("captura de telas", async ({ browser }) => {
         p
           .getByRole("navigation", { name: "Canais" })
           .getByRole("button", { name: /Sala de estudos \(canal de voz/ });
+      // acorda a barra flutuante do palco (ela some após ~3 s sem movimento do mouse)
+      const wake = async (p: Page) => {
+        await p.mouse.move(vp.width / 2, vp.height / 2);
+        await p.mouse.move(vp.width / 2 + 8, vp.height / 2 + 8);
+      };
       await step("voz-sozinho", vk, theme, async () => {
         await open(page, chUrl(ids.general));
         await openNav(page, vp);
         await voiceBtn(page).click();
         await expect(page.getByText("Voz conectada")).toBeVisible({ timeout: 25_000 });
+        if (vp.width < 768) await page.keyboard.press("Escape").catch(() => undefined);
+        await page.waitForTimeout(800);
+        await wake(page);
         await shot(page, "voz-sozinho", theme, vk);
+        await shot(page, "voz-tile-convite", theme, vk);
+        await page.waitForTimeout(3600); // ociosidade: a barra some
+        await shot(page, "voz-barra-oculta", theme, vk);
       });
       await step("voz-varios", vk, theme, async () => {
         for (const [p, name] of [
@@ -740,7 +855,9 @@ test("captura de telas", async ({ browser }) => {
           await expect(p.getByText("Voz conectada")).toBeVisible({ timeout: 25_000 });
           void name;
         }
-        await page.waitForTimeout(2500);
+        await expect(page.getByText("3 pessoas")).toBeVisible({ timeout: 20_000 });
+        await page.waitForTimeout(1500);
+        await wake(page);
         await shot(page, "voz-com-outras-pessoas", theme, vk);
       });
       await step("voz-camera", vk, theme, async () => {
@@ -752,6 +869,11 @@ test("captura de telas", async ({ browser }) => {
           .getByRole("button", { name: "Ligar câmera" })
           .click();
         await page.waitForTimeout(3000);
+        if (vp.width < 768) {
+          await page.mouse.click(vp.width - 10, 300); // toque na área escura fecha o drawer
+          await page.waitForTimeout(500);
+        }
+        await wake(page);
         await shot(page, "voz-com-camera", theme, vk);
       });
       await step("voz-tela", vk, theme, async () => {
@@ -761,7 +883,21 @@ test("captura de telas", async ({ browser }) => {
           .click();
         await bPage.getByRole("button", { name: "Compartilhar", exact: true }).click();
         await page.waitForTimeout(4000);
+        await wake(page);
         await shot(page, "voz-tela-compartilhada", theme, vk);
+      });
+      await step("voz-foco", vk, theme, async () => {
+        // destaca a tela do Bruno (tile grande + tira) e abre o menu do tile
+        await page.getByRole("button", { name: /Destacar tela de/ }).click();
+        await page.waitForTimeout(600);
+        await wake(page);
+        await shot(page, "voz-foco", theme, vk);
+        await shot(page, "voz-barra-visivel", theme, vk);
+        await page.getByRole("button", { name: /^Opções de Tela de/ }).click();
+        await page.waitForTimeout(400);
+        await shot(page, "voz-menu-do-tile", theme, vk);
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Escape");
       });
       await step("voz-dispositivos", vk, theme, async () => {
         await openNav(page, vp);
@@ -775,6 +911,24 @@ test("captura de telas", async ({ browser }) => {
         await shot(page, "dialogo-dispositivos-voz", theme, vk);
         await page.keyboard.press("Escape");
       });
+      // Configurações (etapa g): seções novas e, no celular, a lista de seções.
+      for (const [route, key] of [
+        ["/settings/voice", "config-voz-e-video"],
+        ["/settings/appearance", "config-aparencia"],
+      ] as const) {
+        await step(key, vk, theme, async () => {
+          await open(page, route);
+          await page.waitForTimeout(400);
+          await shot(page, key, theme, vk);
+        });
+      }
+      if (vk === "390") {
+        await step("config-lista", vk, theme, async () => {
+          await open(page, "/settings");
+          await page.waitForTimeout(400);
+          await shot(page, "config-lista", theme, vk);
+        });
+      }
       // sai de todo mundo para a próxima combinação
       for (const p of [page, bPage, cPage]) {
         await p

@@ -31,6 +31,8 @@ export type VoiceSession = {
   videoTracks: VideoTrackInfo[];
   quality: LinkQuality;
   audioBlocked: boolean;
+  /** Último erro de mídia (permissão de microfone/câmera/tela negada...), em pt-br; `null` = tudo certo. */
+  mediaIssue: string | null;
 };
 
 type Actions = {
@@ -58,6 +60,7 @@ const initial: VoiceSession = {
   videoTracks: [],
   quality: "unknown",
   audioBlocked: false,
+  mediaIssue: null,
 };
 
 export const useVoiceStore = create<VoiceSession & Actions>()((set) => ({
@@ -75,6 +78,7 @@ export const useVoiceStore = create<VoiceSession & Actions>()((set) => ({
       videoTracks: [],
       quality: "unknown",
       audioBlocked: false,
+      mediaIssue: null,
     }),
   patch: (p) => set(p),
   addTrack: (t) =>
@@ -89,6 +93,12 @@ export const useVoiceStore = create<VoiceSession & Actions>()((set) => ({
     })),
   reset: () => set(initial),
 }));
+
+/** O servidor respondeu 503 ao pedir o token: a voz não está configurada nele (SPEC 7.7). */
+export const useVoiceAvailabilityStore = create<{
+  unavailable: boolean;
+  set: (unavailable: boolean) => void;
+}>()((set) => ({ unavailable: false, set: (unavailable) => set({ unavailable }) }));
 
 export const isInVoice = (s: Pick<VoiceSession, "status">) => s.status !== "idle";
 

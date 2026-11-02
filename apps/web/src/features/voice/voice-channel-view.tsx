@@ -1,38 +1,42 @@
 import type { ChannelPayload } from "@spook/shared";
 import { Phone, Volume2 } from "lucide-react";
-import { Notice } from "@/components/notice";
+import { EmptyChatIllustration, VoiceInviteIllustration } from "@/components/illustrations";
 import { NavToggle } from "@/components/shell";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { Guild } from "@/lib/guild";
-import { useCallParticipants } from "./call-panel";
-import { joinVoice, leaveCall } from "./controller";
+import { useStageParticipants } from "./call-panel";
+import { joinVoice } from "./controller";
 import { voicePermissions } from "./permissions";
-import { useVoiceStore } from "./store";
+import { VoiceStage } from "./stage/voice-stage";
+import { useVoiceAvailabilityStore, useVoiceStore } from "./store";
 import { usePersonLookup } from "./use-person-lookup";
-import { VideoGrid } from "./video-grid";
-import { VoiceParticipants } from "./voice-participants";
+import { QualityIndicator } from "./voice-bar";
 
-/** Conteúdo de um canal de voz de servidor: vídeo/tela, quem está conectado e entrar/sair. */
+/** Canal de voz de servidor: cabeçalho enxuto e o palco (grade de tiles, controles flutuantes). */
 export function VoiceChannelView({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
   const inThis = useVoiceStore((s) => s.channelId === channel.id && s.status !== "idle");
   const connecting = useVoiceStore((s) => s.channelId === channel.id && s.status === "connecting");
-  const speaking = useVoiceStore((s) => s.speaking);
-  const participants = useCallParticipants(channel.id);
+  const live = useVoiceStore((s) => s.channelId === channel.id && s.status === "connected");
+  const quality = useVoiceStore((s) => s.quality);
+  const unavailable = useVoiceAvailabilityStore((s) => s.unavailable);
+  const participants = useStageParticipants(channel.id, guild.id, inThis);
   const perms = voicePermissions(guild);
   const lookup = usePersonLookup({ guildId: guild.id }, participants.length > 0);
+  const count = participants.length;
 
   return (
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         <NavToggle />
-        <Volume2 className="size-5 text-muted-foreground" aria-hidden />
+        <Volume2 className="size-5 shrink-0 text-muted-foreground" aria-hidden />
         <h1 className="truncate font-semibold">{channel.name}</h1>
-        <div className="ml-auto">
-          {inThis ? (
-            <Button variant="destructive" size="sm" onClick={() => void leaveCall()}>
-              Sair do canal
-            </Button>
-          ) : (
+        <span className="shrink-0 text-sm text-muted-foreground">
+          {count === 0 ? "Ninguém conectado" : `${count} ${count === 1 ? "pessoa" : "pessoas"}`}
+        </span>
+        <div className="ml-auto flex items-center gap-3">
+          {live ? <QualityIndicator quality={quality} /> : null}
+          {inThis ? null : (
             <Button
               size="sm"
               disabled={!perms.connect || connecting}
@@ -60,21 +64,20 @@ export function VoiceChannelView({ guild, channel }: { guild: Guild; channel: Ch
           Você pode ouvir, mas não tem permissão para falar neste canal.
         </p>
       ) : null}
-      {inThis ? <VideoGrid lookup={lookup} /> : null}
-      {participants.length === 0 && !inThis ? (
-        <Notice title="Ninguém por aqui">Entre no canal para começar uma conversa por voz.</Notice>
+      {unavailable && !inThis ? (
+        <EmptyState
+          illustration={<EmptyChatIllustration className="w-44" />}
+          title="Voz indisponível"
+          description="Este servidor do Spook ainda não tem o serviço de voz ligado. Quando o administrador o configurar, é só entrar de novo."
+        />
+      ) : participants.length === 0 && !inThis ? (
+        <EmptyState
+          illustration={<VoiceInviteIllustration className="w-44" />}
+          title="Ninguém por aqui"
+          description="Entre no canal para começar uma conversa por voz."
+        />
       ) : (
-        <div className="p-4">
-          <h2 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Conectados ({participants.length})
-          </h2>
-          <VoiceParticipants
-            participants={participants}
-            lookup={lookup}
-            speaking={inThis ? speaking : undefined}
-            size={32}
-          />
-        </div>
+        <VoiceStage participants={participants} lookup={lookup} inCall={inThis} guild={guild} />
       )}
     </>
   );
