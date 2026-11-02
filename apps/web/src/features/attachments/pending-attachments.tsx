@@ -15,18 +15,18 @@ export function PendingAttachments({
 }) {
   if (items.length === 0) return null;
   return (
-    <ul aria-label="Anexos pendentes" className="flex flex-wrap gap-2 pb-1">
+    <ul aria-label="Anexos pendentes" className="flex flex-wrap gap-2 border-b border-border p-2">
       {items.map((p) => (
         <li
           key={p.id}
-          className={`flex w-56 items-start gap-2 rounded-md border p-2 text-xs ${
-            p.status === "error" ? "border-destructive" : ""
+          className={`flex w-60 max-w-full items-start gap-2 rounded-xl border bg-surface-1 p-2 text-xs ${
+            p.status === "error" ? "border-destructive-text" : "border-border"
           }`}
         >
           {p.previewUrl ? (
-            <img src={p.previewUrl} alt="" className="size-10 shrink-0 rounded object-cover" />
+            <img src={p.previewUrl} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
           ) : (
-            <span className="flex size-10 shrink-0 items-center justify-center rounded bg-secondary text-secondary-foreground">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-accent text-brand-text">
               <FileText className="size-5" aria-hidden />
             </span>
           )}
@@ -34,7 +34,7 @@ export function PendingAttachments({
             <p className="truncate font-medium text-sm" title={p.name}>
               {p.name}
             </p>
-            <p className="text-muted-foreground">{formatBytes(p.size)}</p>
+            <p className="tabular text-muted-foreground">{formatBytes(p.size)}</p>
             {p.status === "uploading" ? (
               <div className="mt-1 flex items-center gap-1.5">
                 <progress
@@ -46,7 +46,7 @@ export function PendingAttachments({
                 <span className="tabular-nums text-muted-foreground">{p.progress}%</span>
               </div>
             ) : p.status === "done" ? (
-              <p className="text-emerald-600 dark:text-emerald-400">Pronto</p>
+              <p className="text-success-text">Pronto</p>
             ) : (
               <p role="alert" className="text-destructive-text">
                 {p.error}

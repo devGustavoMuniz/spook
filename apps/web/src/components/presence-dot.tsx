@@ -45,7 +45,7 @@ export function StatusAvatar({
       className={cn("relative inline-flex shrink-0", className)}
       style={{ width: size, height: size }}
     >
-      <Avatar url={url} name={name} size={size} />
+      <Avatar url={url} name={name} size={size} seed={userId} />
       {userId ? (
         <PresenceDot
           status={status}

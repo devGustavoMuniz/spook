@@ -10,7 +10,8 @@ import { AtSign, Paperclip, Reply, SendHorizontal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PendingAttachments } from "@/features/attachments/pending-attachments";
 import { ACCEPT, MAX_ATTACHMENTS } from "@/features/attachments/rules";
 import type { ComposerAttachments } from "@/features/attachments/use-composer-attachments";
@@ -18,7 +19,7 @@ import { appMessage } from "@/lib/app-errors";
 import { addMessage, truncateRunes } from "@/lib/message-cache";
 import { createTypingThrottle } from "../typing/throttle";
 import { TypingIndicator } from "../typing/typing-indicator";
-import { MAX_MESSAGE_LENGTH, runeCount } from "./limits";
+import { COUNTER_FROM, MAX_MESSAGE_LENGTH, runeCount } from "./limits";
 
 export function MessageComposer({
   channelId,
@@ -135,138 +136,170 @@ export function MessageComposer({
 
   if (!canSend) {
     return (
-      <div className="border-t px-4 py-3 text-sm text-muted-foreground">
-        Você não tem permissão para enviar mensagens neste canal.
+      <div className="px-4 pb-4">
+        <p className="rounded-2xl border border-border bg-surface-1 px-4 py-3 text-sm text-muted-foreground">
+          Você não tem permissão para enviar mensagens neste canal.
+        </p>
       </div>
     );
   }
 
+  const showCounter = length >= COUNTER_FROM || tooLong;
+  const status = blocked
+    ? `Você está enviando rápido demais. Aguarde ${cooldown} s…`
+    : !canAttach
+      ? "Você não tem permissão para anexar arquivos neste canal."
+      : uploading
+        ? "Enviando anexos… a mensagem pode ser enviada quando terminar."
+        : failed
+          ? "Há anexos com erro: tente de novo ou remova-os para enviar."
+          : null;
+
   return (
     <form
-      className="flex flex-col gap-1 border-t px-4 py-3"
+      className="flex flex-col gap-1 px-3 pt-1 pb-3 sm:px-4"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
-      {replyTo ? (
-        <ReplyBar
-          reply={replyTo}
-          name={replyTo.author.display_name || replyTo.author.username}
-          mention={mentionReply}
-          onMentionChange={setMentionReply}
-          canMention={replyTo.author.id !== meId}
-          onCancel={() => {
-            onCancelReply?.();
-            input.current?.focus();
-          }}
-        />
-      ) : null}
-      <PendingAttachments
-        items={items}
-        onRemove={queue.remove.bind(queue)}
-        onRetry={queue.retry.bind(queue)}
-      />
-      <div className="flex items-end gap-2">
-        <input
-          ref={picker}
-          type="file"
-          multiple
-          accept={ACCEPT}
-          className="hidden"
-          tabIndex={-1}
-          aria-label="Escolher arquivos"
-          data-testid="attachment-input"
-          onChange={(e) => {
-            addFiles([...(e.target.files ?? [])]);
-            e.target.value = ""; // permite escolher o mesmo arquivo de novo
-          }}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Anexar arquivo"
-          title={
-            canAttach
-              ? `Anexar arquivos (até ${MAX_ATTACHMENTS}, 25 MB cada)`
-              : "Você não tem permissão para anexar arquivos neste canal"
-          }
-          disabled={!canAttach || items.length >= MAX_ATTACHMENTS}
-          onClick={() => picker.current?.click()}
-        >
-          <Paperclip />
-        </Button>
-        <Textarea
-          ref={input}
-          aria-label={isDm ? `Mensagem para ${channelName}` : `Mensagem em #${channelName}`}
-          placeholder={isDm ? `Conversar com ${channelName}` : `Conversar em #${channelName}`}
-          rows={1}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            // Falha no aviso não atrapalha quem escreve: o indicador dos outros é só um detalhe.
-            if (canSend && typing.shouldSend(e.target.value))
-              void startTyping(channelId).catch(() => {});
-          }}
-          onPaste={(e) => {
-            // Colar imagem (print) vira anexo; texto colado segue o caminho normal.
-            const files = [...e.clipboardData.files];
-            if (files.length === 0) return;
-            e.preventDefault();
-            addFiles(files);
-          }}
-          onKeyDown={(e) => {
-            // Enter envia; Shift+Enter quebra linha. Não envia no meio de uma composição (IME).
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void submit();
-            } else if (e.key === "Escape" && replyTo) {
-              e.preventDefault();
-              onCancelReply?.();
-            } else if (
-              e.key === "ArrowUp" &&
-              onEditLast &&
-              text === "" &&
-              !e.shiftKey &&
-              !e.ctrlKey &&
-              !e.metaKey &&
-              !e.altKey &&
-              !e.nativeEvent.isComposing
-            ) {
-              // Campo vazio: ↑ abre a edição da última mensagem sua (como no Discord).
-              e.preventDefault();
-              onEditLast();
-            }
-          }}
-          aria-invalid={tooLong}
-          aria-describedby="composer-info"
-          className="field-sizing-content max-h-40 min-h-10 resize-none"
-        />
-        <Button type="submit" size="icon" aria-label="Enviar mensagem" disabled={!canSubmit}>
-          <SendHorizontal />
-        </Button>
-      </div>
-      <TypingIndicator channelId={channelId} nameOf={nameOf} />
       <div
-        id="composer-info"
-        className="flex justify-between gap-2 text-xs text-muted-foreground"
-        aria-live="polite"
+        className={`overflow-hidden rounded-2xl border bg-surface-2 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur-base)] focus-within:border-ring focus-within:shadow-md ${
+          tooLong ? "border-destructive-text" : "border-input"
+        }`}
       >
-        <output className={blocked ? "text-destructive-text" : undefined}>
-          {blocked
-            ? `Você está enviando rápido demais. Aguarde ${cooldown} s…`
-            : !canAttach
-              ? "Você não tem permissão para anexar arquivos neste canal."
-              : uploading
-                ? "Enviando anexos… a mensagem pode ser enviada quando terminar."
-                : failed
-                  ? "Há anexos com erro: tente de novo ou remova-os para enviar."
-                  : null}
-        </output>
-        <span className={tooLong ? "text-destructive-text" : undefined}>
-          {length}/{MAX_MESSAGE_LENGTH}
-        </span>
+        {replyTo ? (
+          <ReplyBar
+            reply={replyTo}
+            name={replyTo.author.display_name || replyTo.author.username}
+            mention={mentionReply}
+            onMentionChange={setMentionReply}
+            canMention={replyTo.author.id !== meId}
+            onCancel={() => {
+              onCancelReply?.();
+              input.current?.focus();
+            }}
+          />
+        ) : null}
+        <PendingAttachments
+          items={items}
+          onRemove={queue.remove.bind(queue)}
+          onRetry={queue.retry.bind(queue)}
+        />
+        <div className="flex items-end gap-1 p-1.5">
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            accept={ACCEPT}
+            className="hidden"
+            tabIndex={-1}
+            aria-label="Escolher arquivos"
+            data-testid="attachment-input"
+            onChange={(e) => {
+              addFiles([...(e.target.files ?? [])]);
+              e.target.value = ""; // permite escolher o mesmo arquivo de novo
+            }}
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-10 shrink-0 rounded-xl text-muted-foreground"
+                aria-label="Anexar arquivo"
+                disabled={!canAttach || items.length >= MAX_ATTACHMENTS}
+                onClick={() => picker.current?.click()}
+              >
+                <Paperclip />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {canAttach
+                ? `Anexar arquivos (até ${MAX_ATTACHMENTS}, 25 MB cada)`
+                : "Você não tem permissão para anexar arquivos neste canal"}
+            </TooltipContent>
+          </Tooltip>
+          <textarea
+            ref={input}
+            aria-label={isDm ? `Mensagem para ${channelName}` : `Mensagem em #${channelName}`}
+            placeholder={isDm ? `Conversar com ${channelName}` : `Conversar em #${channelName}`}
+            rows={1}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              // Falha no aviso não atrapalha quem escreve: o indicador dos outros é só um detalhe.
+              if (canSend && typing.shouldSend(e.target.value))
+                void startTyping(channelId).catch(() => {});
+            }}
+            onPaste={(e) => {
+              // Colar imagem (print) vira anexo; texto colado segue o caminho normal.
+              const files = [...e.clipboardData.files];
+              if (files.length === 0) return;
+              e.preventDefault();
+              addFiles(files);
+            }}
+            onKeyDown={(e) => {
+              // Enter envia; Shift+Enter quebra linha. Não envia no meio de uma composição (IME).
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void submit();
+              } else if (e.key === "Escape" && replyTo) {
+                e.preventDefault();
+                onCancelReply?.();
+              } else if (
+                e.key === "ArrowUp" &&
+                onEditLast &&
+                text === "" &&
+                !e.shiftKey &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                !e.altKey &&
+                !e.nativeEvent.isComposing
+              ) {
+                // Campo vazio: ↑ abre a edição da última mensagem sua (como no Discord).
+                e.preventDefault();
+                onEditLast();
+              }
+            }}
+            aria-invalid={tooLong}
+            aria-describedby="composer-info"
+            className="field-sizing-content max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none"
+          />
+          {showCounter ? (
+            <span
+              className={`tabular self-center pr-1 text-xs ${tooLong ? "font-semibold text-destructive-text" : "text-muted-foreground"}`}
+            >
+              {length}/{MAX_MESSAGE_LENGTH}
+            </span>
+          ) : null}
+          <Button
+            type="submit"
+            size="icon"
+            variant={canSubmit ? "default" : "secondary"}
+            className="size-10 shrink-0 rounded-xl"
+            aria-label="Enviar mensagem"
+            disabled={!canSubmit}
+          >
+            <SendHorizontal />
+          </Button>
+        </div>
+      </div>
+      <div className="flex min-h-4 items-center justify-between gap-3">
+        <TypingIndicator channelId={channelId} nameOf={nameOf} />
+        <p className="hidden shrink-0 items-center gap-1 text-2xs text-muted-foreground md:flex">
+          <Kbd>Enter</Kbd> envia <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> nova linha
+        </p>
+      </div>
+      <div id="composer-info" aria-live="polite" className="empty:hidden">
+        {status ? (
+          <output
+            className={`block text-xs ${blocked || failed ? "text-destructive-text" : "text-muted-foreground"}`}
+          >
+            {status}
+          </output>
+        ) : null}
       </div>
     </form>
   );
@@ -294,9 +327,9 @@ function ReplyBar({
   return (
     <fieldset
       aria-label={`Respondendo a ${name}`}
-      className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 text-xs"
+      className="flex min-w-0 items-center gap-2 border-b border-border bg-surface-1 px-3 py-2 text-xs"
     >
-      <Reply className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <Reply className="size-4 shrink-0 text-brand-text" aria-hidden />
       <span className="min-w-0 flex-1 truncate">
         Respondendo a <strong className="font-semibold">{name}</strong>
         <span className="ml-2 text-muted-foreground">{preview}</span>
@@ -304,9 +337,9 @@ function ReplyBar({
       {canMention ? (
         <Button
           type="button"
-          variant="ghost"
+          variant={mention ? "soft" : "ghost"}
           size="sm"
-          className="h-6 gap-1 px-1.5 text-xs"
+          className="h-7 gap-1 px-2 text-xs"
           aria-pressed={mention}
           aria-label={`Mencionar ${name}`}
           title={
@@ -324,12 +357,12 @@ function ReplyBar({
         type="button"
         variant="ghost"
         size="icon"
-        className="size-6"
+        className="size-7"
         aria-label="Cancelar resposta"
         title="Cancelar (Esc)"
         onClick={onCancel}
       >
-        <X className="size-3.5" />
+        <X className="size-4" />
       </Button>
     </fieldset>
   );

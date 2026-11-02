@@ -313,7 +313,7 @@ describe("anexos na mensagem", () => {
       />,
     );
     expect(screen.getByText("relatório.pdf")).toBeInTheDocument();
-    expect(screen.getByText("1,5 MB")).toBeInTheDocument();
+    expect(screen.getByText(/1,5 MB/)).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "Baixar relatório.pdf" });
     expect(link).toHaveAttribute("href", "https://s.test/orig/p");
     expect(link).toHaveAttribute("download", "relatório.pdf");

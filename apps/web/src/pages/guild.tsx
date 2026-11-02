@@ -6,6 +6,7 @@ import { Notice } from "@/components/notice";
 import { MembersToggle, NavToggle } from "@/components/shell";
 import { ChannelSidebar } from "@/features/channels/channel-sidebar";
 import { useGuild } from "@/features/guilds/use-guild";
+import { MemberUiProvider } from "@/features/members/member-ui";
 import { MembersPanel } from "@/features/members/members-panel";
 import { ChannelView } from "@/features/messages/channel-view";
 import { PinnedMessagesButton } from "@/features/messages/pins-panel";
@@ -39,13 +40,15 @@ export function GuildLayout() {
     );
 
   return (
-    <div className="flex h-full">
-      <ChannelSidebar guild={guild} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Outlet />
+    <MemberUiProvider guild={guild}>
+      <div className="flex h-full">
+        <ChannelSidebar guild={guild} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Outlet />
+        </div>
+        <MembersPanel guild={guild} />
       </div>
-      <MembersPanel guild={guild} />
-    </div>
+    </MemberUiProvider>
   );
 }
 

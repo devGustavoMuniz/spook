@@ -1,254 +1,315 @@
-import {
-  isApiError,
-  type MemberPayload,
-  useAddGuildMemberRole,
-  useGetMe,
-  useRemoveGuildMember,
-  useRemoveGuildMemberRole,
-} from "@spook/shared";
-import { useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { type MemberPayload, useGetMe } from "@spook/shared";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Copy, Crown, MoreHorizontal, ShieldCheck, UserMinus, UserRound } from "lucide-react";
+import { useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { StatusAvatar } from "@/components/presence-dot";
+import { statusLabel } from "@/components/presence-dot";
 import { SideSheet } from "@/components/shell";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useStartDm } from "@/features/dms/use-start-dm";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
+import { displayStatus, usePresenceStore } from "@/features/presence/store";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import { canKick, canManageRole, type Guild, memberColor, rolesOf } from "@/lib/guild";
-import { queryKeys } from "@/lib/queryKeys";
+import { useReadableRoleColor } from "@/lib/role-color";
+import { groupMembers, type MemberGroup } from "./groups";
+import { useMemberUi } from "./member-ui";
 import { memberName, useGuildMembers } from "./use-members";
 
-function MemberCustomStatus({ userId }: { userId: string }) {
-  return (
-    <CustomStatusText
-      userId={userId}
-      className="block truncate text-[11px] text-muted-foreground"
-    />
-  );
-}
+/** Acima disto a lista é virtualizada (só as linhas visíveis ficam no DOM). */
+const VIRTUALIZE_FROM = 150;
+
+type Flat =
+  | { kind: "header"; key: string; group: MemberGroup }
+  | { kind: "member"; key: string; member: MemberPayload; offline: boolean };
 
 export function MembersPanel({ guild }: { guild: Guild }) {
   const { data: me } = useGetMe();
-  const { startDm } = useStartDm();
   const members = useGuildMembers(guild.id);
-  const [rolesFor, setRolesFor] = useState<MemberPayload | null>(null);
-  const [kicking, setKicking] = useState<MemberPayload | null>(null);
   const list = members.data?.members ?? [];
-  const canAssign = rolesOf(guild).some((r) => !r.is_everyone && canManageRole(guild, r));
+  const statuses = usePresenceStore((s) => s.statuses);
+  const meId = usePresenceStore((s) => s.meId);
+  const mine = usePresenceStore((s) => s.mine);
+
+  // `statuses` e `mine` mudam quando a presença muda: o agrupamento acompanha em tempo real.
+  const groups = useMemo(
+    () => groupMembers(guild, list, (id) => displayStatus({ statuses, meId, mine }, id)),
+    [guild, list, statuses, meId, mine],
+  );
+  const flat = useMemo<Flat[]>(
+    () =>
+      groups.flatMap((g) => [
+        { kind: "header" as const, key: `h:${g.key}`, group: g },
+        ...g.members.map((m) => ({
+          kind: "member" as const,
+          key: `m:${m.user_id}`,
+          member: m,
+          offline: g.offline,
+        })),
+      ]),
+    [groups],
+  );
 
   return (
     <SideSheet label="Membros" className="w-60 shrink-0 flex-col border-l bg-sidebar">
-      <h2 className="px-4 pt-4 pb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <h2 className="px-4 pt-4 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         Membros{members.data ? ` — ${list.length}` : ""}
       </h2>
-      <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-        {members.isPending ? (
-          <li className="px-2 text-sm text-muted-foreground">Carregando…</li>
-        ) : members.isError ? (
-          <li className="px-2 text-sm text-destructive-text">{appMessage(members.error)}</li>
-        ) : null}
-        {list.map((m) => {
-          const color = memberColor(guild, m);
-          const mayKick = !!me && canKick(guild, m, me.id);
-          const mayRoles = canAssign && m.user_id !== guild.owner_id;
-          const roleNames = rolesOf(guild)
-            .filter((r) => m.role_ids?.includes(r.id))
-            .map((r) => r.name);
-          return (
-            <li
-              key={m.user_id}
-              className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
-            >
-              <StatusAvatar userId={m.user_id} url={m.avatar_url} name={memberName(m)} size={28} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm" style={color ? { color } : undefined}>
-                  {memberName(m)}
-                  {m.user_id === guild.owner_id ? (
-                    <span className="ml-1 text-xs text-muted-foreground" title="Dono do servidor">
-                      (dono)
-                    </span>
-                  ) : null}
-                </p>
-                <MemberCustomStatus userId={m.user_id} />
-                {roleNames.length > 0 ? (
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {roleNames.join(", ")}
-                  </p>
-                ) : null}
-              </div>
-              {m.user_id !== me?.id ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-                      aria-label={`Opções de ${memberName(m)}`}
-                    >
-                      <MoreHorizontal />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => void startDm(m.user_id)}>
-                      Enviar mensagem
-                    </DropdownMenuItem>
-                    {mayRoles ? (
-                      <DropdownMenuItem onSelect={() => setRolesFor(m)}>
-                        Gerenciar cargos
-                      </DropdownMenuItem>
-                    ) : null}
-                    {mayKick ? (
-                      <DropdownMenuItem destructive onSelect={() => setKicking(m)}>
-                        Expulsar
-                      </DropdownMenuItem>
-                    ) : null}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+      {members.isPending ? (
+        <output className="flex flex-col gap-2 px-3 pt-3" aria-label="Carregando membros">
+          <span className="sr-only">Carregando…</span>
+          {["a", "b", "c", "d", "e", "f", "g", "h"].map((k) => (
+            <span key={k} className="flex items-center gap-3">
+              <Skeleton className="size-8 rounded-full" />
+              <Skeleton className="h-3.5 flex-1" />
+            </span>
+          ))}
+        </output>
+      ) : members.isError ? (
+        <p className="px-4 pt-3 text-sm text-destructive-text">{appMessage(members.error)}</p>
+      ) : flat.length > VIRTUALIZE_FROM ? (
+        <VirtualList guild={guild} flat={flat} meId={me?.id} />
+      ) : (
+        <ul aria-label="Membros" className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+          {flat.map((row) => (
+            <FlatRow key={row.key} row={row} guild={guild} meId={me?.id} />
+          ))}
+        </ul>
+      )}
       {members.data?.has_more ? (
         <p className="px-4 pb-3 text-xs text-muted-foreground">Mostrando os primeiros membros.</p>
       ) : null}
-      <MemberRolesDialog guild={guild} member={rolesFor} onClose={() => setRolesFor(null)} />
-      <KickDialog guild={guild} member={kicking} onClose={() => setKicking(null)} />
     </SideSheet>
   );
 }
 
-function KickDialog({
-  guild,
-  member,
-  onClose,
-}: {
-  guild: Guild;
-  member: MemberPayload | null;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const remove = useRemoveGuildMember();
-  async function confirm() {
-    if (!member) return;
-    try {
-      await remove.mutateAsync({ guildId: guild.id, userId: member.user_id });
-      await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
-      toast.success(`${memberName(member)} foi expulso.`);
-    } catch (e) {
-      toast.error(appMessage(e));
-    } finally {
-      onClose();
-    }
-  }
+function VirtualList({ guild, flat, meId }: { guild: Guild; flat: Flat[]; meId?: string }) {
+  "use no memo";
+  const ref = useRef<HTMLDivElement>(null);
+  const v = useVirtualizer({
+    count: flat.length,
+    getScrollElement: () => ref.current,
+    estimateSize: (i) => (flat[i]?.kind === "header" ? 36 : 48),
+    getItemKey: (i) => flat[i]?.key ?? i,
+    overscan: 12,
+  });
   return (
-    <AlertDialog open={!!member} onOpenChange={(o) => !o && onClose()}>
-      <AlertDialogContent>
-        <AlertDialogTitle>Expulsar {member ? memberName(member) : ""}?</AlertDialogTitle>
-        <AlertDialogDescription>
-          A pessoa perde o acesso ao servidor, mas pode voltar com um novo convite.
-        </AlertDialogDescription>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction onClick={() => void confirm()}>Expulsar</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <div ref={ref} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+      <ul
+        aria-label="Membros"
+        style={{ height: v.getTotalSize(), position: "relative", width: "100%" }}
+      >
+        {v.getVirtualItems().map((item) => {
+          const row = flat[item.index];
+          if (!row) return null;
+          return (
+            <FlatRow
+              key={item.key}
+              row={row}
+              guild={guild}
+              meId={meId}
+              virtual={{ index: item.index, ref: v.measureElement, start: item.start }}
+            />
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
-function MemberRolesDialog({
+type Virtual = { index: number; ref: (el: HTMLElement | null) => void; start: number };
+
+/** Linha da lista; na lista virtualizada vem posicionada em absoluto (só `transform`). */
+function liProps(virtual?: Virtual) {
+  return virtual
+    ? {
+        "data-index": virtual.index,
+        ref: virtual.ref,
+        style: {
+          position: "absolute" as const,
+          top: 0,
+          left: 0,
+          width: "100%",
+          transform: `translateY(${virtual.start}px)`,
+        },
+      }
+    : {};
+}
+
+function FlatRow({
+  row,
   guild,
-  member,
-  onClose,
+  meId,
+  virtual,
+}: {
+  row: Flat;
+  guild: Guild;
+  meId?: string;
+  virtual?: Virtual;
+}) {
+  if (row.kind === "header")
+    return <GroupHeader group={row.group} guild={guild} virtual={virtual} />;
+  return (
+    <MemberItem
+      guild={guild}
+      member={row.member}
+      offline={row.offline}
+      meId={meId}
+      virtual={virtual}
+    />
+  );
+}
+
+function GroupHeader({
+  group,
+  guild,
+  virtual,
+}: {
+  group: MemberGroup;
+  guild: Guild;
+  virtual?: Virtual;
+}) {
+  const role = group.roleId ? rolesOf(guild).find((r) => r.id === group.roleId) : undefined;
+  const color = role ? colorToHex(role.color) : undefined;
+  return (
+    <li className="list-none px-2 pt-4 pb-1" {...liProps(virtual)}>
+      <h3 className="flex items-center gap-1.5 truncate text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+        {color ? (
+          <span
+            aria-hidden
+            className="size-2 shrink-0 rounded-full"
+            style={{ background: color }}
+          />
+        ) : null}
+        <span className="truncate">{group.title}</span>
+        <span className="tabular shrink-0 font-normal">— {group.members.length}</span>
+      </h3>
+    </li>
+  );
+}
+
+function MemberItem({
+  guild,
+  member: m,
+  offline,
+  meId,
+  virtual,
 }: {
   guild: Guild;
-  member: MemberPayload | null;
-  onClose: () => void;
+  member: MemberPayload;
+  offline: boolean;
+  meId?: string;
+  virtual?: Virtual;
 }) {
-  const qc = useQueryClient();
-  const add = useAddGuildMemberRole();
-  const remove = useRemoveGuildMemberRole();
-  // Cargos do membro vêm do cache de membros (atualiza após cada troca).
-  const members = useGuildMembers(guild.id);
-  const current = members.data?.members?.find((m) => m.user_id === member?.user_id) ?? member;
-  const has = new Set(current?.role_ids ?? []);
+  const ui = useMemberUi();
+  const { startDm } = useStartDm();
+  const name = memberName(m);
+  const raw = memberColor(guild, m);
+  const readable = useReadableRoleColor(raw);
+  const status = usePresenceStore((s) => displayStatus(s, m.user_id));
+  const mayKick = !!meId && canKick(guild, m, meId);
+  const mayRoles =
+    rolesOf(guild).some((r) => !r.is_everyone && canManageRole(guild, r)) &&
+    m.user_id !== guild.owner_id;
 
-  async function toggle(roleId: string, on: boolean) {
-    if (!member) return;
+  async function copyId() {
     try {
-      const vars = { guildId: guild.id, userId: member.user_id, roleId };
-      if (on) await add.mutateAsync(vars);
-      else await remove.mutateAsync(vars);
-      await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
-    } catch (e) {
-      toast.error(appMessage(e));
-      if (isApiError(e) && e.status === 404)
-        await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
+      await navigator.clipboard.writeText(m.user_id);
+      toast.success("ID de usuário copiado.");
+    } catch {
+      toast.error("Não foi possível copiar.");
     }
   }
 
   return (
-    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Cargos de {member ? memberName(member) : ""}</DialogTitle>
-          <DialogDescription>
-            Você só pode dar ou tirar cargos abaixo do seu cargo mais alto.
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="flex flex-col gap-1">
-          {rolesOf(guild)
-            .filter((r) => !r.is_everyone)
-            .map((r) => {
-              const allowed = canManageRole(guild, r);
-              return (
-                <li key={r.id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
-                  <span
-                    aria-hidden
-                    className="size-3 rounded-full border"
-                    style={{ background: colorToHex(r.color) ?? "transparent" }}
-                  />
-                  <span id={`role-${r.id}`} className="min-w-0 flex-1 truncate text-sm">
-                    {r.name}
-                  </span>
-                  <Switch
-                    aria-labelledby={`role-${r.id}`}
-                    checked={has.has(r.id)}
-                    disabled={!allowed}
-                    onCheckedChange={(on) => void toggle(r.id, on)}
-                  />
-                </li>
-              );
-            })}
-        </ul>
-      </DialogContent>
-    </Dialog>
+    <li className="group/member relative list-none" {...liProps(virtual)}>
+      <button
+        type="button"
+        onClick={(e) =>
+          ui?.openProfile(
+            {
+              id: m.user_id,
+              username: m.username,
+              displayName: m.nickname || m.display_name || undefined,
+              avatarUrl: m.avatar_url,
+            },
+            e.currentTarget,
+          )
+        }
+        aria-label={`Ver perfil de ${name}`}
+        className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent aria-expanded:bg-accent"
+      >
+        <span className={offline ? "opacity-55" : undefined}>
+          <Avatar
+            url={m.avatar_url}
+            name={name}
+            seed={m.user_id}
+            size={32}
+            status={status}
+            statusLabel={statusLabel[status]}
+          />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span
+            className={`flex items-center gap-1 text-sm font-medium ${offline && !readable ? "text-muted-foreground" : ""}`}
+            style={readable ? { color: readable } : undefined}
+          >
+            <span className={`truncate ${offline ? "opacity-80" : ""}`}>{name}</span>
+            {m.user_id === guild.owner_id ? (
+              <Crown
+                className="size-3.5 shrink-0 text-warning-text"
+                role="img"
+                aria-label="Dono do servidor"
+              />
+            ) : null}
+          </span>
+          <CustomStatusText
+            userId={m.user_id}
+            className="block truncate text-xs text-muted-foreground"
+          />
+        </span>
+      </button>
+      {m.user_id !== meId ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="absolute top-1/2 right-1 size-7 -translate-y-1/2 opacity-0 group-focus-within/member:opacity-100 group-hover/member:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+              aria-label={`Opções de ${name}`}
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => void startDm(m.user_id)}>
+              <UserRound /> Enviar mensagem
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copyId()}>
+              <Copy /> Copiar ID de usuário
+            </DropdownMenuItem>
+            {mayRoles ? (
+              <DropdownMenuItem onSelect={() => ui?.openRoles(m)}>
+                <ShieldCheck /> Gerenciar cargos
+              </DropdownMenuItem>
+            ) : null}
+            {mayKick ? (
+              <DropdownMenuItem destructive onSelect={() => ui?.openKick(m)}>
+                <UserMinus /> Expulsar
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </li>
   );
 }

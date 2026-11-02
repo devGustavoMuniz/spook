@@ -74,10 +74,14 @@ describe("envio", () => {
     const user = userEvent.setup();
     const { state } = await renderApp(path, { signedIn: true, seed: seed() });
     const box = await screen.findByLabelText("Mensagem em #geral");
-    expect(screen.getByText("0/2000")).toBeInTheDocument();
+    // o contador só aparece perto do limite
+    expect(screen.queryByText(/\/2000/)).not.toBeInTheDocument();
     await user.type(box, "olá{Shift>}{Enter}{/Shift}mundo");
     expect(box).toHaveValue("olá\nmundo");
-    expect(screen.getByText("9/2000")).toBeInTheDocument();
+    expect(screen.queryByText(/\/2000/)).not.toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "a".repeat(1800) } });
+    expect(screen.getByText("1800/2000")).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "olá\nmundo" } });
     expect(state.requests.some((r) => r.method === "POST")).toBe(false);
     await user.type(box, "{Enter}");
     const list = await log();

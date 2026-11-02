@@ -77,8 +77,8 @@ export function StatusDot({
 
 /**
  * Avatar do usuário.
- * - sem imagem: `fallback="logo"` (padrão, SPEC 9.4) usa a mini logo; `fallback="initials"` mostra as iniciais
- *   sobre uma cor derivada do `seed` (id ou username);
+ * - sem imagem: `fallback="initials"` (padrão) mostra as iniciais sobre uma cor derivada do `seed` (id ou
+ *   username); `fallback="logo"` usa a mini logo (só para casos de marca);
  * - `speaking` acende o anel verde de quem fala (voz);
  * - `status` põe a bolinha de presença no canto.
  */
@@ -87,7 +87,7 @@ export function Avatar({
   name,
   size = 64,
   className,
-  fallback = "logo",
+  fallback = "initials",
   seed,
   speaking = false,
   status,
@@ -129,18 +129,18 @@ export function Avatar({
       <span
         role="img"
         aria-label={label}
+        data-initials={initialsOf(name)}
         style={{
           ...box,
           fontSize: Math.max(9, Math.round(px * 0.38)),
           background: `linear-gradient(135deg, ${c.from}, ${c.to})`,
         }}
         className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none",
+          // As iniciais vêm do CSS (attr): não entram no texto da página (leitor de tela, busca, cópia).
+          "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white select-none before:content-[attr(data-initials)]",
           faceClass,
         )}
-      >
-        <span aria-hidden="true">{initialsOf(name)}</span>
-      </span>
+      />
     );
   }
 

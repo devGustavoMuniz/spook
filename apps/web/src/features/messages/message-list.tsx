@@ -3,8 +3,12 @@
 
 import type { MessagePayload } from "@spook/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Loader2 } from "lucide-react";
+import { ArrowDown, Hash, Loader2, MessageCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EmptyChatIllustration } from "@/components/illustrations";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ImageViewerProvider } from "../attachments/viewer-context";
 import { useViewportStore } from "../notifications/viewport";
 import { MessageRow, type MessageRowProps } from "./message-row";
 import { buildRows } from "./rows";
@@ -18,6 +22,12 @@ export type MessageListProps = {
   loadingMore: boolean;
   onLoadMore: () => void;
   colors: ReadonlyMap<string, string>;
+  /** Usernames (minúsculos) de quem está na conversa: viram pílula de menção. */
+  mentionable?: ReadonlySet<string>;
+  /** Cartão de perfil do autor (clique no nome/avatar). */
+  onOpenProfile?: MessageRowProps["onOpenProfile"];
+  /** Estado vazio: "Escrever primeira mensagem" devolve o foco ao composer. */
+  onFocusComposer?: () => void;
   myId: string;
   myUsername: string;
   /** Ponto de leitura de quando o canal foi aberto: a mensagem seguinte ganha "Novas mensagens". */
@@ -42,6 +52,7 @@ export type MessageListProps = {
 
 const LOAD_MORE_THRESHOLD_PX = 400;
 const BOTTOM_THRESHOLD_PX = 120;
+const FAR_FROM_BOTTOM_PX = 480;
 
 /**
  * Lista invertida: cresce para cima e fica ancorada no fim. O virtualizer faz `anchorTo: "end"`
@@ -63,11 +74,11 @@ export function MessageList(props: MessageListProps) {
     getScrollElement: () => parentRef.current,
     estimateSize: (i) => {
       const r = rows[i];
-      if (!r || r.kind === "start") return 72;
+      if (!r || r.kind === "start") return 176;
       return (
-        (r.header ? 64 + (r.day ? 40 : 0) : 26) +
-        (r.marker ? 28 : 0) +
-        (r.message.reply_to ? 24 : 0)
+        (r.header ? 64 + (r.day ? 48 : 0) : 26) +
+        (r.marker ? 36 : 0) +
+        (r.message.reply_to ? 28 : 0)
       );
     },
     getItemKey: (i) => rows[i]?.key ?? i,
@@ -120,10 +131,34 @@ export function MessageList(props: MessageListProps) {
 
   // A lista está no fim? (as mensagens novas só contam como lidas assim)
   const setAtBottom = useViewportStore((s) => s.setAtBottom);
+  // "Pular para o presente": aparece quando o usuário rolou para longe do fim; conta as mensagens que
+  // chegaram de outras pessoas enquanto ele estava longe.
+  const [away, setAway] = useState(false);
+  const [unseen, setUnseen] = useState(0);
   function reportBottom() {
     const el = parentRef.current;
-    if (el) setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD_PX);
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAtBottom(distance <= BOTTOM_THRESHOLD_PX);
+    const far = distance > FAR_FROM_BOTTOM_PX;
+    setAway(far);
+    if (!far) setUnseen(0);
   }
+  const awayRef = useRef(false);
+  awayRef.current = away;
+  const prevCount = useRef(messages.length);
+  const lastMine = lastAuthor === props.myId;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: conta só quando a última mensagem muda
+  useEffect(() => {
+    if (
+      prevCount.current > 0 &&
+      messages.length > prevCount.current &&
+      awayRef.current &&
+      !lastMine
+    )
+      setUnseen((n) => n + (messages.length - prevCount.current));
+    prevCount.current = messages.length;
+  }, [lastId]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reavalia quando o conteúdo muda de tamanho
   useEffect(reportBottom, [rows.length, virtualizer.getTotalSize()]);
 
@@ -154,84 +189,144 @@ export function MessageList(props: MessageListProps) {
   }, [rows.length, hasMore, loadingMore]);
 
   const items = virtualizer.getVirtualItems();
-  return (
-    <div className="relative min-h-0 flex-1">
-      {loadingMore ? (
-        <output className="absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-popover px-3 py-1 text-xs text-muted-foreground shadow">
-          <Loader2 className="size-3 animate-spin" /> Carregando mensagens anteriores…
-        </output>
-      ) : null}
+
+  if (messages.length === 0 && !hasMore) {
+    return (
       <div
-        ref={parentRef}
-        onScroll={maybeLoadMore}
         role="log"
         aria-label={`Mensagens de ${props.channelName}`}
-        aria-live="polite"
-        aria-relevant="additions"
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: região rolável precisa de foco para rolar pelo teclado
-        tabIndex={0}
-        className="h-full overflow-y-auto [overflow-anchor:none]"
+        className="relative min-h-0 flex-1 overflow-y-auto bg-brand-wash"
       >
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
-          {items.map((item) => {
-            const row = rows[item.index];
-            if (!row) return null;
-            return (
-              <div
-                key={item.key}
-                data-index={item.index}
-                ref={virtualizer.measureElement}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${item.start}px)`,
-                }}
-              >
-                {row.kind === "start" ? (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">
-                    <p className="text-base font-semibold text-foreground">
-                      {props.isDm
-                        ? `Este é o início da conversa com ${props.channelName}`
-                        : `Este é o início de #${props.channelName}`}
-                    </p>
-                    <p>
-                      {props.isDm
-                        ? "Aqui começa a história da conversa."
-                        : "Aqui começa a história do canal."}
-                    </p>
-                  </div>
-                ) : (
-                  <MessageRow
-                    message={row.message}
-                    header={row.header}
-                    day={row.day}
-                    marker={row.marker}
-                    myId={props.myId}
-                    myUsername={props.myUsername}
-                    color={props.colors.get(row.message.author.id)}
-                    canEdit={row.message.author.id === props.myId}
-                    canDelete={row.message.author.id === props.myId || props.canManageMessages}
-                    canReply={props.canReply}
-                    canPin={props.canPin}
-                    highlighted={highlightId === row.message.id}
-                    replyTarget={props.replyingToId === row.message.id}
-                    onReply={props.onReply}
-                    onTogglePin={props.onTogglePin}
-                    onJumpTo={props.onJumpTo}
-                    editing={props.editingId === row.message.id}
-                    onStartEdit={props.onStartEdit}
-                    onCancelEdit={props.onCancelEdit}
-                    onSaveEdit={props.onSaveEdit}
-                    onDelete={props.onDelete}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <EmptyState
+          illustration={<EmptyChatIllustration className="h-40 w-auto" />}
+          title={props.isDm ? "Nenhuma mensagem ainda" : "Este canal está quieto"}
+          description={
+            props.isDm
+              ? `Diga oi para ${props.channelName}: escreva a primeira mensagem e comece a conversa.`
+              : `Ainda não há mensagens em #${props.channelName}. Escreva a primeira e dê o pontapé inicial.`
+          }
+          action={
+            props.onFocusComposer ? (
+              <Button onClick={props.onFocusComposer}>
+                <MessageCircle /> Escrever a primeira mensagem
+              </Button>
+            ) : undefined
+          }
+        />
       </div>
+    );
+  }
+
+  return (
+    <ImageViewerProvider messages={messages}>
+      <div className="relative min-h-0 flex-1">
+        {loadingMore ? (
+          <output className="absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-popover px-3 py-1 text-xs text-muted-foreground shadow-md">
+            <Loader2 className="size-3 animate-spin motion-essential" /> Carregando mensagens
+            anteriores…
+          </output>
+        ) : null}
+        <div
+          ref={parentRef}
+          onScroll={maybeLoadMore}
+          role="log"
+          aria-label={`Mensagens de ${props.channelName}`}
+          aria-live="polite"
+          aria-relevant="additions"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: região rolável precisa de foco para rolar pelo teclado
+          tabIndex={0}
+          className="h-full overflow-y-auto pt-4 pb-2 [overflow-anchor:none]"
+        >
+          <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+            {items.map((item) => {
+              const row = rows[item.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={item.key}
+                  data-index={item.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${item.start}px)`,
+                  }}
+                >
+                  {row.kind === "start" ? (
+                    <ChannelStart name={props.channelName} isDm={props.isDm} />
+                  ) : (
+                    <MessageRow
+                      message={row.message}
+                      header={row.header}
+                      day={row.day}
+                      marker={row.marker}
+                      myId={props.myId}
+                      myUsername={props.myUsername}
+                      mentionable={props.mentionable}
+                      color={props.colors.get(row.message.author.id)}
+                      canEdit={row.message.author.id === props.myId}
+                      canDelete={row.message.author.id === props.myId || props.canManageMessages}
+                      canReply={props.canReply}
+                      canPin={props.canPin}
+                      highlighted={highlightId === row.message.id}
+                      replyTarget={props.replyingToId === row.message.id}
+                      onReply={props.onReply}
+                      onTogglePin={props.onTogglePin}
+                      onJumpTo={props.onJumpTo}
+                      onOpenProfile={props.onOpenProfile}
+                      editing={props.editingId === row.message.id}
+                      onStartEdit={props.onStartEdit}
+                      onCancelEdit={props.onCancelEdit}
+                      onSaveEdit={props.onSaveEdit}
+                      onDelete={props.onDelete}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {away ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border shadow-lg"
+            onClick={() => {
+              virtualizer.scrollToEnd();
+              setUnseen(0);
+            }}
+          >
+            <ArrowDown />
+            {unseen > 0
+              ? `${unseen} ${unseen === 1 ? "nova mensagem" : "novas mensagens"}`
+              : "Pular para o presente"}
+          </Button>
+        ) : null}
+      </div>
+    </ImageViewerProvider>
+  );
+}
+
+/** Começo do histórico: ícone grande do canal (ou da conversa), título e uma frase. */
+function ChannelStart({ name, isDm }: { name: string; isDm?: boolean }) {
+  return (
+    <div className="flex flex-col gap-2 px-4 pt-8 pb-6">
+      <span className="flex size-14 items-center justify-center rounded-2xl bg-accent text-brand-text">
+        {isDm ? (
+          <MessageCircle className="size-7" aria-hidden />
+        ) : (
+          <Hash className="size-7" aria-hidden />
+        )}
+      </span>
+      <p className="text-2xl font-semibold tracking-tight">
+        {isDm ? `Este é o início da conversa com ${name}` : `Este é o início de #${name}`}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        {isDm ? "Aqui começa a história da conversa." : "Aqui começa a história do canal."}
+      </p>
     </div>
   );
 }

@@ -10,6 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { appMessage } from "@/lib/app-errors";
 import { formatMessageTime } from "@/lib/format";
 import { useJumpStore } from "./jump";
@@ -35,12 +37,13 @@ export function PinnedMessagesButton({
         size="icon"
         aria-label="Mensagens fixadas"
         title="Mensagens fixadas"
+        aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
         <Pin />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>Mensagens fixadas</DialogTitle>
             <DialogDescription>As mais recentes primeiro (até 50 por canal).</DialogDescription>
@@ -67,24 +70,44 @@ function PinsList({
   const jumpTo = useJumpStore((s) => s.jumpTo);
 
   if (pins.isPending) {
-    return <output className="text-sm text-muted-foreground">Carregando fixadas…</output>;
+    return (
+      <output className="flex flex-col gap-2">
+        <span className="sr-only">Carregando fixadas…</span>
+        <Skeleton className="h-20 rounded-xl" />
+        <Skeleton className="h-20 rounded-xl" />
+      </output>
+    );
   }
   if (pins.isError) {
     return (
-      <div className="text-sm">
+      <div className="flex flex-col items-start gap-2 text-sm">
         <p className="text-destructive-text">{appMessage(pins.error)}</p>
-        <button type="button" className="mt-2 underline" onClick={() => void pins.refetch()}>
+        <Button variant="secondary" size="sm" onClick={() => void pins.refetch()}>
           Tentar de novo
-        </button>
+        </Button>
       </div>
     );
   }
   const messages = pins.data.messages ?? [];
   if (messages.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nenhuma mensagem fixada neste canal.</p>;
+    return (
+      <EmptyState
+        className="py-8"
+        illustration={
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-accent text-brand-text">
+            <Pin className="size-7" aria-hidden />
+          </span>
+        }
+        title="Nenhuma mensagem fixada neste canal"
+        description="Fixe as mensagens importantes para achá-las rápido."
+      />
+    );
   }
   return (
-    <ul aria-label="Mensagens fixadas" className="flex flex-col gap-2">
+    <ul
+      aria-label="Mensagens fixadas"
+      className="flex max-h-[60svh] flex-col gap-2 overflow-y-auto"
+    >
       {messages.map((m) => (
         <PinItem
           key={m.id}
@@ -118,11 +141,11 @@ function PinItem({
   const name = m.author.display_name || m.author.username;
   const files = (m.attachments ?? []).length;
   return (
-    <li className="flex flex-col gap-1.5 rounded-md border p-3">
+    <li className="flex flex-col gap-2 rounded-xl border border-border bg-surface-1 p-3">
       <div className="flex items-center gap-2 text-sm">
-        <Avatar url={m.author.avatar_url} name={name} size={24} />
-        <span className="font-medium">{name}</span>
-        <time dateTime={m.created_at} className="text-xs text-muted-foreground">
+        <Avatar url={m.author.avatar_url} name={name} seed={m.author.id} size={24} />
+        <span className="font-semibold">{name}</span>
+        <time dateTime={m.created_at} className="text-xs tabular text-muted-foreground">
           {formatMessageTime(m.created_at)}
         </time>
       </div>

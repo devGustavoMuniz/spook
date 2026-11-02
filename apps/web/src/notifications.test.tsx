@@ -70,7 +70,10 @@ async function open(
   extra: Partial<Parameters<typeof connectGateway>[2]> = {},
 ) {
   const app = await renderApp(path, { signedIn: true, seed });
-  await screen.findByRole("navigation", { name: "Servidores" });
+  // As configurações têm layout próprio (sem a barra de servidores).
+  await screen.findByRole("navigation", {
+    name: path.startsWith("/settings") ? "Seções das configurações" : "Servidores",
+  });
   const sock = await connectGateway(app.state.guilds, "sess-1", {
     private_channels: app.state.dms,
     read_states,
@@ -266,8 +269,12 @@ describe("marcar como lido", () => {
     const list = await screen.findByRole("log", { name: "Mensagens de dev" });
     await within(list).findByText("mensagem 2002");
     const sep = within(list).getByText("Novas mensagens");
-    const article = sep.closest("article") as HTMLElement;
-    expect(within(article).getByText("mensagem 2001")).toBeInTheDocument();
+    // o separador vem logo antes da primeira não lida (mensagem 2001) e depois da lida (2000)
+    const first = within(list).getByText("mensagem 2001").closest("article") as HTMLElement;
+    expect(sep.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const read = within(list).queryByText("mensagem 2000")?.closest("article");
+    if (read)
+      expect(read.compareDocumentPosition(sep) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(state.acks.length).toBeLessThanOrEqual(1);
   });
 });

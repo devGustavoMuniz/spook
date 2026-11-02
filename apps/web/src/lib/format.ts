@@ -26,3 +26,8 @@ export function dayKey(iso: string): string {
 export function formatDateTime(iso: string): string {
   return format(new Date(iso), "dd/MM/yyyy HH:mm", { locale: ptBR });
 }
+
+/** Data completa para dica de hora: "sexta-feira, 30 de outubro de 2026 às 14:05". */
+export function formatFullDate(iso: string): string {
+  return format(new Date(iso), "EEEE, d 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR });
+}

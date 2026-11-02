@@ -1,26 +1,40 @@
 import type { AttachmentPayload } from "@spook/shared";
-import { Download, FileArchive, File as FileIcon, FileText, ImageOff } from "lucide-react";
+import {
+  Download,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  File as FileIcon,
+  FileText,
+  FileVideo,
+  ImageOff,
+} from "lucide-react";
 import { useRef, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatBytes } from "@/lib/file-size";
 import { Lightbox } from "./lightbox";
 import { fitSize, imagesOf, isAudio, isImage, isVideo } from "./media";
+import { useImageViewer } from "./viewer-context";
 
 /** Anexos de uma mensagem: imagens (miniatura + visualizador), áudio/vídeo (player nativo) e cartões de arquivo. */
 export function MessageAttachments({ attachments }: { attachments: readonly AttachmentPayload[] }) {
+  const shared = useImageViewer();
   const [open, setOpen] = useState<number | null>(null);
   // Quem abriu o visualizador: o foco volta para lá ao fechar.
   const opener = useRef<HTMLElement | null>(null);
   if (attachments.length === 0) return null;
   const images = imagesOf(attachments);
   return (
-    <div className="mt-1 flex flex-col items-start gap-2">
+    <div className="mt-1.5 flex max-w-full flex-col items-start gap-2">
       {images.length > 0 ? (
-        <ul aria-label="Imagens" className="flex flex-wrap gap-2">
+        <ul aria-label="Imagens" className="flex max-w-full flex-wrap gap-2">
           {images.map((a, i) => (
-            <li key={a.id}>
+            <li key={a.id} className="max-w-full">
               <ImageThumb
                 attachment={a}
                 onOpen={(trigger) => {
+                  // Na conversa o visualizador é um só (setas passam por todas as imagens carregadas).
+                  if (shared) return shared.open(a.id, trigger);
                   opener.current = trigger;
                   setOpen(i);
                 }}
@@ -40,13 +54,15 @@ export function MessageAttachments({ attachments }: { attachments: readonly Atta
             <FileCard key={a.id} attachment={a} />
           ),
         )}
-      <Lightbox
-        images={images}
-        index={open}
-        onIndexChange={setOpen}
-        onClose={() => setOpen(null)}
-        returnFocusTo={opener}
-      />
+      {shared ? null : (
+        <Lightbox
+          images={images}
+          index={open}
+          onIndexChange={setOpen}
+          onClose={() => setOpen(null)}
+          returnFocusTo={opener}
+        />
+      )}
     </div>
   );
 }
@@ -66,13 +82,14 @@ export function ImageThumb({
   // A miniatura pode falhar (link vencido ou arquivo removido): cai para o original; se esse também falhar, mostra o aviso.
   const [broken, setBroken] = useState<string[]>([]);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const src = [a.thumbnail_url, a.url].find((u): u is string => !!u && !broken.includes(u));
   const dims = a.width && a.height ? { w: a.width, h: a.height } : natural ? natural : null;
   const box = dims ? fitSize(dims.w, dims.h) : { width: 256, height: 192 };
 
   if (!src)
     return (
-      <div className="flex items-center gap-2 rounded-md border p-3 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-xl border bg-surface-1 p-3 text-xs text-muted-foreground">
         <ImageOff className="size-4" aria-hidden /> Não foi possível carregar {a.filename}
       </div>
     );
@@ -81,21 +98,27 @@ export function ImageThumb({
       type="button"
       onClick={(e) => onOpen(e.currentTarget)}
       aria-label={`Abrir imagem ${a.filename}`}
-      className="block overflow-hidden rounded-md border bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+      className="group/img relative block overflow-hidden rounded-xl border border-border bg-muted shadow-xs transition-shadow hover:shadow-md"
       style={{
         width: box.width,
         maxWidth: "100%",
         aspectRatio: `${box.width} / ${box.height}`,
       }}
     >
+      {loaded ? null : <Skeleton className="absolute inset-0 rounded-none" />}
       <img
         src={src}
         alt={a.filename}
         loading="lazy"
         decoding="async"
+        ref={(el) => {
+          // Imagem já em cache: o load pode ter acontecido antes de o React ligar o onLoad.
+          if (el?.complete && el.naturalWidth > 0) setLoaded(true);
+        }}
         // object-fit (e não rotação): o thumbnail do servidor ignora a orientação EXIF.
-        className="size-full object-contain"
+        className={`size-full object-contain transition-[opacity,transform] duration-[var(--dur-slow)] group-hover/img:scale-[1.02] ${loaded ? "opacity-100" : "opacity-0"}`}
         onLoad={(e) => {
+          setLoaded(true);
           const img = e.currentTarget;
           if (!(a.width && a.height) && img.naturalWidth > 0)
             setNatural({ w: img.naturalWidth, h: img.naturalHeight });
@@ -136,29 +159,44 @@ function VideoPlayer({ attachment: a }: { attachment: AttachmentPayload }) {
         preload="metadata"
         src={a.url}
         aria-label={a.filename}
-        className="max-h-72 max-w-full rounded-md border bg-black sm:max-w-sm"
+        className="max-h-72 max-w-full rounded-xl border border-border bg-surface-3 sm:max-w-sm"
       />
     </figure>
   );
 }
 
-function iconFor(contentType: string) {
-  if (contentType === "application/zip") return FileArchive;
-  if (contentType === "application/pdf" || contentType.startsWith("text/")) return FileText;
+function iconFor(a: Pick<AttachmentPayload, "content_type" | "filename">) {
+  const t = a.content_type;
+  if (t === "application/zip") return FileArchive;
+  if (t.startsWith("audio/")) return FileAudio;
+  if (t.startsWith("video/")) return FileVideo;
+  if (/\.(json|js|ts|tsx|go|py|css|html|sh|sql|yaml|yml)$/i.test(a.filename)) return FileCode;
+  if (t === "application/pdf" || t.startsWith("text/")) return FileText;
   return FileIcon;
 }
 
-/** Cartão de arquivo: ícone, nome, tamanho e baixar. */
+function extensionOf(filename: string): string {
+  const i = filename.lastIndexOf(".");
+  return i > 0 && i < filename.length - 1 ? filename.slice(i + 1, i + 6).toUpperCase() : "";
+}
+
+/** Cartão de arquivo: ícone por tipo, nome, tipo/tamanho e baixar. */
 export function FileCard({ attachment: a }: { attachment: AttachmentPayload }) {
-  const Icon = iconFor(a.content_type);
+  const Icon = iconFor(a);
+  const ext = extensionOf(a.filename);
   return (
-    <div className="flex w-72 max-w-full items-center gap-3 rounded-md border bg-secondary/40 p-3">
-      <Icon className="size-8 shrink-0 text-muted-foreground" aria-hidden />
+    <div className="flex w-80 max-w-full items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-xs transition-colors hover:bg-surface-2">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-brand-text">
+        <Icon className="size-5" aria-hidden />
+      </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium" title={a.filename}>
           {a.filename}
         </p>
-        <p className="text-xs text-muted-foreground">{formatBytes(a.size)}</p>
+        <p className="tabular text-xs text-muted-foreground">
+          {ext ? `${ext} · ` : ""}
+          {formatBytes(a.size)}
+        </p>
       </div>
       <a
         href={a.url}
@@ -166,7 +204,7 @@ export function FileCard({ attachment: a }: { attachment: AttachmentPayload }) {
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`Baixar ${a.filename}`}
-        className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
       >
         <Download className="size-4" />
       </a>

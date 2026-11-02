@@ -21,8 +21,11 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useComposerAttachments } from "@/features/attachments/use-composer-attachments";
 import { recipientName, recipientsOf } from "@/features/dms/dm-utils";
+import { MemberUiProvider, useMemberUi } from "@/features/members/member-ui";
 import { memberName, useGuildMembers, useMemberColors } from "@/features/members/use-members";
 import { useAutoAck } from "@/features/notifications/use-auto-ack";
 import { useEntryMarker } from "@/features/notifications/use-entry-marker";
@@ -66,13 +69,14 @@ function useChannelMessages(channelId: string, enabled: boolean) {
   return q;
 }
 
-export function ChannelView({
-  guild,
-  dm,
-  channelId,
-  channelName,
-  perf,
-}: {
+export function ChannelView(props: ChannelViewProps) {
+  // Em servidor o provedor do cartão de perfil vem do layout (a lista de membros também usa); em DM é daqui.
+  const parent = useMemberUi();
+  const inner = <ChannelViewInner {...props} />;
+  return parent ? inner : <MemberUiProvider guild={props.guild}>{inner}</MemberUiProvider>;
+}
+
+type ChannelViewProps = {
   /** Canal de servidor: dá as permissões, as cores dos cargos e os nomes de quem digita. */
   guild?: Guild;
   /** DM: sem permissões de servidor (só o autor edita ou exclui); quem digita vem dos participantes. */
@@ -81,7 +85,10 @@ export function ChannelView({
   channelName: string;
   /** Só em dev (`?perf=N`): troca o histórico por N mensagens falsas locais. */
   perf?: number;
-}) {
+};
+
+function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelViewProps) {
+  const ui = useMemberUi();
   const qc = useQueryClient();
   const { data: me } = useGetMe();
   const colors = useMemberColors(guild);
@@ -94,6 +101,12 @@ export function ChannelView({
     const m = guildMembers.data?.members?.find((x) => x.user_id === userId);
     return m ? memberName(m) : undefined;
   };
+  const mentionable = useMemo(() => {
+    const names = dm
+      ? recipientsOf(dm).map((r) => r.username)
+      : (guildMembers.data?.members ?? []).map((m) => m.username);
+    return new Set(names.map((n) => n.toLowerCase()));
+  }, [dm, guildMembers.data]);
   const perfOn = import.meta.env.DEV && !!perf;
   const query = useChannelMessages(channelId, !perfOn);
   const perfMessages = useMemo(
@@ -219,21 +232,25 @@ export function ChannelView({
       {drag.active && canSend ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 bg-background/80 text-lg font-semibold ring-2 ring-primary ring-inset"
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/85 p-4"
         >
-          <Paperclip /> Solte para anexar
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-accent/50 text-brand-text">
+            <Paperclip className="size-10" />
+            <p className="text-lg font-semibold">Solte para anexar</p>
+            <p className="text-sm text-muted-foreground">Até 10 arquivos, 25 MB cada.</p>
+          </div>
         </div>
       ) : null}
       {!canView ? (
         <p className="p-6 text-sm text-muted-foreground">Você não pode ver este canal.</p>
       ) : query.isPending && !perfOn ? (
-        <output className="block p-6 text-sm text-muted-foreground">Carregando mensagens…</output>
+        <MessagesSkeleton />
       ) : query.isError && !perfOn ? (
-        <div className="p-6 text-sm">
+        <div className="flex flex-1 flex-col items-start gap-3 p-6 text-sm">
           <p className="text-destructive-text">{appMessage(query.error)}</p>
-          <button type="button" className="mt-2 underline" onClick={() => void query.refetch()}>
+          <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
             Tentar de novo
-          </button>
+          </Button>
         </div>
       ) : (
         <MessageList
@@ -245,6 +262,21 @@ export function ChannelView({
           loadingMore={query.isFetchingNextPage}
           onLoadMore={() => void query.fetchNextPage({ cancelRefetch: false })}
           colors={colors}
+          mentionable={mentionable}
+          onOpenProfile={(userId, trigger) => {
+            const a = messages.find((m) => m.author.id === userId)?.author;
+            if (!a) return;
+            ui?.openProfile(
+              {
+                id: a.id,
+                username: a.username,
+                displayName: a.display_name,
+                avatarUrl: a.avatar_url,
+              },
+              trigger,
+            );
+          }}
+          onFocusComposer={() => setFocusToken((n) => n + 1)}
           myId={me.id}
           myUsername={me.username}
           newAfterId={newAfterId}
@@ -293,6 +325,32 @@ export function ChannelView({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** Carregamento do histórico: linhas que imitam mensagens (avatar + duas linhas), sem pular quando chegam. */
+function MessagesSkeleton() {
+  const widths = [
+    ["a", "w-2/3"],
+    ["b", "w-1/2"],
+    ["c", "w-5/6"],
+    ["d", "w-1/3"],
+    ["e", "w-3/5"],
+    ["f", "w-2/5"],
+  ] as const;
+  return (
+    <output className="flex min-h-0 flex-1 flex-col justify-end gap-5 overflow-hidden px-4 pb-4">
+      <span className="sr-only">Carregando mensagens…</span>
+      {widths.map(([k, w]) => (
+        <span key={k} className="flex gap-3">
+          <Skeleton className="size-10 shrink-0 rounded-full" />
+          <span className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
+            <Skeleton className="h-3.5 w-32" />
+            <Skeleton className={`h-3.5 ${w}`} />
+          </span>
+        </span>
+      ))}
+    </output>
   );
 }
 

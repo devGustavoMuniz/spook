@@ -1,11 +1,30 @@
 import type { MessagePayload } from "@spook/shared";
-import { CornerUpRight, Pencil, Pin, PinOff, Reply, Trash2 } from "lucide-react";
-import { type KeyboardEvent, memo, type ReactNode, useState } from "react";
+import { Copy, Hash, MoreHorizontal, Pencil, Pin, PinOff, Reply, Trash2 } from "lucide-react";
+import {
+  type KeyboardEvent,
+  memo,
+  type PointerEvent,
+  type ReactNode,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
 import { Avatar } from "@/components/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageAttachments } from "@/features/attachments/message-attachments";
-import { formatClock, formatMessageTime } from "@/lib/format";
+import { formatClock, formatFullDate, formatMessageTime } from "@/lib/format";
+import { useReadableRoleColor } from "@/lib/role-color";
 import { MAX_MESSAGE_LENGTH, runeCount } from "./limits";
 
 export type MessageRowProps = {
@@ -18,6 +37,8 @@ export type MessageRowProps = {
   /** Quem está logado: a mensagem que o cita ganha destaque. */
   myId: string;
   myUsername: string;
+  /** Usernames (minúsculos) que podem ser citados na conversa: ganham a pílula de menção. */
+  mentionable?: ReadonlySet<string>;
   canEdit: boolean;
   canDelete: boolean;
   /** Pode responder (SEND_MESSAGES no servidor; sempre em DM). */
@@ -37,14 +58,40 @@ export type MessageRowProps = {
   onCancelEdit: () => void;
   onSaveEdit: (id: string, content: string) => Promise<void>;
   onDelete: (message: MessagePayload) => void;
+  /** Abre o cartão de perfil do autor (clique no nome ou no avatar). */
+  onOpenProfile?: (userId: string, trigger: HTMLElement) => void;
 };
+
+const LONG_PRESS_MS = 450;
+
+async function copyText(text: string, done: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(done);
+  } catch {
+    toast.error("Não foi possível copiar.");
+  }
+}
 
 export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   const { message: m } = p;
   const name = m.author.display_name || m.author.username;
+  const nameColor = useReadableRoleColor(p.color);
   // mention_ids traz quem deve ser NOTIFICADO (o servidor exclui o próprio autor). Só ele destaca a linha;
   // o "@usuário" no texto é destacado sempre que cita você, inclusive numa mensagem sua.
   const mentionsMe = (m.mention_ids ?? []).includes(p.myId);
+  const [touchMenu, setTouchMenu] = useState(false);
+  const press = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hasActions = !p.editing && (p.canEdit || p.canDelete || p.canReply || p.canPin);
+
+  // Toque longo (só dedo, não mouse) abre o mesmo menu do botão "⋯".
+  function startPress(e: PointerEvent<HTMLElement>) {
+    if (e.pointerType !== "touch" || !hasActions) return;
+    clearTimeout(press.current);
+    press.current = setTimeout(() => setTouchMenu(true), LONG_PRESS_MS);
+  }
+  const endPress = () => clearTimeout(press.current);
+
   // Atalhos com a própria mensagem focada (Tab/clique): R responde, P fixa, E edita.
   function onKeyDown(e: KeyboardEvent<HTMLElement>) {
     if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey || p.editing) return;
@@ -55,149 +102,331 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
     else return;
     e.preventDefault();
   }
+
+  const profileButton = (child: ReactNode, className?: string) =>
+    p.onOpenProfile ? (
+      <button
+        type="button"
+        aria-label={`Ver perfil de ${name}`}
+        onClick={(e) => p.onOpenProfile?.(m.author.id, e.currentTarget)}
+        className={className}
+      >
+        {child}
+      </button>
+    ) : (
+      <span className={className}>{child}</span>
+    );
+
   return (
-    <article
-      aria-label={`Mensagem de ${name}`}
-      aria-keyshortcuts="R P E"
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a mensagem recebe foco para revelar as ações e aceitar os atalhos (R, P, E)
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      data-mention={mentionsMe || undefined}
-      data-pinned={m.pinned || undefined}
-      data-highlighted={p.highlighted || undefined}
-      className={`group relative flex flex-col px-4 outline-none hover:bg-accent/40 focus-within:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset ${
-        mentionsMe ? "border-l-2 border-primary bg-primary/10" : ""
-      } ${p.highlighted ? "bg-primary/20 transition-colors" : ""} ${
-        p.replyTarget ? "bg-accent/60" : ""
-      }`}
-    >
-      {p.marker ? (
-        <div className="flex items-center gap-3 pt-2 text-xs font-semibold text-destructive-text">
-          <hr className="flex-1 border-destructive" />
-          <span>Novas mensagens</span>
-          <hr className="flex-1 border-destructive" />
-        </div>
-      ) : null}
-      {p.day ? (
-        <div className="flex items-center gap-3 py-3 text-xs text-muted-foreground">
-          <hr className="flex-1 border-border" />
-          <span>{p.day}</span>
-          <hr className="flex-1 border-border" />
-        </div>
-      ) : null}
-      {m.reply_to ? <ReplyQuote reply={m.reply_to} onJumpTo={p.onJumpTo} /> : null}
-      <div className={p.header ? "flex gap-3 pt-2 pb-0.5" : "flex gap-3"}>
-        <div className="w-10 shrink-0 pt-0.5 text-right text-[10px] text-muted-foreground">
-          {p.header ? (
-            <Avatar url={m.author.avatar_url} name={name} size={40} />
-          ) : (
-            <time
-              dateTime={m.created_at}
-              className="hidden leading-6 group-hover:inline"
-              title={formatMessageTime(m.created_at)}
-            >
-              {formatClock(m.created_at)}
-            </time>
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          {p.header ? (
-            <div className="flex items-baseline gap-2">
-              <span className="font-medium" style={p.color ? { color: p.color } : undefined}>
-                {name}
-              </span>
-              <time dateTime={m.created_at} className="text-xs text-muted-foreground">
-                {formatMessageTime(m.created_at)}
+    <>
+      {p.marker ? <NewMessagesDivider /> : null}
+      {p.day ? <DayDivider label={p.day} /> : null}
+      <article
+        aria-label={`Mensagem de ${name}`}
+        aria-keyshortcuts="R P E"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a mensagem recebe foco para revelar as ações e aceitar os atalhos (R, P, E)
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        onPointerDown={startPress}
+        onPointerUp={endPress}
+        onPointerMove={endPress}
+        onPointerCancel={endPress}
+        data-mention={mentionsMe || undefined}
+        data-pinned={m.pinned || undefined}
+        data-highlighted={p.highlighted || undefined}
+        data-header={p.header || undefined}
+        className={`group/msg relative flex flex-col px-4 outline-none transition-colors duration-[var(--dur-base)] hover:bg-accent/40 focus-within:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset [@media(hover:none)]:pr-12 max-md:pr-12 ${
+          mentionsMe
+            ? "bg-brand-500/10 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary hover:bg-brand-500/15"
+            : ""
+        } ${p.highlighted ? "bg-brand-500/25" : ""} ${p.replyTarget ? "bg-accent/70" : ""}`}
+      >
+        {m.reply_to ? <ReplyQuote reply={m.reply_to} onJumpTo={p.onJumpTo} /> : null}
+        <div className={p.header ? "flex gap-3 pt-2 pb-0.5" : "flex gap-3 py-px"}>
+          <div className="w-10 shrink-0 pt-0.5 text-right">
+            {p.header ? (
+              profileButton(
+                <Avatar
+                  url={m.author.avatar_url}
+                  name={name}
+                  seed={m.author.id}
+                  size={40}
+                  className="transition-opacity hover:opacity-90"
+                />,
+                "block rounded-full",
+              )
+            ) : (
+              <time
+                dateTime={m.created_at}
+                title={formatFullDate(m.created_at)}
+                className="text-2xs leading-6 text-muted-foreground opacity-0 transition-opacity group-focus-within/msg:opacity-100 group-hover/msg:opacity-100"
+              >
+                {formatClock(m.created_at)}
               </time>
-            </div>
-          ) : null}
-          {p.editing ? (
-            <EditBox
-              initial={m.content}
-              onCancel={p.onCancelEdit}
-              onSave={(c) => p.onSaveEdit(m.id, c)}
-            />
-          ) : (
-            <>
-              {m.content ? (
-                <p className="text-sm leading-6 break-words whitespace-pre-wrap">
-                  {m.content.includes("@") ? highlightMention(m.content, p.myUsername) : m.content}
-                  {m.edited_at ? (
-                    <span
-                      className="ml-1 text-[11px] text-muted-foreground"
-                      title="Mensagem editada"
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            {p.header ? (
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                {profileButton(
+                  <span
+                    className="text-sm font-semibold hover:underline"
+                    style={nameColor ? { color: nameColor } : undefined}
+                  >
+                    {name}
+                  </span>,
+                  "rounded-sm text-left",
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <time
+                      dateTime={m.created_at}
+                      className="text-2xs tabular text-muted-foreground"
                     >
-                      (editada)
-                    </span>
-                  ) : null}
-                </p>
-              ) : null}
-              <MessageAttachments attachments={m.attachments ?? []} />
-              {m.pinned ? (
-                <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <Pin className="size-3" role="img" aria-label="Mensagem fixada" />
-                  fixada
-                </p>
-              ) : null}
-            </>
-          )}
+                      {formatMessageTime(m.created_at)}
+                    </time>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{formatFullDate(m.created_at)}</TooltipContent>
+                </Tooltip>
+                {m.pinned ? <PinnedBadge /> : null}
+              </div>
+            ) : m.pinned ? (
+              <PinnedBadge />
+            ) : null}
+            {p.editing ? (
+              <EditBox
+                initial={m.content}
+                onCancel={p.onCancelEdit}
+                onSave={(c) => p.onSaveEdit(m.id, c)}
+              />
+            ) : (
+              <>
+                {m.content ? (
+                  <p className="text-sm leading-6 break-words whitespace-pre-wrap">
+                    {m.content.includes("@")
+                      ? highlightMentions(m.content, p.myUsername, p.mentionable)
+                      : m.content}
+                    {m.edited_at ? (
+                      <span
+                        className="ml-1 text-2xs text-muted-foreground"
+                        title={`Editada em ${formatFullDate(m.edited_at)}`}
+                      >
+                        (editada)
+                      </span>
+                    ) : null}
+                  </p>
+                ) : null}
+                <MessageAttachments attachments={m.attachments ?? []} />
+              </>
+            )}
+          </div>
         </div>
-      </div>
-      {!p.editing && (p.canEdit || p.canDelete || p.canReply || p.canPin) ? (
-        <div className="absolute -top-3 right-4 hidden gap-0.5 rounded-md border bg-popover p-0.5 shadow-sm group-focus-within:flex group-hover:flex">
-          {p.canReply ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label="Responder"
-              title="Responder (R)"
-              onClick={() => p.onReply(m)}
+        {hasActions ? (
+          <>
+            <div
+              role="toolbar"
+              aria-label="Ações da mensagem"
+              className={`invisible pointer-events-none absolute -top-4 right-4 z-[var(--z-sticky)] flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 opacity-0 shadow-md transition-opacity duration-[var(--dur-fast)] group-focus-within/msg:visible group-focus-within/msg:pointer-events-auto group-focus-within/msg:opacity-100 group-hover/msg:visible group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 has-[[data-state=open]]:visible has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100 [@media(hover:none)]:hidden max-md:hidden`}
             >
-              <Reply />
-            </Button>
-          ) : null}
-          {p.canPin ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={m.pinned ? "Desafixar mensagem" : "Fixar mensagem"}
-              title={m.pinned ? "Desafixar (P)" : "Fixar (P)"}
-              onClick={() => p.onTogglePin(m)}
+              {p.canReply ? (
+                <ActionButton label="Responder" kbd="R" onClick={() => p.onReply(m)}>
+                  <Reply />
+                </ActionButton>
+              ) : null}
+              {p.canPin ? (
+                <ActionButton
+                  label={m.pinned ? "Desafixar mensagem" : "Fixar mensagem"}
+                  tip={m.pinned ? "Desafixar" : "Fixar"}
+                  kbd="P"
+                  onClick={() => p.onTogglePin(m)}
+                >
+                  {m.pinned ? <PinOff /> : <Pin />}
+                </ActionButton>
+              ) : null}
+              {p.canEdit ? (
+                <ActionButton
+                  label="Editar mensagem"
+                  tip="Editar"
+                  kbd="E"
+                  onClick={() => p.onStartEdit(m.id)}
+                >
+                  <Pencil />
+                </ActionButton>
+              ) : null}
+              {p.canDelete ? (
+                <ActionButton
+                  label="Excluir mensagem"
+                  tip="Excluir"
+                  destructive
+                  onClick={() => p.onDelete(m)}
+                >
+                  <Trash2 />
+                </ActionButton>
+              ) : null}
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="size-7"
+                        aria-label="Mais ações"
+                      >
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Mais</TooltipContent>
+                </Tooltip>
+                <MessageMenu full={false} {...p} />
+              </DropdownMenu>
+            </div>
+            {/* Telas sem hover: botão sempre visível (toque longo na mensagem abre o mesmo menu). */}
+            <div
+              className={`absolute top-1 right-2 hidden [@media(hover:none)]:block max-md:block`}
             >
-              {m.pinned ? <PinOff /> : <Pin />}
-            </Button>
-          ) : null}
-          {p.canEdit ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label="Editar mensagem"
-              onClick={() => p.onStartEdit(m.id)}
-            >
-              <Pencil />
-            </Button>
-          ) : null}
-          {p.canDelete ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-destructive-text"
-              aria-label="Excluir mensagem"
-              onClick={() => p.onDelete(m)}
-            >
-              <Trash2 />
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-    </article>
+              <DropdownMenu open={touchMenu} onOpenChange={setTouchMenu}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 text-muted-foreground"
+                    aria-label={`Ações da mensagem de ${name}`}
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <MessageMenu full {...p} />
+              </DropdownMenu>
+            </div>
+          </>
+        ) : null}
+      </article>
+    </>
   );
 });
 
-/** Citação da mensagem respondida acima da resposta (autor + trecho). */
+function PinnedBadge() {
+  return (
+    <Badge variant="brand" className="text-2xs">
+      <Pin role="img" aria-label="Mensagem fixada" />
+      Fixada
+    </Badge>
+  );
+}
+
+/** Linha de início de dia: pílula discreta no meio de duas linhas. */
+export function DayDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+      <hr aria-label={label} className="flex-1 border-border" />
+      <span
+        aria-hidden
+        className="rounded-full border border-border bg-surface-1 px-3 py-0.5 text-xs font-medium text-muted-foreground"
+      >
+        {label}
+      </span>
+      <hr aria-hidden className="flex-1 border-border" />
+    </div>
+  );
+}
+
+/** "Novas mensagens": linha + pílula na cor de perigo suave (o mesmo vermelho dos contadores de menção). */
+export function NewMessagesDivider() {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-3 pb-1">
+      <hr aria-hidden className="flex-1 border-destructive/60" />
+      <span className="rounded-full bg-danger-soft px-3 py-0.5 text-xs font-semibold text-destructive-text">
+        Novas mensagens
+      </span>
+      <hr aria-hidden className="flex-1 border-destructive/60" />
+    </div>
+  );
+}
+
+function ActionButton({
+  label,
+  tip,
+  kbd,
+  destructive,
+  onClick,
+  children,
+}: {
+  label: string;
+  tip?: string;
+  kbd?: string;
+  destructive?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={`size-7 ${destructive ? "text-destructive-text hover:bg-danger-soft" : ""}`}
+          aria-label={label}
+          onClick={onClick}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="flex items-center gap-1.5">
+        {tip ?? label}
+        {kbd ? (
+          <Kbd className="border-background/30 bg-background/15 text-background">{kbd}</Kbd>
+        ) : null}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Menu da mensagem: `full` (toque) repete as ações da barra; sempre tem copiar texto e ID. */
+function MessageMenu({
+  message: m,
+  full,
+  ...p
+}: MessageRowProps & { message: MessagePayload; full: boolean }) {
+  return (
+    <DropdownMenuContent align="end" className="min-w-52">
+      {full && p.canReply ? (
+        <DropdownMenuItem onSelect={() => p.onReply(m)}>
+          <Reply /> Responder
+        </DropdownMenuItem>
+      ) : null}
+      {full && p.canPin ? (
+        <DropdownMenuItem onSelect={() => p.onTogglePin(m)}>
+          {m.pinned ? <PinOff /> : <Pin />} {m.pinned ? "Desafixar" : "Fixar"}
+        </DropdownMenuItem>
+      ) : null}
+      {full && p.canEdit ? (
+        <DropdownMenuItem onSelect={() => p.onStartEdit(m.id)}>
+          <Pencil /> Editar
+        </DropdownMenuItem>
+      ) : null}
+      {m.content ? (
+        <DropdownMenuItem onSelect={() => void copyText(m.content, "Texto copiado.")}>
+          <Copy /> Copiar texto
+        </DropdownMenuItem>
+      ) : null}
+      <DropdownMenuItem onSelect={() => void copyText(m.id, "ID da mensagem copiado.")}>
+        <Hash /> Copiar ID da mensagem
+      </DropdownMenuItem>
+      {full && p.canDelete ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem destructive onSelect={() => p.onDelete(m)}>
+            <Trash2 /> Excluir
+          </DropdownMenuItem>
+        </>
+      ) : null}
+    </DropdownMenuContent>
+  );
+}
+
+/** Citação da mensagem respondida acima da resposta: curva até o avatar, avatar mini, nome e prévia. */
 function ReplyQuote({
   reply,
   onJumpTo,
@@ -206,51 +435,82 @@ function ReplyQuote({
   onJumpTo: (messageId: string) => void;
 }) {
   const author = reply.author.display_name || reply.author.username;
+  const connector = (
+    <span
+      aria-hidden
+      className="mt-2 ml-5 h-3 w-8 shrink-0 self-end rounded-tl-lg border-t-2 border-l-2 border-border"
+    />
+  );
   if (reply.deleted) {
     return (
-      <div className="ml-[52px] flex items-center gap-1.5 pt-2 text-xs text-muted-foreground italic">
-        <CornerUpRight className="size-3 shrink-0" aria-hidden />
+      <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground italic">
+        {connector}
         <span>Mensagem original apagada</span>
       </div>
     );
   }
   return (
-    <button
-      type="button"
-      aria-label={`Ir para a mensagem original de ${author}`}
-      onClick={() => onJumpTo(reply.id)}
-      className="ml-[52px] flex max-w-full items-center gap-1.5 self-start pt-2 text-left text-xs text-muted-foreground hover:text-foreground focus-visible:text-foreground"
-    >
-      <CornerUpRight className="size-3 shrink-0" aria-hidden />
-      <span className="shrink-0 font-medium">@{author}</span>
-      <span className="truncate">
-        {reply.content || (reply.has_attachments ? "Anexo" : "")}
-        {reply.content && reply.has_attachments ? " (com anexo)" : ""}
-      </span>
-    </button>
+    <div className="flex min-w-0 items-center gap-2 pt-2">
+      {connector}
+      <button
+        type="button"
+        aria-label={`Ir para a mensagem original de ${author}`}
+        onClick={() => onJumpTo(reply.id)}
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:text-foreground"
+      >
+        <Avatar name={author} seed={reply.author.id} size={16} />
+        <span className="shrink-0 font-medium text-foreground/80">@{author}</span>
+        <span className="truncate">
+          {reply.content || (reply.has_attachments ? "Anexo" : "")}
+          {reply.content && reply.has_attachments ? " (com anexo)" : ""}
+        </span>
+      </button>
+    </div>
   );
 }
 
 /** Destaca o `@username` do usuário no texto (sem diferenciar maiúsculas), só onde é uma menção de verdade. */
 export function highlightMention(content: string, username: string): ReactNode[] {
-  if (!username) return [content];
-  const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Mesma regra do servidor: o @ não pode vir colado a letra, dígito, _, . ou @, e o nome termina onde acaba o token.
-  const re = new RegExp(`(^|[^A-Za-z0-9_.@])(@${escaped})(?![A-Za-z0-9_])`, "gi");
+  return highlightMentions(content, username);
+}
+
+/**
+ * Transforma `@usuário` em pílula: a minha menção ganha realce forte; as de quem está na conversa (`known`,
+ * usernames em minúsculas) ganham a pílula suave. Mesma regra do servidor: o @ não pode vir colado a letra,
+ * dígito, _, . ou @, e o nome termina onde acaba o token.
+ */
+export function highlightMentions(
+  content: string,
+  username: string,
+  known?: ReadonlySet<string>,
+): ReactNode[] {
+  const me = username.toLowerCase();
+  const re = /(^|[^A-Za-z0-9_.@])@([A-Za-z0-9_.]+)/g;
   const out: ReactNode[] = [];
   let last = 0;
   for (const match of content.matchAll(re)) {
-    const start = (match.index ?? 0) + (match[1]?.length ?? 0);
+    const lead = match[1]?.length ?? 0;
+    const start = (match.index ?? 0) + lead;
+    const raw = match[2] ?? "";
+    // O nome de usuário pode ter ponto no meio, mas ponto no fim é pontuação da frase.
+    const token = raw.replace(/\.+$/, "");
+    const lower = token.toLowerCase();
+    const isMe = !!me && lower === me;
+    if (!isMe && !known?.has(lower)) continue;
     if (start > last) out.push(content.slice(last, start));
     out.push(
-      <mark key={start} className="rounded bg-primary/25 px-0.5 font-medium text-foreground">
-        {match[2]}
+      <mark
+        key={start}
+        data-mention-pill={isMe ? "me" : "other"}
+        className={`rounded-sm px-1 font-medium text-brand-text ${isMe ? "bg-brand-500/25" : "bg-brand-500/12"}`}
+      >
+        @{token}
       </mark>,
     );
-    last = start + (match[2]?.length ?? 0);
+    last = start + 1 + token.length;
   }
   if (last < content.length) out.push(content.slice(last));
-  return out;
+  return out.length > 0 ? out : [content];
 }
 
 function EditBox({
@@ -304,7 +564,7 @@ function EditBox({
         ) : null}
       </p>
       <div className="flex gap-2">
-        <Button size="sm" onClick={() => void save()} disabled={invalid || saving}>
+        <Button size="sm" onClick={() => void save()} loading={saving} disabled={invalid}>
           Salvar
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
