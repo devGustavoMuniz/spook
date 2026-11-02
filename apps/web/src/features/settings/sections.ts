@@ -39,7 +39,7 @@ export const SECTIONS: readonly Section[] = [
   {
     key: "app",
     label: "Aplicativo",
-    description: "Bandeja e início com o sistema neste computador.",
+    description: "Bandeja, início com o sistema e atualizações neste computador.",
     icon: Monitor,
     desktopOnly: true,
   },

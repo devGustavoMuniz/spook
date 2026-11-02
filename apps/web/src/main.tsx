@@ -8,8 +8,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { bootstrapDesktop } from "@/desktop/bootstrap";
 import { DesktopShell } from "@/desktop/desktop-shell";
 import { ScreenSourceDialog } from "@/desktop/screen-source-dialog";
+import { UpdateSplash } from "@/desktop/update-splash";
+import { UpdateWatcher } from "@/desktop/update-watcher";
 import { setupServiceWorker } from "@/features/push/sw-client";
 import { createQueryClient } from "@/lib/query";
+import { VersionWatcher } from "@/lib/version-watcher";
 import { createAppRouter } from "@/router";
 import "./styles.css";
 
@@ -29,6 +32,9 @@ function start(desktop: boolean) {
             <Toaster />
             {desktop ? <ScreenSourceDialog /> : null}
             {desktop ? <DesktopShell navigate={(href) => void router.navigate({ href })} /> : null}
+            {desktop ? <UpdateWatcher /> : null}
+            {desktop ? <UpdateSplash /> : null}
+            <VersionWatcher />
           </QueryClientProvider>
         </ErrorBoundary>
       </ThemeProvider>

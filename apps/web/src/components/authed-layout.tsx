@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSessionGuard } from "@/components/app-shell";
 import { NavDrawer, ShellProvider, useShell } from "@/components/shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ConfirmPasswordProvider } from "@/features/account/confirm-password";
 import { GatewayProvider } from "@/features/gateway/gateway-provider";
 import { ServerRail } from "@/features/guilds/server-rail";
 import { useUnreadTitle } from "@/features/notifications/use-unread-title";
@@ -24,9 +25,11 @@ export function AuthedLayout() {
   return (
     <TooltipProvider delayDuration={120}>
       <GatewayProvider>
-        <ShellProvider navSlot={navSlot}>
-          <Frame guilds={guilds.data ?? []} onSlot={setNavSlot} />
-        </ShellProvider>
+        <ConfirmPasswordProvider>
+          <ShellProvider navSlot={navSlot}>
+            <Frame guilds={guilds.data ?? []} onSlot={setNavSlot} />
+          </ShellProvider>
+        </ConfirmPasswordProvider>
       </GatewayProvider>
     </TooltipProvider>
   );

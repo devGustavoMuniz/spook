@@ -175,6 +175,9 @@ test("tela compartilhada de A chega a B em destaque; parar remove o painel", asy
   // diálogo de compartilhar (áudio desligado por padrão, para não gerar eco)
   await a.page.getByRole("button", { name: "Compartilhar", exact: true }).click();
   const tile = b.page.getByTestId("video-tile").and(b.page.locator('[data-kind="screen"]'));
+  // Telas de outras pessoas começam sem assinatura (economiza banda): B escolhe assistir.
+  await expect(tile).toHaveCount(0);
+  await b.page.getByRole("button", { name: /^Assistir tela de / }).click({ timeout: 20_000 });
   await expect(tile).toHaveCount(1, { timeout: 20_000 });
   await expect(b.page.getByRole("img", { name: "Compartilhando a tela" }).first()).toBeVisible();
 

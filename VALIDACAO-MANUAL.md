@@ -245,6 +245,39 @@ Migration `00009` aplicada no deploy sem erro.
 - [ ] **Toque:** no celular (ou Chrome com emulação de toque), toque no palco para mostrar/ocultar a barra; o primeiro toque na barra escondida só a mostra.
 - [ ] **Cor do avatar:** com avatar enviado por você (no Garage com CORS liberado para a origem), o fundo do tile deve usar a cor dominante da imagem; sem CORS ele cai na cor derivada do usuário (esperado).
 
+### Atualização automática do desktop, tela de abertura, `/download` e aviso de versão (web)
+
+Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` criados; procedimento de publicação em `apps/desktop/README.md`.
+
+- [ ] **Primeira versão:** publique o release `desktop-v0.1.0` (rascunho gerado pela tag, depois "Publish release"). Confira nos assets: 4 instaladores (`.exe`, 2 `.dmg`, `.deb`, `.AppImage`), `.sha256`, `.sig` e `latest.json` com as 4 plataformas (ou 3 se o macOS Intel falhou). O `latest.json` deve abrir em `https://github.com/devGustavoMuniz/spook/releases/latest/download/latest.json`.
+- [ ] **Instale a 0.1.0 em cada SO** (Windows .exe, macOS Apple Silicon e Intel .dmg, Linux **AppImage**; o `.deb` não se atualiza sozinho) e abra: a tela de abertura deve aparecer com "Verificando atualizações…" e sumir em menos de 1,5 s (sem versão nova). Em `/settings/app` > "Atualizações" a versão instalada deve ser v0.1.0 e "Verificar atualizações" deve dizer que está na mais recente.
+- [ ] **Atualizar de verdade (por SO):** suba para 0.1.1 (`package.json` e `Cargo.toml`), espere o Desktop verde, tag `desktop-v0.1.1`, publique. Com a 0.1.0 aberta: "Verificar atualizações" (ou espere até 6 h) deve mostrar "Baixando a versão 0.1.1" com barra, depois o toast "Spook 0.1.1 está pronto" e o botão "Reiniciar para atualizar". Reiniciar deve abrir a 0.1.1 (confira a versão na mesma tela). Windows: o instalador passivo aparece e o app reabre. macOS: o app reabre sem novo aviso do Gatekeeper? (anote se pedir de novo). Linux AppImage: o arquivo é substituído no mesmo caminho.
+- [ ] **Na abertura:** com a 0.1.0 fechada e a 0.1.1 publicada, abra a 0.1.0: a abertura deve mostrar o download e, ao terminar, reiniciar sozinha na 0.1.1; "Continuar usando o app" deve deixar usar o app e depois mostrar o toast.
+- [ ] **Chamada de voz:** com a 0.1.0 em uma chamada e a 0.1.1 baixada, "Reiniciar para atualizar" deve pedir "Reiniciar durante a chamada?"; "Agora não" mantém a chamada.
+- [ ] **Offline:** sem internet, abra o app: a abertura segue para o app em até 1,5 s sem erro; "Verificar atualizações" manual mostra "Sem conexão com o servidor de atualizações".
+- [ ] **Assinatura inválida:** (opcional) publique um `latest.json` com a assinatura trocada em um release de teste: o app deve recusar e mostrar a mensagem de assinatura, sem instalar.
+- [ ] **Linux `.deb`:** confirme que o botão de reiniciar falha com a mensagem apontando para a página de download (esperado: `.deb` não atualiza sozinho).
+- [ ] **`/download` (web):** abra `https://spook.dottadigital.com/download` deslogado, em Windows, macOS e Linux: o botão grande deve ser o do seu sistema; confira tamanho, versão, data e SHA-256 contra o arquivo baixado (`Get-FileHash`, `shasum -a 256`, `sha256sum`). Antes de publicar qualquer release deve aparecer "Ainda não há versão publicada". Teste os dois temas e a largura de 390 px. Os links "Baixar o app" devem existir no login, nas configurações, no menu do servidor e no início sem servidores, e **não** no app desktop.
+- [ ] **Avisos de instalação:** siga as instruções da página em uma máquina limpa: SmartScreen (Mais informações, Executar assim mesmo), Gatekeeper (Abrir mesmo assim ou `xattr`) e o AppImage (`chmod +x`). Se algum texto não bater com a sua versão do SO, anote para ajustar.
+- [ ] **Aviso de nova versão (web):** abra o Spook em duas abas; faça um deploy; ao voltar o foco para a aba antiga (ou em até 10 min) deve aparecer "Nova versão disponível. Recarregar" sem interromper o que está digitado. Confira `curl -s https://spook.dottadigital.com/version.json` (sha do deploy) e que a Cloudflare não cacheia esse arquivo.
+
+### Voz e mensagens (lote 2)
+
+- [ ] **Sons:** em Configurações > Voz e vídeo > Sons da chamada, use "Ouvir" em cada tipo e confira se são agradáveis e distintos; entre/saia de uma sala, silencie, ensurdeça e peça a alguém para entrar/sair e transmitir. Coloque-se em Não perturbar: deve ficar tudo mudo.
+- [ ] **Setinhas de dispositivo:** com dois microfones/saídas reais, troque pela setinha (hover no botão) no rodapé e na barra do palco e confirme que a chamada em curso muda de dispositivo. Em celular, toque longo no microfone/fone. Em barra lateral de 240 px o nome do usuário deve mostrar cerca de 10 caracteres.
+- [ ] **Assistir telas:** com 2 pessoas transmitindo, confirme que só a escolhida consome banda (painel de rede do navegador) e que "Parar de assistir" a libera.
+- [ ] **Trocar janela/tela** durante a transmissão (Chrome): quem assiste não vê a transmissão cair e a qualidade escolhida continua.
+- [ ] **Tela cheia:** controles e cursor somem em ~3 s; Esc sai. **Rede:** passe o mouse no indicador e compare com uma rede ruim (limite de banda no DevTools).
+- [ ] **Menção `@` e convites:** no celular (390 px) a lista de sugestões cabe e é tocável; cole um link de convite do domínio e confira o cartão (e o estado de convite expirado).
+
+### Contas e perfil
+
+- [ ] **Trocar senha com dois dispositivos:** entre em dois navegadores com a mesma conta, troque a senha em um (Configurações > Perfil > Senha). O outro deve cair no login na próxima ação (e a conexão em tempo real dele fecha); o que trocou continua logado. A senha antiga não deve mais entrar.
+- [ ] **Confirmar senha:** em uma sessão que não trocou a senha agora, troque o e-mail: deve aparecer "Confirme sua senha"; senha errada mantém o diálogo; a certa conclui. Troque o e-mail de novo logo em seguida: não deve pedir a senha (vale 10 min).
+- [ ] **Excluir conta (produção, com uma conta de teste):** sendo dono de um servidor, o diálogo lista o servidor e recusa. Depois de excluir o servidor, exclua a conta; as mensagens que ela mandou em outros servidores devem continuar, com autor "Usuário removido"; avatar e banner somem do bucket (confira no Garage/Cloudflare R2 em até alguns minutos).
+- [ ] **Aparência dos editores:** no celular (390 px) e no desktop, nos dois temas, confira banner (imagem, cor e remover), bio com contador, pronomes e o cartão de perfil de outra pessoa (banner, pronomes ao lado do @ e "Sobre mim"). Envie um GIF animado como avatar e como banner e confirme que ele anima na lista de membros, nas mensagens e no cartão.
+- [ ] **Privacidade do avatar/banner:** as imagens são servidas como enviadas, com os metadados (inclusive GPS) que tiverem; avise quem for testar com fotos do celular.
+
 ## Pendências gerais de configuração
 
 - [ ] **Cache da Cloudflare no `/sw.js` (opcional):** o servidor manda `Cache-Control: no-cache`, mas a Cloudflare reescreve para `max-age=14400` nos arquivos `.js` por causa do *Browser Cache TTL* da zona. Para service workers isso não impede a atualização (os navegadores buscam o script principal ignorando o cache HTTP), então não é urgente. **Não mude a configuração global da zona** (ela vale para outros sites). Se quiser ajustar, crie uma **Cache Rule só para este host**: *Caching > Cache Rules > Create rule*, nome "spook: sem cache em sw e manifest"; condição `(http.host eq "spook.dottadigital.com" and (http.request.uri.path eq "/sw.js" or http.request.uri.path eq "/manifest.webmanifest"))`; ação *Bypass cache*. Conferir depois com `curl -sI https://spook.dottadigital.com/sw.js | grep -i cache-control` (deve vir `no-cache` e `cf-cache-status: DYNAMIC`).

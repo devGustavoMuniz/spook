@@ -9,6 +9,7 @@ import {
   setAppSettings,
   shellErrorMessage,
 } from "@/desktop/shell";
+import { UpdatesSection } from "@/desktop/updates-section";
 import { SettingsGroup } from "@/features/settings/ui";
 
 type Key = keyof AppSettings;
@@ -34,7 +35,10 @@ const OPTIONS: { key: Key; label: string; hint: string }[] = [
 /** `/settings/app`: opções do app para computador. Na web a página só explica que não se aplica. */
 export function AppSettingsPage() {
   return isTauri() ? (
-    <DesktopOptions />
+    <>
+      <DesktopOptions />
+      <UpdatesSection />
+    </>
   ) : (
     <SettingsGroup
       icon={Monitor}

@@ -4,11 +4,16 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { versionPlugin } from "./vite-version-plugin";
 
 const backend = "http://localhost:8090";
 
 export default defineConfig({
-  plugins: [tailwindcss(), react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } })],
+  plugins: [
+    versionPlugin(),
+    tailwindcss(),
+    react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } }),
+  ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     port: 5180,

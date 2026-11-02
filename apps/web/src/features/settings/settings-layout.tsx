@@ -8,6 +8,7 @@ import { NAV_COMPACT_QUERY, useMediaQuery } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { isTauri } from "@/desktop/runtime";
+import { DownloadAppButton } from "@/features/download/download-link";
 import { cn } from "@/lib/utils";
 import { returnPath } from "./return-path";
 import { SECTIONS, sectionOf } from "./sections";
@@ -200,7 +201,12 @@ function SettingsNav({
           ))}
         </ul>
       </nav>
-      <div className="border-t p-3">
+      <div className="flex flex-col gap-1 border-t p-3">
+        {isTauri() ? null : (
+          <div className="[&_a]:w-full [&_a]:justify-start [&_a]:gap-3 [&_a]:px-3 [&_svg]:size-[18px]">
+            <DownloadAppButton />
+          </div>
+        )}
         <Button
           variant="ghost"
           className="w-full justify-start gap-3 px-3 text-destructive-text hover:text-destructive-text"

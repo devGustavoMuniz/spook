@@ -6,6 +6,7 @@ import { LogoMark } from "@/components/brand";
 import { NavToggle } from "@/components/shell";
 import { ErrorState } from "@/components/state-screen";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DownloadAppButton } from "@/features/download/download-link";
 import { AddServerDialog } from "@/features/guilds/add-server-dialog";
 import { lastLocation } from "@/lib/last-location";
 
@@ -68,6 +69,7 @@ export function HomePage() {
           onClick={() => setDialog("join")}
         />
       </div>
+      <DownloadAppButton variant="outline" />
       <AddServerDialog
         key={dialog ?? "closed"}
         open={dialog !== null}

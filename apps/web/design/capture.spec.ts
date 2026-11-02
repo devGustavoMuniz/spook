@@ -762,7 +762,21 @@ test("captura de telas", async ({ browser }) => {
         await page.keyboard.press("Escape");
       });
       await step("membro-opcoes", vk, theme, async () => {
-        await openNav(page, vp);
+        // Em 390 px a lista de membros fica numa gaveta: abre antes (como no passo "membros").
+        await open(page, chUrl(ids.general));
+        const members = page.getByRole("complementary", { name: "Membros" });
+        if (
+          !(await members
+            .first()
+            .isVisible()
+            .catch(() => false))
+        ) {
+          await page
+            .getByRole("button", { name: /membros/i })
+            .first()
+            .click();
+          await page.waitForTimeout(400);
+        }
         await page
           .getByRole("button", { name: /^Opções de / })
           .first()
@@ -858,8 +872,16 @@ test("captura de telas", async ({ browser }) => {
       ] as const) {
         await step(key, vk, theme, async () => {
           await open(page, route);
-          await page.waitForTimeout(800);
+          // Dashboard: espera 2 leituras ao vivo (as sparklines precisam de 2 amostras) e captura a página toda.
+          await page.waitForTimeout(key === "admin-dashboard" ? 11_000 : 800);
+          // O app rola dentro do <main>, então "página toda" = viewport alto (volta ao normal depois).
+          const vp = page.viewportSize();
+          if (key === "admin-dashboard" && vp) {
+            await page.setViewportSize({ width: vp.width, height: vk === "390" ? 4600 : 2400 });
+            await page.waitForTimeout(600);
+          }
           await shot(page, key, theme, vk);
+          if (key === "admin-dashboard" && vp) await page.setViewportSize(vp);
         });
       }
 

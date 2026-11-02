@@ -192,6 +192,20 @@ Código em `components/ui/dialog.tsx`, `components/state-screen.tsx`, `component
 
 **Admin.** Barra lateral `w-64` com `Logo`, itens com ativo `brand-500/15`, recolhível (drawer animado por `transform` < 768 px). `StatCard` (ícone, número tabular, esqueleto), `Section`, `Facts`, `DataTable` (cabeçalho fixo, `scroll-shadow-x`, indicador de ordenação em `brand-text`, paginação com ícones, `TableSkeleton`/`TableEmpty`/erro com "Tentar de novo"). `LiveStatus` é uma pílula discreta com o ponto `online`. Gráficos: barras `brand-500`, hoje mais claro, linha de base e grade com `border`; `<title>` como tooltip nativo e a tabela por trás para leitores de tela.
 
+## Gráficos
+
+Código em `apps/web/src/components/charts/` (SVG e CSS próprios, sem biblioteca; `index.ts` exporta tudo). Usados no `/admin`; qualquer tela nova importa de `@/components/charts`.
+
+- **Cores só por tokens.** Série principal `brand-500` (área em gradiente de 32% a 2%), comparação `muted-foreground` fina e tracejada, grade `border`. Medidor: bom `online`, atenção `idle`, ruim `destructive-text` (não o `warning`, que no tema claro não alcança 3:1 sobre o cartão); o nível sempre vem também em texto e ícone. Heatmap: um só tom (`brand-500` misturado ao `muted` por `color-mix`), zero fica neutro. Texto de eixo, legenda e valor usa tinta de texto, nunca a cor da série.
+- **`TimeSeriesChart`**: linha + área, período anterior opcional (`previous`, alinhado por índice, `null` = sem base), último ponto parcial (`lastPartial`, tracejado e vazado), eixo Y com teto "redondo" (`niceMax`) e rótulos a cada 2 pontos em séries longas. Hover/toque e teclado (Tab, setas, Home, End, Esc) mostram o balão com valor e comparação.
+- **`BarList`**: barras horizontais (HTML); a largura anima só por `transform: scaleX` e respeita `prefers-reduced-motion`. Cada linha é focável e mostra balão com o detalhe.
+- **`Gauge`**: semicírculo com três faixas, ponteiro e valor; `role="meter"` com `aria-valuetext` ("0,5%, Bom"). Sem leitura (`null`) mostra "—" e "Sem leitura".
+- **`Sparkline`**: miniatura nos `StatCard` (`spark`); rótulo falado com mínimo, máximo e atual. As amostras vêm de `features/admin/use-samples.ts` (`useRollingSamples`): uma por leitura nova do polling, janela de ~5 min, só em memória.
+- **`Heatmap`**: hora x dia da semana (UTC), grade navegável por setas (roving tabindex). Pronto, mas **ainda sem uso**: nenhum endpoint entrega contagem por hora. Quando o backend expuser `messages_per_hour`, passe `cells[dia 0..6][hora 0..23]`.
+- **Acessibilidade comum.** Toda visualização tem `<table>` equivalente visualmente oculta (`sr-only`, com `caption`), `role="img"` com resumo (série) ou `role="meter"`, estado vazio (`ChartEmpty`) e esqueleto (`ChartSkeleton`, `loading`). Balões são `<output>` fora do SVG. Componentes são `memo`: um poll que traz os mesmos dados não redesenha.
+- **`StatCard`** ganhou `spark` (miniatura) e seta `ArrowUpRight`/`ArrowDownRight` quando `tone` é `up`/`down` (variação percentual).
+- **Dashboard** (`/admin`) em grupos com `h2`: Resumo, Ao vivo agora, Crescimento, Conteúdo, Mídia, Aplicação e armazenamento. Chamadas (`/admin/calls`) ganhou barras de pessoas por sala e duração.
+
 ## Pendências para as etapas seguintes
 
 - (feito na etapa de chat) Avatar sem imagem agora usa iniciais coloridas por padrão em todo o app.

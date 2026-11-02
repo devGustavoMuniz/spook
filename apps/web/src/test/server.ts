@@ -15,6 +15,10 @@ export type FakeUser = {
   username: string;
   display_name?: string;
   avatar_url?: string;
+  bio?: string;
+  pronouns?: string;
+  banner_url?: string;
+  banner_color?: number;
   is_admin?: boolean;
   created_at: string;
 };
@@ -26,8 +30,12 @@ export const sampleUser: FakeUser = {
   created_at: "2026-10-30T12:00:00Z",
 };
 
-const problem = (status: number, detail: string, errors: unknown[] = []) =>
-  HttpResponse.json({ title: String(status), status, detail, errors }, { status });
+const problem = (
+  status: number,
+  detail: string,
+  errors: unknown[] = [],
+  extra: Record<string, unknown> = {},
+) => HttpResponse.json({ title: String(status), status, detail, errors, ...extra }, { status });
 
 /** Backend falso em memória: o cookie vira uma flag `signedIn`. */
 export function makeBackend(initial: { signedIn?: boolean } = {}) {
@@ -36,6 +44,15 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     user: { ...sampleUser },
     patches: [] as unknown[],
     logouts: 0,
+    /** Conta (senha, e-mail, exclusão): a senha correta é "senha-correta-1"; `confirmed` imita o "modo sudo". */
+    account: {
+      confirmed: false,
+      passwordChanges: [] as { current_password: string; new_password: string }[],
+      emailChanges: [] as string[],
+      deletes: [] as string[],
+      ownedGuilds: [] as { id: string; name: string }[],
+      bannerUploads: [] as { content_type: string; size: number }[],
+    },
     // Servidores (fonte de verdade da lista), membros e mensagens por canal (ordem crescente).
     guilds: [] as DetailPayload[],
     /** Canais para os quais o usuário avisou "digitando…" (`POST /channels/{id}/typing`). */
@@ -139,11 +156,76 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       return new HttpResponse(null, { status: 204 });
     }),
     http.patch("*/api/users/me", async ({ request }) => {
-      const b = (await request.json()) as { display_name?: string };
+      const b = (await request.json()) as {
+        display_name?: string;
+        bio?: string;
+        pronouns?: string;
+        banner_key?: string;
+        banner_color?: number;
+        remove_banner?: boolean;
+      };
       state.patches.push(b);
       if (b.display_name !== undefined)
         state.user = { ...state.user, display_name: b.display_name || undefined };
+      if (b.bio !== undefined) state.user = { ...state.user, bio: b.bio || undefined };
+      if (b.pronouns !== undefined)
+        state.user = { ...state.user, pronouns: b.pronouns || undefined };
+      if (b.banner_color !== undefined)
+        state.user = { ...state.user, banner_color: b.banner_color, banner_url: undefined };
+      if (b.banner_key !== undefined)
+        state.user = {
+          ...state.user,
+          banner_url: `https://s3.test/${b.banner_key}`,
+          banner_color: undefined,
+        };
+      if (b.remove_banner)
+        state.user = { ...state.user, banner_url: undefined, banner_color: undefined };
       return HttpResponse.json(state.user);
+    }),
+    http.post("*/api/users/me/banner", async ({ request }) => {
+      const b = (await request.json()) as { content_type: string; size: number };
+      state.account.bannerUploads.push(b);
+      return HttpResponse.json({
+        upload_url: "https://s3.test/upload/banner",
+        key: `banners/${state.user.id}/1.png`,
+      });
+    }),
+    http.post("*/api/auth/confirm-password", async ({ request }) => {
+      const b = (await request.json()) as { password: string };
+      if (b.password !== "senha-correta-1") return problem(422, "senha incorreta");
+      state.account.confirmed = true;
+      return HttpResponse.json({ confirmed_until: new Date(Date.now() + 600_000).toISOString() });
+    }),
+    http.post("*/api/users/me/password", async ({ request }) => {
+      const b = (await request.json()) as { current_password: string; new_password: string };
+      if (b.current_password !== "senha-correta-1") return problem(422, "senha atual incorreta");
+      if (b.new_password === b.current_password)
+        return problem(422, "a nova senha deve ser diferente da atual");
+      state.account.passwordChanges.push(b);
+      return new HttpResponse(null, { status: 204 });
+    }),
+    http.put("*/api/users/me/email", async ({ request }) => {
+      if (!state.account.confirmed)
+        return problem(403, "confirme sua senha para continuar", [], {
+          code: "password_confirmation_required",
+        });
+      const b = (await request.json()) as { email: string };
+      if (b.email === "ocupado@spook.dev") return problem(409, "e-mail já cadastrado");
+      state.account.emailChanges.push(b.email);
+      state.user = { ...state.user, email: b.email };
+      return HttpResponse.json(state.user);
+    }),
+    http.delete("*/api/users/me", async ({ request }) => {
+      const b = (await request.json()) as { password: string };
+      if (b.password !== "senha-correta-1") return problem(422, "senha incorreta");
+      if (state.account.ownedGuilds.length > 0)
+        return problem(409, "você é dono de servidores", [], {
+          code: "owns_guilds",
+          guilds: state.account.ownedGuilds,
+        });
+      state.account.deletes.push(state.user.id);
+      state.signedIn = false;
+      return new HttpResponse(null, { status: 204 });
     }),
     ...guildHandlers(),
     ...dmHandlers(),

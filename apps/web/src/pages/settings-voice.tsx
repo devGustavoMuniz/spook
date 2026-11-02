@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
 import { ChoiceCard, Hint, SettingRow, SettingsGroup, selectClass } from "@/features/settings/ui";
+import { CallSoundsGroup } from "@/features/voice/call-sounds-settings";
 import {
   audioCapabilities,
   chooseAudioProcessing,
@@ -214,6 +215,7 @@ export function VoiceSettingsPage() {
       ) : null}
 
       <ScreenShareGroup caps={caps} />
+      <CallSoundsGroup />
     </div>
   );
 }

@@ -196,3 +196,57 @@ aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevoke
 - **Assistir:** cartão (hover/foco/toque) com miniatura, "Tela de X", "Ao vivo" e "Assistir transmissão" na lista de canais e na chamada de DM; entra no canal e põe a tela em foco no palco (espera até 10 s a tela chegar). Opção local "Mostrar prévias das transmissões" (padrão ligado) em Configurações > Voz e vídeo.
 - **Desktop:** seletores de resolução e fps iguais; a prévia fica desabilitada (`screenSharePreview: false`).
 - **Verificação:** ver SPEC 5.5 (testes) e `VALIDACAO-MANUAL.md` ("Voz: compartilhar tela simples, prévia e assistir transmissão"). Não provado: miniatura de uma tela real, peso real, celular e desktop.
+
+## Gráficos do admin (02/11/2026)
+
+**Pedido:** o `/admin` era quase só tabela; o dono quis visual melhor (item 7.1 do `PLANO-ADICIONAIS-2.md`).
+
+- **Biblioteca de gráficos própria** (`components/charts/`): série temporal com comparação, barras horizontais, medidores, sparklines e heatmap, todos com tabela acessível, estado vazio, esqueleto, balão por hover/foco e tokens do design system.
+- **Dashboard** reorganizado em grupos; cartões com seta e variação; sparklines acumuladas no cliente; medidores de memória, pool, perda de pacotes e jitter; barras das maiores tabelas e do armazenamento. **Chamadas** com barras de pessoas e duração.
+- **Depende do backend:** disco, histórico do LiveKit (7.2) e mensagens por hora (o heatmap está pronto, sem uso). Ver `PENDENCIAS-DONO.md` e SPEC 5.5.
+- **Verificação:** ver SPEC 5.5 ("Adicional: gráficos do admin").
+
+## Desktop: atualização automática, download e aviso de versão (02/11/2026)
+
+**Pedido:** itens 6.1 a 6.4 do `PLANO-ADICIONAIS-2.md` (auto-update do desktop, tela de abertura, página de download, aviso de nova versão do web).
+
+| Parte | Estado |
+| --- | --- |
+| Atualizador assinado (`tauri-plugin-updater`/`process`), verificação ao abrir e a cada 6 h, download em segundo plano, "Reiniciar para atualizar", nunca em chamada sem confirmar | Feito (compilação do Rust só no workflow) |
+| Tela de abertura "Verificando atualizações…" (≤ 1,5 s, offline ok, mostra o download) | Feito |
+| Seção "Atualizações" em `/settings/app` e toast discreto | Feito |
+| Workflow Desktop assina os bundles e gera o `latest.json` no release rascunho | Feito (3 de 4 builds já passavam; macOS agora gera também o `.app.tar.gz`) |
+| `/download` pública (SO detectado, 4 destinos, tamanho, versão, data, SHA-256, instruções e aviso de app não assinado) + links "Baixar o app" | Feito |
+| `version.json` no build, banner "Nova versão disponível" (foco e 10 min; só web) | Feito |
+| Página estática de fallback gerada no deploy | Não feito (opcional) |
+| `.msi` e `.rpm` | Não existem: o workflow só gera `.exe`, `.dmg`, `.deb` e `.AppImage` |
+
+- **Decisões:** API JS dos plugins (sem comandos Rust próprios); download automático e instalação só ao reiniciar; abertura como sobreposição no webview (sem 2ª janela); sem bump de versão (0.1.0).
+- **Chave do updater:** par gerado fora do repositório; a pública está em `tauri.conf.json`. O dono precisa guardar a privada (perder = todo mundo reinstala à mão) e criar os dois secrets.
+- **Pendências do dono:** publicar o release (rascunho), backup da chave, (opcional) certificados de assinatura Apple/Microsoft para acabar com os avisos do sistema. Ver `PENDENCIAS-DONO.md`.
+- **Verificação:** ver SPEC 5.5 ("Adicional: distribuição e atualização do desktop...") e `VALIDACAO-MANUAL.md`. Não provado: a atualização real em cada SO, a assinatura e a compilação das 4 plataformas.
+
+## Voz e mensagens, lote 2 (02/11/2026)
+
+- **Entregue (web):** setinhas de dispositivo (rodapé e palco), sons sintetizados com configurações, escolha de quais telas assistir, layouts (Grade, Foco, Ocultar inativos), troca de fonte da tela, tela cheia com ociosidade (confirmada e completada), indicador de rede com RTT/perda/jitter, autocompletar de `@`, cartão de convite inline e "(editada)" com tooltip; "Ativar áudio" sem duplicidade e correção da captura `menu-de-membro` em 390.
+- **Decisões:** setinha só no hover/foco (e botão direito/toque longo) para proteger o nome em 240 px; assinatura manual de telas na engine web (desktop continua assinando tudo); limiares de rede em SPEC 5.5.
+- **Depende de backend:** menção a cargo e `@everyone`; espectadores por tela. **Desktop:** assistir/trocar fonte/estatísticas ficam desligados (capacidades ausentes).
+- **Verificação:** ver SPEC 5.5 ("Adicional: voz e mensagens (lote 2)") e `VALIDACAO-MANUAL.md`.
+
+## Contas e perfil (02/11/2026)
+
+**Pedido:** Onda 1 do `PLANO-ADICIONAIS-2.md` (itens 1.1, 1.3, 1.7, 1.8, 5.1 a 5.3 e a parte sem e-mail do 1.2).
+
+| Parte | Estado |
+| --- | --- |
+| Trocar senha logado (encerra as outras sessões e derruba o gateway delas; mantém a atual) | Feito |
+| Confirmar senha ("modo sudo", 10 min) + `RequireRecentPassword` reutilizável + `useConfirmPassword()` | Feito |
+| Trocar e-mail (com confirmação recente; troca direta, ponto de extensão para a verificação) | Feito; verificação por e-mail depende de SMTP |
+| Excluir conta (recusa dono; anonimiza; mensagens ficam; arquivos por job; cascata em transação) | Feito |
+| Usernames reservados (cadastro) | Feito |
+| Bio, pronomes, banner (imagem ou cor) e avatar animado (GIF/WebP) | Feito |
+| Editores em Configurações > Perfil, seção Segurança e cartão de perfil com banner/bio/pronomes | Feito |
+
+- **Decisões:** mensagens permanecem com o autor `removido_<id>` ("Usuário removido"); convites criados continuam; DMs 1:1 continuam e grupos passam o dono; a confirmação de senha fica na sessão (banco); senha errada responde 422 (não 401); a senha do `DELETE` vale como confirmação. Detalhes no SPEC 5.5 ("Adicional: contas e perfil"), 6, 7.10 e RF23.
+- **Pontos de atenção:** avatar e banner não são reprocessados (animação preservada, mas EXIF/GPS não é removido); arquivos antigos não são apagados ao trocar a imagem; excluir servidor ainda não exige a senha (o agente da Onda 2 aplica o `sensitive` já pronto).
+- **Verificação:** Go (unitários, integração completa), Vitest, E2E `account.spec.ts`; ver o SPEC 5.5.

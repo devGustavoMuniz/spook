@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DownloadAppMenuItem } from "@/features/download/download-link";
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild, initials } from "@/lib/guild";
@@ -129,6 +130,7 @@ export function GuildMenu({
             isGuildLike
             withSeparator={canInvite || canSettings || canRoles || canChannels}
           />
+          <DownloadAppMenuItem />
           {!guild.is_owner ? (
             <>
               <DropdownMenuSeparator />

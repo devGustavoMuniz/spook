@@ -305,6 +305,20 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
 | `bind: address already in use` em 7891/7892 | colisão com outro app: `ss -tulnp \| grep -E ':(7891\|7892)\b'` (o antrax usa 7881/7882). |
 | Garage `NO ROLE ASSIGNED` persistente | `garage-init.sh` não rodou; rode de novo o deploy (ou, com acesso admin: `sudo -iu spook bash -c 'cd /srv/spook/prod && COMPOSE_FILE=deploy/docker-compose.prod.yml COMPOSE_ENV_FILE=.env sh deploy/garage-init.sh'`). |
 
+### 6.4 Download do app e aviso de nova versão (adicional)
+- **`/download`** (página pública do web) lê `https://api.github.com/repos/devGustavoMuniz/spook/releases/latest` direto do navegador
+  (sem token; limite anônimo de 60 req/h por IP, com cache de 10 min no cliente). Enquanto não houver release **publicado**
+  (rascunho não conta) a página mostra "Ainda não há versão publicada". Para publicar: passo a passo em `apps/desktop/README.md`
+  ("Publicar uma versão"). Teste: abra `/download` e confira versão, tamanhos e SHA-256 de cada instalador.
+- **Atualizador do app:** secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` do repositório (criar com `gh secret set`, ver
+  `apps/desktop/README.md`; guarde um backup da privada). O endpoint é o asset `latest.json` do release publicado mais recente. O CSP do app não muda
+  (o download é feito pelo Rust, fora do webview).
+- **Aviso de nova versão do web:** o build gera `/version.json` (`{ version, commit, builtAt }`), servido com
+  `Cache-Control: no-cache` pelo próprio backend (a regra "todo o resto revalida" de `webui`). A imagem recebe o sha por
+  `--build-arg SPOOK_COMMIT=${{ github.sha }}` (`deploy.yml`). Se a Cloudflare reescrever o cache de `.json` (como faz com `.js`,
+  ver as Pendências gerais), o aviso demora a aparecer; crie uma regra de cache "Bypass" para `/version.json`.
+  Teste: `curl -s https://spook.dottadigital.com/version.json` deve devolver o sha do deploy atual.
+
 ## 8. Pendências conhecidas
 - **Observabilidade em produção** (RNF02): `SPOOK_OTLP_ENDPOINT` está vazio, ou seja, sem traces em prod. Plano e critério
   na Fase B do SPEC (Benchmarks e observabilidade): Grafana Cloud (plano gratuito) com só um coletor OpenTelemetry leve no VPS (e, então,

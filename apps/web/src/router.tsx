@@ -22,6 +22,7 @@ import { AdminServersPage } from "@/pages/admin/servers";
 import { AdminUsersPage } from "@/pages/admin/users";
 import { AppSettingsPage } from "@/pages/app-settings";
 import { DmIndex, DmLayout, DmPage } from "@/pages/dms";
+import { DownloadPage } from "@/pages/download";
 import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
 import { HomePage } from "@/pages/home";
 import { InvitePage } from "@/pages/invite";
@@ -59,6 +60,13 @@ const loginRoute = createRoute({
   validateSearch: authSearch,
   beforeLoad: redirectIfSignedIn,
   component: LoginPage,
+});
+
+// Pública e fora do layout autenticado: quem ainda não tem conta (ou está logado) baixa o app por aqui.
+const downloadRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/download",
+  component: DownloadPage,
 });
 
 const registerRoute = createRoute({
@@ -228,6 +236,7 @@ const routeTree = rootRoute.addChildren([
   adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminServersRoute, adminCallsRoute]),
   loginRoute,
   registerRoute,
+  downloadRoute,
   legacyProfileRoute,
   authedRoute.addChildren([
     homeRoute,
