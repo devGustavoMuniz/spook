@@ -269,6 +269,49 @@ describe("dashboard", () => {
     expect(screen.getByRole("img", { name: "Ao vivo" })).toBeInTheDocument();
   });
 
+  it("organiza em grupos, com gauges, barras, sparklines e a comparação com 7 dias antes", async () => {
+    adminApi();
+    await renderApp("/admin", asAdmin(true));
+    await screen.findByText("go1.26.0");
+    for (const g of ["Resumo", "Crescimento", "Conteúdo", "Mídia", "Aplicação e armazenamento"]) {
+      expect(screen.getByRole("heading", { level: 2, name: g })).toBeInTheDocument();
+    }
+    // Séries com a linha de comparação (7 dias antes) e o rótulo na legenda.
+    expect(screen.getAllByTestId("previous-line")).toHaveLength(2);
+    expect(screen.getAllByText("7 dias antes").length).toBeGreaterThan(0);
+    // Variação percentual com seta no cartão (alta: 200% nas mensagens).
+    const msgCard = screen.getByText("Mensagens (7 dias)", { selector: "p" })
+      .parentElement as HTMLElement;
+    expect(within(msgCard).getByText(/\+200% vs\. 6 dias antes/)).toBeInTheDocument();
+    // Medidores de capacidade: heap 10 MB de ~28,6 MB e pool 1 de 10 (10%).
+    expect(screen.getByRole("meter", { name: "Pool de conexões do Postgres" })).toHaveAttribute(
+      "aria-valuetext",
+      "10%, Bom",
+    );
+    expect(screen.getByRole("meter", { name: "Memória da aplicação" })).toBeInTheDocument();
+    // Maiores tabelas em barras, com tabela acessível.
+    expect(screen.getByRole("table", { name: "Maiores tabelas" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Itens armazenados por tipo" })).toBeInTheDocument();
+    // Cartões ao vivo com sparkline: a 1ª leitura ainda não forma linha (precisa de 2 amostras).
+    expect(screen.getByText("Conexões do gateway")).toBeInTheDocument();
+  });
+
+  it("acumula amostras a cada leitura e desenha a sparkline do cartão", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    adminApi();
+    await renderApp("/admin", asAdmin(true));
+    await screen.findByText("go1.26.0");
+    expect(screen.queryByRole("img", { name: /^Goroutines, últimos minutos/ })).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_100);
+    });
+    expect(
+      await screen.findByRole("img", {
+        name: /^Goroutines, últimos minutos: mínimo 42, máximo 42, atual 42/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("com o Prometheus do LiveKit mostra uso e saúde da mídia", async () => {
     adminApi({
       live: {
@@ -293,6 +336,11 @@ describe("dashboard", () => {
     expect(screen.getByText("1 Mbps")).toBeInTheDocument();
     expect(screen.getByText("0,5%")).toBeInTheDocument();
     expect(screen.getByText("3,2 ms")).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "Perda de pacotes" })).toHaveAttribute(
+      "aria-valuetext",
+      "0,5%, Bom",
+    );
+    expect(screen.getByRole("meter", { name: "Jitter" })).toHaveAttribute("aria-valuenow", "3.2");
     expect(screen.getByText("Nota de qualidade").nextElementSibling).toHaveTextContent("—");
   });
 
@@ -433,6 +481,15 @@ describe("servidores e chamadas", () => {
     expect(screen.getByText("@ana, @beto")).toBeInTheDocument();
     expect(screen.getByText("30 min 0 s")).toBeInTheDocument();
     expect(screen.getByText("Compartilhamentos de tela")).toBeInTheDocument();
+    // Mini-visualizações: pessoas por sala (2) e duração (30 min), cada uma com tabela acessível.
+    const people = screen.getByRole("table", { name: "Pessoas por sala" });
+    expect(
+      within(people).getByRole("rowheader", { name: "Casa · geral-voz" }).nextElementSibling,
+    ).toHaveTextContent("2");
+    const dur = screen.getByRole("table", { name: "Duração das chamadas" });
+    expect(
+      within(dur).getByRole("rowheader", { name: "Casa · geral-voz" }).nextElementSibling,
+    ).toHaveTextContent("30 min");
     const user = userEvent.setup();
     await user.type(screen.getByRole("searchbox", { name: /Buscar por servidor/ }), "casa");
     await waitFor(() =>
@@ -463,6 +520,7 @@ describe("servidores e chamadas", () => {
     await renderApp("/admin/calls", asAdmin(true));
     expect(await screen.findByText(/voz desligada neste servidor/)).toBeInTheDocument();
     expect(screen.getByText("Nenhuma chamada em andamento.")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Pessoas por sala" })).toBeNull();
   });
 });
 

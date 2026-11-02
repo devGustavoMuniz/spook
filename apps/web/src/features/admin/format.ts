@@ -41,3 +41,12 @@ export function shortDay(iso: string): string {
   const [, m, d] = iso.split("-");
   return `${d}/${m}`;
 }
+
+/** Duração curta para rótulos de gráfico: "<1 min", "30 min", "2 h 5 min". */
+export function formatDurationShort(totalSeconds: number): string {
+  const m = Math.floor(Math.max(0, totalSeconds) / 60);
+  if (m < 1) return "<1 min";
+  if (m < 60) return `${m} min`;
+  const mm = m % 60;
+  return mm ? `${Math.floor(m / 60)} h ${mm} min` : `${Math.floor(m / 60)} h`;
+}
