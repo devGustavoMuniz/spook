@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const confirmSessionPassword = `-- name: ConfirmSessionPassword :exec
+UPDATE sessions SET password_confirmed_at = $2 WHERE token_hash = $1
+`
+
+type ConfirmSessionPasswordParams struct {
+	TokenHash           []byte
+	PasswordConfirmedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ConfirmSessionPassword(ctx context.Context, arg ConfirmSessionPasswordParams) error {
+	_, err := q.db.Exec(ctx, confirmSessionPassword, arg.TokenHash, arg.PasswordConfirmedAt)
+	return err
+}
+
 const createSession = `-- name: CreateSession :exec
 INSERT INTO sessions (id, user_id, token_hash, user_agent, expires_at)
 VALUES ($1, $2, $3, $4, $5)
@@ -47,6 +61,23 @@ func (q *Queries) DeleteExpiredSessions(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const deleteOtherSessions = `-- name: DeleteOtherSessions :execrows
+DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2
+`
+
+type DeleteOtherSessionsParams struct {
+	UserID    int64
+	TokenHash []byte
+}
+
+func (q *Queries) DeleteOtherSessions(ctx context.Context, arg DeleteOtherSessionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOtherSessions, arg.UserID, arg.TokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteSessionByTokenHash = `-- name: DeleteSessionByTokenHash :exec
 DELETE FROM sessions WHERE token_hash = $1
 `
@@ -57,17 +88,24 @@ func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT user_id, expires_at FROM sessions WHERE token_hash = $1
+SELECT id, user_id, expires_at, password_confirmed_at FROM sessions WHERE token_hash = $1
 `
 
 type GetSessionByTokenHashRow struct {
-	UserID    int64
-	ExpiresAt pgtype.Timestamptz
+	ID                  int64
+	UserID              int64
+	ExpiresAt           pgtype.Timestamptz
+	PasswordConfirmedAt pgtype.Timestamptz
 }
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, getSessionByTokenHash, tokenHash)
 	var i GetSessionByTokenHashRow
-	err := row.Scan(&i.UserID, &i.ExpiresAt)
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.PasswordConfirmedAt,
+	)
 	return i, err
 }

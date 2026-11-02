@@ -107,7 +107,8 @@ func buildFixtures(t *testing.T) map[string]any {
 	}
 	member := guild.MemberPayload{
 		GuildID: "100", UserID: "11", Nickname: ptr("Gu"), JoinedAt: at, Username: "gustavo",
-		DisplayName: "Gustavo", RoleIDs: []string{"400"},
+		DisplayName: "Gustavo", Bio: "Estudando Go e LiveKit", Pronouns: "ele/dele", BannerColor: i32(0x5865F2),
+		RoleIDs: []string{"400"},
 	}
 
 	dispatches := []struct {
@@ -206,3 +207,5 @@ func TestGatewayEventsFixtures(t *testing.T) {
 		t.Fatalf("%s está desatualizado: rode `go test ./internal/gateway -run Fixtures -update` e commite", fixturePath)
 	}
 }
+
+func i32(v int32) *int32 { return &v }

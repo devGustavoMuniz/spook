@@ -10,6 +10,10 @@ export class ApiError extends Error {
     public readonly errors: ApiFieldError[] = [],
     /** Segundos do cabeçalho Retry-After (429), quando presente. */
     public readonly retryAfter?: number,
+    /** Código estável do problem+json (ex.: `password_confirmation_required`, `owns_guilds`). */
+    public readonly code?: string,
+    /** Corpo completo do problem+json, para campos extras (ex.: `guilds`). */
+    public readonly body: Record<string, unknown> = {},
   ) {
     super(detail);
     this.name = "ApiError";
@@ -43,6 +47,9 @@ export function setRequestHeaders(provider: (() => Record<string, string>) | nul
 
 export const isApiError = (e: unknown): e is ApiError => e instanceof ApiError;
 
+/** Código do 403 das ações que exigem senha confirmada nos últimos 10 min (ver `useConfirmPassword`). */
+export const PASSWORD_CONFIRMATION_REQUIRED = "password_confirmation_required";
+
 /**
  * `fetch` com a mesma autenticação do mutator (cookie same-origin ou Bearer do desktop) e a URL base. Para
  * respostas que não são JSON (ex.: a prévia da transmissão em image/jpeg); o erro fica por conta de quem chama.
@@ -61,12 +68,19 @@ export async function http<T>(url: string, init?: RequestInit): Promise<T> {
   const data: unknown = text ? safeJson(text) : undefined;
 
   if (!res.ok) {
-    const p = (data ?? {}) as { detail?: string; title?: string; errors?: ApiFieldError[] };
+    const p = (data ?? {}) as {
+      detail?: string;
+      title?: string;
+      errors?: ApiFieldError[];
+      code?: string;
+    };
     throw new ApiError(
       res.status,
       p.detail ?? p.title ?? res.statusText,
       p.errors ?? [],
       parseRetryAfter(res.headers.get("Retry-After")),
+      typeof p.code === "string" ? p.code : undefined,
+      p as Record<string, unknown>,
     );
   }
   return data as T;

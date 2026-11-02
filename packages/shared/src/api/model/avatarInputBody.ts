@@ -7,6 +7,7 @@
 import type { AvatarInputBodyContentType } from "./avatarInputBodyContentType";
 
 export interface AvatarInputBody {
+  /** GIF e WebP animados são preservados */
   content_type: AvatarInputBodyContentType;
   /**
    * Tamanho em bytes (máx. 5 MB)

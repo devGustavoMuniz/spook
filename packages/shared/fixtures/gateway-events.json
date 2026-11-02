@@ -151,6 +151,9 @@
         "joined_at": "2026-10-31T12:00:00Z",
         "username": "gustavo",
         "display_name": "Gustavo",
+        "bio": "Estudando Go e LiveKit",
+        "pronouns": "ele/dele",
+        "banner_color": 5793266,
         "role_ids": [
           "400"
         ]
@@ -176,6 +179,9 @@
         "joined_at": "2026-10-31T12:00:00Z",
         "username": "gustavo",
         "display_name": "Gustavo",
+        "bio": "Estudando Go e LiveKit",
+        "pronouns": "ele/dele",
+        "banner_color": 5793266,
         "role_ids": [
           "400"
         ]

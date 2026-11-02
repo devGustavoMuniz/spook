@@ -1,12 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  getGetMeQueryKey,
-  useGetMe,
-  useRequestAvatarUpload,
-  useUpdateMe,
-  type View,
-} from "@spook/shared";
-import { useQueryClient } from "@tanstack/react-query";
+import { useGetMe, useRequestAvatarUpload, type View } from "@spook/shared";
 import { AtSign, Image as ImageIcon, Mail, UserRound } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -15,6 +8,8 @@ import { Avatar } from "@/components/avatar";
 import { describedBy, Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AboutCard, BannerCard, useSaveProfile } from "@/features/settings/profile-fields";
+import { SecuritySection } from "@/features/settings/security";
 import { SettingsGroup } from "@/features/settings/ui";
 import { applyServerError, messageFor } from "@/lib/errors";
 import { type ProfileForm, profileSchema, validateAvatar } from "@/lib/schemas";
@@ -26,20 +21,13 @@ export function ProfilePage() {
   return (
     <div className="flex flex-col gap-6">
       <AvatarCard me={me} />
+      <BannerCard me={me} />
       <NameCard me={me} />
+      <AboutCard me={me} />
       <AccountCard me={me} />
+      <SecuritySection me={me} />
     </div>
   );
-}
-
-function useSaveProfile() {
-  const qc = useQueryClient();
-  const update = useUpdateMe();
-  return async (data: { display_name?: string; avatar_key?: string; remove_avatar?: boolean }) => {
-    const res = await update.mutateAsync({ data });
-    qc.setQueryData(getGetMeQueryKey(), res);
-    return res;
-  };
 }
 
 function NameCard({ me }: { me: View }) {
@@ -111,7 +99,7 @@ function AccountCard({ me }: { me: View }) {
     <SettingsGroup
       icon={AtSign}
       title="Conta"
-      description="Seu nome de usuário e e-mail identificam você no Spook. Por enquanto não dá para alterá-los."
+      description="Seu nome de usuário identifica você no Spook e não pode ser alterado. O e-mail e a senha ficam em Segurança, logo abaixo."
     >
       <dl className="flex flex-col gap-3">
         <ReadOnly icon={AtSign} label="Usuário" value={`@${me.username}`} />
@@ -139,7 +127,7 @@ function AvatarCard({ me }: { me: View }) {
     try {
       const { upload_url, key } = await requestUpload.mutateAsync({
         data: {
-          content_type: file.type as "image/png" | "image/jpeg" | "image/webp",
+          content_type: file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
           size: file.size,
         },
       });
@@ -168,7 +156,11 @@ function AvatarCard({ me }: { me: View }) {
   }
 
   return (
-    <SettingsGroup icon={ImageIcon} title="Avatar" description="PNG, JPEG ou WebP, de até 5 MB.">
+    <SettingsGroup
+      icon={ImageIcon}
+      title="Avatar"
+      description="PNG, JPEG, WebP ou GIF (animado também), de até 5 MB."
+    >
       <div className="flex flex-wrap items-center gap-4">
         <Avatar url={me.avatar_url} name={name} size={80} />
         <div className="flex flex-col gap-2">
@@ -177,7 +169,7 @@ function AvatarCard({ me }: { me: View }) {
               ref={fileInput}
               id="avatar-file"
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,image/gif"
               className="sr-only"
               onChange={(e) => void onFile(e.target.files?.[0])}
               disabled={busy}

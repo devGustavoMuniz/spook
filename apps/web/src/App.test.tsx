@@ -137,7 +137,8 @@ describe("perfil", () => {
     const { state } = await renderApp("/settings/profile", { signedIn: true });
     const input = await screen.findByLabelText("Nome de exibição");
     await user.type(input, "Ana Souza");
-    await user.click(screen.getByRole("button", { name: "Salvar" }));
+    const form = input.closest("form") as HTMLElement;
+    await user.click(within(form).getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText("Perfil atualizado.")).toBeInTheDocument();
     expect(state.patches).toEqual([{ display_name: "Ana Souza" }]);
   });
@@ -148,7 +149,9 @@ describe("perfil", () => {
     await screen.findByText("Avatar");
     const file = new File(["texto"], "a.txt", { type: "text/plain" });
     await user.upload(document.getElementById("avatar-file") as HTMLInputElement, file);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("PNG, JPEG ou WebP"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("PNG, JPEG, WebP ou GIF"),
+    );
     expect(state.patches).toEqual([]);
   });
 });

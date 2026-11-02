@@ -42,40 +42,91 @@ func (f *fakeUsers) Credentials(_ context.Context, email string) (user.User, str
 	return u, f.hashes[email], nil
 }
 
-func (f *fakeUsers) Get(context.Context, int64) (user.User, error) { return user.User{}, nil }
-
-type fakeStore struct {
-	mu       sync.Mutex
-	sessions map[string]struct {
-		userID  int64
-		expires time.Time
-	}
-}
-
-func (f *fakeStore) CreateSession(_ context.Context, _, userID int64, hash []byte, _ *string, exp time.Time) error {
+func (f *fakeUsers) Get(_ context.Context, id int64) (user.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.sessions == nil {
-		f.sessions = map[string]struct {
-			userID  int64
-			expires time.Time
-		}{}
+	for _, u := range f.byMail {
+		if u.ID == id {
+			return u, nil
+		}
 	}
-	f.sessions[string(hash)] = struct {
-		userID  int64
-		expires time.Time
-	}{userID, exp}
+	return user.User{}, user.ErrNotFound
+}
+
+func (f *fakeUsers) PasswordHash(_ context.Context, id int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for mail, u := range f.byMail {
+		if u.ID == id {
+			return f.hashes[mail], nil
+		}
+	}
+	return "", user.ErrNotFound
+}
+
+func (f *fakeUsers) SetPasswordHash(_ context.Context, id int64, hash string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for mail, u := range f.byMail {
+		if u.ID == id {
+			f.hashes[mail] = hash
+		}
+	}
 	return nil
 }
 
-func (f *fakeStore) Session(_ context.Context, hash []byte) (int64, time.Time, error) {
+type fakeSession struct {
+	id        int64
+	userID    int64
+	expires   time.Time
+	confirmed *time.Time
+}
+
+type fakeStore struct {
+	mu       sync.Mutex
+	sessions map[string]*fakeSession
+}
+
+func (f *fakeStore) CreateSession(_ context.Context, id, userID int64, hash []byte, _ *string, exp time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sessions == nil {
+		f.sessions = map[string]*fakeSession{}
+	}
+	f.sessions[string(hash)] = &fakeSession{id: id, userID: userID, expires: exp}
+	return nil
+}
+
+func (f *fakeStore) Session(_ context.Context, hash []byte) (SessionInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	s, ok := f.sessions[string(hash)]
 	if !ok {
-		return 0, time.Time{}, ErrUnauthorized
+		return SessionInfo{}, ErrUnauthorized
 	}
-	return s.userID, s.expires, nil
+	return SessionInfo{ID: s.id, UserID: s.userID, Expires: s.expires, ConfirmedAt: s.confirmed}, nil
+}
+
+func (f *fakeStore) ConfirmSession(_ context.Context, hash []byte, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if s, ok := f.sessions[string(hash)]; ok {
+		s.confirmed = &at
+	}
+	return nil
+}
+
+func (f *fakeStore) DeleteOtherSessions(_ context.Context, userID int64, keep []byte) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var n int64
+	for k, s := range f.sessions {
+		if s.userID == userID && k != string(keep) {
+			delete(f.sessions, k)
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeStore) DeleteSession(_ context.Context, hash []byte) error {
@@ -164,5 +215,81 @@ func TestAuthenticateRejectsExpiredAndEmpty(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, ""); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("token vazio deveria ser recusado: %v", err)
+	}
+}
+
+func TestChangePasswordKeepsCurrentSessionAndDropsOthers(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newSvc(t)
+	u, tok, err := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, other, _ := svc.Login(ctx, "a@b.com", "senha-forte-1", nil)
+	var gotUser int64
+	var gotKeep string
+	svc.OnRevoke(func(uid int64, keep string) { gotUser, gotKeep = uid, keep })
+
+	if err := svc.ChangePassword(ctx, u.ID, tok, "errada", "outra-senha-2"); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("senha atual errada: %v", err)
+	}
+	if err := svc.ChangePassword(ctx, u.ID, tok, "senha-forte-1", "curta"); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("senha fraca: %v", err)
+	}
+	if err := svc.ChangePassword(ctx, u.ID, tok, "senha-forte-1", "senha-forte-1"); !errors.Is(err, ErrSamePassword) {
+		t.Fatalf("mesma senha: %v", err)
+	}
+	if err := svc.ChangePassword(ctx, u.ID, tok, "senha-forte-1", "outra-senha-2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Authenticate(ctx, tok); err != nil {
+		t.Fatalf("a sessão atual deve continuar: %v", err)
+	}
+	if _, err := svc.Authenticate(ctx, other); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("as outras sessões devem cair: %v", err)
+	}
+	if gotUser != u.ID || gotKeep != TokenKey(tok) {
+		t.Fatalf("gateway deveria ser avisado mantendo só a sessão atual: %d %q", gotUser, gotKeep)
+	}
+	if _, _, err := svc.Login(ctx, "a@b.com", "outra-senha-2", nil); err != nil {
+		t.Fatalf("login com a senha nova: %v", err)
+	}
+	if _, _, err := svc.Login(ctx, "a@b.com", "senha-forte-1", nil); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("a senha antiga não pode mais valer: %v", err)
+	}
+}
+
+func TestConfirmPasswordWindow(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newSvc(t)
+	u, tok, _ := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil)
+	if ok, _ := svc.RecentlyConfirmed(ctx, tok); ok {
+		t.Fatal("sessão nova não está confirmada")
+	}
+	if _, err := svc.ConfirmPassword(ctx, u.ID, tok, "errada"); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("senha errada: %v", err)
+	}
+	until, err := svc.ConfirmPassword(ctx, u.ID, tok, "senha-forte-1")
+	if err != nil || !until.After(time.Now()) {
+		t.Fatalf("confirmar: %v %v", until, err)
+	}
+	if ok, _ := svc.RecentlyConfirmed(ctx, tok); !ok {
+		t.Fatal("deveria estar confirmada")
+	}
+	svc.now = func() time.Time { return time.Now().Add(ConfirmTTL + time.Second) }
+	if ok, _ := svc.RecentlyConfirmed(ctx, tok); ok {
+		t.Fatal("a confirmação deve expirar em 10 min")
+	}
+}
+
+func TestRegisterRejectsReservedUsernameAndShortPassword(t *testing.T) {
+	svc, _ := newSvc(t)
+	for _, name := range []string{"admin", "ADMIN", "Spook", "everyone", "removido_5"} {
+		if _, _, err := svc.Register(context.Background(), name+"@b.com", name, "senha-forte-1", nil); !errors.Is(err, user.ErrReservedUsername) {
+			t.Fatalf("%q deveria ser reservado: %v", name, err)
+		}
+	}
+	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana", "curta", nil); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("senha curta: %v", err)
 	}
 }

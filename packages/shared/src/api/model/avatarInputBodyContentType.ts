@@ -5,6 +5,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * GIF e WebP animados são preservados
+ */
 export type AvatarInputBodyContentType =
   (typeof AvatarInputBodyContentType)[keyof typeof AvatarInputBodyContentType];
 
@@ -12,4 +15,5 @@ export const AvatarInputBodyContentType = {
   "image/png": "image/png",
   "image/jpeg": "image/jpeg",
   "image/webp": "image/webp",
+  "image/gif": "image/gif",
 } as const;

@@ -2,6 +2,7 @@
 package httpx
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 )
 
 // Err converte err em um erro huma; erros desconhecidos seguem como estão (500).
@@ -80,4 +82,40 @@ func Name(s string, min, max int) (string, bool) {
 	s = strings.TrimSpace(s)
 	n := Runes(s)
 	return s, n >= min && n <= max
+}
+
+// Take consome uma vaga do limitador para key (ex.: "senha:<usuário>"); sem limitador não limita.
+// Estourou: 429 com Retry-After.
+func Take(l *ratelimit.Limiter, key string) error {
+	if l == nil {
+		return nil
+	}
+	ok, retry := l.Take(key)
+	if ok {
+		return nil
+	}
+	return Err(apperr.RateLimited("muitas tentativas; aguarde um pouco e tente de novo", retry))
+}
+
+// ProblemError é um erro huma com campos extras além do padrão (ex.: `code` e `guilds`), para o cliente
+// tomar decisões sem interpretar o texto.
+type ProblemError struct {
+	Status int
+	Detail string
+	Code   string
+	Extra  map[string]any
+}
+
+func (e *ProblemError) Error() string  { return e.Detail }
+func (e *ProblemError) GetStatus() int { return e.Status }
+
+func (e *ProblemError) MarshalJSON() ([]byte, error) {
+	m := map[string]any{"title": http.StatusText(e.Status), "status": e.Status, "detail": e.Detail}
+	if e.Code != "" {
+		m["code"] = e.Code
+	}
+	for k, v := range e.Extra {
+		m[k] = v
+	}
+	return json.Marshal(m)
 }

@@ -24,6 +24,7 @@ export {
   apiUrl,
   getApiBaseUrl,
   isApiError,
+  PASSWORD_CONFIRMATION_REQUIRED,
   setApiBaseUrl,
   setRequestHeaders,
   shouldRetry,

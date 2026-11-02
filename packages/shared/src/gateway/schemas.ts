@@ -94,6 +94,10 @@ export const memberPayloadSchema = z.object({
   username: z.string(),
   display_name: z.string().optional(),
   avatar_url: z.string().optional(),
+  bio: z.string().optional(),
+  pronouns: z.string().optional(),
+  banner_url: z.string().optional(),
+  banner_color: z.number().int().optional(),
   role_ids: z.array(z.string()).nullable(),
 });
 

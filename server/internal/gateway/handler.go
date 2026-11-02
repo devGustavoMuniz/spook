@@ -46,7 +46,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 		Tags:    []string{"gateway"}, Security: security, Middlewares: mw, DefaultStatus: http.StatusCreated,
 		Errors: []int{http.StatusUnauthorized, http.StatusServiceUnavailable},
 	}, func(ctx context.Context, _ *struct{}) (*struct{ Body TicketBody }, error) {
-		t, ok := h.hub.tk.issue(h.userID(ctx))
+		t, ok := h.hub.tk.issueFor(h.userID(ctx), auth.TokenKey(auth.Token(ctx)))
 		if !ok {
 			return nil, huma.Error503ServiceUnavailable("muitos tickets em aberto, tente em instantes")
 		}
@@ -62,7 +62,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusMethodNotAllowed, "método não permitido")
 		return
 	}
-	userID, err := h.authenticate(r)
+	userID, authKey, err := h.authenticate(r)
 	if err != nil {
 		if errors.Is(err, auth.ErrUnauthorized) {
 			writeProblem(w, http.StatusUnauthorized, "autenticação necessária")
@@ -91,6 +91,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return // Accept já respondeu
 	}
 	c := h.hub.newConn(r.Context(), ws, userID)
+	c.authKey = authKey
 	if !h.hub.addConn(c) {
 		_ = ws.Close(CloseGoingAway, "servidor reiniciando")
 		c.cancel()
@@ -100,12 +101,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.serve(r.Context())
 }
 
-func (h *Handler) authenticate(r *http.Request) (int64, error) {
+func (h *Handler) authenticate(r *http.Request) (int64, string, error) {
 	if t := r.URL.Query().Get("ticket"); t != "" {
-		if id, ok := h.hub.tk.consume(t); ok {
-			return id, nil
+		if id, key, ok := h.hub.tk.consumeFull(t); ok {
+			return id, key, nil
 		}
-		return 0, auth.ErrUnauthorized
+		return 0, "", auth.ErrUnauthorized
 	}
 	tok := ""
 	if a := r.Header.Get("Authorization"); strings.HasPrefix(a, "Bearer ") {
@@ -113,7 +114,11 @@ func (h *Handler) authenticate(r *http.Request) (int64, error) {
 	} else if c, err := r.Cookie(auth.CookieName); err == nil {
 		tok = c.Value
 	}
-	return h.auth.Authenticate(r.Context(), tok)
+	id, err := h.auth.Authenticate(r.Context(), tok)
+	if err != nil {
+		return 0, "", err
+	}
+	return id, auth.TokenKey(tok), nil
 }
 
 func writeProblem(w http.ResponseWriter, status int, msg string) {

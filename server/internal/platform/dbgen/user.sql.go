@@ -12,7 +12,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, username, password_hash)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at
 `
 
 type CreateUserParams struct {
@@ -43,12 +43,17 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
 		&i.IsAdmin,
+		&i.Bio,
+		&i.Pronouns,
+		&i.BannerKey,
+		&i.BannerColor,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin FROM users WHERE email = $1
+SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -67,12 +72,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
 		&i.IsAdmin,
+		&i.Bio,
+		&i.Pronouns,
+		&i.BannerKey,
+		&i.BannerColor,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin FROM users WHERE id = $1
+SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
@@ -91,25 +101,27 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
 		&i.IsAdmin,
+		&i.Bio,
+		&i.Pronouns,
+		&i.BannerKey,
+		&i.BannerColor,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
-const updateUserProfile = `-- name: UpdateUserProfile :one
-UPDATE users
-SET display_name = $2, avatar_key = $3
-WHERE id = $1
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin
+const updateUserEmail = `-- name: UpdateUserEmail :one
+UPDATE users SET email = $2 WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at
 `
 
-type UpdateUserProfileParams struct {
-	ID          int64
-	DisplayName *string
-	AvatarKey   *string
+type UpdateUserEmailParams struct {
+	ID    int64
+	Email string
 }
 
-func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserProfile, arg.ID, arg.DisplayName, arg.AvatarKey)
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserEmail, arg.ID, arg.Email)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -124,6 +136,75 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.CustomStatusEmoji,
 		&i.CustomStatusExpiresAt,
 		&i.IsAdmin,
+		&i.Bio,
+		&i.Pronouns,
+		&i.BannerKey,
+		&i.BannerColor,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users SET password_hash = $2 WHERE id = $1 AND deleted_at IS NULL
+`
+
+type UpdateUserPasswordParams struct {
+	ID           int64
+	PasswordHash string
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET display_name = $2, avatar_key = $3, bio = $4, pronouns = $5, banner_key = $6, banner_color = $7
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at
+`
+
+type UpdateUserProfileParams struct {
+	ID          int64
+	DisplayName *string
+	AvatarKey   *string
+	Bio         *string
+	Pronouns    *string
+	BannerKey   *string
+	BannerColor *int32
+}
+
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile,
+		arg.ID,
+		arg.DisplayName,
+		arg.AvatarKey,
+		arg.Bio,
+		arg.Pronouns,
+		arg.BannerKey,
+		arg.BannerColor,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Username,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.AvatarKey,
+		&i.CreatedAt,
+		&i.StatusPref,
+		&i.CustomStatusText,
+		&i.CustomStatusEmoji,
+		&i.CustomStatusExpiresAt,
+		&i.IsAdmin,
+		&i.Bio,
+		&i.Pronouns,
+		&i.BannerKey,
+		&i.BannerColor,
+		&i.DeletedAt,
 	)
 	return i, err
 }

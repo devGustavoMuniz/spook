@@ -6,8 +6,14 @@
  */
 
 export interface View {
-  /** URL temporária de leitura do avatar */
+  /** URL temporária de leitura do avatar (pode ser animado: GIF/WebP) */
   avatar_url?: string;
+  /** Cor sólida do banner (RGB 0..16777215), usada quando não há imagem */
+  banner_color?: number;
+  /** URL temporária de leitura do banner (imagem) */
+  banner_url?: string;
+  /** Sobre mim (até 190 caracteres) */
+  bio?: string;
   created_at: string;
   display_name?: string;
   email: string;
@@ -15,5 +21,7 @@ export interface View {
   id: string;
   /** Administrador do painel /admin (só para mostrar o link; o backend decide o acesso) */
   is_admin: boolean;
+  /** Pronomes (até 40 caracteres) */
+  pronouns?: string;
   username: string;
 }

@@ -7,6 +7,22 @@
 import * as zod from "zod";
 
 /**
+ * Libera as ações sensíveis (trocar e-mail, excluir conta ou servidor). Senha errada responde 422; limite: 5 tentativas e depois 1 a cada 30 s por usuário.
+ * @summary Confirma a senha ("modo sudo"): a sessão fica confirmada por 10 minutos
+ */
+export const confirmPasswordBodyPasswordMax = 128;
+
+export const ConfirmPasswordBody = zod.object({
+  password: zod.string().min(1).max(confirmPasswordBodyPasswordMax),
+});
+
+export const ConfirmPasswordResponse = zod.object({
+  confirmed_until: zod.iso
+    .datetime({ offset: true })
+    .describe("Até quando as ações sensíveis ficam liberadas nesta sessão"),
+});
+
+/**
  * @summary Login
  */
 export const LoginHeader = zod.object({
@@ -31,7 +47,16 @@ export const LoginResponse = zod.object({
       "Só é devolvido ao cliente desktop (header X-Spook-Client: desktop); a web usa o cookie httpOnly",
     ),
   user: zod.object({
-    avatar_url: zod.string().optional().describe("URL temporária de leitura do avatar"),
+    avatar_url: zod
+      .string()
+      .optional()
+      .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+    banner_color: zod
+      .int()
+      .optional()
+      .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+    banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+    bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
     created_at: zod.iso.datetime({ offset: true }),
     display_name: zod.string().optional(),
     email: zod.string(),
@@ -41,6 +66,7 @@ export const LoginResponse = zod.object({
       .describe(
         "Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)",
       ),
+    pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
   }),
 });
@@ -86,7 +112,16 @@ export const RegisterResponse = zod.object({
       "Só é devolvido ao cliente desktop (header X-Spook-Client: desktop); a web usa o cookie httpOnly",
     ),
   user: zod.object({
-    avatar_url: zod.string().optional().describe("URL temporária de leitura do avatar"),
+    avatar_url: zod
+      .string()
+      .optional()
+      .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+    banner_color: zod
+      .int()
+      .optional()
+      .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+    banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+    bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
     created_at: zod.iso.datetime({ offset: true }),
     display_name: zod.string().optional(),
     email: zod.string(),
@@ -96,6 +131,7 @@ export const RegisterResponse = zod.object({
       .describe(
         "Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)",
       ),
+    pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
   }),
 });

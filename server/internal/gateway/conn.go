@@ -31,8 +31,10 @@ type conn struct {
 	hub    *Hub
 	ws     *websocket.Conn
 	userID int64
-	ctx    context.Context
-	cancel context.CancelFunc
+	// authKey identifica a sessão de login (auth.TokenKey); vazio em testes. Serve a RevokeAuth.
+	authKey string
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	sess       *Session // só a goroutine de leitura escreve
 	identified atomic.Bool
@@ -256,7 +258,7 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 			notifSettings = ns
 		}
 	}
-	s, okReg := h.register(c.userID)
+	s, okReg := h.register(c.userID, c.authKey)
 	if !okReg {
 		c.fail(CloseRateLimited, "muitas sessões")
 		return false
@@ -383,7 +385,7 @@ func (c *conn) resume(ctx context.Context, d json.RawMessage) (ok bool) {
 	var old *conn
 	var upTo int64
 	resumed := false
-	if s != nil && s.userID == c.userID {
+	if s != nil && s.userID == c.userID && s.authKey == c.authKey {
 		if h.pres != nil {
 			// Se a tolerância de offline já venceu, a presença do usuário foi descartada: relê a preferência
 			// para o Connect do resume (quem está invisível não pode voltar como online).

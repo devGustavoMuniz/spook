@@ -300,6 +300,20 @@ func (s *Service) RemoveRecipient(ctx context.Context, userID, channelID, target
 	return nil
 }
 
+// PublishUpdated reenvia a DM (participantes atuais) a quem ficou nela, sem checar autorização: serve a
+// quem já decidiu a mudança (ex.: exclusão de conta de um participante).
+func (s *Service) PublishUpdated(ctx context.Context, channelID int64) {
+	c, err := s.store.Get(ctx, channelID)
+	if err != nil || !c.IsDM() {
+		return
+	}
+	c, err = s.one(ctx, c)
+	if err != nil {
+		return
+	}
+	s.publish(events.ChannelUpdate, c, participantIDs(c)...)
+}
+
 // Rename renomeia a DM em grupo; só o dono.
 func (s *Service) Rename(ctx context.Context, userID, channelID int64, name string) (channel.Channel, error) {
 	ctx, span := tracer.Start(ctx, "dm.Rename")

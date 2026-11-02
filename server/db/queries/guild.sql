@@ -42,7 +42,7 @@ SELECT count(*) FROM guild_members WHERE guild_id = $1;
 
 -- name: ListMembers :many
 SELECT m.guild_id, m.user_id, m.nickname, m.joined_at,
-       u.username, u.display_name, u.avatar_key,
+       u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
 JOIN users u ON u.id = m.user_id
@@ -54,7 +54,7 @@ LIMIT $3;
 
 -- name: GetMember :one
 SELECT m.guild_id, m.user_id, m.nickname, m.joined_at,
-       u.username, u.display_name, u.avatar_key,
+       u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
 JOIN users u ON u.id = m.user_id

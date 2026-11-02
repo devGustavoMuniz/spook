@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,9 +17,16 @@ type PGStore struct{ q *dbgen.Queries }
 func NewStore(db dbgen.DBTX) *PGStore { return &PGStore{q: dbgen.New(db)} }
 
 func toUser(u dbgen.User) User {
+	var deleted *time.Time
+	if u.DeletedAt.Valid {
+		t := u.DeletedAt.Time
+		deleted = &t
+	}
 	return User{
-		ID: u.ID, Email: u.Email, Username: u.Username,
-		DisplayName: u.DisplayName, AvatarKey: u.AvatarKey, CreatedAt: u.CreatedAt.Time, IsAdmin: u.IsAdmin,
+		DeletedAt: deleted,
+		ID:        u.ID, Email: u.Email, Username: u.Username,
+		DisplayName: u.DisplayName, AvatarKey: u.AvatarKey, Bio: u.Bio, Pronouns: u.Pronouns,
+		BannerKey: u.BannerKey, BannerColor: u.BannerColor, CreatedAt: u.CreatedAt.Time, IsAdmin: u.IsAdmin,
 	}
 }
 
@@ -61,8 +69,11 @@ func (s *PGStore) ByEmail(ctx context.Context, email string) (User, string, erro
 	return toUser(u), u.PasswordHash, nil
 }
 
-func (s *PGStore) UpdateProfile(ctx context.Context, id int64, displayName, avatarKey *string) (User, error) {
-	u, err := s.q.UpdateUserProfile(ctx, dbgen.UpdateUserProfileParams{ID: id, DisplayName: displayName, AvatarKey: avatarKey})
+func (s *PGStore) UpdateProfile(ctx context.Context, id int64, p ProfileFields) (User, error) {
+	u, err := s.q.UpdateUserProfile(ctx, dbgen.UpdateUserProfileParams{
+		ID: id, DisplayName: p.DisplayName, AvatarKey: p.AvatarKey, Bio: p.Bio, Pronouns: p.Pronouns,
+		BannerKey: p.BannerKey, BannerColor: p.BannerColor,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -70,4 +81,37 @@ func (s *PGStore) UpdateProfile(ctx context.Context, id int64, displayName, avat
 		return User{}, fmt.Errorf("atualizar perfil: %w", err)
 	}
 	return toUser(u), nil
+}
+
+func (s *PGStore) UpdateEmail(ctx context.Context, id int64, email string) (User, error) {
+	u, err := s.q.UpdateUserEmail(ctx, dbgen.UpdateUserEmailParams{ID: id, Email: email})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_email_key" {
+			return User{}, ErrEmailTaken
+		}
+		return User{}, fmt.Errorf("atualizar e-mail: %w", err)
+	}
+	return toUser(u), nil
+}
+
+func (s *PGStore) PasswordHash(ctx context.Context, id int64) (string, error) {
+	u, err := s.q.GetUserByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("buscar senha: %w", err)
+	}
+	return u.PasswordHash, nil
+}
+
+func (s *PGStore) SetPasswordHash(ctx context.Context, id int64, hash string) error {
+	if err := s.q.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: id, PasswordHash: hash}); err != nil {
+		return fmt.Errorf("trocar senha: %w", err)
+	}
+	return nil
 }

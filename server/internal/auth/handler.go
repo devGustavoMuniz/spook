@@ -2,12 +2,17 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 	"github.com/devGustavoMuniz/spook/server/internal/user"
 )
 
@@ -38,9 +43,45 @@ func token(ctx context.Context) string {
 var Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
 
 type Handler struct {
-	svc    *Service
-	secure bool
-	view   func(context.Context, user.User) user.View
+	svc     *Service
+	secure  bool
+	view    func(context.Context, user.User) user.View
+	limiter *ratelimit.Limiter // por usuário e ação (trocar/confirmar senha)
+}
+
+// WithLimiter define o limitador de ações de senha por usuário.
+func (h *Handler) WithLimiter(l *ratelimit.Limiter) *Handler { h.limiter = l; return h }
+
+// CodePasswordConfirmationRequired é o `code` do 403 devolvido às ações que exigem senha confirmada há pouco.
+const CodePasswordConfirmationRequired = "password_confirmation_required"
+
+// Token devolve o token da sessão atual (vazio fora de rotas protegidas); serve a quem precisa
+// identificar a sessão (ex.: o gateway, ao emitir tickets).
+func Token(ctx context.Context) string { return token(ctx) }
+
+// RequireRecentPassword é o middleware das ações sensíveis (trocar e-mail, excluir servidor...): deve
+// vir DEPOIS de Middleware. Sem confirmação de senha nos últimos 10 min responde 403 com
+// `code: "password_confirmation_required"`; o cliente pede a senha (POST /api/auth/confirm-password)
+// e repete a ação.
+func (h *Handler) RequireRecentPassword(api huma.API) func(huma.Context, func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		ok, err := h.svc.RecentlyConfirmed(ctx.Context(), token(ctx.Context()))
+		if err != nil {
+			slog.Error("verificar confirmação de senha", "err", err)
+			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "erro interno")
+			return
+		}
+		if !ok {
+			ctx.SetHeader("Content-Type", "application/problem+json")
+			ctx.SetStatus(http.StatusForbidden)
+			_ = json.NewEncoder(ctx.BodyWriter()).Encode(&httpx.ProblemError{
+				Status: http.StatusForbidden, Code: CodePasswordConfirmationRequired,
+				Detail: "confirme sua senha para continuar",
+			})
+			return
+		}
+		next(ctx)
+	}
 }
 
 // NewHandler: secure marca o cookie como Secure (desligado só em dev http); view monta o perfil da resposta.
@@ -102,6 +143,25 @@ type LoginInput struct {
 	}
 }
 
+type ConfirmPasswordInput struct {
+	Body struct {
+		Password string `json:"password" minLength:"1" maxLength:"128"`
+	}
+}
+
+type ConfirmPasswordOutput struct {
+	Body struct {
+		ConfirmedUntil time.Time `json:"confirmed_until" doc:"Até quando as ações sensíveis ficam liberadas nesta sessão"`
+	}
+}
+
+type ChangePasswordInput struct {
+	Body struct {
+		CurrentPassword string `json:"current_password" minLength:"1" maxLength:"128"`
+		NewPassword     string `json:"new_password" minLength:"8" maxLength:"128"`
+	}
+}
+
 type LogoutOutput struct {
 	SetCookie http.Cookie `header:"Set-Cookie"`
 }
@@ -125,7 +185,7 @@ func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
 	huma.Register(api, huma.Operation{
 		OperationID: "register", Method: http.MethodPost, Path: "/api/auth/register",
 		Summary: "Cadastro (já abre a sessão)", Tags: []string{"auth"}, DefaultStatus: http.StatusCreated,
-		Errors: []int{http.StatusConflict},
+		Errors: []int{http.StatusConflict, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *RegisterInput) (*SessionOutput, error) {
 		ua := optional(in.UserAgent)
 		u, tok, err := h.svc.Register(ctx, in.Body.Email, in.Body.Username, in.Body.Password, ua)
@@ -134,6 +194,10 @@ func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
 			return nil, huma.Error409Conflict("e-mail já cadastrado")
 		case errors.Is(err, user.ErrUsernameTaken):
 			return nil, huma.Error409Conflict("nome de usuário já em uso")
+		case errors.Is(err, user.ErrReservedUsername):
+			return nil, huma.Error422UnprocessableEntity("esse nome de usuário é reservado; escolha outro")
+		case errors.Is(err, ErrWeakPassword):
+			return nil, huma.Error422UnprocessableEntity("a senha deve ter de 8 a 128 caracteres")
 		case err != nil:
 			return nil, err
 		}
@@ -163,6 +227,56 @@ func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
 			return nil, err
 		}
 		return &LogoutOutput{SetCookie: h.cookie("", -1)}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "confirmPassword", Method: http.MethodPost, Path: "/api/auth/confirm-password",
+		Summary: "Confirma a senha (\"modo sudo\"): a sessão fica confirmada por 10 minutos",
+		Description: "Libera as ações sensíveis (trocar e-mail, excluir conta ou servidor). " +
+			"Senha errada responde 422; limite: 5 tentativas e depois 1 a cada 30 s por usuário.",
+		Tags: []string{"auth"}, Security: Security, Middlewares: authed,
+		Errors: []int{http.StatusUnauthorized, http.StatusUnprocessableEntity, http.StatusTooManyRequests},
+	}, func(ctx context.Context, in *ConfirmPasswordInput) (*ConfirmPasswordOutput, error) {
+		uid := UserID(ctx)
+		if err := httpx.Take(h.limiter, "confirm:"+httpx.ID(uid)); err != nil {
+			return nil, err
+		}
+		until, err := h.svc.ConfirmPassword(ctx, uid, token(ctx), in.Body.Password)
+		if errors.Is(err, ErrWrongPassword) {
+			return nil, huma.Error422UnprocessableEntity("senha incorreta")
+		}
+		if err != nil {
+			return nil, err
+		}
+		out := &ConfirmPasswordOutput{}
+		out.Body.ConfirmedUntil = until
+		return out, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "changePassword", Method: http.MethodPost, Path: "/api/users/me/password",
+		Summary: "Troca a senha (encerra as outras sessões e mantém a atual)",
+		Description: "Exige a senha atual. A nova segue as regras do cadastro (8 a 128 caracteres) e precisa ser diferente. " +
+			"As demais sessões (e conexões do gateway) são encerradas. Limite: 5 tentativas e depois 1 a cada 30 s por usuário.",
+		Tags: []string{"users"}, Security: Security, Middlewares: authed, DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusUnauthorized, http.StatusUnprocessableEntity, http.StatusTooManyRequests},
+	}, func(ctx context.Context, in *ChangePasswordInput) (*struct{}, error) {
+		uid := UserID(ctx)
+		if err := httpx.Take(h.limiter, "pwd:"+httpx.ID(uid)); err != nil {
+			return nil, err
+		}
+		err := h.svc.ChangePassword(ctx, uid, token(ctx), in.Body.CurrentPassword, in.Body.NewPassword)
+		switch {
+		case errors.Is(err, ErrWrongPassword):
+			return nil, huma.Error422UnprocessableEntity("senha atual incorreta")
+		case errors.Is(err, ErrWeakPassword):
+			return nil, huma.Error422UnprocessableEntity("a nova senha deve ter de 8 a 128 caracteres")
+		case errors.Is(err, ErrSamePassword):
+			return nil, huma.Error422UnprocessableEntity("a nova senha deve ser diferente da atual")
+		case err != nil:
+			return nil, err
+		}
+		return nil, nil
 	})
 }
 

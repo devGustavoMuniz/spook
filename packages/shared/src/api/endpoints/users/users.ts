@@ -24,6 +24,9 @@ import { http } from "../../../http";
 import type {
   AvatarInputBody,
   AvatarOutputBody,
+  ChangePasswordInputBody,
+  DeleteInputBody,
+  EmailInputBody,
   ErrorModel,
   UpdateProfileInputBody,
   View,
@@ -46,6 +49,107 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
+export const getDeleteMeUrl = () => {
+  return `/api/users/me`;
+};
+
+/**
+ * Recusa quem é dono de servidor (409 com `code: owns_guilds` e a lista em `guilds`: transfira ou exclua antes). As mensagens permanecem com o autor anonimizado (`removido_<id>`); membros, sessões, push e configurações são apagados e o avatar/banner saem do storage por job. Limite: 3 tentativas e depois 1 por minuto por usuário.
+ * @summary Exclui a própria conta (exige a senha no corpo)
+ */
+export const deleteMe = async (
+  deleteInputBody: DeleteInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getDeleteMeUrl(), {
+    ...options,
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(deleteInputBody),
+  });
+};
+
+export const getDeleteMeMutationKey = () => ["deleteMe"] as const;
+
+export const getDeleteMeMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMe>>,
+    TError,
+    DeleteMeMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteMe>>,
+  TError,
+  DeleteMeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeleteMeMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteMe>>,
+    DeleteMeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return deleteMe(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteMeMutationResult = NonNullable<Awaited<ReturnType<typeof deleteMe>>>;
+export type DeleteMeMutationBody = DeleteInputBody;
+export type DeleteMeMutationError = ErrorModel;
+export type DeleteMeMutationVariables = { data: DeleteInputBody };
+
+/**
+ * @summary Exclui a própria conta (exige a senha no corpo)
+ */
+export const useDeleteMe = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteMe>>,
+      TError,
+      DeleteMeMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteMe>>,
+  TError,
+  DeleteMeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeleteMeMutationOptions(options), queryClient);
+};
 export const getGetMeUrl = () => {
   return `/api/users/me`;
 };
@@ -150,7 +254,7 @@ export const getUpdateMeUrl = () => {
 };
 
 /**
- * @summary Edita nome de exibição e avatar
+ * @summary Edita nome de exibição, avatar, bio, pronomes e banner
  */
 export const updateMe = async (
   updateProfileInputBody: UpdateProfileInputBody,
@@ -224,7 +328,7 @@ export type UpdateMeMutationError = ErrorModel;
 export type UpdateMeMutationVariables = { data: UpdateProfileInputBody };
 
 /**
- * @summary Edita nome de exibição e avatar
+ * @summary Edita nome de exibição, avatar, bio, pronomes e banner
  */
 export const useUpdateMe = <TError = ErrorModel, TContext = unknown>(
   options?: {
@@ -349,4 +453,314 @@ export const useRequestAvatarUpload = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getRequestAvatarUploadMutationOptions(options), queryClient);
+};
+export const getRequestBannerUploadUrl = () => {
+  return `/api/users/me/banner`;
+};
+
+/**
+ * @summary Gera URL pré-assinada para enviar o banner do perfil
+ */
+export const requestBannerUpload = async (
+  avatarInputBody: AvatarInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<AvatarOutputBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<AvatarOutputBody>(getRequestBannerUploadUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(avatarInputBody),
+  });
+};
+
+export const getRequestBannerUploadMutationKey = () => ["requestBannerUpload"] as const;
+
+export const getRequestBannerUploadMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestBannerUpload>>,
+    TError,
+    RequestBannerUploadMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestBannerUpload>>,
+  TError,
+  RequestBannerUploadMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRequestBannerUploadMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestBannerUpload>>,
+    RequestBannerUploadMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestBannerUpload(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestBannerUploadMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestBannerUpload>>
+>;
+export type RequestBannerUploadMutationBody = AvatarInputBody;
+export type RequestBannerUploadMutationError = ErrorModel;
+export type RequestBannerUploadMutationVariables = { data: AvatarInputBody };
+
+/**
+ * @summary Gera URL pré-assinada para enviar o banner do perfil
+ */
+export const useRequestBannerUpload = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof requestBannerUpload>>,
+      TError,
+      RequestBannerUploadMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof requestBannerUpload>>,
+  TError,
+  RequestBannerUploadMutationVariables,
+  TContext
+> => {
+  return useMutation(getRequestBannerUploadMutationOptions(options), queryClient);
+};
+export const getChangeEmailUrl = () => {
+  return `/api/users/me/email`;
+};
+
+/**
+ * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora.
+ * @summary Troca o e-mail (exige confirmação recente de senha)
+ */
+export const changeEmail = async (
+  emailInputBody: EmailInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<View> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<View>(getChangeEmailUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(emailInputBody),
+  });
+};
+
+export const getChangeEmailMutationKey = () => ["changeEmail"] as const;
+
+export const getChangeEmailMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changeEmail>>,
+    TError,
+    ChangeEmailMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof changeEmail>>,
+  TError,
+  ChangeEmailMutationVariables,
+  TContext
+> => {
+  const mutationKey = getChangeEmailMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof changeEmail>>,
+    ChangeEmailMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return changeEmail(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ChangeEmailMutationResult = NonNullable<Awaited<ReturnType<typeof changeEmail>>>;
+export type ChangeEmailMutationBody = EmailInputBody;
+export type ChangeEmailMutationError = ErrorModel;
+export type ChangeEmailMutationVariables = { data: EmailInputBody };
+
+/**
+ * @summary Troca o e-mail (exige confirmação recente de senha)
+ */
+export const useChangeEmail = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof changeEmail>>,
+      TError,
+      ChangeEmailMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof changeEmail>>,
+  TError,
+  ChangeEmailMutationVariables,
+  TContext
+> => {
+  return useMutation(getChangeEmailMutationOptions(options), queryClient);
+};
+export const getChangePasswordUrl = () => {
+  return `/api/users/me/password`;
+};
+
+/**
+ * Exige a senha atual. A nova segue as regras do cadastro (8 a 128 caracteres) e precisa ser diferente. As demais sessões (e conexões do gateway) são encerradas. Limite: 5 tentativas e depois 1 a cada 30 s por usuário.
+ * @summary Troca a senha (encerra as outras sessões e mantém a atual)
+ */
+export const changePassword = async (
+  changePasswordInputBody: ChangePasswordInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getChangePasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(changePasswordInputBody),
+  });
+};
+
+export const getChangePasswordMutationKey = () => ["changePassword"] as const;
+
+export const getChangePasswordMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof changePassword>>,
+    TError,
+    ChangePasswordMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  ChangePasswordMutationVariables,
+  TContext
+> => {
+  const mutationKey = getChangePasswordMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof changePassword>>,
+    ChangePasswordMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return changePassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ChangePasswordMutationResult = NonNullable<Awaited<ReturnType<typeof changePassword>>>;
+export type ChangePasswordMutationBody = ChangePasswordInputBody;
+export type ChangePasswordMutationError = ErrorModel;
+export type ChangePasswordMutationVariables = { data: ChangePasswordInputBody };
+
+/**
+ * @summary Troca a senha (encerra as outras sessões e mantém a atual)
+ */
+export const useChangePassword = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof changePassword>>,
+      TError,
+      ChangePasswordMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof changePassword>>,
+  TError,
+  ChangePasswordMutationVariables,
+  TContext
+> => {
+  return useMutation(getChangePasswordMutationOptions(options), queryClient);
 };

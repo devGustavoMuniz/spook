@@ -7,11 +7,19 @@
 
 export interface MemberPayload {
   avatar_url?: string;
+  /** Cor sólida do banner (RGB 0..16777215), usada quando não há imagem */
+  banner_color?: number;
+  /** URL temporária de leitura do banner */
+  banner_url?: string;
+  /** Sobre mim (até 190 caracteres) */
+  bio?: string;
   display_name?: string;
   guild_id: string;
   joined_at: string;
   /** @nullable */
   nickname: string | null;
+  /** Pronomes (até 40 caracteres) */
+  pronouns?: string;
   /**
    * Cargos do membro, sem o @everyone
    * @nullable

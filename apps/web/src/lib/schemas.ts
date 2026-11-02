@@ -37,16 +37,45 @@ export const profileSchema = z.object({
 });
 export type ProfileForm = z.infer<typeof profileSchema>;
 
-export const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+/** Avatar e banner: GIF e WebP animados são preservados pelo servidor. */
+export const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 
 export function validateAvatar(file: File): string | null {
   if (!(AVATAR_TYPES as readonly string[]).includes(file.type))
-    return "Use uma imagem PNG, JPEG ou WebP.";
+    return "Use uma imagem PNG, JPEG, WebP ou GIF.";
   if (file.size > AVATAR_MAX_BYTES) return "A imagem pode ter no máximo 5 MB.";
   if (file.size === 0) return "O arquivo está vazio.";
   return null;
 }
+
+export const BIO_MAX = 190;
+export const PRONOUNS_MAX = 40;
+
+export const profileTextSchema = z.object({
+  bio: z.string().max(BIO_MAX, `No máximo ${BIO_MAX} caracteres.`),
+  pronouns: z.string().max(PRONOUNS_MAX, `No máximo ${PRONOUNS_MAX} caracteres.`),
+});
+export type ProfileTextForm = z.infer<typeof profileTextSchema>;
+
+export const changePasswordSchema = z
+  .object({
+    current_password: z.string().min(1, "Informe a senha atual.").max(128),
+    new_password: passwordSchema,
+    confirm: z.string(),
+  })
+  .refine((v) => v.new_password === v.confirm, {
+    path: ["confirm"],
+    message: "As senhas não coincidem.",
+  })
+  .refine((v) => v.new_password !== v.current_password, {
+    path: ["new_password"],
+    message: "A nova senha deve ser diferente da atual.",
+  });
+export type ChangePasswordForm = z.infer<typeof changePasswordSchema>;
+
+export const changeEmailSchema = z.object({ email: emailSchema });
+export type ChangeEmailForm = z.infer<typeof changeEmailSchema>;
 
 export const guildNameSchema = z.object({
   name: z

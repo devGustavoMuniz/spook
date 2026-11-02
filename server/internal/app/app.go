@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/pprof"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/devGustavoMuniz/spook/server/internal/account"
 	"github.com/devGustavoMuniz/spook/server/internal/admin"
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
@@ -75,6 +77,11 @@ type Deps struct {
 	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
 	UploadLimiter  *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
 	PushLimiter    *ratelimit.Limiter // padrão: 30 requisições por minuto por usuário nos endpoints de push
+
+	// Limitadores por usuário das ações de conta (SPEC 7.x): senha (trocar/confirmar), e-mail e exclusão.
+	PasswordLimiter *ratelimit.Limiter // padrão: rajada de 5 e 1 a cada 30 s
+	EmailLimiter    *ratelimit.Limiter // padrão: 5 por hora
+	DeleteLimiter   *ratelimit.Limiter // padrão: rajada de 3 e 1 por minuto
 
 	// Push (testes): AllowPrivate relaxa o anti-SSRF (o "serviço de push" do teste fica em 127.0.0.1) e
 	// HTTPClient substitui o cliente do envio (para confiar no certificado do servidor de teste).
@@ -164,8 +171,20 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	authSvc.StartJanitor(ctx, time.Hour)
 
-	userH := user.NewHandler(userSvc, auth.UserID)
-	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View)
+	passwordLimiter := d.PasswordLimiter
+	if passwordLimiter == nil {
+		passwordLimiter = ratelimit.New(1.0/30, 5)
+	}
+	emailLimiter := d.EmailLimiter
+	if emailLimiter == nil {
+		emailLimiter = ratelimit.New(5.0/3600, 5)
+	}
+	deleteLimiter := d.DeleteLimiter
+	if deleteLimiter == nil {
+		deleteLimiter = ratelimit.New(1.0/60, 3)
+	}
+	userH := user.NewHandler(userSvc, auth.UserID).WithLimiter(emailLimiter)
+	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View).WithLimiter(passwordLimiter)
 
 	authLimiter := d.AuthLimiter
 	if authLimiter == nil {
@@ -232,6 +251,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	messageSvc.SetMentions(notifySvc)
 	notifySvc.Start(ctx, bus)
 
+	accountJobs := &account.Enqueuer{} // ligado ao client do River logo abaixo
 	// Jobs (River): thumbnails, limpeza de anexos órfãos e Web Push. Só existem com o pool do pgx e com
 	// storage ou push ligados.
 	var jobClient *jobs.Client
@@ -241,6 +261,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		if objects != nil {
 			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
 			periodic = attachment.PeriodicJobs()
+			account.RegisterWorkers(workers, objects)
 		}
 		if notifySvc.PushEnabled() {
 			notification.RegisterWorkers(workers, notifySvc)
@@ -250,6 +271,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		}
 		thumbJobs.Set(jobClient)
 		pushJobs.Set(jobClient)
+		accountJobs.Set(jobClient)
 		// Sem o cancelamento de ctx: o desligamento é explícito (App.Close), para os jobs terminarem.
 		if err := jobClient.Start(context.WithoutCancel(ctx)); err != nil {
 			return nil, err
@@ -291,7 +313,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	if gwLimiter == nil {
 		gwLimiter = ratelimit.New(50, 200)
 	}
-	startCleanup(ctx, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter)
+	authSvc.OnRevoke(hub.RevokeAuth) // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
+	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
@@ -299,6 +322,17 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	messageH := message.NewHandler(messageSvc, auth.UserID)
 	attachmentH := attachment.NewHandler(attachmentSvc, auth.UserID)
 	inviteH := invite.NewHandler(inviteSvc, auth.UserID)
+	accountSvc := account.NewService(account.Deps{
+		Store: account.NewStore(pool), Passwords: accountPasswords{authSvc}, Pub: bus, Groups: dmSvc,
+		Enqueue: accountJobs.Enqueue, Revoke: authSvc.NotifyRevoked,
+		LeaveVoice: func(ctx context.Context, userID int64) error {
+			if err := voiceSvc.Leave(ctx, userID); err != nil && !errors.Is(err, voice.ErrDisabled) {
+				return err
+			}
+			return nil
+		},
+	})
+	accountH := account.NewHandler(accountSvc, auth.UserID).WithLimiter(deleteLimiter)
 	dmH := dm.NewHandler(dmSvc, auth.UserID)
 	typingH := typing.NewHandler(typingSvc, auth.UserID)
 	notifyH := notification.NewHandler(notifySvc, auth.UserID)
@@ -334,7 +368,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH)
+	registerAPI(r, d.Cfg.IsDev(), authH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH)
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
@@ -366,7 +400,7 @@ func OpenAPIYAML() ([]byte, error) {
 
 // buildOpenAPI monta o contrato sem dependências reais (só os tipos das rotas), para o YAML e para os testes.
 func buildOpenAPI() *huma.OpenAPI {
-	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
+	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
 	return api.OpenAPI()
@@ -379,7 +413,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 	return a.svc.Member(ctx, guildID, userID)
 }
 
-func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler,
+func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
 	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
@@ -396,8 +430,12 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	api := humachi.New(r, cfg)
 
 	authed := huma.Middlewares{authH.Middleware(api)}
+	// sensitive: sessão + confirmação de senha nos últimos 10 min (ver auth.Handler.RequireRecentPassword).
+	// Outras features aplicam o mesmo valor às suas ações sensíveis (ex.: excluir servidor).
+	sensitive := huma.Middlewares{authed[0], authH.RequireRecentPassword(api)}
 	authH.Register(api, authed)
-	userH.Register(api, authed, auth.Security)
+	userH.WithSensitive(sensitive).Register(api, authed, auth.Security)
+	accountH.Register(api, authed, auth.Security)
 	guildH.Register(api, authed, auth.Security)
 	channelH.Register(api, authed, auth.Security)
 	messageH.Register(api, authed, auth.Security)
@@ -451,4 +489,15 @@ func startCleanup(ctx context.Context, ls ...*ratelimit.Limiter) {
 			}
 		}
 	}()
+}
+
+// accountPasswords adapta o auth.Service à interface do pacote account.
+type accountPasswords struct{ auth *auth.Service }
+
+func (p accountPasswords) CheckPassword(ctx context.Context, userID int64, password string) (bool, error) {
+	err := p.auth.VerifyPassword(ctx, userID, password)
+	if errors.Is(err, auth.ErrWrongPassword) {
+		return false, nil
+	}
+	return err == nil, err
 }

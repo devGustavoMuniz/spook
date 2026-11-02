@@ -7,10 +7,31 @@
 import * as zod from "zod";
 
 /**
+ * Recusa quem é dono de servidor (409 com `code: owns_guilds` e a lista em `guilds`: transfira ou exclua antes). As mensagens permanecem com o autor anonimizado (`removido_<id>`); membros, sessões, push e configurações são apagados e o avatar/banner saem do storage por job. Limite: 3 tentativas e depois 1 por minuto por usuário.
+ * @summary Exclui a própria conta (exige a senha no corpo)
+ */
+export const deleteMeBodyPasswordMax = 128;
+
+export const DeleteMeBody = zod.object({
+  password: zod.string().min(1).max(deleteMeBodyPasswordMax),
+});
+
+export const DeleteMeResponse = zod.void();
+
+/**
  * @summary Perfil do usuário autenticado
  */
 export const GetMeResponse = zod.object({
-  avatar_url: zod.string().optional().describe("URL temporária de leitura do avatar"),
+  avatar_url: zod
+    .string()
+    .optional()
+    .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
   created_at: zod.iso.datetime({ offset: true }),
   display_name: zod.string().optional(),
   email: zod.string(),
@@ -18,15 +39,25 @@ export const GetMeResponse = zod.object({
   is_admin: zod
     .boolean()
     .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
 });
 
 /**
- * @summary Edita nome de exibição e avatar
+ * @summary Edita nome de exibição, avatar, bio, pronomes e banner
  */
 export const updateMeBodyAvatarKeyMax = 200;
 
+export const updateMeBodyBannerColorMin = 0;
+export const updateMeBodyBannerColorMax = 16777215;
+
+export const updateMeBodyBannerKeyMax = 200;
+
+export const updateMeBodyBioMax = 190;
+
 export const updateMeBodyDisplayNameMax = 32;
+
+export const updateMeBodyPronounsMax = 40;
 
 export const UpdateMeBody = zod.object({
   avatar_key: zod
@@ -34,16 +65,39 @@ export const UpdateMeBody = zod.object({
     .max(updateMeBodyAvatarKeyMax)
     .optional()
     .describe("Chave devolvida por /users/me/avatar"),
+  banner_color: zod
+    .int()
+    .min(updateMeBodyBannerColorMin)
+    .max(updateMeBodyBannerColorMax)
+    .optional()
+    .describe("Cor sólida do banner (RGB). Não combine com banner_key"),
+  banner_key: zod
+    .string()
+    .max(updateMeBodyBannerKeyMax)
+    .optional()
+    .describe("Chave devolvida por /users/me/banner (imagem). Não combine com banner_color"),
+  bio: zod.string().max(updateMeBodyBioMax).optional().describe("Sobre mim; vazio remove"),
   display_name: zod
     .string()
     .max(updateMeBodyDisplayNameMax)
     .optional()
     .describe("Vazio remove o nome de exibição"),
+  pronouns: zod.string().max(updateMeBodyPronounsMax).optional().describe("Pronomes; vazio remove"),
   remove_avatar: zod.boolean().optional(),
+  remove_banner: zod.boolean().optional().describe("Remove imagem e cor do banner"),
 });
 
 export const UpdateMeResponse = zod.object({
-  avatar_url: zod.string().optional().describe("URL temporária de leitura do avatar"),
+  avatar_url: zod
+    .string()
+    .optional()
+    .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
   created_at: zod.iso.datetime({ offset: true }),
   display_name: zod.string().optional(),
   email: zod.string(),
@@ -51,6 +105,7 @@ export const UpdateMeResponse = zod.object({
   is_admin: zod
     .boolean()
     .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
 });
 
@@ -60,7 +115,9 @@ export const UpdateMeResponse = zod.object({
 export const requestAvatarUploadBodySizeMax = 5242880;
 
 export const RequestAvatarUploadBody = zod.object({
-  content_type: zod.enum(["image/png", "image/jpeg", "image/webp"]),
+  content_type: zod
+    .enum(["image/png", "image/jpeg", "image/webp", "image/gif"])
+    .describe("GIF e WebP animados são preservados"),
   size: zod
     .int()
     .min(1)
@@ -74,3 +131,77 @@ export const RequestAvatarUploadResponse = zod.object({
     .string()
     .describe("URL pré-assinada para PUT; envie o Content-Type e o tamanho declarados"),
 });
+
+/**
+ * @summary Gera URL pré-assinada para enviar o banner do perfil
+ */
+export const requestBannerUploadBodySizeMax = 5242880;
+
+export const RequestBannerUploadBody = zod.object({
+  content_type: zod
+    .enum(["image/png", "image/jpeg", "image/webp", "image/gif"])
+    .describe("GIF e WebP animados são preservados"),
+  size: zod
+    .int()
+    .min(1)
+    .max(requestBannerUploadBodySizeMax)
+    .describe("Tamanho em bytes (máx. 5 MB)"),
+});
+
+export const RequestBannerUploadResponse = zod.object({
+  key: zod.string(),
+  upload_url: zod
+    .string()
+    .describe("URL pré-assinada para PUT; envie o Content-Type e o tamanho declarados"),
+});
+
+/**
+ * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora.
+ * @summary Troca o e-mail (exige confirmação recente de senha)
+ */
+export const changeEmailBodyEmailMax = 254;
+
+export const ChangeEmailBody = zod.object({
+  email: zod.email().max(changeEmailBodyEmailMax),
+});
+
+export const ChangeEmailResponse = zod.object({
+  avatar_url: zod
+    .string()
+    .optional()
+    .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
+  created_at: zod.iso.datetime({ offset: true }),
+  display_name: zod.string().optional(),
+  email: zod.string(),
+  id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
+  is_admin: zod
+    .boolean()
+    .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
+  username: zod.string(),
+});
+
+/**
+ * Exige a senha atual. A nova segue as regras do cadastro (8 a 128 caracteres) e precisa ser diferente. As demais sessões (e conexões do gateway) são encerradas. Limite: 5 tentativas e depois 1 a cada 30 s por usuário.
+ * @summary Troca a senha (encerra as outras sessões e mantém a atual)
+ */
+export const changePasswordBodyCurrentPasswordMax = 128;
+
+export const changePasswordBodyNewPasswordMin = 8;
+export const changePasswordBodyNewPasswordMax = 128;
+
+export const ChangePasswordBody = zod.object({
+  current_password: zod.string().min(1).max(changePasswordBodyCurrentPasswordMax),
+  new_password: zod
+    .string()
+    .min(changePasswordBodyNewPasswordMin)
+    .max(changePasswordBodyNewPasswordMax),
+});
+
+export const ChangePasswordResponse = zod.void();

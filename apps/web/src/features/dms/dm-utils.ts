@@ -1,7 +1,8 @@
 import type { ChannelPayload, RecipientPayload } from "@spook/shared";
+import { shownName } from "@/features/account/removed-user";
 import { CHANNEL_GROUP_DM } from "@/lib/dm-cache";
 
-export const recipientName = (r: RecipientPayload) => r.display_name || r.username;
+export const recipientName = (r: RecipientPayload) => shownName(r.display_name, r.username);
 export const recipientsOf = (c: ChannelPayload): RecipientPayload[] => c.recipients ?? [];
 export const isGroupDm = (c: ChannelPayload) => c.type === CHANNEL_GROUP_DM;
 export const isDmOwner = (c: ChannelPayload, myId: string) => isGroupDm(c) && c.owner_id === myId;

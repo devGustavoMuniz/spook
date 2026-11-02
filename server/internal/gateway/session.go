@@ -12,7 +12,9 @@ import (
 type Session struct {
 	id     string
 	userID int64
-	hub    *Hub
+	// authKey: sessão de login dona desta sessão do gateway (vazio em testes).
+	authKey string
+	hub     *Hub
 
 	// mu protege seq, buffer, conn, detachedAt e dead. push (chamado pelo barramento) só pega
 	// este lock por microssegundos e nunca bloqueia em I/O.

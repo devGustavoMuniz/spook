@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	lk "github.com/livekit/protocol/livekit"
 
+	"github.com/devGustavoMuniz/spook/server/internal/account"
 	"github.com/devGustavoMuniz/spook/server/internal/admin"
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
@@ -324,7 +325,7 @@ func TestAdminCLIGrantRevokeList(t *testing.T) {
 // /api/admin. Nada de lista manual: uma rota nova entra aqui sozinha e passa a ser testada.
 func adminOps(t *testing.T) (ops []struct{ method, path string }) {
 	t.Helper()
-	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil),
+	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
 	for path, item := range api.OpenAPI().Paths {

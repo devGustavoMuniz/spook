@@ -22,6 +22,7 @@ type tickets struct {
 
 type ticketEntry struct {
 	userID  int64
+	authKey string // sessão de login que pediu o ticket (auth.TokenKey)
 	expires time.Time
 }
 
@@ -30,7 +31,10 @@ func newTickets(ttl time.Duration) *tickets {
 }
 
 // issue cria um ticket para o usuário. ok é false se o estoque está cheio.
-func (t *tickets) issue(userID int64) (ticket string, ok bool) {
+func (t *tickets) issue(userID int64) (ticket string, ok bool) { return t.issueFor(userID, "") }
+
+// issueFor é issue com a identificação da sessão de login, para o gateway derrubá-la se for encerrada.
+func (t *tickets) issueFor(userID int64, authKey string) (ticket string, ok bool) {
 	var b [24]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", false
@@ -45,23 +49,28 @@ func (t *tickets) issue(userID int64) (ticket string, ok bool) {
 	if len(t.m) >= maxTickets {
 		return "", false
 	}
-	t.m[ticket] = ticketEntry{userID: userID, expires: now.Add(t.ttl)}
+	t.m[ticket] = ticketEntry{userID: userID, authKey: authKey, expires: now.Add(t.ttl)}
 	return ticket, true
 }
 
 // consume valida e queima o ticket (uso único).
 func (t *tickets) consume(ticket string) (userID int64, ok bool) {
+	userID, _, ok = t.consumeFull(ticket)
+	return userID, ok
+}
+
+func (t *tickets) consumeFull(ticket string) (userID int64, authKey string, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	e, found := t.m[ticket]
 	if !found {
-		return 0, false
+		return 0, "", false
 	}
 	delete(t.m, ticket)
 	if !e.expires.After(t.now()) {
-		return 0, false
+		return 0, "", false
 	}
-	return e.userID, true
+	return e.userID, e.authKey, true
 }
 
 func (t *tickets) purge() {

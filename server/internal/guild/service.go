@@ -206,7 +206,7 @@ func (s *Service) PublishJoined(ctx context.Context, guildID, userID int64) (Det
 	}
 	s.publishGuildCreate(d, userID)
 	if mem, err := s.store.Member(ctx, guildID, userID); err == nil {
-		mem.AvatarURL = s.avatars.AvatarURLForKey(ctx, mem.AvatarKey)
+		mem.AvatarURL, mem.BannerURL = s.avatars.AvatarURLForKey(ctx, mem.AvatarKey), s.avatars.AvatarURLForKey(ctx, mem.BannerKey)
 		s.publish(events.GuildMemberAdd, guildID, mem.Payload())
 	}
 	return d, nil
@@ -398,7 +398,7 @@ func (s *Service) Members(ctx context.Context, userID, guildID, after int64, lim
 
 func (s *Service) fillAvatars(ctx context.Context, ms []Member) {
 	for i := range ms {
-		ms[i].AvatarURL = s.avatars.AvatarURLForKey(ctx, ms[i].AvatarKey)
+		ms[i].AvatarURL, ms[i].BannerURL = s.avatars.AvatarURLForKey(ctx, ms[i].AvatarKey), s.avatars.AvatarURLForKey(ctx, ms[i].BannerKey)
 	}
 }
 
@@ -648,7 +648,7 @@ func (s *Service) changeMemberRole(ctx context.Context, userID, guildID, targetI
 	if err != nil {
 		return Member{}, err
 	}
-	m.AvatarURL = s.avatars.AvatarURLForKey(ctx, m.AvatarKey)
+	m.AvatarURL, m.BannerURL = s.avatars.AvatarURLForKey(ctx, m.AvatarKey), s.avatars.AvatarURLForKey(ctx, m.BannerKey)
 	s.publish(events.GuildMemberUpdate, guildID, m.Payload())
 	return m, nil
 }

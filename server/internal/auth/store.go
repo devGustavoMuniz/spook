@@ -27,15 +27,37 @@ func (s *PGStore) CreateSession(ctx context.Context, id, userID int64, tokenHash
 	return nil
 }
 
-func (s *PGStore) Session(ctx context.Context, tokenHash []byte) (int64, time.Time, error) {
+func (s *PGStore) Session(ctx context.Context, tokenHash []byte) (SessionInfo, error) {
 	row, err := s.q.GetSessionByTokenHash(ctx, tokenHash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, time.Time{}, ErrUnauthorized
+		return SessionInfo{}, ErrUnauthorized
 	}
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("buscar sessão: %w", err)
+		return SessionInfo{}, fmt.Errorf("buscar sessão: %w", err)
 	}
-	return row.UserID, row.ExpiresAt.Time, nil
+	info := SessionInfo{ID: row.ID, UserID: row.UserID, Expires: row.ExpiresAt.Time}
+	if row.PasswordConfirmedAt.Valid {
+		t := row.PasswordConfirmedAt.Time
+		info.ConfirmedAt = &t
+	}
+	return info, nil
+}
+
+func (s *PGStore) ConfirmSession(ctx context.Context, tokenHash []byte, at time.Time) error {
+	if err := s.q.ConfirmSessionPassword(ctx, dbgen.ConfirmSessionPasswordParams{
+		TokenHash: tokenHash, PasswordConfirmedAt: pgtype.Timestamptz{Time: at, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("confirmar senha da sessão: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteOtherSessions(ctx context.Context, userID int64, keepHash []byte) (int64, error) {
+	n, err := s.q.DeleteOtherSessions(ctx, dbgen.DeleteOtherSessionsParams{UserID: userID, TokenHash: keepHash})
+	if err != nil {
+		return 0, fmt.Errorf("encerrar outras sessões: %w", err)
+	}
+	return n, nil
 }
 
 func (s *PGStore) DeleteSession(ctx context.Context, tokenHash []byte) error {

@@ -9,6 +9,7 @@ import { useMediaQuery } from "@/components/shell";
 import { Avatar, avatarColor } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { shownName } from "@/features/account/removed-user";
 import { useStartDm } from "@/features/dms/use-start-dm";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
@@ -24,6 +25,11 @@ export type ProfilePerson = {
   username: string;
   displayName?: string;
   avatarUrl?: string;
+  bio?: string;
+  pronouns?: string;
+  bannerUrl?: string;
+  /** Cor sólida do banner (RGB), usada quando não há imagem. */
+  bannerColor?: number | null;
 };
 
 export const personOfMember = (m: MemberPayload): ProfilePerson => ({
@@ -31,6 +37,10 @@ export const personOfMember = (m: MemberPayload): ProfilePerson => ({
   username: m.username,
   displayName: m.nickname || m.display_name || undefined,
   avatarUrl: m.avatar_url,
+  bio: m.bio,
+  pronouns: m.pronouns,
+  bannerUrl: m.banner_url,
+  bannerColor: m.banner_color,
 });
 
 const NARROW_QUERY = "(max-width: 639px)";
@@ -63,8 +73,13 @@ export function ProfileCard({
   const { startDm } = useStartDm();
   const status = usePresence(person.id);
   const isMe = me?.id === person.id;
-  const name = member ? memberName(member) : person.displayName || person.username;
+  const name = member ? memberName(member) : shownName(person.displayName, person.username);
   const color = useMemo(() => avatarColor(person.id), [person.id]);
+  // O próprio perfil vem de /users/me (sempre completo); os outros, do membro do servidor.
+  const bio = (isMe ? me?.bio : (member?.bio ?? person.bio)) || undefined;
+  const pronouns = (isMe ? me?.pronouns : (member?.pronouns ?? person.pronouns)) || undefined;
+  const bannerUrl = (isMe ? me?.banner_url : (member?.banner_url ?? person.bannerUrl)) || undefined;
+  const bannerColor = isMe ? me?.banner_color : (member?.banner_color ?? person.bannerColor);
 
   const roles = useMemo(() => {
     if (!guild || !member) return [];
@@ -123,9 +138,18 @@ export function ProfileCard({
           ) : null}
           <div
             aria-hidden
-            className={`h-20 ${narrow ? "mt-2" : ""}`}
-            style={{ background: `linear-gradient(120deg, ${color.from}, ${color.to})` }}
-          />
+            data-testid="profile-banner"
+            className={`h-20 overflow-hidden ${narrow ? "mt-2" : ""}`}
+            style={{
+              background: bannerUrl
+                ? undefined
+                : bannerColor != null
+                  ? colorToHex(bannerColor)
+                  : `linear-gradient(120deg, ${color.from}, ${color.to})`,
+            }}
+          >
+            {bannerUrl ? <img src={bannerUrl} alt="" className="size-full object-cover" /> : null}
+          </div>
           <div className="relative px-4 pb-4">
             <Avatar
               url={person.avatarUrl}
@@ -139,12 +163,22 @@ export function ProfileCard({
             />
             <div className="mt-2">
               <p className="truncate text-lg leading-tight font-semibold">{name}</p>
-              <p className="truncate text-sm text-muted-foreground">@{person.username}</p>
+              <p className="truncate text-sm text-muted-foreground">
+                @{person.username}
+                {pronouns ? <span> · {pronouns}</span> : null}
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {statusLabel[status]}
                 <CustomStatusText userId={person.id} prefix=" · " className="truncate" />
               </p>
             </div>
+            {bio ? (
+              <>
+                <Separator className="my-3" />
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase">Sobre mim</h3>
+                <p className="mt-1 text-sm break-words whitespace-pre-line">{bio}</p>
+              </>
+            ) : null}
             {roles.length > 0 ? (
               <>
                 <Separator className="my-3" />

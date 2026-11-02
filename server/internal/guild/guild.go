@@ -53,6 +53,11 @@ type Member struct {
 	DisplayName *string
 	AvatarKey   *string
 	AvatarURL   string
+	Bio         *string
+	Pronouns    *string
+	BannerKey   *string
+	BannerURL   string
+	BannerColor *int32
 	RoleIDs     []int64 // sem o @everyone, que todos têm
 }
 
@@ -102,6 +107,10 @@ type MemberPayload struct {
 	Username    string    `json:"username"`
 	DisplayName string    `json:"display_name,omitempty"`
 	AvatarURL   string    `json:"avatar_url,omitempty"`
+	Bio         string    `json:"bio,omitempty" doc:"Sobre mim (até 190 caracteres)"`
+	Pronouns    string    `json:"pronouns,omitempty" doc:"Pronomes (até 40 caracteres)"`
+	BannerURL   string    `json:"banner_url,omitempty" doc:"URL temporária de leitura do banner"`
+	BannerColor *int32    `json:"banner_color,omitempty" doc:"Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"`
 	RoleIDs     []string  `json:"role_ids" doc:"Cargos do membro, sem o @everyone"`
 }
 
@@ -153,6 +162,13 @@ func (m Member) Payload() MemberPayload {
 	if m.DisplayName != nil {
 		p.DisplayName = *m.DisplayName
 	}
+	if m.Bio != nil {
+		p.Bio = *m.Bio
+	}
+	if m.Pronouns != nil {
+		p.Pronouns = *m.Pronouns
+	}
+	p.BannerURL, p.BannerColor = m.BannerURL, m.BannerColor
 	return p
 }
 

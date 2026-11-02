@@ -13,10 +13,123 @@ import type {
 } from "@tanstack/react-query";
 import { useMutation } from "@tanstack/react-query";
 import { http } from "../../../http";
-import type { ErrorModel, LoginInputBody, RegisterInputBody, SessionBody } from "../../model";
+import type {
+  ConfirmPasswordInputBody,
+  ConfirmPasswordOutputBody,
+  ErrorModel,
+  LoginInputBody,
+  RegisterInputBody,
+  SessionBody,
+} from "../../model";
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
+export const getConfirmPasswordUrl = () => {
+  return `/api/auth/confirm-password`;
+};
+
+/**
+ * Libera as ações sensíveis (trocar e-mail, excluir conta ou servidor). Senha errada responde 422; limite: 5 tentativas e depois 1 a cada 30 s por usuário.
+ * @summary Confirma a senha ("modo sudo"): a sessão fica confirmada por 10 minutos
+ */
+export const confirmPassword = async (
+  confirmPasswordInputBody: ConfirmPasswordInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<ConfirmPasswordOutputBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<ConfirmPasswordOutputBody>(getConfirmPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(confirmPasswordInputBody),
+  });
+};
+
+export const getConfirmPasswordMutationKey = () => ["confirmPassword"] as const;
+
+export const getConfirmPasswordMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmPassword>>,
+    TError,
+    ConfirmPasswordMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmPassword>>,
+  TError,
+  ConfirmPasswordMutationVariables,
+  TContext
+> => {
+  const mutationKey = getConfirmPasswordMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmPassword>>,
+    ConfirmPasswordMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return confirmPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmPassword>>
+>;
+export type ConfirmPasswordMutationBody = ConfirmPasswordInputBody;
+export type ConfirmPasswordMutationError = ErrorModel;
+export type ConfirmPasswordMutationVariables = { data: ConfirmPasswordInputBody };
+
+/**
+ * @summary Confirma a senha ("modo sudo"): a sessão fica confirmada por 10 minutos
+ */
+export const useConfirmPassword = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof confirmPassword>>,
+      TError,
+      ConfirmPasswordMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof confirmPassword>>,
+  TError,
+  ConfirmPasswordMutationVariables,
+  TContext
+> => {
+  return useMutation(getConfirmPasswordMutationOptions(options), queryClient);
+};
 export const getLoginUrl = () => {
   return `/api/auth/login`;
 };

@@ -61,10 +61,12 @@ components:
       additionalProperties: false
       properties:
         content_type:
+          description: GIF e WebP animados são preservados
           enum:
             - image/png
             - image/jpeg
             - image/webp
+            - image/gif
           type: string
         size:
           description: Tamanho em bytes (máx. 5 MB)
@@ -179,6 +181,21 @@ components:
         - cameras
         - screens
       type: object
+    ChangePasswordInputBody:
+      additionalProperties: false
+      properties:
+        current_password:
+          maxLength: 128
+          minLength: 1
+          type: string
+        new_password:
+          maxLength: 128
+          minLength: 8
+          type: string
+      required:
+        - current_password
+        - new_password
+      type: object
     ChannelPayload:
       additionalProperties: false
       properties:
@@ -269,6 +286,26 @@ components:
         - recent
         - previous
         - change_pct
+      type: object
+    ConfirmPasswordInputBody:
+      additionalProperties: false
+      properties:
+        password:
+          maxLength: 128
+          minLength: 1
+          type: string
+      required:
+        - password
+      type: object
+    ConfirmPasswordOutputBody:
+      additionalProperties: false
+      properties:
+        confirmed_until:
+          description: Até quando as ações sensíveis ficam liberadas nesta sessão
+          format: date-time
+          type: string
+      required:
+        - confirmed_until
       type: object
     ContentBody:
       additionalProperties: false
@@ -386,6 +423,16 @@ components:
         - date
         - count
       type: object
+    DeleteInputBody:
+      additionalProperties: false
+      properties:
+        password:
+          maxLength: 128
+          minLength: 1
+          type: string
+      required:
+        - password
+      type: object
     DetailPayload:
       additionalProperties: false
       properties:
@@ -442,6 +489,16 @@ components:
         - icon_key
         - owner_id
         - created_at
+      type: object
+    EmailInputBody:
+      additionalProperties: false
+      properties:
+        email:
+          format: email
+          maxLength: 254
+          type: string
+      required:
+        - email
       type: object
     ErrorDetail:
       additionalProperties: false
@@ -705,6 +762,16 @@ components:
       properties:
         avatar_url:
           type: string
+        banner_color:
+          description: Cor sólida do banner (RGB 0..16777215), usada quando não há imagem
+          format: int32
+          type: integer
+        banner_url:
+          description: URL temporária de leitura do banner
+          type: string
+        bio:
+          description: Sobre mim (até 190 caracteres)
+          type: string
         display_name:
           type: string
         guild_id:
@@ -716,6 +783,9 @@ components:
           type:
             - string
             - "null"
+        pronouns:
+          description: Pronomes (até 40 caracteres)
+          type: string
         role_ids:
           description: Cargos do membro, sem o @everyone
           items:
@@ -1842,11 +1912,32 @@ components:
           description: Chave devolvida por /users/me/avatar
           maxLength: 200
           type: string
+        banner_color:
+          description: Cor sólida do banner (RGB). Não combine com banner_key
+          format: int32
+          maximum: 16777215
+          minimum: 0
+          type: integer
+        banner_key:
+          description: Chave devolvida por /users/me/banner (imagem). Não combine com banner_color
+          maxLength: 200
+          type: string
+        bio:
+          description: Sobre mim; vazio remove
+          maxLength: 190
+          type: string
         display_name:
           description: Vazio remove o nome de exibição
           maxLength: 32
           type: string
+        pronouns:
+          description: Pronomes; vazio remove
+          maxLength: 40
+          type: string
         remove_avatar:
+          type: boolean
+        remove_banner:
+          description: Remove imagem e cor do banner
           type: boolean
       type: object
     UpdateVoiceStateRequest:
@@ -1988,7 +2079,17 @@ components:
       additionalProperties: false
       properties:
         avatar_url:
-          description: URL temporária de leitura do avatar
+          description: "URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"
+          type: string
+        banner_color:
+          description: Cor sólida do banner (RGB 0..16777215), usada quando não há imagem
+          format: int32
+          type: integer
+        banner_url:
+          description: URL temporária de leitura do banner (imagem)
+          type: string
+        bio:
+          description: Sobre mim (até 190 caracteres)
           type: string
         created_at:
           format: date-time
@@ -2003,6 +2104,9 @@ components:
         is_admin:
           description: Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)
           type: boolean
+        pronouns:
+          description: Pronomes (até 40 caracteres)
+          type: string
         username:
           type: string
       required:
@@ -2322,6 +2426,53 @@ paths:
       summary: Usuários, paginado (25 por página), com busca e ordenação
       tags:
         - admin
+  /api/auth/confirm-password:
+    post:
+      description: "Libera as ações sensíveis (trocar e-mail, excluir conta ou servidor). Senha errada responde 422; limite: 5 tentativas e depois 1 a cada 30 s por usuário."
+      operationId: confirmPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPasswordInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmPasswordOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Confirma a senha (\"modo sudo\"): a sessão fica confirmada por 10 minutos"
+      tags:
+        - auth
   /api/auth/login:
     post:
       operationId: login
@@ -5438,6 +5589,54 @@ paths:
       tags:
         - notifications
   /api/users/me:
+    delete:
+      description: "Recusa quem é dono de servidor (409 com `code: owns_guilds` e a lista em `guilds`: transfira ou exclua antes). As mensagens permanecem com o autor anonimizado (`removido_<id>`); membros, sessões, push e configurações são apagados e o avatar/banner saem do storage por job. Limite: 3 tentativas e depois 1 por minuto por usuário."
+      operationId: deleteMe
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Exclui a própria conta (exige a senha no corpo)
+      tags:
+        - users
     get:
       operationId: getMe
       responses:
@@ -5501,7 +5700,7 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
-      summary: Edita nome de exibição e avatar
+      summary: Edita nome de exibição, avatar, bio, pronomes e banner
       tags:
         - users
   /api/users/me/avatar:
@@ -5542,6 +5741,148 @@ paths:
         - cookieAuth: []
         - bearerAuth: []
       summary: Gera URL pré-assinada para enviar o avatar
+      tags:
+        - users
+  /api/users/me/banner:
+    post:
+      operationId: requestBannerUpload
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvatarInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvatarOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Gera URL pré-assinada para enviar o banner do perfil
+      tags:
+        - users
+  /api/users/me/email:
+    put:
+      description: "Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora."
+      operationId: changeEmail
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Troca o e-mail (exige confirmação recente de senha)
+      tags:
+        - users
+  /api/users/me/password:
+    post:
+      description: "Exige a senha atual. A nova segue as regras do cadastro (8 a 128 caracteres) e precisa ser diferente. As demais sessões (e conexões do gateway) são encerradas. Limite: 5 tentativas e depois 1 a cada 30 s por usuário."
+      operationId: changePassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Troca a senha (encerra as outras sessões e mantém a atual)
       tags:
         - users
   /api/voice/leave:

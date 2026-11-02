@@ -275,10 +275,17 @@ export const ListGuildMembersResponse = zod.object({
     .array(
       zod.object({
         avatar_url: zod.string().optional(),
+        banner_color: zod
+          .int()
+          .optional()
+          .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+        banner_url: zod.string().optional().describe("URL temporária de leitura do banner"),
+        bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
         display_name: zod.string().optional(),
         guild_id: zod.string(),
         joined_at: zod.iso.datetime({ offset: true }),
         nickname: zod.string().nullable(),
+        pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
         role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
         user_id: zod.string(),
         username: zod.string(),
@@ -308,10 +315,17 @@ export const RemoveGuildMemberRoleParams = zod.object({
 
 export const RemoveGuildMemberRoleResponse = zod.object({
   avatar_url: zod.string().optional(),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
   display_name: zod.string().optional(),
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
   username: zod.string(),
@@ -328,10 +342,17 @@ export const AddGuildMemberRoleParams = zod.object({
 
 export const AddGuildMemberRoleResponse = zod.object({
   avatar_url: zod.string().optional(),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
   display_name: zod.string().optional(),
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
   username: zod.string(),

@@ -125,12 +125,13 @@ type Role struct {
 }
 
 type Session struct {
-	ID        int64
-	UserID    int64
-	TokenHash []byte
-	UserAgent *string
-	ExpiresAt pgtype.Timestamptz
-	CreatedAt pgtype.Timestamptz
+	ID                  int64
+	UserID              int64
+	TokenHash           []byte
+	UserAgent           *string
+	ExpiresAt           pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+	PasswordConfirmedAt pgtype.Timestamptz
 }
 
 type User struct {
@@ -146,4 +147,9 @@ type User struct {
 	CustomStatusEmoji     *string
 	CustomStatusExpiresAt pgtype.Timestamptz
 	IsAdmin               bool
+	Bio                   *string
+	Pronouns              *string
+	BannerKey             *string
+	BannerColor           *int32
+	DeletedAt             pgtype.Timestamptz
 }

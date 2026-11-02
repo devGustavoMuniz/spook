@@ -12,9 +12,32 @@ export interface UpdateProfileInputBody {
    */
   avatar_key?: string;
   /**
+   * Cor sólida do banner (RGB). Não combine com banner_key
+   * @minimum 0
+   * @maximum 16777215
+   */
+  banner_color?: number;
+  /**
+   * Chave devolvida por /users/me/banner (imagem). Não combine com banner_color
+   * @maxLength 200
+   */
+  banner_key?: string;
+  /**
+   * Sobre mim; vazio remove
+   * @maxLength 190
+   */
+  bio?: string;
+  /**
    * Vazio remove o nome de exibição
    * @maxLength 32
    */
   display_name?: string;
+  /**
+   * Pronomes; vazio remove
+   * @maxLength 40
+   */
+  pronouns?: string;
   remove_avatar?: boolean;
+  /** Remove imagem e cor do banner */
+  remove_banner?: boolean;
 }

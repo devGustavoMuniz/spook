@@ -233,8 +233,9 @@ func newSessionID() string {
 
 // register cria uma sessão nova para o usuário (antes de assinar qualquer tópico).
 // ok é false quando o usuário está no limite de sessões ativas.
-func (h *Hub) register(userID int64) (*Session, bool) {
+func (h *Hub) register(userID int64, authKey string) (*Session, bool) {
 	s := newSession(newSessionID(), userID, h)
+	s.authKey = authKey
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
@@ -282,6 +283,39 @@ func (h *Hub) removeSessionLocked(s *Session) {
 	h.met.sessions.Add(-1)
 	s.kill()
 	go s.release() // pega stMu e depois h.mu: tem de rodar fora do lock atual
+}
+
+// CloseSessionRevoked: a sessão de login da conexão foi encerrada (troca de senha, exclusão de conta).
+const CloseSessionRevoked = 4010
+
+// RevokeAuth derruba as conexões e sessões do gateway de userID cuja sessão de login não seja keepKey
+// (keepKey vazio = todas). Chamado quando sessões de login são encerradas no banco.
+func (h *Hub) RevokeAuth(userID int64, keepKey string) {
+	h.mu.Lock()
+	var drop []*Session
+	for s := range h.byUser[userID] {
+		if keepKey == "" || s.authKey != keepKey {
+			drop = append(drop, s)
+		}
+	}
+	var conns []*conn
+	for _, s := range drop {
+		s.mu.Lock()
+		if s.conn != nil {
+			conns = append(conns, s.conn)
+		}
+		s.mu.Unlock()
+		h.removeSessionLocked(s)
+	}
+	for c := range h.conns { // conexões ainda sem sessão (antes do IDENTIFY)
+		if c.userID == userID && (keepKey == "" || c.authKey != keepKey) {
+			conns = append(conns, c)
+		}
+	}
+	h.mu.Unlock()
+	for _, c := range conns {
+		c.closeAsync(CloseSessionRevoked, "sessão encerrada")
+	}
 }
 
 // dropSession descarta uma sessão que não chegou a ser usada.
