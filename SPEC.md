@@ -1124,6 +1124,15 @@ Todos os arquivos ficam em `packages/brand/assets/`. Os destinos abaixo são có
 - Animações só com `transform` e `opacity`, respeitando `prefers-reduced-motion`.
 - Componentes base em `apps/web/src/components/ui/` (documentados em `docs/design/DESIGN-SYSTEM.md`); ilustrações do mascote em `components/illustrations/` (SVG próprio, cores por tokens, `aria-hidden`).
 
+### 9.6 Repaginação visual: o que foi entregue e o que ficou pendente
+
+Registro da repaginação (antes/depois lado a lado em `docs/design/README.md`; problemas de partida em `docs/design/AUDITORIA.md`; componentes em `docs/design/DESIGN-SYSTEM.md`). Tokens conferidos contra `packages/brand/src/tokens.css` e `apps/web/src/styles.css` (cores claro/escuro, raios, sombras, tipografia, curvas, durações, z-index) e `node scripts/contrast.mjs` passa.
+
+- **Design system:** tokens, CSS base (cursor, hover, active, foco, disabled), componentes de `components/ui/`, ilustrações do mascote, referência viva em `/dev/design-system`.
+- **Telas e componentes repaginados:** login, cadastro e convite; 404 e telas de erro/estado; barra de servidores, lista de canais, rodapé de usuário/voz e shell responsivo com gaveta (390 px); chat (mensagens, ações flutuantes por hover e toque, citação, fixadas, visualizador de imagem, composer com anexos, estados vazios, avatar com iniciais); lista de membros agrupada e cartão de perfil (gaveta no celular); configurações em tela cheia (perfil, notificações, voz e vídeo, aparência, aplicativo); palco de voz (grade de tiles, tela em foco, barra flutuante, tile de convite, diálogo de dispositivos); diálogos (criar servidor/canal, convite, cargos e permissões, configurações do servidor, adicionar servidor, novo grupo, participantes); DMs; painel `/admin`.
+- **Verificação:** capturas completas em `docs/design/depois/` (2 temas x 1440 e 390); `apps/web/design/a11y-check.spec.ts` (foco visível, cursor, movimento reduzido; resultado em `docs/design/a11y-check.txt`); bundle em `docs/design/bundle-depois.txt`.
+- **Pendências:** convite deslogado sem o nome do servidor; sem prévia de texto nas DMs; gráficos do `/admin` não reescritos; `ErrorBoundary` sem captura; nome de exibição truncado no rodapé do usuário (240 px com quatro botões); `index` do web acima de 500 kB (dividir por rota); validação em Safari/Firefox e no Tauri (`VALIDACAO-MANUAL.md`).
+
 ---
 
 ## 10. Questões em aberto

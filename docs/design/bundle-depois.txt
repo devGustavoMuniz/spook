@@ -1,12 +1,12 @@
-# Build de produção DEPOIS da etapa 1 (design system; bytes; JS+CSS)
+# Build de produção DEPOIS da repaginação completa (bytes; JS+CSS, sem fontes/wasm/imagens)
 arquivo                                                 bruto         gzip
 gate-worklet-BjP8kQVi.js                                 5883         2375
-index-CXxvxdQE.js                                      401924       117780
-noise-processor-DRg2CIDF.js                              3430         1602
-radix-C4kKNFBh.js                                       96163        29009
+index-MF2ifF1w.js                                      523936       156831
+noise-processor-BHa2k-s7.js                              3430         1603
+radix-jdb2ZqmG.js                                      110025        32746
 react-CmYRMVnZ.js                                      187609        58943
-settings-dialog-D443WCNN.js                             19707         6997
-vendor-BwvRArSI.js                                    1046541       292402
+settings-dialog-B1EbM-uU.js                             29830        10109
+vendor-lgJn60UT.js                                    1064114       295198
 workletProcessor-CTUsFnsu.js                            64483        11636
-index-C6qARXxk.css                                      64382        12442
-TOTAL                                                 1890122       533186
+index-DGt-2TBs.css                                      92322        16211
+TOTAL                                                 2081632       585652

@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
 // outra, aponte para um Chromium completo com CHROMIUM_PATH.
 export default defineConfig({
   testDir: ".",
-  testMatch: /(capture|design-system)\.spec\.ts/,
+  testMatch: /(capture|design-system|a11y-check)\.spec\.ts/,
   outputDir: "./.results",
   fullyParallel: false,
   workers: 1,

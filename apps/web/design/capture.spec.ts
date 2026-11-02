@@ -50,6 +50,8 @@ const failures: string[] = [];
 const numbers = new Map<string, number>();
 // Capturas acrescentadas depois da numeração original: número fixo, para não deslocar as demais.
 const FIXED_NUMBERS: Record<string, number> = {
+  "barra-servidores-hover": 87,
+  "categoria-recolhida": 88,
   "voz-tile-convite": 91,
   "voz-foco": 92,
   "voz-barra-visivel": 93,
@@ -379,7 +381,15 @@ async function step(label: string, vp: string, theme: string, fn: () => Promise<
   try {
     await fn();
   } catch (e) {
-    failures.push(`${label} (${theme}, ${vp}): ${String(e).split("\n")[0].slice(0, 160)}`);
+    failures.push(
+      `${label} (${theme}, ${vp}): ${String(e)
+        .replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "")
+        .split("\n")
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" | ")
+        .slice(0, 260)}`,
+    );
   }
 }
 

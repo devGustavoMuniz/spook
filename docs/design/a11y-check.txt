@@ -1,0 +1,33 @@
+# a11y-check
+foco login/claro: 5 elementos focáveis conferidos
+cursor login/claro: 4 clicáveis, 0 sem pointer
+movimento reduzido login/claro: 64 elementos, 0 com animação/transição
+foco canal/claro: 30 elementos focáveis conferidos
+cursor canal/claro: 39 clicáveis, 0 sem pointer
+movimento reduzido canal/claro: 255 elementos, 0 com animação/transição
+foco /settings/profile/claro: 9 elementos focáveis conferidos
+cursor /settings/profile/claro: 8 clicáveis, 0 sem pointer
+movimento reduzido /settings/profile/claro: 112 elementos, 0 com animação/transição
+foco /settings/appearance/claro: 7 elementos focáveis conferidos
+cursor /settings/appearance/claro: 6 clicáveis, 0 sem pointer
+movimento reduzido /settings/appearance/claro: 158 elementos, 0 com animação/transição
+foco voz/claro: 20 elementos focáveis conferidos
+cursor voz/claro: 33 clicáveis, 0 sem pointer
+movimento reduzido voz/claro: 262 elementos, 0 com animação/transição
+foco login/escuro: 5 elementos focáveis conferidos
+cursor login/escuro: 4 clicáveis, 0 sem pointer
+movimento reduzido login/escuro: 60 elementos, 0 com animação/transição
+foco canal/escuro: 30 elementos focáveis conferidos
+cursor canal/escuro: 39 clicáveis, 0 sem pointer
+movimento reduzido canal/escuro: 251 elementos, 0 com animação/transição
+foco /settings/profile/escuro: 9 elementos focáveis conferidos
+cursor /settings/profile/escuro: 8 clicáveis, 0 sem pointer
+movimento reduzido /settings/profile/escuro: 112 elementos, 0 com animação/transição
+foco /settings/appearance/escuro: 7 elementos focáveis conferidos
+cursor /settings/appearance/escuro: 6 clicáveis, 0 sem pointer
+movimento reduzido /settings/appearance/escuro: 158 elementos, 0 com animação/transição
+foco voz/escuro: 20 elementos focáveis conferidos
+cursor voz/escuro: 33 clicáveis, 0 sem pointer
+movimento reduzido voz/escuro: 258 elementos, 0 com animação/transição
+
+## Nenhum problema

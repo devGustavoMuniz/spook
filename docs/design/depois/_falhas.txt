@@ -1,2 +1,2 @@
-membro-opcoes (claro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded.
-membro-opcoes (escuro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded.
+membro-opcoes (claro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded. | Call log: |   - waiting for getByRole('button', { name: /^Opções de / }).first()
+membro-opcoes (escuro, 390): TimeoutError: locator.click: Timeout 6000ms exceeded. | Call log: |   - waiting for getByRole('button', { name: /^Opções de / }).first()

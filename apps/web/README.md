@@ -12,6 +12,8 @@ Fora do CI e do `pnpm e2e` (Playwright próprio em `design/`; docs em `docs/desi
 
 - `/dev/design-system` (só no `pnpm dev`): referência viva dos componentes, nos dois temas. Capturas: `DESIGN_BASE_URL=http://localhost:5180 pnpm --filter @spook/web exec playwright test -c design/playwright.config.ts design/design-system.spec.ts`.
 - Capturar todas as telas (claro/escuro, 1440 e 390 px) contra o build servido pelo backend (mesmo passo a passo do E2E abaixo, com Garage liberando a origem e LiveKit local para o palco de voz): `DESIGN_OUT=antes|depois pnpm --filter @spook/web exec playwright test -c design/playwright.config.ts design/capture.spec.ts`. Saída em `docs/design/<DESIGN_OUT>/NN-tela-tema-viewport.png`; o que não deu para capturar fica em `_falhas.txt`. Cada execução cria contas e servidores novos. Se o Chromium do Playwright instalado não bater com a versão, aponte `CHROMIUM_PATH` para um Chromium completo.
+- Acessibilidade e teclado (foco visível, `cursor: pointer`, `prefers-reduced-motion`; sem dependências novas): `A11Y_WRITE=1 pnpm --filter @spook/web exec playwright test -c design/playwright.config.ts design/a11y-check.spec.ts` (mesmos pré-requisitos da captura; grava `docs/design/a11y-check.txt`).
+- O palco de voz da captura só mostra as outras pessoas se o webhook do LiveKit (`http://server:8090`) alcançar o backend usado: com um backend extra, dê a ele o alias de rede `server` e a porta 8090 dentro do container.
 - Bundle: `scripts/bundle-size.sh` (raiz do repositório) lista bruto e gzip de cada chunk JS/CSS do `apps/web/dist`. Contraste dos tokens: `node scripts/contrast.mjs`.
 
 ## E2E (Playwright, RNF06)
