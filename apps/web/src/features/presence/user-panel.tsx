@@ -35,7 +35,7 @@ export function UserPanel() {
   return (
     <VoiceDock>
       <VoiceCallCard />
-      <div className="flex items-center gap-1 p-2">
+      <div className="flex items-center gap-0.5 p-1.5">
         <Link
           to="/settings/profile"
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1 transition-colors hover:bg-accent"
@@ -61,7 +61,7 @@ export function UserPanel() {
           to="/settings/profile"
           aria-label="Configurações do usuário"
           title="Configurações do usuário"
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <Settings className="size-4" aria-hidden />
         </Link>
@@ -70,7 +70,7 @@ export function UserPanel() {
             <button
               type="button"
               aria-label={`Status: ${statusLabel[status]}. Mudar status`}
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
             >
               <ChevronUp className="size-4" aria-hidden />
             </button>

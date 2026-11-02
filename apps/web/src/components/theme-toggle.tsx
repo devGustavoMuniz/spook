@@ -11,7 +11,7 @@ const label: Record<Theme, string> = {
 };
 const icon = { system: Monitor, light: Sun, dark: Moon };
 
-export function ThemeToggle() {
+export function ThemeToggle({ variant = "outline" }: { variant?: "outline" | "ghost" }) {
   const { theme, setTheme } = useTheme();
   const next = order[(order.indexOf(theme) + 1) % order.length] as Theme;
   const Icon = icon[theme];
@@ -20,7 +20,7 @@ export function ThemeToggle() {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="outline"
+            variant={variant}
             size="icon"
             onClick={() => setTheme(next)}
             aria-label={`${label[theme]}. Alternar para ${label[next].toLowerCase()}`}

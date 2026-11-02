@@ -277,7 +277,7 @@ function BarButton({
       size={text ? "sm" : "icon"}
       className={cn(
         "shrink-0 text-muted-foreground hover:text-foreground",
-        text ? "h-8 flex-1 gap-1.5 bg-secondary/60" : "size-8",
+        text ? "h-8 flex-1 gap-1.5 bg-secondary/60" : "size-7",
         pressed &&
           (tone === "danger"
             ? "bg-danger-soft text-destructive-text hover:bg-danger-soft hover:text-destructive-text"

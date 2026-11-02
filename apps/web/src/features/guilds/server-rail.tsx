@@ -242,7 +242,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
             Perfil
           </TooltipContent>
         </Tooltip>
-        <ThemeToggle />
+        <ThemeToggle variant="ghost" />
         <Button variant="ghost" size="icon" aria-label="Sair" onClick={signOut} disabled={pending}>
           <LogOut />
         </Button>
