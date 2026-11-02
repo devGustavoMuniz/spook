@@ -475,6 +475,17 @@
   }
 }
 
+/* Rolagem horizontal com sombras nas bordas que ainda têm conteúdo (tabelas em tela estreita). Exige fundo `--card`. */
+@utility scroll-shadow-x {
+  background:
+    linear-gradient(to right, var(--card) 30%, transparent) left center / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--card) 30%, transparent) right center / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--foreground) 20%, transparent), transparent) left center / 0.75rem 100%
+      no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--foreground) 20%, transparent), transparent) right center / 0.75rem
+      100% no-repeat scroll;
+}
+
 /* Spinner e outros movimentos que comunicam estado não são removidos com movimento reduzido. */
 @utility motion-essential {
   /* marcador: veja o bloco de movimento reduzido na camada base */

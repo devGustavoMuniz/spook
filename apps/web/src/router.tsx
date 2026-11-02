@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { fetchSession } from "@/auth/session";
 import { AuthedLayout } from "@/components/authed-layout";
+import { CrashScreen } from "@/components/error-boundary";
 import { NotFoundPage } from "@/components/not-found";
 import { AdminLayout } from "@/features/admin/admin-layout";
 import { SettingsLayout } from "@/features/settings/settings-layout";
@@ -36,6 +37,7 @@ export type RouterContext = { queryClient: QueryClient };
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: Outlet,
   notFoundComponent: NotFoundPage,
+  errorComponent: () => <CrashScreen />,
 });
 
 // Públicas: quem já tem sessão vai direto para o início.

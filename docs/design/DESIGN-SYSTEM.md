@@ -173,6 +173,22 @@ Código em `apps/web/src/features/voice/stage/` (usado por `voice-channel-view.t
 - **Convite** (`invite-tile.tsx`): com uma só pessoa, tile tracejado com `VoiceInviteIllustration` e "Convidar para voz", que abre as configurações do servidor na aba Convites (sem permissão: desabilitado com o motivo). Em DM não há tile de convite.
 - **Estados**: conectando/reconectando (pílula com `Spinner`), áudio bloqueado ("Ativar áudio"), falha de mídia (faixa `role="alert"` com a mensagem de `media-errors.ts`, dispensável), voz desligada no servidor (`EmptyState` "Voz indisponível").
 
+## Diálogos, DMs, estados e admin
+
+Código em `components/ui/dialog.tsx`, `components/state-screen.tsx`, `components/error-boundary.tsx`, `features/guilds|channels|members|dms/`, `pages/home|invite|guild|dms.tsx` e `features/admin/`.
+
+**Diálogos.** Padrão: `<DialogContent flush size=...>` com `DialogHead` (ladrilho de ícone `bg-accent`, título, descrição), `DialogBody` (rola; cabeçalho e rodapé ficam) e `DialogActions` (fundo `surface-1`, borda no topo). Hierarquia de botões: primário à direita, secundário (`ghost`/`outline`) à esquerda dele, destrutivo isolado em `start` ou em confirmação (`AlertDialog`, ação `destructive`). O "x" do `Dialog` tem 32 px, hover e foco. Tamanhos: `sm` confirmações curtas e formulários de um campo, `md` formulários, `xl` configurações do servidor (altura `min(44rem, 92svh)`). Formulários com erro inline (`Field`), `autoFocus` no primeiro campo e `loading` no botão de envio. Alterações não salvas: `features/guilds/dirty.tsx` (`useReportDirty`) faz o diálogo de configurações perguntar antes de fechar por Esc, clique fora ou "x".
+
+**Cargos.** Desktop: lista (`w-64`) + detalhe. Abaixo de 768 px: lista → detalhe, com "Todos os cargos" no topo do detalhe. Permissões em `PERMISSION_GROUPS` (Geral, Texto, Voz, Moderação), cada grupo um cartão de linhas com rótulo, descrição e `Switch` alinhado à direita. Cor: nove amostras nomeadas (`aria-pressed`), cor personalizada e "Sem cor". Rodapé do detalhe: excluir à esquerda, "Alterações não salvas" e "Salvar cargo".
+
+**Convites.** Cartão por convite (`li`): código em fonte mono, link, usos e validade com ícones, "Copiar link" que vira "Copiado" por 2 s e "Revogar" com confirmação. O convite recém-criado ganha selo "Novo".
+
+**DMs.** `DmSidebar`: busca, avatar 36 px com status, título (negrito se não lida), `time` da última mensagem (do Snowflake; some no hover para dar lugar ao menu), selecionada com `brand-500/15` + filete lateral, hover distinto. Grupo mostra "N participantes". O cabeçalho da conversa leva avatar, nome e status/participantes, fixadas, ligar e (grupo) participantes.
+
+**Estados.** `StateScreen` (dentro do shell, com `NavToggle`), `StatePage` (página inteira, cartão central como o 404) e `ErrorState`. Textos: título curto no que aconteceu, uma linha de como resolver, uma ação primária. Ilustrações: `NotFoundIllustration` (não encontrado), `ErrorIllustration` (rede/falha), `EmptyChatIllustration` (sem conversas), `VoiceInviteIllustration` ("já é membro"). `ErrorBoundary` (+ `errorComponent` do roteador) mostra `CrashScreen` e nunca o stack.
+
+**Admin.** Barra lateral `w-64` com `Logo`, itens com ativo `brand-500/15`, recolhível (drawer animado por `transform` < 768 px). `StatCard` (ícone, número tabular, esqueleto), `Section`, `Facts`, `DataTable` (cabeçalho fixo, `scroll-shadow-x`, indicador de ordenação em `brand-text`, paginação com ícones, `TableSkeleton`/`TableEmpty`/erro com "Tentar de novo"). `LiveStatus` é uma pílula discreta com o ponto `online`. Gráficos: barras `brand-500`, hoje mais claro, linha de base e grade com `border`; `<title>` como tooltip nativo e a tabela por trás para leitores de tela.
+
 ## Pendências para as etapas seguintes
 
 - (feito na etapa de chat) Avatar sem imagem agora usa iniciais coloridas por padrão em todo o app.

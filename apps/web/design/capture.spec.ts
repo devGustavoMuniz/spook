@@ -61,6 +61,9 @@ const FIXED_NUMBERS: Record<string, number> = {
   "chat-acoes-toque": 84,
   "chat-composer-anexos": 85,
   "chat-membros-grupos": 86,
+  "dm-grupo-conversa": 96,
+  "dialogo-participantes": 97,
+  "dialogo-convite-copiado": 98,
 };
 let guildId = "";
 const ids = {
@@ -74,6 +77,7 @@ const ids = {
 };
 let inviteCode = "";
 let dmWithBruno = "";
+let dmGroup = "";
 
 async function json<T>(res: Awaited<ReturnType<APIRequestContext["get"]>>, ok = [200, 201, 204]) {
   const text = await res.text();
@@ -322,6 +326,16 @@ async function setup(browser: Browser) {
     }),
   );
   await send("carla", dm2.id, "Mandei o arquivo por aqui.");
+  const group = await json<{ id: string }>(
+    await people.ana.ctx.request.post("/api/users/@me/channels", {
+      data: { recipient_ids: [people.bruno.id, people.carla.id] },
+    }),
+  );
+  dmGroup = group.id;
+  await people.ana.ctx.request.patch(`/api/channels/${dmGroup}`, {
+    data: { name: "Estudo de Go" },
+  });
+  await send("bruno", dmGroup, "Bora marcar o próximo encontro do grupo?");
 }
 
 async function newPass(
@@ -337,7 +351,7 @@ async function newPass(
     isMobile: vp.width < 600,
     hasTouch: vp.width < 600,
     reducedMotion: "reduce",
-    permissions: ["microphone", "camera"],
+    permissions: ["microphone", "camera", "clipboard-read", "clipboard-write"],
   });
   await ctx.addInitScript((t) => {
     try {
@@ -682,6 +696,14 @@ test("captura de telas", async ({ browser }) => {
         await page.getByRole("menuitem", { name: /Convidar pessoas/ }).click();
         await page.waitForTimeout(600);
         await shot(page, "dialogo-convite", theme, vk);
+        await page.addStyleTag({ content: "[data-sonner-toaster]{display:none!important}" });
+        await page
+          .getByRole("button", { name: /^Copiar link do convite/ })
+          .first()
+          .click()
+          .catch(() => undefined);
+        await page.waitForTimeout(300);
+        await shot(page, "dialogo-convite-copiado", theme, vk);
         await page.keyboard.press("Escape");
       });
       await step("cargos", vk, theme, async () => {
@@ -748,6 +770,15 @@ test("captura de telas", async ({ browser }) => {
         await open(page, `/channels/@me/${dmWithBruno}`);
         await expect(page.getByRole("log").first()).toBeVisible();
         await shot(page, "dm-conversa", theme, vk);
+      });
+      await step("dm-grupo-conversa", vk, theme, async () => {
+        await open(page, `/channels/@me/${dmGroup}`);
+        await expect(page.getByRole("log").first()).toBeVisible();
+        await shot(page, "dm-grupo-conversa", theme, vk);
+        await page.getByRole("button", { name: /^Participantes/ }).click();
+        await page.waitForTimeout(500);
+        await shot(page, "dialogo-participantes", theme, vk);
+        await page.keyboard.press("Escape");
       });
       await step("dm-grupo", vk, theme, async () => {
         await open(page, "/channels/@me");

@@ -1,5 +1,14 @@
 import { useAdminLive, useAdminOverview, useAdminSystem } from "@spook/shared";
 import {
+  Camera,
+  MessageSquare,
+  MessagesSquare,
+  MonitorUp,
+  Phone,
+  Server,
+  Users,
+} from "lucide-react";
+import {
   formatBitrate,
   formatChange,
   formatDecimal,
@@ -11,6 +20,7 @@ import {
   ErrorNote,
   Facts,
   LiveStatus,
+  Loading,
   PageHeader,
   Section,
   StatCard,
@@ -50,6 +60,8 @@ export function AdminDashboardPage() {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard
+          icon={Users}
+          loading={overview.isPending}
           label="Usuários"
           value={o ? formatNumber(o.users.total) : "—"}
           detail={
@@ -60,17 +72,33 @@ export function AdminDashboardPage() {
           tone={o?.users.growth_pct ? "up" : undefined}
         />
         <StatCard
+          icon={Server}
+          loading={overview.isPending}
           label="Servidores"
           value={o ? formatNumber(o.servers.total) : "—"}
           detail={o ? `${formatNumber(o.servers.memberships)} participações` : undefined}
         />
-        <StatCard label="Mensagens (7 dias)" value={o ? formatNumber(o.messages.last_7d) : "—"} />
-        <StatCard label="Mensagens (24 h)" value={o ? formatNumber(o.messages.last_24h) : "—"} />
         <StatCard
+          icon={MessagesSquare}
+          loading={overview.isPending}
+          label="Mensagens (7 dias)"
+          value={o ? formatNumber(o.messages.last_7d) : "—"}
+        />
+        <StatCard
+          icon={MessageSquare}
+          loading={overview.isPending}
+          label="Mensagens (24 h)"
+          value={o ? formatNumber(o.messages.last_24h) : "—"}
+        />
+        <StatCard
+          icon={Phone}
+          loading={live.isPending}
           label="Chamadas em andamento"
           value={l?.calls.available ? formatNumber(l.calls.ongoing) : "—"}
         />
         <StatCard
+          icon={Users}
+          loading={live.isPending}
           label="Pessoas em chamadas"
           value={l?.calls.available ? formatNumber(l.calls.people) : "—"}
         />
@@ -90,7 +118,7 @@ export function AdminDashboardPage() {
           />
         </div>
       ) : overview.isPending ? (
-        <output className="block mt-6 text-sm text-muted-foreground">Carregando métricas…</output>
+        <Loading className="mt-6" rows={5} />
       ) : null}
 
       <Section
@@ -103,14 +131,22 @@ export function AdminDashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard label="Chamadas em andamento" value={formatNumber(l.calls.ongoing)} />
               <StatCard label="Pessoas em chamadas" value={formatNumber(l.calls.people)} />
-              <StatCard label="Câmeras ligadas" value={formatNumber(l.calls.cameras)} />
-              <StatCard label="Compartilhamentos de tela" value={formatNumber(l.calls.screens)} />
+              <StatCard
+                icon={Camera}
+                label="Câmeras ligadas"
+                value={formatNumber(l.calls.cameras)}
+              />
+              <StatCard
+                icon={MonitorUp}
+                label="Compartilhamentos de tela"
+                value={formatNumber(l.calls.screens)}
+              />
             </div>
           ) : (
             <Unavailable title="Chamadas ao vivo" reason={l.calls.reason} />
           )
         ) : (
-          <p className="text-sm text-muted-foreground">Carregando…</p>
+          <Loading />
         )}
       </Section>
 
@@ -195,7 +231,7 @@ export function AdminDashboardPage() {
               <Unavailable title="Prometheus do LiveKit" reason={l.livekit.reason} />
             )
           ) : (
-            <p className="text-sm text-muted-foreground">Carregando…</p>
+            <Loading />
           )}
         </Section>
         <Section title="Saúde da mídia" hint="Médias desde o boot do LiveKit">
@@ -219,7 +255,7 @@ export function AdminDashboardPage() {
               <Unavailable title="Saúde da mídia" reason={l.livekit.reason} />
             )
           ) : (
-            <p className="text-sm text-muted-foreground">Carregando…</p>
+            <Loading />
           )}
           <p className="mt-2 text-xs text-muted-foreground">
             "—" quando o LiveKit ainda não expôs a métrica (sem tráfego de mídia).
@@ -227,7 +263,7 @@ export function AdminDashboardPage() {
         </Section>
       </div>
 
-      <h2 className="mt-8 mb-3 text-lg font-semibold">Aplicação e armazenamento</h2>
+      <h2 className="mt-10 mb-3 text-lg font-semibold tracking-tight">Aplicação e armazenamento</h2>
       {sy ? (
         <div className="grid gap-4 lg:grid-cols-2">
           <Section title="Aplicação" hint="Atualiza a cada 5 s">
@@ -346,7 +382,7 @@ export function AdminDashboardPage() {
           </div>
         </div>
       ) : system.isPending ? (
-        <output className="block text-sm text-muted-foreground">Carregando…</output>
+        <Loading rows={6} />
       ) : null}
     </>
   );

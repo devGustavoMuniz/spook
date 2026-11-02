@@ -74,6 +74,7 @@ export function AdminServersPage() {
         rowKey={(s) => s.id}
         loading={query.isPending}
         error={query.isError}
+        onRetry={() => void query.refetch()}
         searchLabel="Buscar por servidor ou dono"
         empty="Nenhum servidor encontrado."
       />

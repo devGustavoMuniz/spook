@@ -1,10 +1,13 @@
+import { Headphones } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogActions,
+  DialogBody,
+  DialogClose,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  DialogHead,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
@@ -129,120 +132,128 @@ export function DeviceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Dispositivos de áudio e vídeo</DialogTitle>
-          <DialogDescription>
-            {isTauri()
+      <DialogContent flush className="max-h-[min(40rem,92svh)]">
+        <DialogHead
+          icon={Headphones}
+          title="Dispositivos de áudio e vídeo"
+          description={
+            isTauri()
               ? "A escolha fica salva neste computador e vale na chamada em curso."
-              : "A escolha fica salva neste navegador. Os nomes só aparecem depois que o navegador liberar o acesso ao microfone ou à câmera."}
-          </DialogDescription>
-        </DialogHeader>
-        {FIELDS.map(({ kind, label }) => {
-          const list = devices[kind] ?? [];
-          const id = `device-${kind}`;
-          return (
-            <div key={kind} className="flex flex-col gap-1.5">
-              <label htmlFor={id} className="text-sm font-medium">
-                {label}
-              </label>
-              <select
-                id={id}
-                value={chosen[kind] ?? ""}
-                onChange={(e) => {
-                  setChosen((c) => ({ ...c, [kind]: e.target.value || undefined }));
-                  void chooseDevice(kind, e.target.value);
-                }}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="">Padrão do sistema</option>
-                {list.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          );
-        })}
-        {canProcess ? (
-          <section
-            aria-labelledby="mic-quality-title"
-            className="flex flex-col gap-3 border-t pt-3"
-          >
-            <h3 id="mic-quality-title" className="text-sm font-medium">
-              Qualidade do microfone
-            </h3>
-            <fieldset className="flex flex-col gap-1.5">
-              <legend className="mb-1 text-sm">Redução de ruído</legend>
-              {NOISE_LEVELS.map(({ value, label, hint }) => {
-                const id = `noise-${value}`;
-                const unavailable = value === "strong" && !caps.strongNoiseSuppression;
+              : "A escolha fica salva neste navegador. Os nomes só aparecem depois que o navegador liberar o acesso ao microfone ou à câmera."
+          }
+        />
+        <DialogBody>
+          {FIELDS.map(({ kind, label }) => {
+            const list = devices[kind] ?? [];
+            const id = `device-${kind}`;
+            return (
+              <div key={kind} className="flex flex-col gap-1.5">
+                <label htmlFor={id} className="text-sm font-medium">
+                  {label}
+                </label>
+                <select
+                  id={id}
+                  value={chosen[kind] ?? ""}
+                  onChange={(e) => {
+                    setChosen((c) => ({ ...c, [kind]: e.target.value || undefined }));
+                    void chooseDevice(kind, e.target.value);
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">Padrão do sistema</option>
+                  {list.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+          {canProcess ? (
+            <section
+              aria-labelledby="mic-quality-title"
+              className="flex flex-col gap-3 border-t pt-3"
+            >
+              <h3 id="mic-quality-title" className="text-sm font-medium">
+                Qualidade do microfone
+              </h3>
+              <fieldset className="flex flex-col gap-1.5">
+                <legend className="mb-1 text-sm">Redução de ruído</legend>
+                {NOISE_LEVELS.map(({ value, label, hint }) => {
+                  const id = `noise-${value}`;
+                  const unavailable = value === "strong" && !caps.strongNoiseSuppression;
+                  return (
+                    <label
+                      key={value}
+                      htmlFor={id}
+                      className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${unavailable ? "cursor-not-allowed opacity-60" : ""}`}
+                    >
+                      <input
+                        id={id}
+                        type="radio"
+                        name="noise-suppression"
+                        value={value}
+                        className="mt-1 accent-primary"
+                        checked={processing.noiseSuppression === value}
+                        disabled={unavailable}
+                        aria-describedby={`${id}-hint`}
+                        onChange={() => update({ ...processing, noiseSuppression: value })}
+                      />
+                      <span className="flex flex-col">
+                        <span>
+                          {label}
+                          {unavailable && caps.strongUnavailableReason
+                            ? ` (${caps.strongUnavailableReason})`
+                            : ""}
+                        </span>
+                        <span id={`${id}-hint`} className="text-xs text-muted-foreground">
+                          {hint}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+                <p aria-live="polite" className="text-xs text-muted-foreground">
+                  {noiseStatusText(processing.noiseSuppression, status)}
+                </p>
+              </fieldset>
+              {AUDIO_SWITCHES.map(({ key, label, hint }) => {
+                const id = `audio-processing-${key}`;
                 return (
-                  <label
-                    key={value}
-                    htmlFor={id}
-                    className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${unavailable ? "cursor-not-allowed opacity-60" : ""}`}
-                  >
-                    <input
+                  <div key={key} className="flex items-center justify-between gap-3">
+                    <label htmlFor={id} className="flex flex-col text-sm">
+                      <span>{label}</span>
+                      <span className="text-xs text-muted-foreground">{hint}</span>
+                    </label>
+                    <Switch
                       id={id}
-                      type="radio"
-                      name="noise-suppression"
-                      value={value}
-                      className="mt-1 accent-primary"
-                      checked={processing.noiseSuppression === value}
-                      disabled={unavailable}
-                      aria-describedby={`${id}-hint`}
-                      onChange={() => update({ ...processing, noiseSuppression: value })}
+                      checked={processing[key]}
+                      onCheckedChange={(on) => update({ ...processing, [key]: on })}
                     />
-                    <span className="flex flex-col">
-                      <span>
-                        {label}
-                        {unavailable && caps.strongUnavailableReason
-                          ? ` (${caps.strongUnavailableReason})`
-                          : ""}
-                      </span>
-                      <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-                        {hint}
-                      </span>
-                    </span>
-                  </label>
+                  </div>
                 );
               })}
-              <p aria-live="polite" className="text-xs text-muted-foreground">
-                {noiseStatusText(processing.noiseSuppression, status)}
-              </p>
-            </fieldset>
-            {AUDIO_SWITCHES.map(({ key, label, hint }) => {
-              const id = `audio-processing-${key}`;
-              return (
-                <div key={key} className="flex items-center justify-between gap-3">
-                  <label htmlFor={id} className="flex flex-col text-sm">
-                    <span>{label}</span>
-                    <span className="text-xs text-muted-foreground">{hint}</span>
-                  </label>
-                  <Switch
-                    id={id}
-                    checked={processing[key]}
-                    onCheckedChange={(on) => update({ ...processing, [key]: on })}
-                  />
-                </div>
-              );
-            })}
-            {status?.gateError ? (
-              <output className="block text-xs text-destructive-text">{status.gateError}</output>
-            ) : null}
-          </section>
-        ) : null}
-        {canProcess && (caps.inputSensitivity || caps.micTest) ? (
-          <MicTestSection
-            open={open}
-            processing={processing}
-            caps={caps}
-            inCall={micOpenInCall}
-            onChange={update}
-          />
-        ) : null}
+              {status?.gateError ? (
+                <output className="block text-xs text-destructive-text">{status.gateError}</output>
+              ) : null}
+            </section>
+          ) : null}
+          {canProcess && (caps.inputSensitivity || caps.micTest) ? (
+            <MicTestSection
+              open={open}
+              processing={processing}
+              caps={caps}
+              inCall={micOpenInCall}
+              onChange={update}
+            />
+          ) : null}
+        </DialogBody>
+        <DialogActions>
+          <DialogClose asChild>
+            <Button>Concluído</Button>
+          </DialogClose>
+        </DialogActions>
       </DialogContent>
     </Dialog>
   );

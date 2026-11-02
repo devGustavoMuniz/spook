@@ -1,16 +1,16 @@
 import { useOpenDM, useUpdateChannel } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogActions,
+  DialogBody,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  DialogHead,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,50 +71,55 @@ export function NewGroupDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Nova conversa em grupo</DialogTitle>
-          <DialogDescription>
-            Escolha de 1 a {MAX_GROUP_INVITEES} pessoas que estão em algum servidor com você.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent flush>
+        <DialogHead
+          icon={Users}
+          title="Nova conversa em grupo"
+          description={`Escolha de 1 a ${MAX_GROUP_INVITEES} pessoas que estão em algum servidor com você.`}
+        />
         <form
-          className="flex flex-col gap-4"
+          className="flex min-h-0 flex-1 flex-col"
           onSubmit={(e) => {
             e.preventDefault();
             void submit();
           }}
         >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="group-name">Nome do grupo (opcional)</Label>
-            <Input
-              id="group-name"
-              value={name}
-              placeholder="Ex.: Estudo de Go"
-              onChange={(e) => setName(e.target.value)}
-              aria-invalid={tooLong}
+          <DialogBody>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="group-name">Nome do grupo (opcional)</Label>
+              <Input
+                id="group-name"
+                value={name}
+                placeholder="Ex.: Estudo de Go"
+                onChange={(e) => setName(e.target.value)}
+                aria-invalid={tooLong}
+              />
+              {tooLong ? (
+                <p role="alert" className="text-xs text-destructive-text">
+                  O nome pode ter até {MAX_GROUP_NAME} caracteres.
+                </p>
+              ) : null}
+            </div>
+            <PeoplePicker
+              people={people}
+              pending={pending}
+              selected={selected}
+              max={MAX_GROUP_INVITEES}
+              onToggle={toggle}
             />
-            {tooLong ? (
-              <p className="text-xs text-destructive-text">
-                O nome pode ter até {MAX_GROUP_NAME} caracteres.
-              </p>
-            ) : null}
-          </div>
-          <PeoplePicker
-            people={people}
-            pending={pending}
-            selected={selected}
-            max={MAX_GROUP_INVITEES}
-            onToggle={toggle}
-          />
-          <DialogFooter>
+          </DialogBody>
+          <DialogActions>
             <Button type="button" variant="ghost" onClick={() => close(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={selected.size === 0 || tooLong || create.isPending}>
+            <Button
+              type="submit"
+              disabled={selected.size === 0 || tooLong}
+              loading={create.isPending}
+            >
               Criar conversa
             </Button>
-          </DialogFooter>
+          </DialogActions>
         </form>
       </DialogContent>
     </Dialog>

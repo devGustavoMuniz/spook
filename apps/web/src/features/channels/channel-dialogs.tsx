@@ -8,6 +8,7 @@ import {
 } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { Hash, Pencil, Volume2 } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { describedBy, Field } from "@/components/form-field";
@@ -23,11 +24,10 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogActions,
+  DialogBody,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  DialogHead,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -99,73 +99,75 @@ export function CreateChannelDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Criar canal</DialogTitle>
-          <DialogDescription>
-            Canais de voz aparecem na lista, mas ainda não dá para entrar.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-          <Field id="channel-type" label="Tipo">
-            <Controller
-              control={control}
-              name="type"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="channel-type" aria-label="Tipo do canal">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">Texto</SelectItem>
-                    <SelectItem value="1">Voz</SelectItem>
-                    <SelectItem value="2">Categoria</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </Field>
-          <Field id="channel-name" label="Nome" error={errors.name?.message}>
-            <Input
-              id="channel-name"
-              autoFocus
-              maxLength={100}
-              aria-invalid={!!errors.name}
-              aria-describedby={describedBy("channel-name", errors.name?.message)}
-              {...register("name")}
-            />
-          </Field>
-          {type !== "2" && categories.length > 0 ? (
-            <Field id="channel-parent" label="Categoria">
+      <DialogContent flush>
+        <DialogHead
+          icon={type === "1" ? Volume2 : Hash}
+          title="Criar canal"
+          description="Escolha o tipo e o nome. Categorias agrupam canais na lista."
+        />
+        <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
+          <DialogBody>
+            <Field id="channel-type" label="Tipo">
               <Controller
                 control={control}
-                name="parent_id"
+                name="type"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="channel-parent" aria-label="Categoria do canal">
+                    <SelectTrigger id="channel-type" aria-label="Tipo do canal">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_CATEGORY}>Sem categoria</SelectItem>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="0">Texto</SelectItem>
+                      <SelectItem value="1">Voz</SelectItem>
+                      <SelectItem value="2">Categoria</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
               />
             </Field>
-          ) : null}
-          <DialogFooter>
+            <Field id="channel-name" label="Nome" error={errors.name?.message}>
+              <Input
+                id="channel-name"
+                autoFocus
+                maxLength={100}
+                placeholder={type === "2" ? "nova categoria" : "novo-canal"}
+                aria-invalid={!!errors.name}
+                aria-describedby={describedBy("channel-name", errors.name?.message)}
+                {...register("name")}
+              />
+            </Field>
+            {type !== "2" && categories.length > 0 ? (
+              <Field id="channel-parent" label="Categoria">
+                <Controller
+                  control={control}
+                  name="parent_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="channel-parent" aria-label="Categoria do canal">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_CATEGORY}>Sem categoria</SelectItem>
+                        {categories.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </Field>
+            ) : null}
+          </DialogBody>
+          <DialogActions>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Criando…" : "Criar"}
+            <Button type="submit" loading={isSubmitting}>
+              Criar
             </Button>
-          </DialogFooter>
+          </DialogActions>
         </form>
       </DialogContent>
     </Dialog>
@@ -203,31 +205,32 @@ export function RenameChannelDialog({
 
   return (
     <Dialog open={!!channel} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            Renomear {channel?.type === CHANNEL_CATEGORY ? "categoria" : "canal"}
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-          <Field id="rename-channel" label="Nome" error={errors.name?.message}>
-            <Input
-              id="rename-channel"
-              autoFocus
-              maxLength={100}
-              aria-invalid={!!errors.name}
-              aria-describedby={describedBy("rename-channel", errors.name?.message)}
-              {...register("name")}
-            />
-          </Field>
-          <DialogFooter>
+      <DialogContent flush size="sm">
+        <DialogHead
+          icon={Pencil}
+          title={`Renomear ${channel?.type === CHANNEL_CATEGORY ? "categoria" : "canal"}`}
+        />
+        <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
+          <DialogBody>
+            <Field id="rename-channel" label="Nome" error={errors.name?.message}>
+              <Input
+                id="rename-channel"
+                autoFocus
+                maxLength={100}
+                aria-invalid={!!errors.name}
+                aria-describedby={describedBy("rename-channel", errors.name?.message)}
+                {...register("name")}
+              />
+            </Field>
+          </DialogBody>
+          <DialogActions>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" loading={isSubmitting}>
               Salvar
             </Button>
-          </DialogFooter>
+          </DialogActions>
         </form>
       </DialogContent>
     </Dialog>

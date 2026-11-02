@@ -119,7 +119,7 @@ test("A abre DM com B, trocam mensagens em tempo real e B vê A online e depois 
 
   // B recebe a conversa nova na lista, sem recarregar
   await conversations(b)
-    .getByRole("link", { name: new RegExp(`${username("a")}$`) })
+    .getByRole("link", { name: new RegExp(username("a")) })
     .click();
   await expect(b.page).toHaveURL(/\/channels\/@me\/\d+$/);
 
@@ -243,8 +243,8 @@ test("DM em grupo com três contas: criar, adicionar, remover (o removido deixa 
   expect(groupId).not.toBe("");
 
   // B vê o grupo aparecer na lista em tempo real; C ainda não
-  await expect(conversations(b).getByRole("link", { name: /Grupo E2E$/ })).toBeVisible();
-  await expect(conversations(c).getByRole("link", { name: /Grupo E2E$/ })).toHaveCount(0);
+  await expect(conversations(b).getByRole("link", { name: /Grupo E2E/ })).toBeVisible();
+  await expect(conversations(c).getByRole("link", { name: /Grupo E2E/ })).toHaveCount(0);
 
   // A adiciona C pelo diálogo de participantes
   await a.page.getByRole("button", { name: /Participantes \(2\)/ }).click();
@@ -254,15 +254,15 @@ test("DM em grupo com três contas: criar, adicionar, remover (o removido deixa 
   await expect(
     manage.getByRole("list", { name: "Participantes" }).getByRole("listitem"),
   ).toHaveCount(3);
-  await expect(conversations(c).getByRole("link", { name: /Grupo E2E$/ })).toBeVisible();
+  await expect(conversations(c).getByRole("link", { name: /Grupo E2E/ })).toBeVisible();
   await a.page.keyboard.press("Escape");
 
   // os três conversam
   await conversations(c)
-    .getByRole("link", { name: /Grupo E2E$/ })
+    .getByRole("link", { name: /Grupo E2E/ })
     .click();
   await conversations(b)
-    .getByRole("link", { name: /Grupo E2E$/ })
+    .getByRole("link", { name: /Grupo E2E/ })
     .click();
   const say = async (p: Person, text: string) => {
     const box = p.page.getByLabel("Mensagem para Grupo E2E");
@@ -283,7 +283,7 @@ test("DM em grupo com três contas: criar, adicionar, remover (o removido deixa 
     .click();
   await expect(c.page.getByText(/Você não está mais na conversa Grupo E2E/)).toBeVisible();
   await expect(c.page).toHaveURL(/\/channels\/@me$/);
-  await expect(conversations(c).getByRole("link", { name: /Grupo E2E$/ })).toHaveCount(0);
+  await expect(conversations(c).getByRole("link", { name: /Grupo E2E/ })).toHaveCount(0);
   await a.page.keyboard.press("Escape");
 
   const seen = c.frames.length;

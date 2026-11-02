@@ -73,6 +73,7 @@ export function AdminUsersPage() {
         rowKey={(u) => u.id}
         loading={query.isPending}
         error={query.isError}
+        onRetry={() => void query.refetch()}
         searchLabel="Buscar por usuário ou e-mail"
         empty="Nenhum usuário encontrado."
       />

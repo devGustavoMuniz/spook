@@ -408,6 +408,25 @@ describe("DMs", () => {
   });
 });
 
+describe("links para lugares que nunca foram do usuário", () => {
+  it("READY com URL de servidor inexistente não avisa nem redireciona (a tela mostra 'não encontrado')", () => {
+    where = { guildId: "nunca-fui", channelId: "x" };
+    applyReady(qc, { guilds: guildsData() }, fx);
+    expect(fx.leftGuild).not.toHaveBeenCalled();
+    expect(fx.channelGone).not.toHaveBeenCalled();
+  });
+
+  it("READY com canal que nunca existiu no servidor também não avisa; canal que sumiu avisa", () => {
+    where = { guildId: "g1", channelId: "nunca-existiu" };
+    applyReady(qc, { guilds: guildsData() }, fx);
+    expect(fx.channelGone).not.toHaveBeenCalled();
+    where = { guildId: "g1", channelId: CH };
+    const g = g1();
+    applyReady(qc, { guilds: [{ ...g, channels: [] }] }, fx);
+    expect(fx.channelGone).toHaveBeenCalledWith("g1", undefined);
+  });
+});
+
 describe("presença", () => {
   it("READY semeia os status; PRESENCE_UPDATE atualiza e offline remove", () => {
     applyReady(qc, { guilds: [] }, fx);

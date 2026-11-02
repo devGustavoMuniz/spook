@@ -1,9 +1,11 @@
 import { Permission } from "@spook/shared";
 import { Link, Navigate, Outlet, useParams, useSearch } from "@tanstack/react-router";
-import { Hash } from "lucide-react";
+import { ArrowLeft, Hash } from "lucide-react";
 import { useEffect } from "react";
-import { Notice } from "@/components/notice";
 import { MembersToggle, NavToggle } from "@/components/shell";
+import { ErrorState, HomeButton, StateScreen } from "@/components/state-screen";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ChannelSidebar } from "@/features/channels/channel-sidebar";
 import { useGuild } from "@/features/guilds/use-guild";
 import { MemberUiProvider } from "@/features/members/member-ui";
@@ -11,14 +13,13 @@ import { MembersPanel } from "@/features/members/members-panel";
 import { ChannelView } from "@/features/messages/channel-view";
 import { PinnedMessagesButton } from "@/features/messages/pins-panel";
 import { VoiceChannelView } from "@/features/voice/voice-channel-view";
-import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_TEXT, CHANNEL_VOICE, can, channelsOf } from "@/lib/guild";
 import { lastLocation } from "@/lib/last-location";
 
 /** `/channels/$guildId`: barra de canais + conteúdo + membros. */
 export function GuildLayout() {
   const { guildId } = useParams({ strict: false }) as { guildId: string };
-  const { guild, isPending, isError, error } = useGuild(guildId);
+  const { guild, isPending, isError, error, refetch, isFetching } = useGuild(guildId);
 
   useEffect(() => {
     if (guild) lastLocation.remember(guild.id);
@@ -26,17 +27,21 @@ export function GuildLayout() {
 
   if (isPending)
     return (
-      <output className="block p-6 text-sm text-muted-foreground">Carregando servidor…</output>
+      <output className="flex h-full flex-col gap-3 p-6">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-4 w-72" />
+        <span className="sr-only">Carregando servidor…</span>
+      </output>
     );
-  if (isError) return <Notice title="Não foi possível carregar">{appMessage(error)}</Notice>;
+  if (isError)
+    return <ErrorState error={error} onRetry={() => void refetch()} retrying={isFetching} />;
   if (!guild)
     return (
-      <Notice title="Servidor não encontrado">
-        Ele pode ter sido excluído, ou você não faz parte dele.{" "}
-        <Link to="/" className="text-primary underline">
-          Voltar ao início
-        </Link>
-      </Notice>
+      <StateScreen
+        title="Servidor não encontrado"
+        description="Ele pode ter sido excluído, ou você não faz parte dele."
+        actions={<HomeButton />}
+      />
     );
 
   return (
@@ -68,9 +73,10 @@ export function GuildIndex() {
       />
     );
   return (
-    <Notice title="Nenhum canal de texto">
-      Quando houver um canal de texto que você possa ver, ele aparece aqui.
-    </Notice>
+    <StateScreen
+      title="Nenhum canal de texto"
+      description="Quando houver um canal de texto que você possa ver, ele aparece aqui."
+    />
   );
 }
 
@@ -90,15 +96,20 @@ export function ChannelPage() {
   if (!guild) return null;
   if (!channel)
     return (
-      <Notice title="Canal não encontrado">
-        Ele pode ter sido excluído.{" "}
-        <Link to="/channels/$guildId" params={{ guildId }} className="text-primary underline">
-          Escolher outro canal
-        </Link>
-      </Notice>
+      <StateScreen
+        title="Canal não encontrado"
+        description="Ele pode ter sido excluído, ou você não tem acesso a ele."
+        actions={
+          <Button asChild>
+            <Link to="/channels/$guildId" params={{ guildId }}>
+              <ArrowLeft /> Escolher outro canal
+            </Link>
+          </Button>
+        }
+      />
     );
   if (channel.type === CHANNEL_VOICE) return <VoiceChannelView guild={guild} channel={channel} />;
-  if (channel.type !== CHANNEL_TEXT) return <Notice title={channel.name} />;
+  if (channel.type !== CHANNEL_TEXT) return <StateScreen title={channel.name} />;
 
   return (
     <>

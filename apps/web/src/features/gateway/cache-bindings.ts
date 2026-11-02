@@ -81,6 +81,7 @@ export function applyReady(
   },
   fx: GatewayEffects,
 ) {
+  const before = guildsOf(qc);
   setGuilds(qc, ready.guilds);
   // Snapshot completo: canal ausente = zero não lidas.
   useReadStateStore.getState().replaceAll(ready.read_states ?? []);
@@ -91,7 +92,7 @@ export function applyReady(
     { predicate: (q) => isMessagesKey(q.queryKey), refetchType: "active" },
     { cancelRefetch: false },
   );
-  reconcileLocation(qc, fx);
+  reconcileLocation(qc, fx, before);
 }
 
 /** Refaz a lista de servidores e, com ela nova, confere se o usuário ainda pode estar onde está. */
@@ -99,15 +100,26 @@ function refreshAndReconcile(qc: QueryClient, fx: GatewayEffects) {
   void refreshGuilds(qc).then(() => reconcileLocation(qc, fx));
 }
 
-/** Depois de uma lista nova: se o servidor ou o canal abertos sumiram, leva o usuário para um lugar válido. */
-export function reconcileLocation(qc: QueryClient, fx: GatewayEffects) {
+/**
+ * Depois de uma lista nova: se o servidor ou o canal abertos sumiram, leva o usuário para um lugar válido.
+ * `before` é a lista de antes: se o lugar já não existia nela (link para um servidor ou canal inexistente),
+ * não houve perda a avisar e a própria tela mostra o estado "não encontrado".
+ */
+export function reconcileLocation(
+  qc: QueryClient,
+  fx: GatewayEffects,
+  before?: DetailPayload[] | null,
+) {
   const { guildId, channelId } = fx.location();
   const list = guildsOf(qc);
   if (!guildId || !list) return;
   const guild = list.find((g) => g.id === guildId);
-  if (!guild) return fx.leftGuild(undefined);
-  if (channelId && !(guild.channels ?? []).some((c) => c.id === channelId))
-    fx.channelGone(guildId, undefined);
+  const guildBefore = before?.find((g) => g.id === guildId);
+  if (!guild) return before && !guildBefore ? undefined : fx.leftGuild(undefined);
+  if (channelId && !(guild.channels ?? []).some((c) => c.id === channelId)) {
+    const hadChannel = (guildBefore?.channels ?? []).some((c) => c.id === channelId);
+    if (!before || hadChannel) fx.channelGone(guildId, undefined);
+  }
 }
 
 export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: GatewayEvent) {

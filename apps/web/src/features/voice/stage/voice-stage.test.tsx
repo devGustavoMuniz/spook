@@ -176,7 +176,7 @@ describe("grade de tiles", () => {
     mount([state(ME)]);
     await user.click(await screen.findByRole("button", { name: "Convidar para voz" }));
     const dialog = await screen.findByRole("dialog", {}, { timeout: 15_000 });
-    expect(within(dialog).getByText("Configurações do servidor")).toBeInTheDocument();
+    expect(within(dialog).getByText("Convidar pessoas")).toBeInTheDocument();
     expect(
       await within(dialog).findByRole("tab", { name: "Convites", selected: true }),
     ).toBeTruthy();

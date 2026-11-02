@@ -59,7 +59,8 @@ describe("lista de conversas", () => {
     await renderApp("/channels/@me", { signedIn: true, seed });
     const nav = await conversations();
     const links = await within(nav).findAllByRole("link");
-    expect(links.map((l) => l.textContent)).toEqual([
+    const titles = (l: HTMLElement) => l.querySelector("[data-dm-title]")?.textContent;
+    expect(links.map(titles)).toEqual([
       "Estudo de Go",
       "Bia Souza",
       "Bia Souza, caio", // grupo sem nome: os demais participantes
@@ -316,7 +317,9 @@ describe("tempo real nas DMs", () => {
   it("o READY semeia as presenças; PRESENCE_UPDATE muda os indicadores na lista e no cabeçalho", async () => {
     const { sock } = await open();
     const nav = await conversations();
-    const link = within(nav).getByRole("link", { name: /Bia Souza$/ });
+    const link = within(nav)
+      .getByText("Bia Souza", { selector: "[data-dm-title]" })
+      .closest("a") as HTMLElement;
     expect(within(link).getByRole("img", { name: "Online" })).toBeInTheDocument();
     const header = screen.getByRole("heading", { name: "Bia Souza" }).parentElement as HTMLElement;
     expect(within(header).getAllByRole("img", { name: "Online" }).length).toBeGreaterThan(0);

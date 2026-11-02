@@ -1,12 +1,12 @@
+import { SmilePlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogActions,
+  DialogBody,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  DialogHead,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,80 +51,81 @@ export function CustomStatusDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Status personalizado</DialogTitle>
-          <DialogDescription>
-            Aparece ao lado do seu nome na lista de membros e nas conversas.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent flush>
+        <DialogHead
+          icon={SmilePlus}
+          title="Status personalizado"
+          description="Aparece ao lado do seu nome na lista de membros e nas conversas."
+        />
         <form
-          className="flex flex-col gap-4"
+          className="flex min-h-0 flex-1 flex-col"
           onSubmit={(e) => {
             e.preventDefault();
             if (!empty && !busy) void save();
           }}
         >
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="custom-status-text">O que você está fazendo?</Label>
-            <div className="flex gap-2">
-              <Input
-                aria-label="Emoji"
-                value={emoji}
-                onChange={(e) => setEmoji(e.target.value)}
-                maxLength={8}
-                className="w-16 text-center"
-                placeholder="🙂"
-              />
-              <Input
-                id="custom-status-text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                maxLength={MAX_TEXT}
-                placeholder="Ex.: em reunião"
-              />
+          <DialogBody>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="custom-status-text">O que você está fazendo?</Label>
+              <div className="flex gap-2">
+                <Input
+                  aria-label="Emoji"
+                  value={emoji}
+                  onChange={(e) => setEmoji(e.target.value)}
+                  maxLength={8}
+                  className="w-16 text-center"
+                  placeholder="🙂"
+                />
+                <Input
+                  id="custom-status-text"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  maxLength={MAX_TEXT}
+                  placeholder="Ex.: em reunião"
+                />
+              </div>
+              <fieldset className="flex flex-wrap gap-1">
+                <legend className="sr-only">Emojis sugeridos</legend>
+                {SUGGESTED.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="rounded-md px-1.5 py-0.5 text-lg hover:bg-accent"
+                    aria-label={`Usar ${s}`}
+                    onClick={() => setEmoji(s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </fieldset>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {text.length}/{MAX_TEXT}
+              </span>
             </div>
-            <fieldset className="flex flex-wrap gap-1">
-              <legend className="sr-only">Emojis sugeridos</legend>
-              {SUGGESTED.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className="rounded-md px-1.5 py-0.5 text-lg hover:bg-accent"
-                  aria-label={`Usar ${s}`}
-                  onClick={() => setEmoji(s)}
-                >
-                  {s}
-                </button>
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="mb-1 text-sm font-medium">Limpar depois de</legend>
+              {EXPIRY_OPTIONS.map((o) => (
+                <label key={o.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="custom-status-expiry"
+                    value={o.value}
+                    checked={expiry === o.value}
+                    onChange={() => setExpiry(o.value)}
+                  />
+                  {o.label}
+                </label>
               ))}
             </fieldset>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {text.length}/{MAX_TEXT}
-            </span>
-          </div>
-          <fieldset className="flex flex-col gap-1.5">
-            <legend className="mb-1 text-sm font-medium">Limpar depois de</legend>
-            {EXPIRY_OPTIONS.map((o) => (
-              <label key={o.value} className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="custom-status-expiry"
-                  value={o.value}
-                  checked={expiry === o.value}
-                  onChange={() => setExpiry(o.value)}
-                />
-                {o.label}
-              </label>
-            ))}
-          </fieldset>
-          <DialogFooter>
+          </DialogBody>
+          <DialogActions>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={empty || busy}>
-              {busy ? "Salvando…" : "Salvar"}
+            <Button type="submit" disabled={empty} loading={busy}>
+              Salvar
             </Button>
-          </DialogFooter>
+          </DialogActions>
         </form>
       </DialogContent>
     </Dialog>

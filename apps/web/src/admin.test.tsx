@@ -396,6 +396,21 @@ describe("usuários", () => {
     );
     await renderApp("/admin/users", asAdmin(true));
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível carregar a lista");
+    expect(screen.getByRole("button", { name: "Tentar de novo" })).toBeInTheDocument();
+  });
+
+  it("cabeçalho fixo, números tabulares e coluna ordenada com indicador (aria-sort)", async () => {
+    adminApi();
+    await renderApp("/admin/users", asAdmin(true));
+    await screen.findByText("@user1");
+    const table = screen.getByRole("table", { name: "Usuários" });
+    expect(table.querySelector("thead")).toHaveClass("sticky");
+    expect(screen.getByRole("columnheader", { name: /Entrou em/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    expect(table.parentElement).toHaveClass("scroll-shadow-x");
+    expect(within(table).getAllByRole("cell")[2]).toHaveClass("tabular");
   });
 });
 

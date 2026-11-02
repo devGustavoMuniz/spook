@@ -1,10 +1,12 @@
 import { useListGuilds } from "@spook/shared";
 import { Navigate } from "@tanstack/react-router";
+import { ArrowRight, Compass, Plus } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/brand";
-import { Button } from "@/components/ui/button";
+import { NavToggle } from "@/components/shell";
+import { ErrorState } from "@/components/state-screen";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AddServerDialog } from "@/features/guilds/add-server-dialog";
-import { appMessage } from "@/lib/app-errors";
 import { lastLocation } from "@/lib/last-location";
 
 /** `/`: vai ao último servidor visitado (ou ao primeiro); sem servidores, mostra o estado vazio. */
@@ -14,18 +16,19 @@ export function HomePage() {
 
   if (guilds.isPending)
     return (
-      <output className="block p-6 text-sm text-muted-foreground">
-        Carregando seus servidores…
+      <output className="flex h-full flex-col items-center justify-center gap-3 p-6">
+        <Skeleton className="size-24 rounded-3xl" />
+        <Skeleton className="h-5 w-56" />
+        <span className="sr-only">Carregando seus servidores…</span>
       </output>
     );
   if (guilds.isError)
     return (
-      <div className="p-6 text-sm">
-        <p className="text-destructive-text">{appMessage(guilds.error)}</p>
-        <Button className="mt-3" variant="outline" onClick={() => void guilds.refetch()}>
-          Tentar de novo
-        </Button>
-      </div>
+      <ErrorState
+        error={guilds.error}
+        onRetry={() => void guilds.refetch()}
+        retrying={guilds.isFetching}
+      />
     );
 
   const list = guilds.data ?? [];
@@ -35,19 +38,35 @@ export function HomePage() {
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-5 p-6 text-center">
-      <Logo size={96} />
-      <div>
-        <h1 className="text-xl font-semibold">Você ainda não está em nenhum servidor</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Crie o seu ou entre num servidor com um convite.
-        </p>
+    <main className="relative flex h-full flex-col items-center justify-center gap-8 overflow-y-auto bg-brand-glow p-6 text-center">
+      <NavToggle className="absolute top-2 left-4" />
+      <div className="flex flex-col items-center gap-4">
+        <Logo size={112} />
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-balance">
+            Você ainda não está em nenhum servidor
+          </h1>
+          <p className="mx-auto max-w-md text-base text-muted-foreground text-pretty">
+            Servidores são onde as conversas acontecem. Crie o seu ou entre num que já existe com um
+            convite.
+          </p>
+        </div>
       </div>
-      <div className="flex flex-wrap justify-center gap-2">
-        <Button onClick={() => setDialog("create")}>Criar servidor</Button>
-        <Button variant="outline" onClick={() => setDialog("join")}>
-          Entrar com convite
-        </Button>
+      <div className="grid w-full max-w-2xl gap-3 sm:grid-cols-2">
+        <ActionCard
+          id="create"
+          icon={Plus}
+          title="Criar servidor"
+          description="Monte um espaço seu, com canais de texto e voz."
+          onClick={() => setDialog("create")}
+        />
+        <ActionCard
+          id="join"
+          icon={Compass}
+          title="Entrar com convite"
+          description="Cole o link ou o código que alguém enviou."
+          onClick={() => setDialog("join")}
+        />
       </div>
       <AddServerDialog
         key={dialog ?? "closed"}
@@ -55,6 +74,49 @@ export function HomePage() {
         initialTab={dialog ?? "create"}
         onOpenChange={(o) => !o && setDialog(null)}
       />
-    </div>
+    </main>
+  );
+}
+
+function ActionCard({
+  id,
+  icon: Icon,
+  title,
+  description,
+  onClick,
+}: {
+  id: string;
+  icon: typeof Plus;
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-desc`}
+      className="group flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-[border-color,box-shadow,background-color] hover:border-brand-400 hover:bg-surface-2 hover:shadow-md"
+    >
+      <span
+        aria-hidden
+        className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-accent text-brand-text"
+      >
+        <Icon className="size-6" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span id={`${id}-title`} className="font-semibold">
+          {title}
+        </span>
+        <span id={`${id}-desc`} className="text-sm text-muted-foreground text-pretty">
+          {description}
+        </span>
+      </span>
+      <ArrowRight
+        aria-hidden
+        className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground"
+      />
+    </button>
   );
 }

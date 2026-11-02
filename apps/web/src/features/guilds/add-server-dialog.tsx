@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateGuild } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { Compass, Plus } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -9,10 +10,10 @@ import { describedBy, Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogActions,
+  DialogBody,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  DialogHead,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,23 +31,29 @@ export function AddServerDialog({
   onOpenChange: (open: boolean) => void;
   initialTab?: "create" | "join";
 }) {
+  const [tab, setTab] = useState<"create" | "join">(initialTab);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Adicionar um servidor</DialogTitle>
-          <DialogDescription>Crie o seu ou entre num que já existe.</DialogDescription>
-        </DialogHeader>
-        <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
-          <TabsList>
+      <DialogContent flush>
+        <DialogHead
+          icon={tab === "create" ? Plus : Compass}
+          title="Adicionar um servidor"
+          description="Crie o seu ou entre num que já existe."
+        />
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as "create" | "join")}
+          className="flex min-h-0 flex-1 flex-col gap-0"
+        >
+          <TabsList className="mx-6 mb-1 shrink-0 self-start">
             <TabsTrigger value="create">Criar servidor</TabsTrigger>
             <TabsTrigger value="join">Entrar com convite</TabsTrigger>
           </TabsList>
-          <TabsContent value="create">
-            <CreateForm onDone={() => onOpenChange(false)} />
+          <TabsContent value="create" className="min-h-0 flex-1 gap-0">
+            <CreateForm onDone={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} />
           </TabsContent>
-          <TabsContent value="join">
-            <JoinForm onDone={() => onOpenChange(false)} />
+          <TabsContent value="join" className="min-h-0 flex-1 gap-0">
+            <JoinForm onDone={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -54,7 +61,7 @@ export function AddServerDialog({
   );
 }
 
-function CreateForm({ onDone }: { onDone: () => void }) {
+function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const create = useCreateGuild();
@@ -82,25 +89,38 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   });
 
   return (
-    <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-      <Field id="guild-name" label="Nome do servidor" error={errors.name?.message}>
-        <Input
+    <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
+      <DialogBody>
+        <Field
           id="guild-name"
-          autoFocus
-          maxLength={100}
-          aria-invalid={!!errors.name}
-          aria-describedby={describedBy("guild-name", errors.name?.message)}
-          {...register("name")}
-        />
-      </Field>
-      <Button type="submit" className="self-end" disabled={isSubmitting}>
-        {isSubmitting ? "Criando…" : "Criar servidor"}
-      </Button>
+          label="Nome do servidor"
+          error={errors.name?.message}
+          hint="Pode ser o nome do seu grupo, da turma ou do projeto. Dá para mudar depois."
+        >
+          <Input
+            id="guild-name"
+            autoFocus
+            placeholder="Ex.: Laboratório de Go"
+            maxLength={100}
+            aria-invalid={!!errors.name}
+            aria-describedby={describedBy("guild-name", errors.name?.message, "hint")}
+            {...register("name")}
+          />
+        </Field>
+      </DialogBody>
+      <DialogActions>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button type="submit" loading={isSubmitting}>
+          Criar servidor
+        </Button>
+      </DialogActions>
     </form>
   );
 }
 
-function JoinForm({ onDone }: { onDone: () => void }) {
+function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const navigate = useNavigate();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string>();
@@ -117,27 +137,32 @@ function JoinForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-      <Field
-        id="invite-code"
-        label="Link ou código do convite"
-        error={error}
-        hint="Exemplo: https://…/invite/ab12cd34 ou ab12cd34"
-      >
-        <Input
+    <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col">
+      <DialogBody>
+        <Field
           id="invite-code"
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setError(undefined);
-          }}
-          aria-invalid={!!error}
-          aria-describedby={describedBy("invite-code", error, "hint")}
-        />
-      </Field>
-      <Button type="submit" className="self-end">
-        Continuar
-      </Button>
+          label="Link ou código do convite"
+          error={error}
+          hint="Exemplo: https://…/invite/ab12cd34 ou ab12cd34"
+        >
+          <Input
+            id="invite-code"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(undefined);
+            }}
+            aria-invalid={!!error}
+            aria-describedby={describedBy("invite-code", error, "hint")}
+          />
+        </Field>
+      </DialogBody>
+      <DialogActions>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button type="submit">Continuar</Button>
+      </DialogActions>
     </form>
   );
 }

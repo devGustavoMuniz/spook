@@ -1,8 +1,9 @@
 import { useAdminCalls } from "@spook/shared";
 import { keepPreviousData } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Camera, MonitorUp, Phone, Search, Users } from "lucide-react";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { adminTable, TableEmpty, TableSkeleton } from "@/features/admin/data-table";
 import { formatDuration, formatNumber } from "@/features/admin/format";
 import { ErrorNote, LiveStatus, PageHeader, StatCard, Unavailable } from "@/features/admin/ui";
 import { useDebounced } from "@/features/admin/use-debounced";
@@ -31,18 +32,32 @@ export function AdminCallsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
+            icon={Phone}
             label="Chamadas em andamento"
             value={d ? formatNumber(d.summary.ongoing) : "—"}
+            loading={!d}
           />
-          <StatCard label="Pessoas em chamadas" value={d ? formatNumber(d.summary.people) : "—"} />
-          <StatCard label="Câmeras ligadas" value={d ? formatNumber(d.summary.cameras) : "—"} />
           <StatCard
+            icon={Users}
+            label="Pessoas em chamadas"
+            value={d ? formatNumber(d.summary.people) : "—"}
+            loading={!d}
+          />
+          <StatCard
+            icon={Camera}
+            label="Câmeras ligadas"
+            value={d ? formatNumber(d.summary.cameras) : "—"}
+            loading={!d}
+          />
+          <StatCard
+            icon={MonitorUp}
             label="Compartilhamentos de tela"
             value={d ? formatNumber(d.summary.screens) : "—"}
+            loading={!d}
           />
         </div>
       )}
-      <div className="mt-6 rounded-xl border bg-card text-card-foreground shadow-sm">
+      <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
         <div className="relative border-b p-3">
           <Search
             className="pointer-events-none absolute top-1/2 left-6 size-4 -translate-y-1/2 text-muted-foreground"
@@ -57,13 +72,13 @@ export function AdminCallsPage() {
             className="max-w-sm pl-9"
           />
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className={adminTable.scroll}>
+          <table className={adminTable.table}>
             <caption className="sr-only">Salas de voz ativas</caption>
-            <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
+            <thead className={adminTable.thead}>
               <tr>
                 {["Servidor", "Canal", "Pessoas", "Câmeras", "Telas", "Duração"].map((h) => (
-                  <th key={h} scope="col" className="px-3 py-2 font-medium whitespace-nowrap">
+                  <th key={h} scope="col" className={adminTable.th}>
                     {h}
                   </th>
                 ))}
@@ -71,18 +86,18 @@ export function AdminCallsPage() {
             </thead>
             <tbody>
               {rooms.map((r) => (
-                <tr key={r.channel_id} className="border-b last:border-0 hover:bg-accent/40">
-                  <td className="px-3 py-2">{r.server || "Conversa direta"}</td>
-                  <td className="px-3 py-2">{r.channel}</td>
-                  <td className="px-3 py-2">
+                <tr key={r.channel_id} className={adminTable.tr}>
+                  <td className={adminTable.td}>{r.server || "Conversa direta"}</td>
+                  <td className={adminTable.td}>{r.channel}</td>
+                  <td className={adminTable.td}>
                     <span className="tabular-nums">{r.people?.length ?? 0}</span>{" "}
                     <span className="text-muted-foreground">
                       {(r.people ?? []).map((p) => `@${p}`).join(", ")}
                     </span>
                   </td>
-                  <td className="px-3 py-2 tabular-nums">{r.cameras}</td>
-                  <td className="px-3 py-2 tabular-nums">{r.screens}</td>
-                  <td className="px-3 py-2 tabular-nums">
+                  <td className={adminTable.td}>{r.cameras}</td>
+                  <td className={adminTable.td}>{r.screens}</td>
+                  <td className={adminTable.td}>
                     {r.started_at ? formatDuration(r.duration_seconds) : "—"}
                   </td>
                 </tr>
@@ -91,11 +106,11 @@ export function AdminCallsPage() {
           </table>
         </div>
         {query.isPending ? (
-          <output className="block p-4 text-sm text-muted-foreground">Carregando…</output>
+          <TableSkeleton cols={6} />
         ) : rooms.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">
+          <TableEmpty>
             {q ? "Nenhuma sala corresponde à busca." : "Nenhuma chamada em andamento."}
-          </p>
+          </TableEmpty>
         ) : null}
       </div>
     </>

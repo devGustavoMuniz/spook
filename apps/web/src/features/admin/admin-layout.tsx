@@ -1,18 +1,10 @@
 import { useGetMe } from "@spook/shared";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import {
-  ArrowLeft,
-  LayoutDashboard,
-  LogOut,
-  PanelLeft,
-  Phone,
-  Server,
-  ShieldCheck,
-  Users,
-} from "lucide-react";
+import { ArrowLeft, LayoutDashboard, LogOut, PanelLeft, Phone, Server, Users } from "lucide-react";
 import { useState } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
 import { useSessionGuard } from "@/components/app-shell";
+import { Logo } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -40,38 +32,37 @@ export function AdminLayout() {
         <button
           type="button"
           aria-label="Fechar a barra lateral"
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-[var(--z-overlay)] bg-overlay md:hidden"
           onClick={() => setOpen(false)}
         />
       ) : null}
       <aside
         id="admin-sidebar"
         aria-label="Painel de administração"
+        inert={!open}
         className={cn(
-          "z-40 flex w-60 shrink-0 flex-col border-r bg-sidebar",
-          "max-md:fixed max-md:inset-y-0 max-md:left-0",
-          open ? "" : "hidden",
+          "z-[var(--z-modal)] flex w-64 shrink-0 flex-col border-r border-border bg-sidebar",
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:shadow-xl max-md:transition-transform max-md:duration-[var(--dur-slow)] max-md:ease-[var(--ease-out)]",
+          open ? "" : "max-md:-translate-x-full max-md:shadow-none md:hidden",
         )}
       >
-        <div className="flex items-center gap-2 border-b px-4 py-4">
-          <ShieldCheck className="size-6 text-primary" aria-hidden />
+        <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
+          <Logo size={28} />
           <div className="leading-tight">
             <p className="font-semibold">Spook</p>
             <p className="text-xs text-muted-foreground">Painel de administração</p>
           </div>
         </div>
         <nav aria-label="Administração" className="flex-1 overflow-y-auto p-3">
-          <p className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Administração
-          </p>
-          <ul className="flex flex-col gap-1">
+          <p className="px-2 pb-1.5 text-xs font-medium text-muted-foreground">Administração</p>
+          <ul className="flex flex-col gap-0.5">
             {NAV.map((n) => (
               <li key={n.to}>
                 <Link
                   to={n.to}
                   activeOptions={{ exact: n.exact }}
                   onClick={() => !wide() && setOpen(false)}
-                  className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent data-[status=active]:bg-accent data-[status=active]:font-medium"
+                  className="flex min-h-10 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[status=active]:bg-brand-500/15 data-[status=active]:font-medium data-[status=active]:text-foreground data-[status=active]:shadow-[inset_2px_0_0_var(--primary)]"
                 >
                   <n.icon className="size-4" aria-hidden /> {n.label}
                 </Link>
@@ -79,14 +70,14 @@ export function AdminLayout() {
             ))}
           </ul>
         </nav>
-        <div className="flex flex-col gap-1 border-t p-3">
+        <div className="flex flex-col gap-1 border-t border-border p-3">
           <Link
             to="/"
-            className="flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+            className="flex min-h-10 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <ArrowLeft className="size-4" aria-hidden /> Voltar ao app
           </Link>
-          <div className="flex items-center justify-between gap-1 px-2 pt-1">
+          <div className="flex items-center justify-between gap-1 px-2.5 pt-1">
             <span className="min-w-0 truncate text-xs text-muted-foreground" title={me?.email}>
               @{me?.username ?? "…"}
             </span>
@@ -106,7 +97,7 @@ export function AdminLayout() {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b px-4 py-3">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface-1 px-4">
           <Button
             variant="ghost"
             size="icon"

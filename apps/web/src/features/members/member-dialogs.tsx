@@ -6,6 +6,7 @@ import {
   useRemoveGuildMemberRole,
 } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
+import { Lock, Shield } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -16,12 +17,14 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogActions,
+  DialogBody,
+  DialogClose,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  DialogHead,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { appMessage } from "@/lib/app-errors";
@@ -100,40 +103,61 @@ export function MemberRolesDialog({
     }
   }
 
+  const assignable = rolesOf(guild).filter((r) => !r.is_everyone);
   return (
     <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Cargos de {member ? memberName(member) : ""}</DialogTitle>
-          <DialogDescription>
-            Você só pode dar ou tirar cargos abaixo do seu cargo mais alto.
-          </DialogDescription>
-        </DialogHeader>
-        <ul className="flex flex-col gap-1">
-          {rolesOf(guild)
-            .filter((r) => !r.is_everyone)
-            .map((r) => {
-              const allowed = canManageRole(guild, r);
-              return (
-                <li key={r.id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
-                  <span
-                    aria-hidden
-                    className="size-3 rounded-full border"
-                    style={{ background: colorToHex(r.color) ?? "transparent" }}
-                  />
-                  <span id={`role-${r.id}`} className="min-w-0 flex-1 truncate text-sm">
-                    {r.name}
-                  </span>
-                  <Switch
-                    aria-labelledby={`role-${r.id}`}
-                    checked={has.has(r.id)}
-                    disabled={!allowed}
-                    onCheckedChange={(on) => void toggle(r.id, on)}
-                  />
-                </li>
-              );
-            })}
-        </ul>
+      <DialogContent flush size="sm" className="max-h-[min(34rem,90svh)]">
+        <DialogHead
+          icon={Shield}
+          title={`Cargos de ${member ? memberName(member) : ""}`}
+          description="Você só pode dar ou tirar cargos abaixo do seu cargo mais alto."
+        />
+        <DialogBody className="gap-0 py-2">
+          {assignable.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Este servidor ainda não tem cargos. Crie um em Configurações do servidor.
+            </p>
+          ) : (
+            <ul className="flex flex-col">
+              {assignable.map((r) => {
+                const allowed = canManageRole(guild, r);
+                return (
+                  <li
+                    key={r.id}
+                    className="flex min-h-12 items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
+                  >
+                    <span
+                      aria-hidden
+                      className="size-3.5 shrink-0 rounded-full border border-border"
+                      style={{ background: colorToHex(r.color) ?? "transparent" }}
+                    />
+                    <span id={`role-${r.id}`} className="min-w-0 flex-1 truncate text-sm">
+                      {r.name}
+                    </span>
+                    {!allowed ? (
+                      <Lock
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-label="Acima do seu cargo"
+                        role="img"
+                      />
+                    ) : null}
+                    <Switch
+                      aria-labelledby={`role-${r.id}`}
+                      checked={has.has(r.id)}
+                      disabled={!allowed}
+                      onCheckedChange={(on) => void toggle(r.id, on)}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </DialogBody>
+        <DialogActions>
+          <DialogClose asChild>
+            <Button>Concluído</Button>
+          </DialogClose>
+        </DialogActions>
       </DialogContent>
     </Dialog>
   );

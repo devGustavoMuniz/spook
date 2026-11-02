@@ -8,6 +8,7 @@ import {
 } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { ImagePlus, Trash2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -22,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { DialogBody } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -36,14 +38,15 @@ import { type Guild, initials } from "@/lib/guild";
 import { refreshGuilds, removeGuild } from "@/lib/guild-cache";
 import { type GuildNameForm, guildNameSchema, validateAvatar } from "@/lib/schemas";
 import { putWithProgress } from "@/lib/upload";
+import { useReportDirty } from "./dirty";
 
 export function GeneralTab({ guild, onClose }: { guild: Guild; onClose: () => void }) {
   return (
-    <div className="flex flex-col gap-8">
+    <DialogBody className="gap-8">
       <NameForm guild={guild} />
       <IconSection guild={guild} />
       {guild.is_owner ? <DangerZone guild={guild} onClose={onClose} /> : null}
-    </div>
+    </DialogBody>
   );
 }
 
@@ -58,6 +61,7 @@ function NameForm({ guild }: { guild: Guild }) {
     resolver: zodResolver(guildNameSchema),
     values: { name: guild.name },
   });
+  useReportDirty("guild-name", isDirty);
   const onSubmit = handleSubmit(async ({ name }) => {
     try {
       await update.mutateAsync({ guildId: guild.id, data: { name } });
@@ -78,7 +82,7 @@ function NameForm({ guild }: { guild: Guild }) {
           {...register("name")}
         />
       </Field>
-      <Button type="submit" className="self-start" disabled={isSubmitting || !isDirty}>
+      <Button type="submit" className="self-start" loading={isSubmitting} disabled={!isDirty}>
         Salvar nome
       </Button>
     </form>
@@ -136,11 +140,16 @@ function IconSection({ guild }: { guild: Guild }) {
 
   return (
     <section aria-labelledby="icon-title" className="flex flex-col gap-3">
-      <h3 id="icon-title" className="text-sm font-medium">
-        Ícone do servidor
-      </h3>
+      <div>
+        <h3 id="icon-title" className="text-sm font-semibold">
+          Ícone do servidor
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          PNG, JPEG ou WebP. Aparece na barra de servidores.
+        </p>
+      </div>
       <div className="flex flex-wrap items-center gap-4">
-        <div className="flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-secondary text-lg font-semibold">
+        <div className="flex size-20 items-center justify-center overflow-hidden rounded-2xl border border-border bg-secondary text-xl font-semibold">
           {guild.icon_url ? (
             <img src={guild.icon_url} alt="Ícone atual" className="size-full object-cover" />
           ) : (
@@ -164,11 +173,11 @@ function IconSection({ guild }: { guild: Guild }) {
               disabled={busy}
               onClick={() => fileInput.current?.click()}
             >
-              {busy ? "Enviando…" : "Trocar ícone"}
+              <ImagePlus /> {busy ? "Enviando…" : "Trocar ícone"}
             </Button>
             {guild.icon_key ? (
               <Button type="button" variant="ghost" disabled={busy} onClick={remove}>
-                Remover
+                <Trash2 /> Remover
               </Button>
             ) : null}
           </div>
@@ -233,13 +242,16 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
   return (
     <section
       aria-labelledby="danger-title"
-      className="flex flex-col gap-4 rounded-lg border border-destructive-text/40 p-4"
+      className="flex flex-col gap-5 rounded-xl border border-destructive/40 bg-danger-soft/40 p-4"
     >
-      <h3 id="danger-title" className="text-sm font-medium text-destructive-text">
-        Zona de perigo
+      <h3
+        id="danger-title"
+        className="flex items-center gap-2 text-sm font-semibold text-destructive-text"
+      >
+        <TriangleAlert className="size-4" aria-hidden /> Zona de perigo
       </h3>
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-pretty text-muted-foreground">
           Transfira a posse para outro membro. Você continua no servidor, sem os poderes de dono.
         </p>
         <div className="flex flex-wrap gap-2">
@@ -262,8 +274,8 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
           </Button>
         </div>
       </div>
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col gap-2 border-t border-destructive/20 pt-5">
+        <p className="text-sm text-pretty text-muted-foreground">
           Excluir apaga canais, cargos, convites e mensagens para todos.
         </p>
         <Button variant="destructive" className="self-start" onClick={() => setConfirmDelete(true)}>
