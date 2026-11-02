@@ -52,6 +52,7 @@ jobs:
           context: .
           file: deploy/Dockerfile
           platforms: linux/amd64
+          build-args: SPOOK_COMMIT=${{ github.sha }}
           push: true
           tags: |
             ${{ steps.ref.outputs.image }}

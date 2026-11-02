@@ -14,6 +14,9 @@ WORKDIR /repo
 COPY . .
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --filter @spook/web...
+# Sha do commit (sem .git na imagem): vai para o version.json e para o bundle (aviso de "Nova versão disponível").
+ARG SPOOK_COMMIT=
+ENV SPOOK_COMMIT=${SPOOK_COMMIT}
 RUN pnpm --filter @spook/web build
 
 # --- backend -----------------------------------------------------------------------------------

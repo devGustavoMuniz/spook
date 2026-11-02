@@ -1,7 +1,9 @@
 name: Desktop
 
 # Instaladores do app desktop (Tauri 2) para Windows, macOS e Linux. Independente do deploy do backend:
-# o deploy.yml não depende deste workflow. Sem assinatura de código (ver apps/desktop/README.md).
+# o deploy.yml não depende deste workflow. Sem assinatura de código do SO (ver apps/desktop/README.md), mas os
+# bundles de atualização são ASSINADOS com a chave do updater (secrets TAURI_SIGNING_PRIVATE_KEY e
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD) e o release rascunho leva o latest.json que o app consulta.
 on:
   workflow_dispatch:
   push:
@@ -40,12 +42,12 @@ jobs:
           - runner: macos-latest
             os_name: macos
             arch: arm64
-            bundles: dmg
+            bundles: app,dmg
             target: aarch64-apple-darwin
           - runner: macos-latest
             os_name: macos
             arch: x64
-            bundles: dmg
+            bundles: app,dmg
             target: x86_64-apple-darwin
             experimental: true
           # 24.04 (e não 22.04): o `scap` usa pipewire-rs 0.8, que exige libpipewire/libspa >= 0.3.5x (a 22.04 tem
@@ -116,9 +118,17 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BUNDLES: ${{ matrix.bundles }}
+          # Assina os bundles de atualização (.sig). Sem o secret (ex.: fork) a build segue sem eles.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           args=(--bundles "$BUNDLES")
           if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY ausente: a build não gera os bundles assinados do updater."
+            echo '{"bundle":{"createUpdaterArtifacts":false}}' > apps/desktop/src-tauri/no-updater.conf.json
+            args+=(--config src-tauri/no-updater.conf.json)
+          fi
           pnpm --filter @spook/desktop tauri build "${args[@]}"
       - name: Renomeia para Spook-<versão>-<so>-<arquitetura>
         env:
@@ -131,17 +141,28 @@ jobs:
           if [ -n "$TARGET" ]; then bundle="$root/$TARGET/release/bundle"; else bundle="$root/release/bundle"; fi
           mkdir -p installers
           shopt -s nullglob
-          for f in "$bundle"/nsis/*.exe "$bundle"/dmg/*.dmg "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage; do
-            ext="${f##*.}"
+          # Instaladores (.exe, .dmg, .deb, .AppImage) e artefatos do updater (.app.tar.gz no macOS) com suas
+          # assinaturas (.sig); o .exe e o .AppImage são, ao mesmo tempo, instalador e pacote de atualização.
+          for f in "$bundle"/nsis/*.exe "$bundle"/nsis/*.exe.sig "$bundle"/dmg/*.dmg "$bundle"/deb/*.deb \
+            "$bundle"/appimage/*.AppImage "$bundle"/appimage/*.AppImage.sig \
+            "$bundle"/macos/*.app.tar.gz "$bundle"/macos/*.app.tar.gz.sig; do
+            case "$f" in
+              *.app.tar.gz.sig) ext="app.tar.gz.sig" ;;
+              *.app.tar.gz) ext="app.tar.gz" ;;
+              *.exe.sig) ext="exe.sig" ;;
+              *.AppImage.sig) ext="AppImage.sig" ;;
+              *) ext="${f##*.}" ;;
+            esac
             out="installers/Spook-${version}-${OS_NAME}-${ARCH}.${ext}"
             cp "$f" "$out"
             echo "$f -> $out"
           done
           [ -n "$(ls installers)" ] || { echo "::error::nenhum instalador encontrado em $bundle"; find "$root" -maxdepth 4 -type d -name bundle; exit 1; }
-          # SHA-256 de cada instalador (os binários não são assinados: o usuário pode conferir o hash).
+          # SHA-256 de cada instalador (os binários não têm assinatura de código do SO: o usuário pode conferir o hash).
           node -e '
             const fs = require("fs"), c = require("crypto");
             for (const f of fs.readdirSync("installers")) {
+              if (f.endsWith(".sig") || f.endsWith(".sha256")) continue;
               const h = c.createHash("sha256").update(fs.readFileSync("installers/" + f)).digest("hex");
               fs.writeFileSync("installers/" + f + ".sha256", h + "  " + f + "\n");
             }'
@@ -152,6 +173,17 @@ jobs:
           path: installers/*
           if-no-files-found: error
           retention-days: 14
+
+  updater-manifest:
+    # Testa (sem build) a lógica que gera o latest.json do updater.
+    name: latest.json (teste)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test apps/desktop/scripts/make-latest-json.test.mjs
 
   release:
     # Só em tags desktop-v*: cria um release RASCUNHO com os instaladores (a publicação é manual).
@@ -173,6 +205,18 @@ jobs:
         run: |
           pkg="$(node -p "require('./apps/desktop/package.json').version")"
           [ "$TAG" = "desktop-v$pkg" ] || { echo "::error::a tag $TAG não bate com a versão $pkg do package.json"; exit 1; }
+      - name: Gera o latest.json do updater
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          pkg="$(node -p "require('./apps/desktop/package.json').version")"
+          # Sem os .sig (secret ausente) não há como atualizar: o release sai só com os instaladores.
+          if ls installers/*.sig >/dev/null 2>&1; then
+            node apps/desktop/scripts/make-latest-json.mjs --dir installers --version "$pkg" --tag "$TAG" \
+              --repo "$GITHUB_REPOSITORY" --notes "Spook desktop $pkg"
+          else
+            echo "::warning::nenhum .sig: latest.json não foi gerado (o app não receberá esta versão como atualização)"
+          fi
       - name: Cria o release rascunho
         env:
           GH_TOKEN: ${{ github.token }}
@@ -184,5 +228,5 @@ jobs:
           else
             gh release create "$TAG" installers/* --draft --verify-tag --repo "$GITHUB_REPOSITORY" \
               --title "Spook ${TAG#desktop-v}" \
-              --notes "Instaladores do Spook desktop. Sem assinatura de código: o Windows (SmartScreen) e o macOS (Gatekeeper) vão avisar na primeira abertura; veja apps/desktop/README.md. Confira o SHA-256 nos arquivos .sha256."
+              --notes "Instaladores do Spook desktop. Sem assinatura de código: o Windows (SmartScreen) e o macOS (Gatekeeper) vão avisar na primeira abertura; veja apps/desktop/README.md. Confira o SHA-256 nos arquivos .sha256. O latest.json é o manifesto do atualizador automático: só passa a valer quando este rascunho for PUBLICADO."
           fi

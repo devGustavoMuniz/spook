@@ -5,6 +5,8 @@
 //! A bandeja, o fechar-para-a-bandeja, o início com o sistema e o contador no ícone ficam em `shell`
 //! (lógica pura em `settings` e `badge`).
 //!
+//! Atualização automática: plugins `updater` e `process` (a lógica fica em `apps/web/src/desktop/updater.ts`).
+//!
 //! Voz, vídeo e tela nativos (Parte 7b, RF12.2) ficam no módulo `voice`: LiveKit Rust SDK + cpal + scap +
 //! nokhwa, sem WebRTC no WebView.
 
@@ -89,6 +91,10 @@ pub fn run() {
                 .arg(settings::AUTOSTART_ARG)
                 .build(),
         )
+        // Atualizações assinadas (chave pública e endpoint em `tauri.conf.json`); o webview só chama
+        // `check`/`download`/`install` (capabilities) e reinicia com o plugin de processo.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(navigation_guard())

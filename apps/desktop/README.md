@@ -49,6 +49,46 @@ A 1ª compilação baixa o libwebrtc pré-compilado (~100 MB) e leva vários min
 
 Sem a câmera nativa (a parte mais frágil da build): `cargo build --no-default-features` (feature Cargo `camera`, ligada por padrão).
 
+## Atualização automática e publicação de versões
+
+O app se atualiza sozinho com o `tauri-plugin-updater` (+ `tauri-plugin-process` para reiniciar). Quem decide é o web
+(`apps/web/src/desktop/updater.ts`); o Rust só registra os plugins. Fluxo: ao abrir (tela de abertura "Verificando
+atualizações…") e a cada 6 horas, consulta o `latest.json` do release **publicado mais recente**
+(`https://github.com/devGustavoMuniz/spook/releases/latest/download/latest.json`), baixa em segundo plano e confere a
+**assinatura** com a chave pública de `tauri.conf.json` (sem assinatura válida nada é instalado); avisa com um toast
+"Reiniciar para atualizar" e em `/settings/app` ("Atualizações"). Nunca reinicia sozinho durante uma chamada de voz
+(pede confirmação). No Linux só o **AppImage** se atualiza sozinho; quem instalou o `.deb` baixa o novo em `/download`.
+
+Capabilities (menor privilégio): `updater:allow-check`, `updater:allow-download`, `updater:allow-install` e
+`process:allow-restart` (nem `updater:default`, nem `process:default`).
+
+### Chave de assinatura do updater (uma vez)
+
+O par foi gerado com `pnpm --filter @spook/desktop tauri signer generate -w <arquivo> -p <senha>`. A **pública** está em
+`tauri.conf.json` (`plugins.updater.pubkey`); a **privada nunca entra no repositório**. Ela e a senha vão para dois secrets
+do GitHub (`gh secret set TAURI_SIGNING_PRIVATE_KEY < arquivo` e `gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
+**Guarde um backup da privada**: se ela se perder, os apps já instalados não aceitam mais atualização e todos precisam
+reinstalar à mão. Trocar a chave tem o mesmo efeito.
+
+### Publicar uma versão (passo a passo)
+
+1. Suba a versão em `apps/desktop/package.json` **e** em `apps/desktop/src-tauri/Cargo.toml` (o `tauri.conf.json` lê o
+   `package.json`; o workflow falha se os dois divergirem). O updater só oferece versões **maiores** que a instalada.
+2. Commit e push na `main`; espere o workflow **Desktop** ficar verde nas 4 plataformas.
+3. Crie e envie a tag: `git tag desktop-v<versão> && git push origin desktop-v<versão>` (precisa ser igual à versão do `package.json`).
+4. O workflow cria um release **rascunho** `Spook <versão>` com os instaladores (`Spook-<versão>-<so>-<arq>.<ext>`), os
+   `.sha256`, os `.sig` e o `latest.json`. Confira os arquivos.
+5. Em GitHub > Releases, edite o rascunho, escreva as notas e clique em **Publish release**. Só ao publicar o `latest.json`
+   passa a valer (o `releases/latest` ignora rascunhos): os apps instalados enxergam a atualização e a página `/download`
+   passa a mostrar a versão.
+6. Teste a atualização de uma versão antiga para a nova (roteiro em `VALIDACAO-MANUAL.md`, "Atualização automática do desktop").
+
+Se a build do macOS Intel (experimental) falhar, o `latest.json` sai sem `darwin-x86_64` e os Macs Intel só atualizam na
+próxima versão. Sem o secret `TAURI_SIGNING_PRIVATE_KEY` a build segue, mas sem os `.sig` (e sem `latest.json`).
+
+Verificação local sem compilar o app: `node --test apps/desktop/scripts/make-latest-json.test.mjs` (lógica do manifesto;
+o CI roda o mesmo no job "latest.json (teste)").
+
 ### Rust sem instalar nada (Docker, espelha o runner Linux)
 
 Usado na Fase 7b porque a máquina de desenvolvimento não tinha Rust. Imagem `ubuntu:24.04` com os pacotes dos passos "Dependências
