@@ -40,6 +40,327 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
+export const getDeleteScreenPreviewUrl = (channelId: string) => {
+  return `/api/channels/${channelId}/voice/screen-preview`;
+};
+
+/**
+ * @summary Apaga a prévia da própria tela (parou de transmitir ou ocultou a prévia); idempotente
+ */
+export const deleteScreenPreview = async (
+  channelId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getDeleteScreenPreviewUrl(channelId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteScreenPreviewMutationKey = () => ["deleteScreenPreview"] as const;
+
+export const getDeleteScreenPreviewMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteScreenPreview>>,
+    TError,
+    DeleteScreenPreviewMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteScreenPreview>>,
+  TError,
+  DeleteScreenPreviewMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeleteScreenPreviewMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteScreenPreview>>,
+    DeleteScreenPreviewMutationVariables
+  > = (props) => {
+    const { channelId } = props ?? {};
+
+    return deleteScreenPreview(channelId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteScreenPreviewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteScreenPreview>>
+>;
+
+export type DeleteScreenPreviewMutationError = ErrorModel;
+export type DeleteScreenPreviewMutationVariables = { channelId: string };
+
+/**
+ * @summary Apaga a prévia da própria tela (parou de transmitir ou ocultou a prévia); idempotente
+ */
+export const useDeleteScreenPreview = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteScreenPreview>>,
+      TError,
+      DeleteScreenPreviewMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteScreenPreview>>,
+  TError,
+  DeleteScreenPreviewMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeleteScreenPreviewMutationOptions(options), queryClient);
+};
+export const getPutScreenPreviewUrl = (channelId: string) => {
+  return `/api/channels/${channelId}/voice/screen-preview`;
+};
+
+/**
+ * @summary Prévia (miniatura) da tela de quem transmite: envia um JPEG (até 64 KB e 640×360) de quem está na chamada do canal e pode transmitir. Vale 45 s; renove a cada ~15 s. No máximo um envio a cada 5 s por usuário
+ */
+export const putScreenPreview = async (
+  channelId: string,
+  putScreenPreviewBody: Blob,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getPutScreenPreviewUrl(channelId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "image/jpeg", ...getHeaders(options?.headers) },
+    body: putScreenPreviewBody,
+  });
+};
+
+export const getPutScreenPreviewMutationKey = () => ["putScreenPreview"] as const;
+
+export const getPutScreenPreviewMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putScreenPreview>>,
+    TError,
+    PutScreenPreviewMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putScreenPreview>>,
+  TError,
+  PutScreenPreviewMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPutScreenPreviewMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putScreenPreview>>,
+    PutScreenPreviewMutationVariables
+  > = (props) => {
+    const { channelId, data } = props ?? {};
+
+    return putScreenPreview(channelId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutScreenPreviewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof putScreenPreview>>
+>;
+export type PutScreenPreviewMutationBody = Blob;
+export type PutScreenPreviewMutationError = ErrorModel;
+export type PutScreenPreviewMutationVariables = { channelId: string; data: Blob };
+
+/**
+ * @summary Prévia (miniatura) da tela de quem transmite: envia um JPEG (até 64 KB e 640×360) de quem está na chamada do canal e pode transmitir. Vale 45 s; renove a cada ~15 s. No máximo um envio a cada 5 s por usuário
+ */
+export const usePutScreenPreview = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof putScreenPreview>>,
+      TError,
+      PutScreenPreviewMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof putScreenPreview>>,
+  TError,
+  PutScreenPreviewMutationVariables,
+  TContext
+> => {
+  return useMutation(getPutScreenPreviewMutationOptions(options), queryClient);
+};
+export const getGetScreenPreviewUrl = (channelId: string, userId: string) => {
+  return `/api/channels/${channelId}/voice/screen-preview/${userId}`;
+};
+
+/**
+ * @summary Prévia (miniatura) da tela de quem transmite como image/jpeg (Cache-Control: no-store). Exige poder ver o canal; 404 se não há prévia (nunca enviou, ocultou ou venceu)
+ */
+export const getScreenPreview = async (
+  channelId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<Blob> => {
+  return http<Blob>(getGetScreenPreviewUrl(channelId, userId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScreenPreviewQueryKey = (channelId: string, userId: string) => {
+  return [`/api/channels/${channelId}/voice/screen-preview/${userId}`] as const;
+};
+
+export const getGetScreenPreviewQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScreenPreview>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  userId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getScreenPreview>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScreenPreviewQueryKey(channelId, userId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScreenPreview>>> = ({ signal }) =>
+    getScreenPreview(channelId, userId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled:
+      channelId !== null && channelId !== undefined && userId !== null && userId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getScreenPreview>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type GetScreenPreviewQueryResult = NonNullable<Awaited<ReturnType<typeof getScreenPreview>>>;
+export type GetScreenPreviewQueryError = ErrorModel;
+
+export function useGetScreenPreview<
+  TData = Awaited<ReturnType<typeof getScreenPreview>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  userId: string,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getScreenPreview>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getScreenPreview>>,
+          TError,
+          Awaited<ReturnType<typeof getScreenPreview>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetScreenPreview<
+  TData = Awaited<ReturnType<typeof getScreenPreview>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  userId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getScreenPreview>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getScreenPreview>>,
+          TError,
+          Awaited<ReturnType<typeof getScreenPreview>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetScreenPreview<
+  TData = Awaited<ReturnType<typeof getScreenPreview>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  userId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getScreenPreview>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Prévia (miniatura) da tela de quem transmite como image/jpeg (Cache-Control: no-store). Exige poder ver o canal; 404 se não há prévia (nunca enviou, ocultou ou venceu)
+ */
+
+export function useGetScreenPreview<
+  TData = Awaited<ReturnType<typeof getScreenPreview>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  userId: string,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getScreenPreview>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetScreenPreviewQueryOptions(channelId, userId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getCreateVoiceTokenUrl = (channelId: string) => {
   return `/api/channels/${channelId}/voice/token`;
 };

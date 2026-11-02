@@ -576,3 +576,131 @@ func TestVoiceReconcilerRemovesOrphansAndRegistersMissing(t *testing.T) {
 		t.Fatalf("participante desconhecido deveria ser registrado: %v", p)
 	}
 }
+
+// ---------- prévia da transmissão ----------
+
+// doRaw faz a requisição com um corpo binário (a prévia é image/jpeg, não JSON).
+func (a *actor) doRaw(t *testing.T, method, path, contentType string, body []byte) (*http.Response, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest(method, a.e.srv.URL+path, bytes.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, b
+}
+
+// testJPEG é um JPEG só de marcadores (a API valida sem decodificar) com as dimensões dadas.
+func testJPEG(w, h, pad int) []byte {
+	b := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x4A, 0x46,
+		0xFF, 0xC0, 0x00, 0x11, 0x08, byte(h >> 8), byte(h), byte(w >> 8), byte(w), 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+		0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00}
+	b = append(b, bytes.Repeat([]byte{0x11}, pad)...)
+	return append(b, 0xFF, 0xD9)
+}
+
+func TestVoiceScreenPreviewEndpoints(t *testing.T) {
+	lkf := newFakeLiveKit(t)
+	e := newEnvWith(t, voiceCfg(lkf))
+	owner, alice, bob, blind, stranger := e.newActor(t, "dono"), e.newActor(t, "alice"), e.newActor(t, "bob"), e.newActor(t, "cego"), e.newActor(t, "estranho")
+	g := owner.createGuild(t, "Prévia")
+	base := "/api/guilds/" + g.id
+	// @everyone não enxerga nada; "membro" vê e conecta; "ouvinte" só vê (sem VIDEO).
+	owner.call(t, "PATCH", base+"/roles/"+g.id, J{"permissions": int64(perm.SendMessages)}, 200)
+	vis := owner.role(t, g.id, J{"name": "membro", "position": 1, "permissions": int64(perm.ViewChannel | perm.Connect | perm.Speak | perm.Video)})
+	viewer := owner.role(t, g.id, J{"name": "ouvinte", "position": 2, "permissions": int64(perm.ViewChannel | perm.Connect | perm.Speak)})
+	for _, u := range []*actor{alice, bob, blind} {
+		u.join(t, owner, g.id)
+	}
+	owner.giveRole(t, g.id, alice.id, str(vis, "id"))
+	owner.giveRole(t, g.id, bob.id, str(viewer, "id"))
+	oc, _ := owner.connectReady(t)
+
+	path := "/api/channels/" + g.voiceID + "/voice/screen-preview"
+	img := testJPEG(320, 180, 800)
+
+	// 401 sem sessão (PUT, DELETE e GET).
+	for _, m := range []string{"PUT", "DELETE"} {
+		resp, b := e.do(t, m, path, nil, nil)
+		status(t, resp, b, 401)
+	}
+	resp, b := e.do(t, "GET", path+"/"+alice.id, nil, nil)
+	status(t, resp, b, 401)
+
+	// Fora do canal: 403. Quem não vê o canal: 404.
+	resp, b = alice.doRaw(t, "PUT", path, "image/jpeg", img)
+	status(t, resp, b, 403)
+	resp, b = blind.doRaw(t, "PUT", path, "image/jpeg", img)
+	status(t, resp, b, 404)
+
+	alice.voiceToken(t, g.voiceID, 200)
+	e.lkJoin(t, g.voiceID, alice)
+	if s := e.lkEvent(t, "track_published", g.voiceID, alice, func(ev *lk.WebhookEvent) { ev.Track = &lk.TrackInfo{Sid: "TR_S", Source: lk.TrackSource_SCREEN_SHARE} }); s != 200 {
+		t.Fatal(s)
+	}
+	bob.voiceToken(t, g.voiceID, 200)
+	e.lkJoin(t, g.voiceID, bob)
+
+	// Sem VIDEO (bob está na chamada, mas sem permissão de transmitir): 403.
+	resp, b = bob.doRaw(t, "PUT", path, "image/jpeg", img)
+	status(t, resp, b, 403)
+
+	// Corpo inválido: não é JPEG, dimensões grandes, maior que 64 KB (413).
+	resp, b = alice.doRaw(t, "PUT", path, "image/jpeg", []byte("\x89PNG\r\n\x1a\n...."))
+	status(t, resp, b, 422)
+	resp, b = alice.doRaw(t, "PUT", path, "image/jpeg", testJPEG(1280, 720, 10))
+	status(t, resp, b, 422)
+	resp, b = alice.doRaw(t, "PUT", path, "image/jpeg", testJPEG(320, 180, 70<<10))
+	status(t, resp, b, 413)
+
+	// Envio válido: 204 e o VOICE_STATE_UPDATE passa a trazer screen_preview.
+	resp, b = alice.doRaw(t, "PUT", path, "image/jpeg", img)
+	status(t, resp, b, 204)
+	for {
+		if p := oc.voiceUpdateFor(alice.id); p["screen_preview"] == true {
+			if p["self_screen"] != true {
+				t.Fatalf("payload = %v", p)
+			}
+			break
+		}
+	}
+	// Limite de frequência: o segundo envio logo em seguida leva 429 com Retry-After.
+	resp, b = alice.doRaw(t, "PUT", path, "image/jpeg", img)
+	status(t, resp, b, 429)
+	if resp.Header.Get("Retry-After") == "" {
+		t.Fatal("429 sem Retry-After")
+	}
+
+	// Leitura: quem vê o canal (na chamada ou não) recebe o JPEG sem cache; sem acesso, 404; usuário sem prévia, 404.
+	for _, who := range []*actor{owner, bob} {
+		resp, b = who.doRaw(t, "GET", path+"/"+alice.id, "", nil)
+		status(t, resp, b, 200)
+		if resp.Header.Get("Content-Type") != "image/jpeg" || resp.Header.Get("Cache-Control") != "no-store" || !bytes.Equal(b, img) {
+			t.Fatalf("GET: tipo=%q cache=%q bytes=%d", resp.Header.Get("Content-Type"), resp.Header.Get("Cache-Control"), len(b))
+		}
+	}
+	for _, who := range []*actor{blind, stranger} {
+		resp, b = who.doRaw(t, "GET", path+"/"+alice.id, "", nil)
+		status(t, resp, b, 404)
+	}
+	resp, b = owner.doRaw(t, "GET", path+"/"+bob.id, "", nil)
+	status(t, resp, b, 404)
+	resp, b = owner.doRaw(t, "GET", path+"/abc", "", nil)
+	status(t, resp, b, 404)
+
+	// DELETE apaga (idempotente), a leitura passa a dar 404 e o indicador desliga.
+	alice.call(t, "DELETE", path, nil, 204)
+	resp, b = owner.doRaw(t, "GET", path+"/"+alice.id, "", nil)
+	status(t, resp, b, 404)
+	for {
+		if p := oc.voiceUpdateFor(alice.id); p["screen_preview"] == false {
+			break
+		}
+	}
+	alice.call(t, "DELETE", path, nil, 204)
+}

@@ -12,6 +12,9 @@ import type {
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
+/** `at` (ms) permite vencer o pedido; `nonce` distingue dois pedidos iguais seguidos. */
+export type FocusRequest = { userId: string; source: "screen"; at: number; nonce: number };
+
 export type VoiceSession = {
   status: VoiceStatus;
   channelId: string | null;
@@ -27,6 +30,13 @@ export type VoiceSession = {
   muteBeforeDeaf: boolean;
   camera: boolean;
   screen: boolean;
+  /** Estou enviando a prévia (miniatura) da minha tela: a opção "Mostrar prévia para o canal" ligada. */
+  screenPreview: boolean;
+  /**
+   * Pedido de pôr a tela de alguém em foco no palco ("Assistir transmissão"). O palco consome (e zera) quando a
+   * tela chega; se não chegar em ~10 s, o pedido vence e é descartado.
+   */
+  focusRequest: FocusRequest | null;
   speaking: ReadonlySet<string>;
   videoTracks: VideoTrackInfo[];
   quality: LinkQuality;
@@ -56,6 +66,8 @@ const initial: VoiceSession = {
   muteBeforeDeaf: false,
   camera: false,
   screen: false,
+  screenPreview: false,
+  focusRequest: null,
   speaking: new Set(),
   videoTracks: [],
   quality: "unknown",
@@ -74,6 +86,8 @@ export const useVoiceStore = create<VoiceSession & Actions>()((set) => ({
       confirmed: false,
       camera: false,
       screen: false,
+      screenPreview: false,
+      // `focusRequest` sobrevive: "Assistir" entra no canal e pede o foco antes de a sala conectar.
       speaking: new Set(),
       videoTracks: [],
       quality: "unknown",

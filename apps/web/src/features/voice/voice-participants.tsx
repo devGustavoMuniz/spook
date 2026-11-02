@@ -4,14 +4,24 @@ import { useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { cn } from "@/lib/utils";
 import { PersonVolumeButton, PersonVolumePanel } from "./person-volume";
+import { StreamCard, type WatchAction } from "./stream-card";
 import type { PersonLookup } from "./use-person-lookup";
 
 /** Ícones de estado de um participante (mudo, surdo, câmera, tela), com texto para leitores de tela. */
-export function VoiceFlags({ state, className }: { state: VoiceStatePayload; className?: string }) {
+export function VoiceFlags({
+  state,
+  className,
+  hideScreen,
+}: {
+  state: VoiceStatePayload;
+  className?: string;
+  /** O ícone de tela já aparece em outro lugar (o cartão da transmissão). */
+  hideScreen?: boolean;
+}) {
   const icon = "size-3.5 shrink-0";
   return (
     <span className={cn("flex items-center gap-1 text-muted-foreground", className)}>
-      {state.self_screen ? (
+      {state.self_screen && !hideScreen ? (
         <MonitorUp
           className={cn(icon, "text-primary")}
           role="img"
@@ -44,12 +54,15 @@ export function VoiceParticipants({
   lookup,
   speaking,
   size = 24,
+  watch,
   className,
 }: {
   participants: VoiceStatePayload[];
   lookup: PersonLookup;
   speaking?: ReadonlySet<string>;
   size?: number;
+  /** Habilita o cartão "Assistir transmissão" em quem está compartilhando a tela. */
+  watch?: WatchAction;
   className?: string;
 }) {
   const { data: me } = useGetMe();
@@ -63,6 +76,18 @@ export function VoiceParticipants({
         const person = lookup(p.user_id);
         const talking = !!speaking?.has(p.user_id);
         const adjustable = inMyCall && !!me && p.user_id !== me.id;
+        const streaming = !!watch && p.self_screen && !!me && p.user_id !== me.id;
+        const nameEl = (
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              talking ? "font-medium text-foreground" : "group-hover:text-foreground",
+            )}
+          >
+            {person.name}
+            {talking ? <span className="sr-only"> (falando)</span> : null}
+          </span>
+        );
         return (
           <li
             key={p.user_id}
@@ -85,16 +110,14 @@ export function VoiceParticipants({
                   />
                 ) : null}
               </span>
-              <span
-                className={cn(
-                  "min-w-0 flex-1 truncate",
-                  talking ? "font-medium text-foreground" : "group-hover:text-foreground",
-                )}
-              >
-                {person.name}
-                {talking ? <span className="sr-only"> (falando)</span> : null}
-              </span>
-              <VoiceFlags state={p} />
+              {streaming && watch ? (
+                <StreamCard state={p} name={person.name} watch={watch}>
+                  {nameEl}
+                </StreamCard>
+              ) : (
+                nameEl
+              )}
+              <VoiceFlags state={p} hideScreen={streaming} />
               {adjustable ? (
                 <PersonVolumeButton
                   userId={p.user_id}

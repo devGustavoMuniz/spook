@@ -268,7 +268,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		})
 	}
 	voiceSvc := voice.NewService(voice.Deps{
-		Provider: voiceProv, Store: voicememory.New(), Pub: bus,
+		Provider: voiceProv, Store: voicememory.New(), Previews: voicememory.NewPreviews(), Pub: bus,
 		Access: voiceAccess{channels: channelSvc, guilds: guildSvc}, Users: voiceUsers{users: userSvc},
 	})
 	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam

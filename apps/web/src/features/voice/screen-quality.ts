@@ -1,55 +1,31 @@
-// Qualidade do compartilhamento de tela: presets, estimativa de banda e persistência. Sem dependência de
-// livekit-client (o mapeamento para as opções da lib mora em `web-engine.ts`); o desktop pode reutilizar a tabela.
+// Qualidade do compartilhamento de tela: resolução + taxa de quadros (como no Discord), estimativa de banda e
+// persistência. Sem dependência de livekit-client (o mapeamento para as opções da lib mora em `web-engine.ts`);
+// o desktop reutiliza a tabela.
 import type { ScreenShareQuality } from "./engine";
-
-export type QualityPresetId = "sharp" | "balanced" | "smooth" | "high";
-
-export type QualityPreset = {
-  id: QualityPresetId;
-  label: string;
-  hint: string;
-  quality: ScreenShareQuality;
-};
-
-/**
- * O PADRÃO é "Nitidez" (1080p, 15 fps): é exatamente o que o livekit-client já publicava (`h1080fps15`, 2,5 Mbps),
- * então quem não mexe em nada não muda de comportamento. As demais são escolha explícita.
- */
-export const QUALITY_PRESETS: readonly QualityPreset[] = [
-  {
-    id: "sharp",
-    label: "Nitidez — 1080p 15 fps",
-    hint: "Texto, código e apresentações. O mais leve dos Full HD.",
-    quality: { height: 1080, fps: 15, priority: "detail" },
-  },
-  {
-    id: "balanced",
-    label: "Equilibrado — 1080p 30 fps",
-    hint: "Uso geral, com movimento razoável. Usa o dobro da banda do padrão.",
-    quality: { height: 1080, fps: 30, priority: "motion" },
-  },
-  {
-    id: "smooth",
-    label: "Fluidez — 720p 60 fps",
-    hint: "Jogos e vídeos. Imagem menor, movimento suave. Pesa no processador.",
-    quality: { height: 720, fps: 60, priority: "motion" },
-  },
-  {
-    id: "high",
-    label: "Alta — 1440p 30 fps",
-    hint: "Tela grande e detalhada. Pesada para quem transmite e para o servidor.",
-    quality: { height: 1440, fps: 30, priority: "detail" },
-  },
-];
-
-export const DEFAULT_SCREEN_QUALITY: ScreenShareQuality = {
-  height: 1080,
-  fps: 15,
-  priority: "detail",
-};
 
 export const SCREEN_HEIGHTS = [720, 1080, 1440] as const;
 export const SCREEN_FPS = [15, 30, 60] as const;
+
+/** O que o usuário escolhe no diálogo: só resolução e quadros por segundo. */
+export type ScreenChoice = Pick<ScreenShareQuality, "height" | "fps">;
+
+/**
+ * Padrão 1080p/30 fps (5 Mbps na tabela, o mesmo preset `h1080fps30` do livekit-client). O do Discord é 720p/30;
+ * 1080p/30 custa mais banda (2x o antigo 1080p/15) mas texto e código ficam legíveis, e a tabela já o suporta.
+ */
+export const DEFAULT_SCREEN_CHOICE: ScreenChoice = { height: 1080, fps: 30 };
+
+/** A prioridade não é escolha do usuário: até 15 fps é conteúdo estático (detalhe); acima disso, movimento. */
+export function priorityFor(fps: ScreenChoice["fps"]): ScreenShareQuality["priority"] {
+  return fps <= 15 ? "detail" : "motion";
+}
+
+/** Escolha do usuário -> contrato da engine (a prioridade é derivada; o teto de banda vem da tabela). */
+export function qualityOf(c: ScreenChoice): ScreenShareQuality {
+  return { height: c.height, fps: c.fps, priority: priorityFor(c.fps) };
+}
+
+export const DEFAULT_SCREEN_QUALITY: ScreenShareQuality = qualityOf(DEFAULT_SCREEN_CHOICE);
 
 /** Teto de subida padrão (kbps) por altura e fps. Os valores de 720p/1080p até 30 fps são os do livekit-client. */
 const BASE_KBPS: Record<ScreenShareQuality["height"], Record<ScreenShareQuality["fps"], number>> = {
@@ -69,61 +45,42 @@ export function formatKbps(kbps: number): string {
   return `${(kbps / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} Mbps`;
 }
 
-/** Acima do padrão em custo? (mais banda, mais fps ou mais pixels que o 1080p 15 fps). */
-export function isHeavy(q: ScreenShareQuality): boolean {
-  return (
-    estimateUplinkKbps(q) > estimateUplinkKbps(DEFAULT_SCREEN_QUALITY) ||
-    q.fps > DEFAULT_SCREEN_QUALITY.fps ||
-    q.height > DEFAULT_SCREEN_QUALITY.height
-  );
-}
-
-export function presetIdOf(q: ScreenShareQuality): QualityPresetId | null {
-  return (
-    QUALITY_PRESETS.find(
-      (p) =>
-        p.quality.height === q.height &&
-        p.quality.fps === q.fps &&
-        p.quality.priority === q.priority &&
-        q.maxBitrateKbps === undefined,
-    )?.id ?? null
-  );
+/** Escolhas que pesam em processador e banda (1440p ou 60 fps): o diálogo avisa. */
+export function isHeavy(q: ScreenChoice): boolean {
+  return q.height >= 1440 || q.fps >= 60;
 }
 
 // ---- Persistência (localStorage; try/catch: indisponível = vale só nesta sessão) ----
 
+/**
+ * Chave antiga: guardava o objeto `ScreenShareQuality` inteiro (do tempo dos presets "Nitidez/Equilibrado/...").
+ * Só `height` e `fps` valem hoje; o resto (prioridade e teto de banda) é derivado. Quem já tinha uma escolha
+ * continua com a mesma resolução e fps, sem perder nada; o próximo `saveScreenQuality` regrava no formato novo.
+ */
 const KEY = "spook:voice-screen-quality";
 
 const isOf = <T extends number>(list: readonly T[], v: unknown): v is T =>
   list.some((x) => x === v);
 
-export function loadScreenQuality(): ScreenShareQuality {
+export function loadScreenChoice(): ScreenChoice {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Record<string, unknown>;
-    const q: ScreenShareQuality = {
-      height: isOf(SCREEN_HEIGHTS, raw.height) ? raw.height : DEFAULT_SCREEN_QUALITY.height,
-      fps: isOf(SCREEN_FPS, raw.fps) ? raw.fps : DEFAULT_SCREEN_QUALITY.fps,
-      priority:
-        raw.priority === "motion" || raw.priority === "detail"
-          ? raw.priority
-          : DEFAULT_SCREEN_QUALITY.priority,
+    return {
+      height: isOf(SCREEN_HEIGHTS, raw.height) ? raw.height : DEFAULT_SCREEN_CHOICE.height,
+      fps: isOf(SCREEN_FPS, raw.fps) ? raw.fps : DEFAULT_SCREEN_CHOICE.fps,
     };
-    if (
-      typeof raw.maxBitrateKbps === "number" &&
-      raw.maxBitrateKbps >= 300 &&
-      raw.maxBitrateKbps <= 20000
-    )
-      q.maxBitrateKbps = Math.round(raw.maxBitrateKbps);
-    return q;
   } catch {
-    return { ...DEFAULT_SCREEN_QUALITY };
+    return { ...DEFAULT_SCREEN_CHOICE };
   }
 }
 
-export function saveScreenQuality(q: ScreenShareQuality) {
+export function saveScreenChoice(c: ScreenChoice) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(q));
+    localStorage.setItem(KEY, JSON.stringify({ height: c.height, fps: c.fps }));
   } catch {
     // armazenamento indisponível: vale só nesta sessão
   }
 }
+
+export const loadScreenQuality = (): ScreenShareQuality => qualityOf(loadScreenChoice());
+export const saveScreenQuality = (q: ScreenShareQuality) => saveScreenChoice(q);

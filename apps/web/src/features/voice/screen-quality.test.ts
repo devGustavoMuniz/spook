@@ -1,40 +1,58 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_SCREEN_CHOICE,
   DEFAULT_SCREEN_QUALITY,
   estimateUplinkKbps,
   formatKbps,
   isHeavy,
+  loadScreenChoice,
   loadScreenQuality,
-  presetIdOf,
-  QUALITY_PRESETS,
+  priorityFor,
+  qualityOf,
+  SCREEN_FPS,
+  SCREEN_HEIGHTS,
+  saveScreenChoice,
   saveScreenQuality,
 } from "./screen-quality";
 
 beforeEach(() => localStorage.clear());
 
-describe("qualidade da tela: presets e estimativa", () => {
-  it("o padrão é o que o livekit-client já publicava (1080p, 15 fps, 2,5 Mbps) e não é 'pesado'", () => {
-    expect(DEFAULT_SCREEN_QUALITY).toEqual({ height: 1080, fps: 15, priority: "detail" });
-    expect(estimateUplinkKbps(DEFAULT_SCREEN_QUALITY)).toBe(2500);
-    expect(isHeavy(DEFAULT_SCREEN_QUALITY)).toBe(false);
-    expect(presetIdOf(DEFAULT_SCREEN_QUALITY)).toBe("sharp");
+describe("qualidade da tela: resolução e taxa de quadros", () => {
+  it("o padrão é 1080p/30 fps (5 Mbps na tabela) e não é 'pesado'", () => {
+    expect(DEFAULT_SCREEN_CHOICE).toEqual({ height: 1080, fps: 30 });
+    expect(DEFAULT_SCREEN_QUALITY).toEqual({ height: 1080, fps: 30, priority: "motion" });
+    expect(estimateUplinkKbps(DEFAULT_SCREEN_QUALITY)).toBe(5000);
+    expect(isHeavy(DEFAULT_SCREEN_CHOICE)).toBe(false);
   });
 
-  it("os quatro presets nomeados existem e os maiores são marcados como pesados", () => {
-    expect(QUALITY_PRESETS.map((p) => p.label)).toEqual([
-      "Nitidez — 1080p 15 fps",
-      "Equilibrado — 1080p 30 fps",
-      "Fluidez — 720p 60 fps",
-      "Alta — 1440p 30 fps",
-    ]);
-    expect(QUALITY_PRESETS.map((p) => isHeavy(p.quality))).toEqual([false, true, true, true]);
+  it("as opções são as do Discord: 720p, 1080p, 1440p e 15, 30, 60 fps", () => {
+    expect([...SCREEN_HEIGHTS]).toEqual([720, 1080, 1440]);
+    expect([...SCREEN_FPS]).toEqual([15, 30, 60]);
   });
 
-  it("o teto manual de bitrate manda na estimativa; qualquer ajuste manual deixa de ser preset", () => {
-    const q = { ...DEFAULT_SCREEN_QUALITY, maxBitrateKbps: 1200 };
-    expect(estimateUplinkKbps(q)).toBe(1200);
-    expect(presetIdOf(q)).toBeNull();
-    expect(presetIdOf({ ...DEFAULT_SCREEN_QUALITY, fps: 30 })).toBeNull();
+  it("a prioridade é derivada: até 15 fps é detalhe; acima, movimento", () => {
+    expect(priorityFor(15)).toBe("detail");
+    expect(priorityFor(30)).toBe("motion");
+    expect(priorityFor(60)).toBe("motion");
+    expect(qualityOf({ height: 1440, fps: 15 })).toEqual({
+      height: 1440,
+      fps: 15,
+      priority: "detail",
+    });
+  });
+
+  it("a tabela de banda cobre todas as combinações e o teto manual (quando existe) manda", () => {
+    for (const h of SCREEN_HEIGHTS)
+      for (const f of SCREEN_FPS)
+        expect(estimateUplinkKbps(qualityOf({ height: h, fps: f }))).toBeGreaterThan(0);
+    expect(estimateUplinkKbps({ ...DEFAULT_SCREEN_QUALITY, maxBitrateKbps: 1200 })).toBe(1200);
+    expect(estimateUplinkKbps(qualityOf({ height: 720, fps: 15 }))).toBe(1500);
+  });
+
+  it("1440p e 60 fps são marcados como pesados", () => {
+    expect(isHeavy({ height: 1440, fps: 30 })).toBe(true);
+    expect(isHeavy({ height: 720, fps: 60 })).toBe(true);
+    expect(isHeavy({ height: 1080, fps: 15 })).toBe(false);
   });
 
   it("formata a banda", () => {
@@ -44,27 +62,42 @@ describe("qualidade da tela: presets e estimativa", () => {
 });
 
 describe("qualidade da tela: persistência", () => {
-  it("sem nada salvo, usa o padrão conservador", () => {
+  it("sem nada salvo, usa o padrão", () => {
+    expect(loadScreenChoice()).toEqual(DEFAULT_SCREEN_CHOICE);
     expect(loadScreenQuality()).toEqual(DEFAULT_SCREEN_QUALITY);
   });
 
-  it("salva e relê", () => {
-    saveScreenQuality({ height: 1440, fps: 30, priority: "motion", maxBitrateKbps: 6000 });
-    expect(loadScreenQuality()).toEqual({
+  it("salva só resolução e fps e relê (a prioridade é derivada)", () => {
+    saveScreenChoice({ height: 1440, fps: 15 });
+    expect(JSON.parse(localStorage.getItem("spook:voice-screen-quality") ?? "")).toEqual({
       height: 1440,
-      fps: 30,
-      priority: "motion",
-      maxBitrateKbps: 6000,
+      fps: 15,
+    });
+    expect(loadScreenQuality()).toEqual({ height: 1440, fps: 15, priority: "detail" });
+  });
+
+  it("migra a chave antiga (preset completo com prioridade e teto) para os campos novos", () => {
+    localStorage.setItem(
+      "spook:voice-screen-quality",
+      JSON.stringify({ height: 720, fps: 60, priority: "detail", maxBitrateKbps: 6000 }),
+    );
+    expect(loadScreenChoice()).toEqual({ height: 720, fps: 60 });
+    // a prioridade antiga (detail) e o teto manual (6000) são ignorados: derivados do fps e da tabela
+    expect(loadScreenQuality()).toEqual({ height: 720, fps: 60, priority: "motion" });
+    saveScreenQuality(loadScreenQuality());
+    expect(JSON.parse(localStorage.getItem("spook:voice-screen-quality") ?? "")).toEqual({
+      height: 720,
+      fps: 60,
     });
   });
 
   it("valores inválidos voltam ao padrão, campo a campo", () => {
     localStorage.setItem(
       "spook:voice-screen-quality",
-      JSON.stringify({ height: 4320, fps: 30, priority: "x", maxBitrateKbps: 99999 }),
+      JSON.stringify({ height: 4320, fps: 60, priority: "x" }),
     );
-    expect(loadScreenQuality()).toEqual({ ...DEFAULT_SCREEN_QUALITY, fps: 30 });
+    expect(loadScreenChoice()).toEqual({ height: 1080, fps: 60 });
     localStorage.setItem("spook:voice-screen-quality", "lixo");
-    expect(loadScreenQuality()).toEqual(DEFAULT_SCREEN_QUALITY);
+    expect(loadScreenChoice()).toEqual(DEFAULT_SCREEN_CHOICE);
   });
 });

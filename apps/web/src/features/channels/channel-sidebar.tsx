@@ -31,7 +31,7 @@ import { NotificationMenuItems } from "@/features/notifications/notification-men
 import { useReadStateStore } from "@/features/notifications/read-state";
 import { effective, useNotificationSettings } from "@/features/notifications/settings";
 import { UserPanel } from "@/features/presence/user-panel";
-import { joinVoice } from "@/features/voice/controller";
+import { joinVoice, watchStream } from "@/features/voice/controller";
 import { voicePermissions } from "@/features/voice/permissions";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "@/features/voice/store";
 import { usePersonLookup } from "@/features/voice/use-person-lookup";
@@ -269,6 +269,24 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
             participants={participantsOf(voiceStates, c.id)}
             lookup={lookup}
             speaking={mine.channelId === c.id ? mine.speaking : undefined}
+            watch={{
+              canConnect: perms.connect || (mine.channelId === c.id && mine.status !== "idle"),
+              onWatch: (userId) => {
+                void navigate({
+                  to: "/channels/$guildId/$channelId",
+                  params: { guildId: guild.id, channelId: c.id },
+                });
+                void watchStream(
+                  {
+                    channelId: c.id,
+                    guildId: guild.id,
+                    channelName: c.name,
+                    canSpeak: perms.speak,
+                  },
+                  userId,
+                );
+              },
+            }}
             className="mt-0.5 mb-1 ml-5 border-l pl-1"
           />
         ) : null}

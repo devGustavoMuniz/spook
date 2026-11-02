@@ -31,6 +31,7 @@ import {
 import { createVoiceEngine } from "./engine-provider";
 import { mediaMessage } from "./media-errors";
 import { effectiveVolume, personVolumeOf, useParticipantVolumeStore } from "./participant-volume";
+import { startScreenPreview } from "./screen-preview";
 import { loadScreenQuality, saveScreenQuality } from "./screen-quality";
 import {
   useAudioStatusStore,
@@ -59,6 +60,10 @@ let unsubs: Unsubscribe[] = [];
 let generation = 0;
 let lastTarget: JoinTarget | null = null;
 let rejoinTimer: ReturnType<typeof setTimeout> | undefined;
+/** Envio da prévia da minha tela (ver `syncScreenPreview`); `previewChannel` é o canal para o qual está ligado. */
+let stopPreview: ((remote?: boolean) => void) | null = null;
+let previewChannel: string | null = null;
+let focusNonce = 0;
 
 const session = () => useVoiceStore.getState();
 
@@ -88,6 +93,7 @@ function ensureEngine(): VoiceEngine {
     e.on("input-level", (l) => useInputLevelStore.getState().set(l)),
     e.on("mic-test", (s) => useMicTestStore.getState().set(s)),
     e.on("disconnected", ({ reason }) => onDisconnected(reason)),
+    useVoiceStore.subscribe(syncScreenPreview),
   ];
   return e;
 }
@@ -116,6 +122,7 @@ export function resetVoiceController() {
   clearTimeout(rejoinTimer);
   for (const u of unsubs) u();
   unsubs = [];
+  stopScreenPreview(false);
   engine = null;
   lastTarget = null;
   useVoiceStore.getState().reset();
@@ -311,11 +318,26 @@ export async function toggleCamera() {
  * carregar a voz dos outros da chamada e eles se ouviriam de volta (eco). Quem decide é o diálogo de
  * compartilhar (`audio`), que também guarda a escolha.
  */
-export async function toggleScreenShare(opts?: { audio?: boolean; quality?: ScreenShareQuality }) {
+export async function toggleScreenShare(opts?: {
+  audio?: boolean;
+  quality?: ScreenShareQuality;
+  /** Enviar a prévia (miniatura) da tela ao canal; ausente = a última escolha (padrão: ligada). */
+  preview?: boolean;
+}) {
   if (session().status === "idle" || !engine) return;
   const on = !session().screen;
-  const audio = on && (opts?.audio ?? loadScreenSharePrefs().audio);
-  if (on && opts?.audio !== undefined) saveScreenSharePrefs({ audio: opts.audio });
+  const prefs = loadScreenSharePrefs();
+  const audio = on && (opts?.audio ?? prefs.audio);
+  if (on && (opts?.audio !== undefined || opts?.preview !== undefined))
+    saveScreenSharePrefs({
+      ...(opts.audio !== undefined ? { audio: opts.audio } : {}),
+      ...(opts.preview !== undefined ? { preview: opts.preview } : {}),
+    });
+  // Só engines que conseguem capturar um quadro da tela enviam a prévia (o desktop declara `false`).
+  const preview =
+    on &&
+    (opts?.preview ?? prefs.preview) &&
+    engine.audioCapabilities?.screenSharePreview !== false;
   // Só engines que declaram a capacidade recebem a qualidade (o app desktop ainda não a aplica).
   const quality =
     on && engine.audioCapabilities?.screenShareQuality
@@ -324,10 +346,57 @@ export async function toggleScreenShare(opts?: { audio?: boolean; quality?: Scre
   if (on && opts?.quality) saveScreenQuality(opts.quality);
   try {
     await engine.setScreenShareEnabled(on, quality ? { audio, quality } : { audio });
-    session().patch({ screen: on, mediaIssue: null });
+    session().patch({ screen: on, screenPreview: preview, mediaIssue: null });
   } catch (err) {
     reportMediaIssue(err);
   }
+}
+
+/** Liga/desliga o envio da prévia com a tela já compartilhada (desligar apaga a prévia no servidor). */
+export function setScreenPreview(enabled: boolean) {
+  const s = session();
+  if (!s.screen || engine?.audioCapabilities?.screenSharePreview === false) return;
+  s.patch({ screenPreview: enabled });
+  saveScreenSharePrefs({ preview: enabled });
+}
+
+function stopScreenPreview(remote = true) {
+  stopPreview?.(remote);
+  stopPreview = null;
+  previewChannel = null;
+}
+
+/** Mantém o envio da prévia em sincronia com o estado: só com a tela ligada, a opção ligada e a sala conectada. */
+function syncScreenPreview() {
+  const s = session();
+  const channel = s.screen && s.screenPreview && s.status === "connected" ? s.channelId : null;
+  if (channel === previewChannel) return;
+  stopScreenPreview();
+  if (!channel) return;
+  previewChannel = channel;
+  stopPreview = startScreenPreview(
+    channel,
+    () => session().videoTracks.find((t) => t.local && t.kind === "screen")?.source,
+  );
+}
+
+/**
+ * "Assistir transmissão": põe a tela de `userId` em foco no palco. Se não estou nesse canal, entra nele (o foco
+ * espera a sala conectar e a tela chegar, até ~10 s). Devolve `false` se não deu para entrar.
+ */
+export async function watchStream(target: JoinTarget, userId: string): Promise<boolean> {
+  session().patch({
+    focusRequest: { userId, source: "screen", at: Date.now(), nonce: ++focusNonce },
+  });
+  const s = session();
+  if (s.channelId === target.channelId && s.status !== "idle") return true;
+  return joinVoice(target);
+}
+
+/** O pedido de foco foi atendido ou venceu. */
+export function clearFocusRequest(nonce?: number) {
+  const cur = session().focusRequest;
+  if (cur && (nonce === undefined || cur.nonce === nonce)) session().patch({ focusRequest: null });
 }
 
 export async function resumeAudio() {

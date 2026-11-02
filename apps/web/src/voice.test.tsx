@@ -366,6 +366,69 @@ describe("chamada em DM", () => {
   });
 });
 
+describe("assistir transmissão (cartão na lista de canais)", () => {
+  const SHARING = [voiceState("50", VOICE, { self_screen: true })];
+  const DM = "dm1";
+  function seedDm(st: Backend["state"]) {
+    st.guilds.push(guild("g1", "Alfa", { permissions: FULL }));
+    st.dms.push(dm(DM, [recipient(ME, "ana"), recipient("50", "bia")]));
+  }
+
+  it("fora do canal: entra, abre o palco e põe a tela dele em foco quando o vídeo chega", async () => {
+    const user = userEvent.setup();
+    const { nav, state } = await open(FULL, SHARING);
+    await user.click(await within(nav).findByRole("button", { name: "Ver a transmissão de bia" }));
+    const card = screen.getByRole("dialog", { name: "Transmissão de bia" });
+    expect(card).toHaveTextContent("Tela de bia");
+    await user.click(within(card).getByRole("button", { name: /Assistir transmissão/ }));
+    const bar = await screen.findByRole("region", { name: "Controles de voz" });
+    await within(bar).findByText("Voz conectada");
+    expect(state.voice.tokensFor).toEqual([VOICE]);
+    expect(useVoiceStore.getState().focusRequest).toMatchObject({ userId: "50", source: "screen" });
+    // a tela só chega depois de a sala conectar: o pedido espera e então foca
+    act(() => void fake.videoTrack("t-screen", "50", "screen"));
+    expect(await screen.findByRole("list", { name: "Em destaque" })).toBeInTheDocument();
+    expect(useVoiceStore.getState().focusRequest).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Transmissão de bia" })).toBeNull();
+  });
+
+  it("já no canal: só foca a tela (sem novo token)", async () => {
+    const user = userEvent.setup();
+    const { nav, state } = await open(FULL, SHARING);
+    await user.click(voiceButton(nav));
+    await within(await screen.findByRole("region", { name: "Controles de voz" })).findByText(
+      "Voz conectada",
+    );
+    act(() => void fake.videoTrack("t-screen", "50", "screen"));
+    expect(screen.queryByRole("list", { name: "Em destaque" })).toBeNull();
+    await user.click(await within(nav).findByRole("button", { name: "Ver a transmissão de bia" }));
+    await user.click(screen.getByRole("button", { name: /Assistir transmissão/ }));
+    expect(await screen.findByRole("list", { name: "Em destaque" })).toBeInTheDocument();
+    expect(state.voice.tokensFor).toEqual([VOICE]);
+  });
+
+  it("sem CONNECT o botão fica desabilitado, com o motivo", async () => {
+    const user = userEvent.setup();
+    const { nav } = await open(BASE, SHARING);
+    await user.click(await within(nav).findByRole("button", { name: "Ver a transmissão de bia" }));
+    const btn = screen.getByRole("button", { name: /Assistir transmissão/ });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAccessibleDescription(/não tem permissão para entrar/);
+  });
+
+  it("DM: a chamada em andamento também tem o cartão e Assistir entra na chamada", async () => {
+    const user = userEvent.setup();
+    const app = await renderApp(`/channels/@me/${DM}`, { signedIn: true, seed: seedDm });
+    const sock = await connectGateway(app.state.guilds, "s1", { private_channels: app.state.dms });
+    serverSends(sock, "VOICE_STATE_UPDATE", 2, voiceState("50", DM, { self_screen: true }));
+    await user.click(await screen.findByRole("button", { name: "Ver a transmissão de bia" }));
+    await user.click(screen.getByRole("button", { name: /Assistir transmissão/ }));
+    expect(await screen.findByRole("region", { name: "Controles de voz" })).toBeInTheDocument();
+    expect(app.state.voice.tokensFor).toEqual([DM]);
+    expect(useVoiceStore.getState().focusRequest).toMatchObject({ userId: "50" });
+  });
+});
+
 describe("volume por pessoa na lista de conectados", () => {
   async function enter(caps: FakeVoiceEngine["audioCapabilities"]) {
     fake.audioCapabilities = caps;

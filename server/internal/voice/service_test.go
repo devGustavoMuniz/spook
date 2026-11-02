@@ -158,6 +158,7 @@ type env struct {
 	acc  *fakeAccess
 	pub  *recorder
 	st   *memory.Store
+	pv   *memory.Previews
 	clk  *clock
 }
 
@@ -176,9 +177,9 @@ func full() voice.ChannelAccess {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{prov: newProvider(), acc: newAccess(), pub: &recorder{}, st: memory.New(),
+	e := &env{prov: newProvider(), acc: newAccess(), pub: &recorder{}, st: memory.New(), pv: memory.NewPreviews(),
 		clk: &clock{t: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)}}
-	e.svc = voice.NewService(voice.Deps{Provider: e.prov, Store: e.st, Access: e.acc, Users: fakeUsers{}, Pub: e.pub, Now: e.clk.now})
+	e.svc = voice.NewService(voice.Deps{Provider: e.prov, Store: e.st, Previews: e.pv, Access: e.acc, Users: fakeUsers{}, Pub: e.pub, Now: e.clk.now})
 	for _, u := range []int64{alice, bob} {
 		e.acc.set(u, voiceA, full())
 		e.acc.set(u, voiceB, func() voice.ChannelAccess { a := full(); return a }())

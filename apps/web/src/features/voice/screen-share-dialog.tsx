@@ -13,138 +13,13 @@ import { audioCapabilities, listDevices } from "./controller";
 import { loadDevicePrefs, loadScreenSharePrefs } from "./devices";
 import { outputLooksLikeHeadphones } from "./echo-risk";
 import type { ScreenShareQuality } from "./engine";
-import {
-  estimateUplinkKbps,
-  formatKbps,
-  isHeavy,
-  loadScreenQuality,
-  presetIdOf,
-  QUALITY_PRESETS,
-  SCREEN_FPS,
-  SCREEN_HEIGHTS,
-} from "./screen-quality";
-
-/** Qualidade: presets nomeados + opções avançadas, com a estimativa de banda e o aviso de custo. */
-function QualityPicker({
-  quality,
-  onChange,
-}: {
-  quality: ScreenShareQuality;
-  onChange: (q: ScreenShareQuality) => void;
-}) {
-  const presetId = presetIdOf(quality);
-  const kbps = estimateUplinkKbps(quality);
-  const set = (patch: Partial<ScreenShareQuality>) => {
-    const { maxBitrateKbps: _drop, ...rest } = { ...quality, ...patch };
-    onChange(rest);
-  };
-  return (
-    <fieldset className="flex flex-col gap-1.5">
-      <legend className="mb-1 text-sm font-medium">Qualidade</legend>
-      {QUALITY_PRESETS.map((p) => {
-        const id = `screen-quality-${p.id}`;
-        return (
-          <label
-            key={p.id}
-            htmlFor={id}
-            className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
-          >
-            <input
-              id={id}
-              type="radio"
-              name="screen-quality"
-              className="mt-1 accent-primary"
-              checked={presetId === p.id}
-              aria-describedby={`${id}-hint`}
-              onChange={() => onChange({ ...p.quality })}
-            />
-            <span className="flex flex-col">
-              <span>{p.label}</span>
-              <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-                {p.hint}
-              </span>
-            </span>
-          </label>
-        );
-      })}
-      <details className="rounded-md border px-3 py-2 text-sm" open={presetId === null}>
-        <summary className="cursor-pointer">
-          Opções avançadas{presetId === null ? " (personalizada)" : ""}
-        </summary>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-xs" htmlFor="screen-quality-height">
-            Resolução
-            <select
-              id="screen-quality-height"
-              value={quality.height}
-              onChange={(e) =>
-                set({ height: Number(e.target.value) as ScreenShareQuality["height"] })
-              }
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              {SCREEN_HEIGHTS.map((h) => (
-                <option key={h} value={h}>
-                  {h}p
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs" htmlFor="screen-quality-fps">
-            Quadros por segundo
-            <select
-              id="screen-quality-fps"
-              value={quality.fps}
-              onChange={(e) => set({ fps: Number(e.target.value) as ScreenShareQuality["fps"] })}
-              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-            >
-              {SCREEN_FPS.map((f) => (
-                <option key={f} value={f}>
-                  {f} fps
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="col-span-2 flex flex-col gap-1">
-            <legend className="mb-1 text-xs">Prioridade quando a rede aperta</legend>
-            {(
-              [
-                ["detail", "Priorizar nitidez", "mantém a resolução e baixa os quadros"],
-                ["motion", "Priorizar fluidez", "mantém os quadros e baixa a resolução"],
-              ] as const
-            ).map(([value, label, hint]) => (
-              <label key={value} className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="screen-priority"
-                  className="accent-primary"
-                  checked={quality.priority === value}
-                  onChange={() => set({ priority: value })}
-                />
-                <span>
-                  {label} <span className="text-xs text-muted-foreground">({hint})</span>
-                </span>
-              </label>
-            ))}
-          </fieldset>
-        </div>
-      </details>
-      <p className="text-xs text-muted-foreground">
-        Banda de subida estimada: até {formatKbps(kbps)} por espectador no pior caso (o uso real
-        costuma ser menor).
-      </p>
-      {isHeavy(quality) ? (
-        <output className="block rounded-md border border-destructive/40 px-3 py-2 text-xs">
-          Qualidade acima do padrão: gasta mais processador e internet de quem transmite e mais
-          banda do servidor, que é pequeno. Se a chamada engasgar, volte para Nitidez 1080p 15 fps.
-        </output>
-      ) : null}
-    </fieldset>
-  );
-}
+import { loadScreenChoice, qualityOf } from "./screen-quality";
+import { ScreenQualityFields } from "./screen-share-fields";
 
 /**
- * Antes de abrir o seletor de tela do navegador/SO: pergunta se o áudio vai junto. Começa DESLIGADO porque o
- * áudio da tela/janela costuma incluir a voz dos outros da chamada, que se ouviriam de volta (eco).
+ * Antes de abrir o seletor de tela do navegador/SO, como no Discord: resolução e taxa de quadros, se o áudio vai
+ * junto e se o canal vê uma prévia (miniatura) da tela. O áudio começa DESLIGADO porque o som da tela/janela costuma
+ * incluir a voz dos outros da chamada, que se ouviriam de volta (eco); a prévia começa LIGADA.
  */
 export function ScreenShareDialog({
   open,
@@ -153,21 +28,26 @@ export function ScreenShareDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (opts: { audio: boolean; quality?: ScreenShareQuality }) => void;
+  onConfirm: (opts: { audio: boolean; quality?: ScreenShareQuality; preview?: boolean }) => void;
 }) {
   const [audio, setAudio] = useState(false);
-  const [quality, setQuality] = useState(loadScreenQuality);
+  const [preview, setPreview] = useState(true);
+  const [choice, setChoice] = useState(loadScreenChoice);
   const [headphones, setHeadphones] = useState<boolean | null>(null);
   // O app desktop ainda não captura o áudio do sistema: sem a opção, também não há laço de eco por compartilhar.
   const caps = audioCapabilities();
   const noSystemAudio = caps.screenShareAudio === false;
   const canTuneQuality = caps.screenShareQuality === true;
+  // O desktop não consegue capturar um quadro da tela para a miniatura.
+  const canPreview = caps.screenSharePreview !== false;
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    setAudio(loadScreenSharePrefs().audio);
-    setQuality(loadScreenQuality());
+    const prefs = loadScreenSharePrefs();
+    setAudio(prefs.audio);
+    setPreview(prefs.preview);
+    setChoice(loadScreenChoice());
     void listDevices("audiooutput").then((outs) => {
       if (alive) setHeadphones(outputLooksLikeHeadphones(outs, loadDevicePrefs().audiooutput));
     });
@@ -182,9 +62,17 @@ export function ScreenShareDialog({
         <DialogHead
           icon={ScreenShare}
           title="Compartilhar tela"
-          description="Escolha se o som do que você vai mostrar também vai para a chamada."
+          description="Escolha a qualidade e o que vai junto com a imagem."
         />
         <DialogBody>
+          {canTuneQuality ? (
+            <ScreenQualityFields idPrefix="screen-share" choice={choice} onChange={setChoice} />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              A qualidade da imagem é automática neste app: ainda não dá para escolher resolução ou
+              quadros por segundo.
+            </p>
+          )}
           {noSystemAudio ? (
             <p className="text-sm">
               O app de computador ainda não envia o som do computador na tela compartilhada, só a
@@ -216,14 +104,25 @@ export function ScreenShareDialog({
               ) : null}
             </>
           )}
-          {canTuneQuality ? (
-            <QualityPicker quality={quality} onChange={setQuality} />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              A qualidade da imagem é automática neste app: ainda não dá para escolher resolução ou
-              quadros por segundo.
-            </p>
-          )}
+          <div className="flex items-start gap-3">
+            <input
+              id="screen-share-preview"
+              type="checkbox"
+              className="mt-1 size-4 shrink-0 accent-primary disabled:cursor-not-allowed"
+              checked={canPreview && preview}
+              disabled={!canPreview}
+              aria-describedby="screen-share-preview-hint"
+              onChange={(e) => setPreview(e.target.checked)}
+            />
+            <div className="flex flex-col text-sm">
+              <label htmlFor="screen-share-preview">Mostrar prévia para o canal</label>
+              <span id="screen-share-preview-hint" className="text-xs text-muted-foreground">
+                {canPreview
+                  ? "Quem está no servidor vê uma miniatura da sua tela antes de entrar na transmissão. Desligue para conteúdo sensível."
+                  : "Indisponível no app para computador."}
+              </span>
+            </div>
+          </div>
         </DialogBody>
         <DialogActions>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -232,11 +131,11 @@ export function ScreenShareDialog({
           <Button
             onClick={() => {
               onOpenChange(false);
-              onConfirm(
-                canTuneQuality
-                  ? { audio: audio && !noSystemAudio, quality }
-                  : { audio: audio && !noSystemAudio },
-              );
+              onConfirm({
+                audio: audio && !noSystemAudio,
+                ...(canTuneQuality ? { quality: qualityOf(choice) } : {}),
+                ...(canPreview ? { preview } : {}),
+              });
             }}
           >
             Compartilhar

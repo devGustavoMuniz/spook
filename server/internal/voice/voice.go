@@ -113,6 +113,7 @@ type State struct {
 	SelfDeaf  bool
 	Video     bool
 	Screen    bool
+	Preview   bool // há prévia da tela guardada (PreviewStore)
 	CanSpeak  bool // últimas permissões aplicadas no LiveKit
 	CanVideo  bool
 	JoinedAt  time.Time
@@ -124,6 +125,7 @@ func (s State) Payload() StatePayload {
 	p := StatePayload{
 		ChannelID: &ch, UserID: httpx.ID(s.UserID),
 		SelfMute: s.SelfMute, SelfDeaf: s.SelfDeaf, SelfVideo: s.Video, SelfScreen: s.Screen,
+		ScreenPreview: s.Preview,
 	}
 	if s.GuildID != 0 {
 		g := httpx.ID(s.GuildID)
@@ -134,20 +136,21 @@ func (s State) Payload() StatePayload {
 
 // StatePayload é o dado do VOICE_STATE_UPDATE e dos snapshots. channel_id nulo = saiu da voz.
 type StatePayload struct {
-	GuildID    *string `json:"guild_id" doc:"Nulo em DM"`
-	ChannelID  *string `json:"channel_id" doc:"Nulo quando o usuário saiu da voz"`
-	UserID     string  `json:"user_id"`
-	SelfMute   bool    `json:"self_mute"`
-	SelfDeaf   bool    `json:"self_deaf"`
-	SelfVideo  bool    `json:"self_video" doc:"Câmera ligada"`
-	SelfScreen bool    `json:"self_screen" doc:"Compartilhando a tela"`
+	GuildID       *string `json:"guild_id" doc:"Nulo em DM"`
+	ChannelID     *string `json:"channel_id" doc:"Nulo quando o usuário saiu da voz"`
+	UserID        string  `json:"user_id"`
+	SelfMute      bool    `json:"self_mute"`
+	SelfDeaf      bool    `json:"self_deaf"`
+	SelfVideo     bool    `json:"self_video" doc:"Câmera ligada"`
+	SelfScreen    bool    `json:"self_screen" doc:"Compartilhando a tela"`
+	ScreenPreview bool    `json:"screen_preview" doc:"Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id}"`
 }
 
 // leftPayload é o evento de saída do estado s.
 func leftPayload(s State) StatePayload {
 	p := s.Payload()
 	p.ChannelID = nil
-	p.SelfVideo, p.SelfScreen = false, false
+	p.SelfVideo, p.SelfScreen, p.ScreenPreview = false, false, false
 	return p
 }
 

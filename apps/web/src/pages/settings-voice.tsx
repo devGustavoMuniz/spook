@@ -15,7 +15,9 @@ import {
   loadAudioProcessing,
   loadDevicePrefs,
   loadScreenSharePrefs,
+  loadViewStreamPreviews,
   saveScreenSharePrefs,
+  saveViewStreamPreviews,
 } from "@/features/voice/devices";
 import type {
   AudioCapabilities,
@@ -23,18 +25,14 @@ import type {
   DeviceInfo,
   DeviceKind,
   NoiseSuppressionLevel,
-  ScreenShareQuality,
 } from "@/features/voice/engine";
 import { MicTestSection } from "@/features/voice/mic-test-section";
 import {
-  estimateUplinkKbps,
-  formatKbps,
-  isHeavy,
-  loadScreenQuality,
-  presetIdOf,
-  QUALITY_PRESETS,
-  saveScreenQuality,
+  loadScreenChoice,
+  type ScreenChoice,
+  saveScreenChoice,
 } from "@/features/voice/screen-quality";
+import { ScreenQualityFields } from "@/features/voice/screen-share-fields";
 import { useAudioStatusStore, useVoiceStore } from "@/features/voice/store";
 
 const FIELDS: { kind: DeviceKind; label: string }[] = [
@@ -221,14 +219,14 @@ export function VoiceSettingsPage() {
 }
 
 function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
-  const [quality, setQuality] = useState(loadScreenQuality);
+  const [choice, setChoice] = useState(loadScreenChoice);
   const [audio, setAudio] = useState(() => loadScreenSharePrefs().audio);
+  const [viewPreviews, setViewPreviews] = useState(loadViewStreamPreviews);
   const canTune = caps.screenShareQuality === true;
   const noSystemAudio = caps.screenShareAudio === false;
-  const presetId = presetIdOf(quality);
-  const choose = (q: ScreenShareQuality) => {
-    setQuality(q);
-    saveScreenQuality(q);
+  const pick = (c: ScreenChoice) => {
+    setChoice(c);
+    saveScreenChoice(c);
   };
   return (
     <SettingsGroup
@@ -237,33 +235,7 @@ function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
       description="Valores iniciais de quando você compartilhar a tela. Você ainda pode ajustar na hora."
     >
       {canTune ? (
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-sm font-medium">Qualidade</legend>
-          {QUALITY_PRESETS.map((p) => (
-            <ChoiceCard
-              key={p.id}
-              id={`screen-quality-${p.id}`}
-              name="screen-quality"
-              checked={presetId === p.id}
-              onChange={() => choose({ ...p.quality })}
-              title={p.label}
-              hint={p.hint}
-            />
-          ))}
-          {presetId === null ? (
-            <Hint>Qualidade personalizada em uso (ajustada ao compartilhar).</Hint>
-          ) : null}
-          <Hint>
-            Banda de subida estimada: até {formatKbps(estimateUplinkKbps(quality))} por espectador
-            no pior caso (o uso real costuma ser menor).
-          </Hint>
-          {isHeavy(quality) ? (
-            <output className="block rounded-lg border border-destructive/40 px-3 py-2 text-xs">
-              Qualidade acima do padrão: gasta mais processador e internet de quem transmite e mais
-              banda do servidor. Se a chamada engasgar, volte para Nitidez 1080p 15 fps.
-            </output>
-          ) : null}
-        </fieldset>
+        <ScreenQualityFields idPrefix="settings-screen" choice={choice} onChange={pick} />
       ) : (
         <Hint>
           A qualidade da imagem é automática neste app: ainda não dá para escolher resolução ou
@@ -286,6 +258,20 @@ function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
           />
         </SettingRow>
       )}
+      <SettingRow
+        htmlFor="view-stream-previews"
+        label="Mostrar prévias das transmissões"
+        hint="Mostra a miniatura da tela de quem está transmitindo ao passar o mouse sobre o ícone de tela, antes de entrar. Desligado, o cartão traz só o botão de assistir."
+      >
+        <Switch
+          id="view-stream-previews"
+          checked={viewPreviews}
+          onCheckedChange={(on) => {
+            setViewPreviews(on);
+            saveViewStreamPreviews(on);
+          }}
+        />
+      </SettingRow>
     </SettingsGroup>
   );
 }

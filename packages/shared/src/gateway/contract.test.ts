@@ -55,6 +55,7 @@ describe("fixtures do gateway", () => {
         self_deaf: false,
         self_video: true,
         self_screen: false,
+        screen_preview: false,
       },
     ]);
     // Fase 6b: read_states (só canais com não lidas ou menções; array, nunca null)
@@ -124,7 +125,12 @@ describe("fixtures do gateway", () => {
     const frame = dispatchFrameSchema("VOICE_STATE_UPDATE").parse(
       fixtures.dispatch.VOICE_STATE_UPDATE,
     );
-    expect(frame.d).toMatchObject({ channel_id: "301", self_mute: true, self_video: true });
+    expect(frame.d).toMatchObject({
+      channel_id: "301",
+      self_mute: true,
+      self_video: true,
+      screen_preview: false,
+    });
     // Saída da voz: channel_id nulo. DM: guild_id nulo.
     const left = { ...frame.d, channel_id: null };
     const inDm = { ...frame.d, guild_id: null, channel_id: "500" };
@@ -133,6 +139,9 @@ describe("fixtures do gateway", () => {
     // Campo faltando (ex.: self_screen) é violação de contrato.
     const { self_screen: _s, ...broken } = frame.d;
     expect(eventSchemas.VOICE_STATE_UPDATE.safeParse(broken).success).toBe(false);
+    // screen_preview é adicional: um servidor anterior que não o manda segue válido (padrão: sem prévia).
+    const { screen_preview: _p, ...old } = frame.d;
+    expect(eventSchemas.VOICE_STATE_UPDATE.parse(old)).toMatchObject({ screen_preview: false });
   });
 
   it("o fixture cobre todos os eventos do schema (e só eles)", () => {

@@ -121,6 +121,12 @@ export type AudioCapabilities = {
   /** Qualidade do compartilhamento de tela (`setScreenShareEnabled(..., { quality })`). Ausente = não ajustável. */
   screenShareQuality?: boolean;
   /**
+   * A engine permite capturar um quadro da tela compartilhada para a prévia da transmissão (miniatura enviada ao
+   * servidor). Ausente = sim (a web desenha o vídeo num canvas); o desktop declara `false`: o vídeo da tela vem
+   * do Rust e ainda não há quadro acessível ao WebView.
+   */
+  screenSharePreview?: boolean;
+  /**
    * O vídeo remoto pode ir para uma janela flutuante (Picture-in-Picture). A engine web declara `true` quando o
    * navegador suporta; a nativa (vídeo em `<canvas>`) declara `false`.
    */

@@ -5,7 +5,7 @@ import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { resetVoiceController } from "./controller";
 import { saveDevicePref, saveScreenSharePrefs } from "./devices";
 import { setVoiceEngineFactory } from "./engine-provider";
-import { saveScreenQuality } from "./screen-quality";
+import { saveScreenChoice } from "./screen-quality";
 import { ScreenShareDialog } from "./screen-share-dialog";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
@@ -33,7 +33,7 @@ describe("ScreenShareDialog", () => {
     const onConfirm = vi.fn();
     render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
     await user.click(await screen.findByRole("button", { name: "Compartilhar" }));
-    expect(onConfirm).toHaveBeenCalledWith({ audio: false });
+    expect(onConfirm).toHaveBeenCalledWith({ audio: false, preview: true });
   });
 
   it("incluir áudio é uma escolha explícita", async () => {
@@ -42,7 +42,7 @@ describe("ScreenShareDialog", () => {
     render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
     await user.click(await screen.findByRole("switch", { name: /Incluir áudio/ }));
     await user.click(screen.getByRole("button", { name: "Compartilhar" }));
-    expect(onConfirm).toHaveBeenCalledWith({ audio: true });
+    expect(onConfirm).toHaveBeenCalledWith({ audio: true, preview: true });
   });
 
   it("lembra a última escolha", async () => {
@@ -86,94 +86,167 @@ describe("ScreenShareDialog", () => {
     expect(await screen.findByText(/só a imagem/)).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: /Incluir áudio/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Compartilhar" }));
-    expect(onConfirm).toHaveBeenCalledWith({ audio: false });
+    expect(onConfirm).toHaveBeenCalledWith({ audio: false, preview: true });
   });
 });
 
 describe("ScreenShareDialog: qualidade", () => {
-  function withQuality() {
+  function withQuality(extra: { screenSharePreview?: boolean } = {}) {
     const eng = new FakeVoiceEngine();
-    eng.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
+    eng.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true, ...extra };
     setVoiceEngineFactory(() => eng);
   }
 
-  it("engine sem a capacidade (desktop por enquanto): sem controles e explica com honestidade", async () => {
+  it("engine sem a capacidade: sem seletores e explica com honestidade", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
     expect(await screen.findByText(/qualidade da imagem é automática/)).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Qualidade" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Resolução" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Compartilhar" }));
-    expect(onConfirm).toHaveBeenCalledWith({ audio: false }); // sem `quality`
+    expect(onConfirm).toHaveBeenCalledWith({ audio: false, preview: true }); // sem `quality`
   });
 
-  it("lista os presets nomeados; o padrão é Nitidez 1080p 15 fps e não mostra aviso de custo", async () => {
+  it("é um bloco simples: Resolução, Taxa de quadros, áudio e prévia; sem presets nem opções avançadas", async () => {
     withQuality();
     render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
-    const group = await screen.findByRole("group", { name: "Qualidade" });
-    const radios = within(group).getAllByRole("radio", { name: /—/ });
-    expect(radios.map((r) => r.getAttribute("id"))).toEqual([
-      "screen-quality-sharp",
-      "screen-quality-balanced",
-      "screen-quality-smooth",
-      "screen-quality-high",
-    ]);
-    expect(await screen.findByRole("radio", { name: /^Nitidez — 1080p 15 fps/ })).toBeChecked();
-    expect(screen.getByText(/Banda de subida estimada: até 2,5 Mbps/)).toBeInTheDocument();
-    expect(screen.queryByRole("status")).toBeNull();
+    const res = await screen.findByRole("radiogroup", { name: "Resolução" });
+    expect(
+      within(res)
+        .getAllByRole("radio")
+        .map((r) => r.getAttribute("value")),
+    ).toEqual(["720", "1080", "1440"]);
+    const fps = screen.getByRole("radiogroup", { name: "Taxa de quadros" });
+    expect(
+      within(fps)
+        .getAllByRole("radio")
+        .map((r) => r.getAttribute("value")),
+    ).toEqual(["15", "30", "60"]);
+    expect(screen.getByRole("switch", { name: /Incluir áudio/ })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Mostrar prévia para o canal" })).toBeChecked();
+    expect(screen.queryByText(/Nitidez|Equilibrado|Fluidez|Opções avançadas/)).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Priorizar/ })).toBeNull();
   });
 
-  it("escolher um preset maior mostra a estimativa nova e o aviso de CPU/banda; confirmar manda e persiste", async () => {
+  it("o padrão é 1080p/30 fps, sem aviso de custo, e confirma com a prioridade derivada", async () => {
     withQuality();
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
-    await user.click(await screen.findByRole("radio", { name: /^Alta — 1440p 30 fps/ }));
-    expect(screen.getByText(/até 7 Mbps/)).toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: "1080p" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "30 fps" })).toBeChecked();
+    expect(screen.getByText(/Banda de subida: até 5 Mbps/)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Compartilhar" }));
+    expect(onConfirm).toHaveBeenCalledWith({
+      audio: false,
+      quality: { height: 1080, fps: 30, priority: "motion" },
+      preview: true,
+    });
+  });
+
+  it("fps até 15 vira prioridade 'detail'; 1440p/60 fps mostram o aviso de custo e a estimativa nova", async () => {
+    withQuality();
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
+    await user.click(await screen.findByRole("radio", { name: "1440p" }));
+    await user.click(screen.getByRole("radio", { name: "15 fps" }));
+    expect(screen.getByText(/até 4 Mbps/)).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "60 fps" }));
+    expect(screen.getByText(/até 12 Mbps/)).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(
       /processador e internet de quem transmite/,
     );
+    await user.click(screen.getByRole("radio", { name: "15 fps" }));
     await user.click(screen.getByRole("button", { name: "Compartilhar" }));
     expect(onConfirm).toHaveBeenCalledWith({
       audio: false,
-      quality: { height: 1440, fps: 30, priority: "detail" },
+      quality: { height: 1440, fps: 15, priority: "detail" },
+      preview: true,
     });
   });
 
-  it("opções avançadas: resolução, fps e prioridade; vira 'personalizada' e a estimativa acompanha", async () => {
+  it("lembra a última escolha de resolução e fps", async () => {
     withQuality();
+    saveScreenChoice({ height: 720, fps: 60 });
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    expect(await screen.findByRole("radio", { name: "720p" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "60 fps" })).toBeChecked();
+  });
+
+  it("migra a chave antiga de preset: mesma resolução e fps, sem quebrar", async () => {
+    withQuality();
+    localStorage.setItem(
+      "spook:voice-screen-quality",
+      JSON.stringify({ height: 1440, fps: 30, priority: "detail", maxBitrateKbps: 6000 }),
+    );
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    expect(await screen.findByRole("radio", { name: "1440p" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "30 fps" })).toBeChecked();
+  });
+
+  it("os seletores se operam pelo teclado (setas)", async () => {
+    withQuality();
+    const user = userEvent.setup();
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    const r1080 = await screen.findByRole("radio", { name: "1080p" });
+    r1080.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("radio", { name: "1440p" })).toBeChecked();
+  });
+});
+
+describe("ScreenShareDialog: prévia para o canal", () => {
+  it("vem ligada, explica a privacidade e a escolha é lembrada para a próxima vez", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
+    const { unmount } = render(
+      <ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />,
+    );
+    const box = await screen.findByRole("checkbox", { name: "Mostrar prévia para o canal" });
+    expect(box).toBeChecked();
+    expect(box).toHaveAccessibleDescription(
+      "Quem está no servidor vê uma miniatura da sua tela antes de entrar na transmissão. Desligue para conteúdo sensível.",
+    );
+    await user.click(box);
+    expect(box).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Compartilhar" }));
+    expect(onConfirm).toHaveBeenCalledWith({ audio: false, preview: false });
+    // A persistência é do controlador (`toggleScreenShare`); o diálogo lê o que ficou salvo.
+    saveScreenSharePrefs({ preview: false });
+    unmount();
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    expect(await screen.findByRole("checkbox", { name: /prévia para o canal/ })).not.toBeChecked();
+  });
+
+  it("registro antigo (só com áudio) ganha a prévia ligada", async () => {
+    localStorage.setItem("spook:voice-screen-share", JSON.stringify({ audio: true }));
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    expect(await screen.findByRole("checkbox", { name: /prévia para o canal/ })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /Incluir áudio/ })).toBeChecked();
+  });
+
+  it("no app de computador (sem a capacidade) o campo vem desabilitado, explica e não manda `preview`", async () => {
+    const user = userEvent.setup();
+    const eng = new FakeVoiceEngine();
+    eng.audioCapabilities = {
+      strongNoiseSuppression: true,
+      screenShareAudio: false,
+      screenShareQuality: true,
+      screenSharePreview: false,
+    };
+    setVoiceEngineFactory(() => eng);
+    const onConfirm = vi.fn();
     render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
-    await user.click(await screen.findByText(/Opções avançadas/));
-    await user.selectOptions(screen.getByLabelText("Resolução"), "720");
-    await user.selectOptions(screen.getByLabelText("Quadros por segundo"), "60");
-    await user.click(screen.getByRole("radio", { name: /Priorizar fluidez/ }));
-    expect(screen.getByText(/\(personalizada\)|Opções avançadas/)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /^Fluidez — 720p 60 fps/ })).toBeChecked(); // coincide com o preset
-    expect(screen.getByText(/até 3,5 Mbps/)).toBeInTheDocument();
+    const box = await screen.findByRole("checkbox", { name: "Mostrar prévia para o canal" });
+    expect(box).toBeDisabled();
+    expect(box).not.toBeChecked();
+    expect(box).toHaveAccessibleDescription("Indisponível no app para computador.");
     await user.click(screen.getByRole("button", { name: "Compartilhar" }));
     expect(onConfirm).toHaveBeenCalledWith({
       audio: false,
-      quality: { height: 720, fps: 60, priority: "motion" },
+      quality: { height: 1080, fps: 30, priority: "motion" },
     });
-  });
-
-  it("lembra a última qualidade escolhida", async () => {
-    withQuality();
-    saveScreenQuality({ height: 1080, fps: 30, priority: "motion" });
-    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
-    expect(await screen.findByRole("radio", { name: /^Equilibrado/ })).toBeChecked();
-  });
-
-  it("os presets se operam pelo teclado (setas) e cada um tem descrição", async () => {
-    withQuality();
-    const user = userEvent.setup();
-    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
-    const sharp = await screen.findByRole("radio", { name: /^Nitidez/ });
-    expect(sharp).toHaveAccessibleDescription(/Texto, código e apresentações/);
-    sharp.focus();
-    await user.keyboard("{ArrowDown}");
-    expect(screen.getByRole("radio", { name: /^Equilibrado/ })).toBeChecked();
   });
 });

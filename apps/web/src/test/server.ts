@@ -97,6 +97,12 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       stateBodies: [] as { self_mute: boolean; self_deaf: boolean }[],
       stateStatus: 200,
       leaves: 0,
+      /** Prévia da tela: envios (PUT), apagamentos (DELETE) e as prévias servidas (GET) por "canal/usuário". */
+      previewPuts: [] as { channelId: string; type: string | null; size: number }[],
+      previewDeletes: [] as string[],
+      previewGets: [] as string[],
+      previews: {} as Record<string, number[] | undefined>,
+      previewPutStatus: 204,
     },
   };
   const nextId = () => String(state.nextId++);
@@ -294,6 +300,31 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           guild_id: null,
           self_video: false,
           self_screen: false,
+          screen_preview: false,
+        });
+      }),
+      http.put("*/api/channels/:channelId/voice/screen-preview", async ({ params, request }) => {
+        const body = await request.arrayBuffer();
+        state.voice.previewPuts.push({
+          channelId: params.channelId as string,
+          type: request.headers.get("content-type"),
+          size: body.byteLength,
+        });
+        if (state.voice.previewPutStatus !== 204)
+          return problem(state.voice.previewPutStatus, "não deu");
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.delete("*/api/channels/:channelId/voice/screen-preview", ({ params }) => {
+        state.voice.previewDeletes.push(params.channelId as string);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get("*/api/channels/:channelId/voice/screen-preview/:userId", ({ params }) => {
+        const key = `${params.channelId}/${params.userId}`;
+        state.voice.previewGets.push(key);
+        const bytes = state.voice.previews[key];
+        if (!bytes) return problem(404, "prévia da transmissão não encontrada");
+        return new HttpResponse(new Uint8Array(bytes), {
+          headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store" },
         });
       }),
       http.post("*/api/voice/leave", () => {

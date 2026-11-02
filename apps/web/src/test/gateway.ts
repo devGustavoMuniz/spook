@@ -63,6 +63,7 @@ export function voiceState(
     self_deaf: false,
     self_video: false,
     self_screen: false,
+    screen_preview: false,
     ...extra,
   };
 }

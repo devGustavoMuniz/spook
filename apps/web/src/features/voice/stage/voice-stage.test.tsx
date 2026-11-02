@@ -48,6 +48,7 @@ const state = (user_id: string, extra: Partial<VoiceStatePayload> = {}): VoiceSt
   self_deaf: false,
   self_video: false,
   self_screen: false,
+  screen_preview: false,
   ...extra,
 });
 
@@ -279,6 +280,64 @@ describe("foco e tela", () => {
     await user.click(screen.getByRole("button", { name: "Tela cheia: tela de Bia" }));
     expect(request).toHaveBeenCalled();
     expect(screen.getByRole("list", { name: "Em destaque" })).toBeInTheDocument();
+  });
+});
+
+describe("pedido de foco ('Assistir transmissão')", () => {
+  const request = (userId: string, ageMs = 0) =>
+    useVoiceStore.setState({
+      focusRequest: { userId, source: "screen", at: Date.now() - ageMs, nonce: 1 },
+    });
+
+  it("se a tela já está lá, põe em foco e consome o pedido", () => {
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    mount([state(ME), state("7", { self_screen: true })]);
+    act(() => request("7"));
+    expect(screen.getByRole("list", { name: "Em destaque" })).toBeInTheDocument();
+    expect(useVoiceStore.getState().focusRequest).toBeNull();
+  });
+
+  it("espera a tela chegar e então foca (a sala ainda estava conectando)", () => {
+    mount([state(ME), state("7", { self_screen: true })]);
+    act(() => request("7"));
+    expect(screen.queryByRole("list", { name: "Em destaque" })).not.toBeInTheDocument();
+    expect(useVoiceStore.getState().focusRequest).not.toBeNull();
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    expect(screen.getByRole("list", { name: "Em destaque" })).toBeInTheDocument();
+    expect(useVoiceStore.getState().focusRequest).toBeNull();
+  });
+
+  it("não foca a câmera nem a tela de outra pessoa", () => {
+    act(() =>
+      useVoiceStore.setState({
+        videoTracks: [videoTrack("t1", "8", "screen").info, videoTrack("t2", "7", "camera").info],
+      }),
+    );
+    mount([state(ME), state("7", { self_video: true }), state("8", { self_screen: true })]);
+    act(() => request("7"));
+    expect(screen.queryByRole("list", { name: "Em destaque" })).not.toBeInTheDocument();
+  });
+
+  it("desiste depois de 10 s sem a tela chegar (e não foca se ela chegar tarde)", () => {
+    vi.useFakeTimers();
+    try {
+      mount([state(ME), state("7", { self_screen: true })]);
+      act(() => request("7"));
+      act(() => void vi.advanceTimersByTime(10_001));
+      expect(useVoiceStore.getState().focusRequest).toBeNull();
+      act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+      expect(screen.queryByRole("list", { name: "Em destaque" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pedido que já nasceu vencido (palco montado tarde) é descartado e não foca depois", () => {
+    mount([state(ME), state("7", { self_screen: true })]);
+    act(() => request("7", 11_000));
+    expect(useVoiceStore.getState().focusRequest).toBeNull();
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    expect(screen.queryByRole("list", { name: "Em destaque" })).not.toBeInTheDocument();
   });
 });
 

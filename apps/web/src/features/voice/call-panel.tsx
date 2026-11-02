@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { dmTitle } from "@/features/dms/dm-utils";
 import { cn } from "@/lib/utils";
-import { joinVoice, leaveCall } from "./controller";
+import { joinVoice, leaveCall, watchStream } from "./controller";
 import { VoiceStage } from "./stage/voice-stage";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "./store";
 import { usePersonLookup } from "./use-person-lookup";
@@ -33,6 +33,7 @@ export function useStageParticipants(channelId: string, guildId: string | null, 
       self_deaf: false,
       self_video: false,
       self_screen: false,
+      screen_preview: false,
     };
     return [mine, ...list];
   }, [list, me, inCall, channelId, guildId]);
@@ -74,6 +75,7 @@ export function DmCallButton({ channel }: { channel: ChannelPayload }) {
 
 /** Faixa no topo da DM: chamada em andamento (quem está nela) e, se estou nela, o vídeo. */
 export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
+  const { data: me } = useGetMe();
   const inThis = useVoiceStore((s) => s.channelId === channel.id && s.status !== "idle");
   const participants = useStageParticipants(channel.id, null, inThis);
   const lookup = usePersonLookup({ guildId: null, dmId: channel.id });
@@ -106,6 +108,19 @@ export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
           lookup={lookup}
           speaking={undefined}
           size={24}
+          watch={{
+            canConnect: true,
+            onWatch: (userId) =>
+              void watchStream(
+                {
+                  channelId: channel.id,
+                  guildId: null,
+                  channelName: me ? dmTitle(channel, me.id) : "Chamada",
+                  canSpeak: true,
+                },
+                userId,
+              ),
+          }}
           className="px-3 pb-2"
         />
       )}

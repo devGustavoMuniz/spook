@@ -43,12 +43,20 @@ export function setRequestHeaders(provider: (() => Record<string, string>) | nul
 
 export const isApiError = (e: unknown): e is ApiError => e instanceof ApiError;
 
-export async function http<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(apiUrl(url), {
+/**
+ * `fetch` com a mesma autenticação do mutator (cookie same-origin ou Bearer do desktop) e a URL base. Para
+ * respostas que não são JSON (ex.: a prévia da transmissão em image/jpeg); o erro fica por conta de quem chama.
+ */
+export function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(apiUrl(url), {
     credentials: headersProvider ? "omit" : "same-origin",
     ...init,
     headers: { Accept: "application/json", ...headersProvider?.(), ...init?.headers },
   });
+}
+
+export async function http<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(url, init);
   const text = [204, 205].includes(res.status) ? "" : await res.text();
   const data: unknown = text ? safeJson(text) : undefined;
 

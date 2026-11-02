@@ -9,6 +9,7 @@ const vs = (user: string, ch: string | null, x = {}) => ({
   self_deaf: false,
   self_video: false,
   self_screen: false,
+  screen_preview: false,
   ...x,
 });
 

@@ -186,3 +186,13 @@ aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevoke
 - **Admin:** nenhuma brecha achada. Teste novo enumera todas as rotas `/api/admin/**` do OpenAPI (401 sem sessão, 403 comum, 2xx admin), cobre Bearer do desktop, rebaixar na hora e que nenhum evento de admin existe no gateway. O `ci-entry.sh` do VPS segue com 3 operações (conferido em 01/11, arquivo de 31/10). Cloudflare Access documentada, não configurada.
 - **Invisível:** 3 brechas do gateway corrigidas (RESUME depois que a presença expirou aparecia online; corrida de PATCH entre READY e `Connect`; corrida do snapshot do READY) e 7 testes de integração novos.
 - **SPEC:** RF13 a RF21, regras 7.9, mapa de migrations 00001 a 00009 e exclusões atualizadas. `VALIDACAO-MANUAL.md`: 46 itens agrupados.
+
+## Compartilhar tela simples, prévia da transmissão e assistir (02/11/2026)
+
+**Pedido:** o diálogo de compartilhar tela (4 presets mais "opções avançadas") não agradou. Pesquisa no Discord (central de ajuda, artigo 360040816151): dois seletores (resolução e fps), "Ocultar prévia da transmissão" e um cartão com miniatura e botão de assistir ao passar o mouse no selo de tela do participante.
+
+- **Diálogo:** Resolução (720/1080/1440p), Taxa de quadros (15/30/60), Incluir áudio (desligado) e Mostrar prévia para o canal (ligado). Presets e opções avançadas removidos; prioridade derivada do fps; mesmo contrato do engine; escolha persistida e chave antiga migrada. **Padrão 1080p/30 fps** (5 Mbps; o do Discord é 720p/30), mais caro que o 1080p/15 anterior: decisão registrada no SPEC para o dono reavaliar.
+- **Prévia:** a web envia uma miniatura JPEG 320x180 (até 40 KB) ao entrar e a cada ~15 s; o backend guarda em memória por 45 s (200 prévias / 12 MB no máximo, 1 envio a cada 5 s por usuário) e serve só a quem vê o canal. Novos endpoints `PUT`/`DELETE`/`GET /api/channels/{id}/voice/screen-preview[/{user_id}]` e o campo `screen_preview` no voice state. Sem SQL nem migration.
+- **Assistir:** cartão (hover/foco/toque) com miniatura, "Tela de X", "Ao vivo" e "Assistir transmissão" na lista de canais e na chamada de DM; entra no canal e põe a tela em foco no palco (espera até 10 s a tela chegar). Opção local "Mostrar prévias das transmissões" (padrão ligado) em Configurações > Voz e vídeo.
+- **Desktop:** seletores de resolução e fps iguais; a prévia fica desabilitada (`screenSharePreview: false`).
+- **Verificação:** ver SPEC 5.5 (testes) e `VALIDACAO-MANUAL.md` ("Voz: compartilhar tela simples, prévia e assistir transmissão"). Não provado: miniatura de uma tela real, peso real, celular e desktop.

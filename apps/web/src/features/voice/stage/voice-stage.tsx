@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Guild } from "@/lib/guild";
 import { cn } from "@/lib/utils";
-import { resumeAudio, toggleCamera, toggleMute } from "../controller";
+import { clearFocusRequest, resumeAudio, toggleCamera, toggleMute } from "../controller";
 import { voicePermissions } from "../permissions";
 import { useVoiceStore } from "../store";
 import type { PersonLookup } from "../use-person-lookup";
@@ -17,6 +17,8 @@ import { ParticipantTile, type TileModel } from "./participant-tile";
 import { StageHoldContext, useAutoHide } from "./use-auto-hide";
 
 const GAP = 12;
+/** Por quanto tempo "Assistir transmissão" espera a tela chegar antes de desistir. */
+export const FOCUS_REQUEST_TTL_MS = 10_000;
 const STRIP_TILE = 176;
 
 /** Monta os tiles: um por pessoa (com a câmera dela, se ligada) e um por tela compartilhada. */
@@ -120,6 +122,7 @@ export function VoiceStage({
   const screen = useVoiceStore((s) => s.screen);
   const audioBlocked = useVoiceStore((s) => s.audioBlocked);
   const mediaIssue = useVoiceStore((s) => s.mediaIssue);
+  const focusRequest = useVoiceStore((s) => s.focusRequest);
   const perms = voicePermissions(guild);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [issueDismissed, setIssueDismissed] = useState<string | null>(null);
@@ -153,6 +156,23 @@ export function VoiceStage({
     [participants, lookup, inCall, tracks, me, selfMute, selfDeaf, camera, screen, perms.speak],
   );
   const focused = inCall ? tiles.find((t) => t.key === focusedKey && t.video) : undefined;
+  // "Assistir transmissão": põe a tela pedida em foco assim que ela chega (a sala ainda pode estar conectando);
+  // vence em 10 s, e some se a pessoa parar de transmitir antes.
+  useEffect(() => {
+    if (!inCall || !focusRequest) return;
+    const tile = tiles.find(
+      (t) => t.kind === "screen" && t.userId === focusRequest.userId && t.video,
+    );
+    if (tile) {
+      setFocusedKey(tile.key);
+      clearFocusRequest(focusRequest.nonce);
+      return;
+    }
+    const left = FOCUS_REQUEST_TTL_MS - (Date.now() - focusRequest.at);
+    if (left <= 0) return clearFocusRequest(focusRequest.nonce);
+    const timer = setTimeout(() => clearFocusRequest(focusRequest.nonce), left);
+    return () => clearTimeout(timer);
+  }, [inCall, focusRequest, tiles]);
   const connecting = inCall && status === "connecting";
   const showInvite = inCall && !!guild && participants.length === 1 && !focused;
   const count = tiles.length + (showInvite ? 1 : 0);

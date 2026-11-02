@@ -105,21 +105,50 @@ export function saveAudioProcessing(options: AudioProcessingOptions) {
 
 const SS_KEY = "spook:voice-screen-share";
 
-export type ScreenSharePrefs = { audio: boolean };
+export type ScreenSharePrefs = {
+  audio: boolean;
+  /** Mostrar uma miniatura da tela para quem vê o canal (padrão LIGADO, como no Discord). */
+  preview: boolean;
+};
 
-/** O áudio do compartilhamento começa DESLIGADO (evita o eco de a chamada voltar pelo áudio da tela). */
+/**
+ * O áudio do compartilhamento começa DESLIGADO (evita o eco de a chamada voltar pelo áudio da tela) e a prévia
+ * LIGADA. Registros antigos, só com `audio`, ganham a prévia no padrão.
+ */
 export function loadScreenSharePrefs(): ScreenSharePrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(SS_KEY) ?? "{}") as Partial<ScreenSharePrefs>;
-    return { audio: raw.audio === true };
+    return { audio: raw.audio === true, preview: raw.preview !== false };
   } catch {
-    return { audio: false };
+    return { audio: false, preview: true };
   }
 }
 
-export function saveScreenSharePrefs(prefs: ScreenSharePrefs) {
+/** Grava só os campos informados; os demais continuam como estavam. */
+export function saveScreenSharePrefs(prefs: Partial<ScreenSharePrefs>) {
   try {
-    localStorage.setItem(SS_KEY, JSON.stringify(prefs));
+    localStorage.setItem(SS_KEY, JSON.stringify({ ...loadScreenSharePrefs(), ...prefs }));
+  } catch {
+    // armazenamento indisponível: vale só nesta sessão
+  }
+}
+
+// ---- Prévias das transmissões de OUTRAS pessoas (quem assiste) ----
+
+const VIEW_PREVIEWS_KEY = "spook:voice-view-stream-previews";
+
+/** "Mostrar prévias das transmissões" (Configurações > Voz e vídeo). Padrão LIGADO. */
+export function loadViewStreamPreviews(): boolean {
+  try {
+    return localStorage.getItem(VIEW_PREVIEWS_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function saveViewStreamPreviews(on: boolean) {
+  try {
+    localStorage.setItem(VIEW_PREVIEWS_KEY, on ? "on" : "off");
   } catch {
     // armazenamento indisponível: vale só nesta sessão
   }

@@ -407,7 +407,8 @@
         "self_mute": true,
         "self_deaf": false,
         "self_video": true,
-        "self_screen": false
+        "self_screen": false,
+        "screen_preview": false
       }
     }
   },
@@ -598,7 +599,8 @@
           "self_mute": false,
           "self_deaf": false,
           "self_video": true,
-          "self_screen": false
+          "self_screen": false,
+          "screen_preview": false
         }
       ],
       "read_states": [

@@ -16,6 +16,8 @@ export interface StatePayload {
    * @nullable
    */
   guild_id: string | null;
+  /** Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id} */
+  screen_preview: boolean;
   self_deaf: boolean;
   self_mute: boolean;
   /** Compartilhando a tela */

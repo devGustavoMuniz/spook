@@ -291,6 +291,7 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
    * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust). O desktop ainda não captura o áudio do sistema
    * ao compartilhar a tela (limitação documentada): a interface não oferece "Incluir áudio" e explica o porquê.
    * Volume por pessoa (até 200%), porta de ruído, medidor, teste de microfone e qualidade da tela são do Rust.
+   * Sem prévia da transmissão (`screenSharePreview: false`): não há como capturar um quadro da tela no WebView.
    * O vídeo é um <canvas>: sem PiP confiável nos WebViews.
    */
   readonly audioCapabilities: AudioCapabilities = {
@@ -300,6 +301,7 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     inputSensitivity: true,
     micTest: true,
     screenShareQuality: true,
+    screenSharePreview: false,
     pictureInPicture: false,
   };
 

@@ -14,14 +14,16 @@ import {
   resetVoiceController,
   runMicTest,
   setPersonVolume,
+  setScreenPreview,
   startInputMonitor,
   stopInputMonitor,
   toggleCamera,
   toggleDeafen,
   toggleMute,
   toggleScreenShare,
+  watchStream,
 } from "./controller";
-import { loadAudioProcessing, saveAudioProcessing } from "./devices";
+import { loadAudioProcessing, loadScreenSharePrefs, saveAudioProcessing } from "./devices";
 import { type AudioProcessingOptions, VoiceConnectError, VoiceMediaError } from "./engine";
 import { setVoiceEngineFactory } from "./engine-provider";
 import { useParticipantVolumeStore } from "./participant-volume";
@@ -48,6 +50,7 @@ const vs = (user: string, ch: string | null, x = {}) => ({
   self_deaf: false,
   self_video: false,
   self_screen: false,
+  screen_preview: false,
   ...x,
 });
 
@@ -69,6 +72,18 @@ beforeEach(() => {
   localStorage.clear();
   REJOIN_DELAYS_MS.splice(0, REJOIN_DELAYS_MS.length, 0, 0, 0);
 });
+
+/** jsdom não desenha: um canvas de mentira que devolve um JPEG pequeno. */
+function stubCanvas() {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    fillRect: () => {},
+    drawImage: () => {},
+    fillStyle: "",
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((cb, type) =>
+    cb(new Blob([new Uint8Array(2000)], { type })),
+  );
+}
 
 /** Entra e já confirma pelo gateway (webhook de entrada). */
 async function joined(t = A) {
@@ -242,6 +257,7 @@ describe("câmera e tela", () => {
     expect(fake.calls.at(-1)).toBe("screen:true:mudo");
     expect(JSON.parse(localStorage.getItem("spook:voice-screen-share") ?? "{}")).toEqual({
       audio: false,
+      preview: true,
     });
   });
 
@@ -558,7 +574,7 @@ describe("volume por pessoa (controlador)", () => {
 });
 
 describe("qualidade da tela (controlador)", () => {
-  const q = { height: 1440, fps: 30, priority: "detail" } as const;
+  const q = { height: 1440, fps: 30, priority: "motion" } as const;
 
   it("com a capacidade, manda a qualidade escolhida e a persiste", async () => {
     fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
@@ -568,17 +584,153 @@ describe("qualidade da tela (controlador)", () => {
     expect(loadScreenQuality()).toEqual(q);
   });
 
-  it("sem escolha explícita usa a qualidade salva (ou o padrão conservador)", async () => {
+  it("sem escolha explícita usa a qualidade salva (ou o padrão 1080p/30 fps)", async () => {
     fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
     await joined();
     await toggleScreenShare();
-    expect(fake.lastScreenOpts?.quality).toEqual({ height: 1080, fps: 15, priority: "detail" });
+    expect(fake.lastScreenOpts?.quality).toEqual({ height: 1080, fps: 30, priority: "motion" });
   });
 
   it("sem a capacidade (desktop por enquanto) a engine não recebe qualidade", async () => {
     await joined();
     await toggleScreenShare({ audio: false, quality: q });
     expect(fake.lastScreenOpts).toEqual({ audio: false });
+  });
+});
+
+describe("prévia da transmissão (controlador)", () => {
+  const sharing = async () => {
+    await joined();
+    fake.videoTrack("t-me", ME, "screen", true);
+  };
+
+  it("com a opção ligada (padrão) e a sala conectada, envia ao entrar e a cada ~15 s; ao parar, apaga", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      stubCanvas();
+      await sharing();
+      await toggleScreenShare({ audio: false });
+      expect(s()).toMatchObject({ screen: true, screenPreview: true });
+      await vi.advanceTimersByTimeAsync(700);
+      await vi.waitFor(() => expect(backend.state.voice.previewPuts).toHaveLength(1));
+      expect(backend.state.voice.previewPuts[0]).toMatchObject({
+        channelId: "c1",
+        type: "image/jpeg",
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.waitFor(() => expect(backend.state.voice.previewPuts).toHaveLength(2));
+      await toggleScreenShare(); // parar
+      expect(s()).toMatchObject({ screen: false, screenPreview: false });
+      await vi.waitFor(() => expect(backend.state.voice.previewDeletes).toEqual(["c1"]));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(backend.state.voice.previewPuts).toHaveLength(2); // nada mais depois de parar
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("com a opção desligada nada é enviado, e a escolha fica salva", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      stubCanvas();
+      await sharing();
+      await toggleScreenShare({ audio: false, preview: false });
+      expect(s().screenPreview).toBe(false);
+      expect(loadScreenSharePrefs().preview).toBe(false);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(backend.state.voice.previewPuts).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("desligar a opção no meio da transmissão para de enviar e apaga a prévia; ligar retoma", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      stubCanvas();
+      await sharing();
+      await toggleScreenShare({ audio: false });
+      await vi.advanceTimersByTimeAsync(700);
+      await vi.waitFor(() => expect(backend.state.voice.previewPuts).toHaveLength(1));
+      setScreenPreview(false);
+      expect(s().screenPreview).toBe(false);
+      await vi.waitFor(() => expect(backend.state.voice.previewDeletes).toEqual(["c1"]));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(backend.state.voice.previewPuts).toHaveLength(1);
+      setScreenPreview(true);
+      await vi.advanceTimersByTimeAsync(700);
+      await vi.waitFor(() => expect(backend.state.voice.previewPuts).toHaveLength(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a tela parada por fora (barra do navegador) também para o envio", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      stubCanvas();
+      await sharing();
+      await toggleScreenShare({ audio: false });
+      fake.fire("local-media", { microphone: true, camera: false, screenShare: false });
+      await vi.waitFor(() => expect(backend.state.voice.previewDeletes).toEqual(["c1"]));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(backend.state.voice.previewPuts).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("engine sem a capacidade (desktop): nunca liga a prévia, mesmo pedida", async () => {
+    fake.audioCapabilities = { strongNoiseSuppression: false, screenSharePreview: false };
+    await joined();
+    await toggleScreenShare({ audio: false, preview: true });
+    expect(s()).toMatchObject({ screen: true, screenPreview: false });
+    setScreenPreview(true);
+    expect(s().screenPreview).toBe(false);
+  });
+
+  it("sair da chamada derruba o envio", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      stubCanvas();
+      await sharing();
+      await toggleScreenShare({ audio: false });
+      await leaveCall();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(backend.state.voice.previewPuts).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("assistir transmissão (controlador)", () => {
+  it("fora do canal: entra e deixa o pedido de foco para o palco", async () => {
+    expect(await watchStream(A, "50")).toBe(true);
+    expect(backend.state.voice.tokensFor).toEqual(["c1"]);
+    expect(s().status).toBe("connected");
+    expect(s().focusRequest).toMatchObject({ userId: "50", source: "screen" });
+  });
+
+  it("já no canal: só pede o foco, sem novo token", async () => {
+    await joined(A);
+    expect(await watchStream(A, "50")).toBe(true);
+    expect(backend.state.voice.tokensFor).toEqual(["c1"]);
+    expect(s().focusRequest).toMatchObject({ userId: "50" });
+  });
+
+  it("em outro canal: troca de canal e mantém o pedido", async () => {
+    await joined(A);
+    await watchStream(B, "50");
+    expect(s()).toMatchObject({ channelId: "c2", status: "connected" });
+    expect(s().focusRequest).toMatchObject({ userId: "50" });
+  });
+
+  it("se não conseguir entrar, o pedido é descartado", async () => {
+    backend.state.voice.tokenError = { status: 403, detail: "sem permissão" };
+    expect(await watchStream(A, "50")).toBe(false);
+    expect(s().focusRequest).toBeNull();
+    expect(s().status).toBe("idle");
   });
 });
 

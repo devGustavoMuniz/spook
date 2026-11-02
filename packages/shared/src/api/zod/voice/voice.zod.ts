@@ -7,6 +7,34 @@
 import * as zod from "zod";
 
 /**
+ * @summary Apaga a prévia da própria tela (parou de transmitir ou ocultou a prévia); idempotente
+ */
+export const DeleteScreenPreviewParams = zod.object({
+  channel_id: zod.string().describe("ID do canal de voz ou da DM"),
+});
+
+export const DeleteScreenPreviewResponse = zod.void();
+
+/**
+ * @summary Prévia (miniatura) da tela de quem transmite: envia um JPEG (até 64 KB e 640×360) de quem está na chamada do canal e pode transmitir. Vale 45 s; renove a cada ~15 s. No máximo um envio a cada 5 s por usuário
+ */
+export const PutScreenPreviewParams = zod.object({
+  channel_id: zod.string().describe("ID do canal de voz ou da DM"),
+});
+
+export const PutScreenPreviewResponse = zod.void();
+
+/**
+ * @summary Prévia (miniatura) da tela de quem transmite como image/jpeg (Cache-Control: no-store). Exige poder ver o canal; 404 se não há prévia (nunca enviou, ocultou ou venceu)
+ */
+export const GetScreenPreviewParams = zod.object({
+  channel_id: zod.string().describe("ID do canal de voz ou da DM"),
+  user_id: zod.string().describe("ID de quem transmite"),
+});
+
+export const GetScreenPreviewResponse = zod.unknown();
+
+/**
  * @summary Emite o token do LiveKit para entrar na voz do canal (servidor ou DM). Vale 10 min e só para a sala do canal; entrar em outro canal tira o usuário do anterior
  */
 export const CreateVoiceTokenParams = zod.object({
@@ -29,6 +57,11 @@ export const ListGuildVoiceStatesParams = zod.object({
 export const ListGuildVoiceStatesResponseItem = zod.object({
   channel_id: zod.string().nullable().describe("Nulo quando o usuário saiu da voz"),
   guild_id: zod.string().nullable().describe("Nulo em DM"),
+  screen_preview: zod
+    .boolean()
+    .describe(
+      "Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id}",
+    ),
   self_deaf: zod.boolean(),
   self_mute: zod.boolean(),
   self_screen: zod.boolean().describe("Compartilhando a tela"),
@@ -53,6 +86,11 @@ export const UpdateVoiceStateBody = zod.object({
 export const UpdateVoiceStateResponse = zod.object({
   channel_id: zod.string().nullable().describe("Nulo quando o usuário saiu da voz"),
   guild_id: zod.string().nullable().describe("Nulo em DM"),
+  screen_preview: zod
+    .boolean()
+    .describe(
+      "Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id}",
+    ),
   self_deaf: zod.boolean(),
   self_mute: zod.boolean(),
   self_screen: zod.boolean().describe("Compartilhando a tela"),

@@ -29,6 +29,7 @@ const remoteTimeout = 5 * time.Second
 type Deps struct {
 	Provider Provider
 	Store    StateStore
+	Previews PreviewStore // opcional: nulo desliga a prévia da transmissão
 	Access   Access
 	Users    Users
 	Pub      events.Publisher
@@ -37,22 +38,26 @@ type Deps struct {
 
 // Service são os casos de uso da voz.
 type Service struct {
-	prov   Provider
-	store  StateStore
-	access Access
-	users  Users
-	pub    events.Publisher
-	now    func() time.Time
+	prov     Provider
+	store    StateStore
+	previews PreviewStore
+	access   Access
+	users    Users
+	pub      events.Publisher
+	now      func() time.Time
 
 	locks [lockStripes]sync.Mutex
-	seen  *dedupe
-	met   *metrics
+
+	rateMu  sync.Mutex
+	lastPut map[int64]time.Time // último envio de prévia por usuário (limite de frequência)
+	seen    *dedupe
+	met     *metrics
 }
 
 func NewService(d Deps) *Service {
 	s := &Service{
-		prov: d.Provider, store: d.Store, access: d.Access, users: d.Users, pub: d.Pub, now: d.Now,
-		seen: newDedupe(2048),
+		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, now: d.Now,
+		seen: newDedupe(2048), lastPut: map[int64]time.Time{},
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -60,7 +65,7 @@ func NewService(d Deps) *Service {
 	if s.pub == nil {
 		s.pub = events.Discard{}
 	}
-	s.met = newMetrics(s.store)
+	s.met = newMetrics(s.store, s.previews)
 	return s
 }
 
@@ -113,6 +118,9 @@ func (s *Service) dropLocked(ctx context.Context, st State, kick bool) {
 		s.kick(ctx, st.ChannelID, st.UserID)
 	}
 	s.store.Delete(st.UserID)
+	if s.previews != nil {
+		s.previews.Delete(st.UserID)
+	}
 	s.publish(st, true)
 }
 
@@ -357,6 +365,10 @@ func (s *Service) apply(ctx context.Context, ev RoomEvent) error {
 			next.Video = on
 		case SourceScreenShare:
 			next.Screen = on
+			if !on && s.previews != nil { // parou de transmitir: a prévia some junto
+				s.previews.Delete(userID)
+				next.Preview = false
+			}
 		}
 		if next != st {
 			s.store.Put(next)
@@ -400,6 +412,7 @@ func (s *Service) join(ctx context.Context, userID, channelID int64, sid string,
 	}
 	if joined {
 		next.SelfMute, next.SelfDeaf, next.JoinedAt = cur.SelfMute, cur.SelfDeaf, cur.JoinedAt
+		next.Preview = cur.Preview // reconexão da mesma chamada mantém a prévia
 	} else if hasPend {
 		next.SelfMute, next.SelfDeaf = pend.SelfMute, pend.SelfDeaf
 	}
@@ -486,6 +499,10 @@ func (s *Service) Reevaluate(ctx context.Context, userID int64) {
 	st.CanSpeak, st.CanVideo = speak, video
 	if !video { // sem VIDEO o LiveKit encerra câmera e tela
 		st.Video, st.Screen = false, false
+		if s.previews != nil {
+			s.previews.Delete(userID)
+		}
+		st.Preview = false
 	}
 	s.store.Put(st)
 	if !video {
@@ -502,10 +519,14 @@ func (s *Service) Run(ctx context.Context, interval time.Duration) {
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	sweep := time.NewTicker(previewSweepEvery)
+	defer sweep.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-sweep.C:
+			s.SweepPreviews(ctx)
 		case <-t.C:
 			if err := s.Reconcile(ctx); err != nil {
 				slog.Warn("voice: reconciliação falhou", "err", err)

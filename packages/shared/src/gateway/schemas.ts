@@ -165,6 +165,8 @@ export const voiceStatePayloadSchema = z.object({
   self_deaf: z.boolean(),
   self_video: z.boolean(),
   self_screen: z.boolean(),
+  /** Há uma prévia (miniatura) da tela disponível para quem vê o canal. */
+  screen_preview: z.boolean().default(false),
 });
 
 /** Voice state de um usuário (READY e VOICE_STATE_UPDATE); `channel_id: null` = saiu da voz. */

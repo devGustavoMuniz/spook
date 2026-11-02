@@ -124,6 +124,44 @@ test("duas contas na mesma sala: lista, conexão ao LiveKit, mídia, mudo e saí
   await expect(inList(a.page, b.username)).toHaveCount(0);
 });
 
+test("prévia da transmissão: B, fora da chamada, vê a miniatura de A, assiste e a tela vem em foco", async () => {
+  const { a, b } = people as Record<"a" | "b", Person>;
+  await a.page.goto(url);
+  await b.page.goto(url);
+  await voiceChannel(a.page).click();
+  await expect(connected(a.page)).toBeVisible({ timeout: 20_000 });
+  await dock(a.page).getByRole("button", { name: "Compartilhar tela" }).click();
+  // a prévia vem ligada por padrão (e o áudio desligado)
+  await expect(a.page.getByRole("checkbox", { name: "Mostrar prévia para o canal" })).toBeChecked();
+  await a.page.getByRole("button", { name: "Compartilhar", exact: true }).click();
+
+  // B ainda não está na chamada: o ícone de tela de A abre o cartão com a miniatura e o botão de assistir
+  const trigger = b.page.getByRole("button", { name: `Ver a transmissão de ${a.username}` });
+  await expect(trigger).toBeVisible({ timeout: 20_000 });
+  await trigger.click();
+  const card = b.page.getByRole("dialog", { name: `Transmissão de ${a.username}` });
+  await expect(card).toContainText(`Tela de ${a.username}`);
+  await expect(card.getByRole("img", { name: `Prévia da tela de ${a.username}` })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Assistir: B entra na chamada e a tela de A fica em foco no palco
+  await card.getByRole("button", { name: /Assistir transmissão/ }).click();
+  await expect(connected(b.page)).toBeVisible({ timeout: 20_000 });
+  await expect(b.page.getByRole("list", { name: "Em destaque" })).toBeVisible({ timeout: 20_000 });
+  await expect(
+    b.page.getByRole("list", { name: "Em destaque" }).getByTestId("video-tile"),
+  ).toHaveAttribute("data-kind", "screen");
+
+  // A para de compartilhar: a prévia some junto (o indicador também)
+  await dock(a.page).getByRole("button", { name: "Parar de compartilhar a tela" }).click();
+  await expect(b.page.getByRole("img", { name: "Compartilhando a tela" })).toHaveCount(0, {
+    timeout: 20_000,
+  });
+  await a.page.getByRole("button", { name: "Sair da chamada" }).click();
+  await b.page.getByRole("button", { name: "Sair da chamada" }).click();
+});
+
 test("tela compartilhada de A chega a B em destaque; parar remove o painel", async () => {
   const { a, b } = people as Record<"a" | "b", Person>;
   await a.page.goto(url);

@@ -20,6 +20,7 @@ export * from "./gateway";
 export type { ApiFieldError } from "./http";
 export {
   ApiError,
+  apiFetch,
   apiUrl,
   getApiBaseUrl,
   isApiError,

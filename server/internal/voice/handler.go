@@ -32,6 +32,13 @@ type TokenOutput struct{ Body TokenResponse }
 type StateOutput struct{ Body StatePayload }
 type StatesOutput struct{ Body []StatePayload }
 
+// PreviewOutput é o JPEG da prévia da tela.
+type PreviewOutput struct {
+	ContentType  string `header:"Content-Type"`
+	CacheControl string `header:"Cache-Control"`
+	Body         []byte
+}
+
 func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[string][]string) {
 	huma.Register(api, huma.Operation{
 		OperationID: "createVoiceToken", Method: http.MethodPost, Path: "/api/channels/{channel_id}/voice/token",
@@ -97,6 +104,68 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return nil, httpx.Err(err)
 		}
 		return &StatesOutput{Body: sts}, nil
+	})
+
+	previewDoc := "Prévia (miniatura) da tela de quem transmite"
+	huma.Register(api, huma.Operation{
+		OperationID: "putScreenPreview", Method: http.MethodPut, Path: "/api/channels/{channel_id}/voice/screen-preview",
+		Summary: previewDoc + ": envia um JPEG (até 64 KB e 640×360) de quem está na chamada do canal e pode transmitir. Vale 45 s; renove a cada ~15 s. No máximo um envio a cada 5 s por usuário",
+		Tags:    []string{"voice"}, Security: security, Middlewares: mw, DefaultStatus: http.StatusNoContent,
+		MaxBodyBytes: PreviewMaxBytes,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusRequestEntityTooLarge,
+			http.StatusUnprocessableEntity, http.StatusTooManyRequests, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz ou da DM"`
+		RawBody   []byte `contentType:"image/jpeg"`
+	}) (*struct{}, error) {
+		cid, ok := httpx.ParseID(in.ChannelID)
+		if !ok {
+			return nil, httpx.BadID("canal")
+		}
+		return nil, httpx.Err(h.svc.PutScreenPreview(ctx, h.userID(ctx), cid, in.RawBody))
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "deleteScreenPreview", Method: http.MethodDelete, Path: "/api/channels/{channel_id}/voice/screen-preview",
+		Summary: "Apaga a prévia da própria tela (parou de transmitir ou ocultou a prévia); idempotente",
+		Tags:    []string{"voice"}, Security: security, Middlewares: mw, DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz ou da DM"`
+	}) (*struct{}, error) {
+		if _, ok := httpx.ParseID(in.ChannelID); !ok {
+			return nil, httpx.BadID("canal")
+		}
+		return nil, httpx.Err(h.svc.DeleteScreenPreview(ctx, h.userID(ctx)))
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "getScreenPreview", Method: http.MethodGet, Path: "/api/channels/{channel_id}/voice/screen-preview/{user_id}",
+		Summary: previewDoc + " como image/jpeg (Cache-Control: no-store). Exige poder ver o canal; 404 se não há prévia (nunca enviou, ocultou ou venceu)",
+		Tags:    []string{"voice"}, Security: security, Middlewares: mw,
+		Responses: map[string]*huma.Response{"200": {
+			Description: "JPEG da prévia",
+			Headers:     map[string]*huma.Param{"Cache-Control": {Schema: &huma.Schema{Type: "string"}}},
+			Content:     map[string]*huma.MediaType{"image/jpeg": {Schema: &huma.Schema{Type: "string", Format: "binary"}}},
+		}},
+		Errors: []int{http.StatusUnauthorized, http.StatusNotFound, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz ou da DM"`
+		UserID    string `path:"user_id" doc:"ID de quem transmite"`
+	}) (*PreviewOutput, error) {
+		cid, ok := httpx.ParseID(in.ChannelID)
+		if !ok {
+			return nil, httpx.BadID("canal")
+		}
+		uid, ok := httpx.ParseID(in.UserID)
+		if !ok {
+			return nil, httpx.BadID("usuário")
+		}
+		data, err := h.svc.ScreenPreview(ctx, h.userID(ctx), cid, uid)
+		if err != nil {
+			return nil, httpx.Err(err)
+		}
+		return &PreviewOutput{ContentType: "image/jpeg", CacheControl: "no-store", Body: data}, nil
 	})
 }
 

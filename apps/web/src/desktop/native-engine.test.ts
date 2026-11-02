@@ -612,7 +612,7 @@ describe("NativeVoiceEngine: vídeo remoto em <canvas>", () => {
 });
 
 describe("NativeVoiceEngine: capacidades do contrato adicional", () => {
-  it("declara volume até 200%, porta, teste de microfone e qualidade da tela; PiP segue desligado", () => {
+  it("declara volume até 200%, porta, teste de microfone e qualidade da tela; PiP e prévia da tela desligados", () => {
     const { engine } = setup();
     expect(engine.audioCapabilities).toEqual({
       strongNoiseSuppression: true,
@@ -621,6 +621,7 @@ describe("NativeVoiceEngine: capacidades do contrato adicional", () => {
       inputSensitivity: true,
       micTest: true,
       screenShareQuality: true,
+      screenSharePreview: false,
       pictureInPicture: false,
     });
   });
