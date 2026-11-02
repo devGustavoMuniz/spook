@@ -14,7 +14,7 @@ async function register(page: Page, who: { email: string; username: string }) {
   await expect(page.getByRole("heading", { name: "Criar conta" })).toBeVisible();
   await page.getByLabel("E-mail").fill(who.email);
   await page.getByLabel("Nome de usuário").fill(who.username);
-  await page.getByLabel("Senha").fill(PASSWORD);
+  await page.getByLabel("Senha", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Criar conta" }).click();
 }
 

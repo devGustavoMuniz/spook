@@ -121,6 +121,8 @@
   --animate-slide-in: slide-in var(--dur-base) var(--ease-out);
   --animate-shimmer: shimmer 1.6s var(--ease-standard) infinite;
   --animate-speaking: speaking-ring 1.4s var(--ease-standard) infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-halo: halo 5s ease-in-out infinite;
 
   @keyframes overlay-in {
     from {
@@ -165,6 +167,26 @@
   @keyframes shimmer {
     to {
       transform: translateX(100%);
+    }
+  }
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+  @keyframes halo {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.08);
     }
   }
   @keyframes speaking-ring {

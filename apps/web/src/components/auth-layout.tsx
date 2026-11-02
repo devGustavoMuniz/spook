@@ -1,21 +1,21 @@
 import type { ReactNode } from "react";
-import { Lettering, Logo } from "@/components/brand";
+import { BrandHero } from "@/components/brand-hero";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-// Tela de entrada (SPEC 9.1): mascote, lettering e as duas frases oficiais.
+/**
+ * Tela de entrada (SPEC 9.1): em telas largas, marca à esquerda e formulário à direita;
+ * em estreitas, uma coluna. O `h1` é o título do cartão (cada página define o seu).
+ */
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex min-h-svh flex-col items-center justify-center gap-6 px-4 py-10">
-      <div className="absolute top-4 right-4">
+    <div className="relative isolate min-h-svh overflow-hidden bg-brand-glow">
+      <div className="absolute top-3 right-4 z-[var(--z-sticky)] sm:top-4 sm:right-6">
         <ThemeToggle />
       </div>
-      <header className="flex flex-col items-center gap-3 text-center">
-        <Logo size={96} />
-        <Lettering height={36} />
-        <p className="text-lg font-medium">Seus servidores, sua galera, num só lugar.</p>
-        <p className="text-sm text-muted-foreground">Chat · Voz · Vídeo · Compartilhar tela</p>
-      </header>
-      <main className="w-full max-w-sm">{children}</main>
+      <div className="mx-auto grid min-h-svh w-full max-w-6xl items-center gap-8 px-4 py-16 sm:px-6 lg:grid-cols-[1fr_28rem] lg:gap-16 lg:py-10">
+        <BrandHero />
+        <main className="mx-auto w-full max-w-md">{children}</main>
+      </div>
     </div>
   );
 }

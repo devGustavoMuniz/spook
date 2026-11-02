@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { renderApp } from "@/test/render";
@@ -66,7 +66,12 @@ describe("login", () => {
     expect(
       await screen.findByText("Seus servidores, sua galera, num só lugar."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Chat · Voz · Vídeo · Compartilhar tela")).toBeInTheDocument();
+    const features = screen.getByRole("list", { name: "Chat, Voz, Vídeo e Compartilhar tela" });
+    expect(
+      within(features)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["Chat", "Voz", "Vídeo", "Compartilhar tela"]);
   });
 });
 

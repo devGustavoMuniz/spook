@@ -1,13 +1,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { getGetMeQueryKey, isApiError, useLogin } from "@spook/shared";
+import { getGetMeQueryKey, useLogin } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
+import { FormAlert } from "@/auth/form-alert";
+import { InviteBanner, inviteCodeOf } from "@/auth/invite-banner";
+import { PasswordInput } from "@/auth/password-input";
 import { AuthLayout } from "@/components/auth-layout";
 import { describedBy, Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { persistSessionToken } from "@/desktop/token";
 import { messageFor } from "@/lib/errors";
@@ -26,6 +35,7 @@ export function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
+    mode: "onTouched",
     defaultValues: { email: "", password: "" },
   });
 
@@ -37,58 +47,59 @@ export function LoginPage() {
       if (redirect) router.history.push(redirect);
       else await navigate({ to: "/" });
     } catch (e) {
-      if (isApiError(e) && e.status === 401) setError("root", { message: messageFor(e) });
-      else toast.error(messageFor(e));
+      setError("root", { message: messageFor(e) });
     }
   });
 
+  const busy = isSubmitting;
   return (
     <AuthLayout>
-      <Card>
+      <Card className="gap-5 shadow-lg">
         <CardHeader>
-          <CardTitle>Entrar</CardTitle>
+          <CardTitle className="text-2xl">Entrar</CardTitle>
+          <CardDescription>Bem-vindo de volta. Entre para falar com a sua galera.</CardDescription>
         </CardHeader>
-        <form onSubmit={onSubmit} noValidate>
+        <form onSubmit={onSubmit} noValidate aria-busy={busy || undefined}>
           <CardContent className="flex flex-col gap-4">
-            {errors.root ? (
-              <p
-                role="alert"
-                className="rounded-md border border-destructive-text/40 p-3 text-sm text-destructive-text"
-              >
-                {errors.root.message}
-              </p>
+            {inviteCodeOf(redirect) && redirect ? (
+              <InviteBanner redirect={redirect} current="login" />
             ) : null}
+            {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
             <Field id="email" label="E-mail" error={errors.email?.message}>
               <Input
                 id="email"
                 type="email"
                 autoComplete="email"
+                inputMode="email"
+                size="lg"
+                disabled={busy}
                 aria-invalid={!!errors.email}
                 aria-describedby={describedBy("email", errors.email?.message)}
                 {...register("email")}
               />
             </Field>
             <Field id="password" label="Senha" error={errors.password?.message}>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
+                size="lg"
+                disabled={busy}
                 aria-invalid={!!errors.password}
                 aria-describedby={describedBy("password", errors.password?.message)}
                 {...register("password")}
               />
             </Field>
           </CardContent>
-          <CardFooter className="mt-6 flex-col gap-3">
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? "Entrando…" : "Entrar"}
+          <CardFooter className="mt-6 flex-col gap-4">
+            <Button type="submit" size="xl" className="w-full" loading={busy}>
+              Entrar
             </Button>
             <p className="text-sm text-muted-foreground">
               Não tem conta?{" "}
               <Link
                 to="/register"
                 search={{ redirect }}
-                className="font-medium text-primary underline-offset-4 hover:underline"
+                className="font-medium text-brand-text underline-offset-4 hover:underline"
               >
                 Cadastre-se
               </Link>

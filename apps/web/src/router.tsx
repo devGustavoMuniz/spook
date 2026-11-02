@@ -11,6 +11,7 @@ import {
 import { fetchSession } from "@/auth/session";
 import { PageShell } from "@/components/app-shell";
 import { AuthedLayout } from "@/components/authed-layout";
+import { NotFoundPage } from "@/components/not-found";
 import { AdminLayout } from "@/features/admin/admin-layout";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
@@ -30,7 +31,10 @@ import { RegisterPage } from "@/pages/register";
 
 export type RouterContext = { queryClient: QueryClient };
 
-const rootRoute = createRootRouteWithContext<RouterContext>()({ component: Outlet });
+const rootRoute = createRootRouteWithContext<RouterContext>()({
+  component: Outlet,
+  notFoundComponent: NotFoundPage,
+});
 
 // Públicas: quem já tem sessão vai direto para o início.
 const redirectIfSignedIn = async ({

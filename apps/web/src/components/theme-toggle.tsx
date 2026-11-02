@@ -1,6 +1,7 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { type Theme, useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const order: Theme[] = ["system", "light", "dark"];
 const label: Record<Theme, string> = {
@@ -15,14 +16,22 @@ export function ThemeToggle() {
   const next = order[(order.indexOf(theme) + 1) % order.length] as Theme;
   const Icon = icon[theme];
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => setTheme(next)}
-      aria-label={`${label[theme]}. Alternar para ${label[next].toLowerCase()}`}
-      title={label[theme]}
-    >
-      <Icon />
-    </Button>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setTheme(next)}
+            aria-label={`${label[theme]}. Alternar para ${label[next].toLowerCase()}`}
+          >
+            <Icon />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {label[theme]} (clique para {label[next].toLowerCase()})
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
