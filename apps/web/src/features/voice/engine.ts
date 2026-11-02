@@ -131,6 +131,23 @@ export type AudioCapabilities = {
    * navegador suporta; a nativa (vídeo em `<canvas>`) declara `false`.
    */
   pictureInPicture?: boolean;
+  /**
+   * A engine escolhe quais telas de outras pessoas assinar (`setScreenWatching`). Ausente/`false` = assina todas
+   * automaticamente (o desktop nativo, que ainda não expõe assinatura por faixa) e a interface não mostra "Assistir".
+   */
+  screenWatch?: boolean;
+  /** Troca a fonte da tela já compartilhada sem parar a transmissão (`replaceScreenShareSource`). Ausente = não. */
+  screenSourceSwap?: boolean;
+  /** Estatísticas de rede (`getConnectionStats`: RTT, perda e jitter). Ausente = só a qualidade do enlace. */
+  connectionStats?: boolean;
+};
+
+/** Medidas de rede do usuário local; `null` = a engine não conseguiu medir aquele valor. */
+export type ConnectionStats = {
+  rttMs: number | null;
+  /** Perda de pacotes (0 a 100) nos últimos segundos. */
+  lossPct: number | null;
+  jitterMs: number | null;
 };
 
 /**
@@ -268,6 +285,19 @@ export interface VoiceEngine {
   startMicTest?(): Promise<void>;
   /** Interrompe o teste de microfone (idempotente). */
   cancelMicTest?(): void;
+
+  /**
+   * Assina (`on`) ou deixa de assinar a tela compartilhada de `identity`. Com `screenWatch` declarado, as telas de
+   * outras pessoas começam NÃO assinadas (economiza banda) e só chegam (`video-track-added`) depois de assistir.
+   */
+  setScreenWatching?(identity: Identity, on: boolean): void;
+  /**
+   * Troca a janela/tela compartilhada sem parar a transmissão (mantém a publicação e a qualidade). Rejeita com
+   * `VoiceMediaError` (inclusive `cancelled`, que deixa a fonte anterior intacta).
+   */
+  replaceScreenShareSource?(opts?: { audio?: boolean }): Promise<void>;
+  /** Mede RTT, perda e jitter agora. Devolve `null` se não houver sala ou medida. */
+  getConnectionStats?(): Promise<ConnectionStats | null>;
 
   listDevices(kind: DeviceKind): Promise<DeviceInfo[]>;
   /** Troca o dispositivo ativo (e o lembra para as próximas capturas). */

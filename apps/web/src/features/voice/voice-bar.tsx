@@ -26,54 +26,14 @@ import {
   toggleScreenShare,
 } from "./controller";
 import { DeviceDialog } from "./device-dialog";
-import type { LinkQuality } from "./engine";
+import { DeviceMenu } from "./device-menu";
+import { NetworkIndicator } from "./network-indicator";
 import { voicePermissions } from "./permissions";
 import { ScreenShareDialog } from "./screen-share-dialog";
-import { useVoiceStore } from "./store";
+import { useStageMountedStore, useVoiceStore } from "./store";
 
-const qualityLabel: Record<LinkQuality, string> = {
-  excellent: "Conexão excelente",
-  good: "Conexão boa",
-  poor: "Conexão ruim",
-  lost: "Conexão perdida",
-  unknown: "Conexão sem medição",
-};
-const qualityBars: Record<LinkQuality, number> = {
-  excellent: 3,
-  good: 3,
-  poor: 2,
-  lost: 1,
-  unknown: 0,
-};
-
-/** Barras de sinal simples (a engine informa a qualidade do enlace). */
-export function QualityIndicator({ quality }: { quality: LinkQuality }) {
-  const bars = qualityBars[quality];
-  return (
-    <span
-      role="img"
-      aria-label={qualityLabel[quality]}
-      title={qualityLabel[quality]}
-      data-quality={quality}
-      className="flex h-4 items-end gap-0.5"
-    >
-      {[1, 2, 3].map((n) => (
-        <span
-          key={n}
-          style={{ height: `${n * 33}%` }}
-          className={cn(
-            "w-1 rounded-sm",
-            n <= bars
-              ? quality === "poor" || quality === "lost"
-                ? "bg-warning"
-                : "bg-success"
-              : "bg-muted-foreground/30",
-          )}
-        />
-      ))}
-    </span>
-  );
-}
+/** Barras de sinal com latência, perda e jitter no tooltip (ver `network-indicator.tsx`). */
+export const QualityIndicator = NetworkIndicator;
 
 const statusText = {
   connecting: "Conectando…",
@@ -117,6 +77,7 @@ export function VoiceCallCard() {
   const guilds = useListGuilds();
   const [shareDialog, setShareDialog] = useState(false);
   const [devices, setDevices] = useState(false);
+  const stageMounted = useStageMountedStore((st) => st.mounted);
   if (s.status === "idle" || !s.channelId) return null;
 
   const guild = s.guildId ? guilds.data?.find((g) => g.id === s.guildId) : null;
@@ -172,7 +133,8 @@ export function VoiceCallCard() {
         </Tooltip>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {s.audioBlocked ? (
+        {/* O palco já mostra este aviso quando está na tela: só um "Ativar áudio" por vez. */}
+        {s.audioBlocked && !stageMounted ? (
           <Button variant="outline" size="sm" onClick={() => void resumeAudio()}>
             <Volume2 /> Ativar áudio
           </Button>
@@ -226,25 +188,29 @@ export function VoiceUserControls() {
 
   return (
     <>
-      <BarButton
-        label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
-        pressed={s.selfMute}
-        tone="danger"
-        disabled={micBlocked || (inCall && !live)}
-        reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
-        onClick={() => void toggleMute()}
-      >
-        {s.selfMute ? <MicOff /> : <Mic />}
-      </BarButton>
-      <BarButton
-        label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
-        pressed={s.selfDeaf}
-        tone="danger"
-        disabled={inCall && !live}
-        onClick={() => void toggleDeafen()}
-      >
-        {s.selfDeaf ? <HeadphoneOff /> : <Headphones />}
-      </BarButton>
+      <DeviceMenu kind="audioinput">
+        <BarButton
+          label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
+          pressed={s.selfMute}
+          tone="danger"
+          disabled={micBlocked || (inCall && !live)}
+          reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
+          onClick={() => void toggleMute()}
+        >
+          {s.selfMute ? <MicOff /> : <Mic />}
+        </BarButton>
+      </DeviceMenu>
+      <DeviceMenu kind="audiooutput">
+        <BarButton
+          label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
+          pressed={s.selfDeaf}
+          tone="danger"
+          disabled={inCall && !live}
+          onClick={() => void toggleDeafen()}
+        >
+          {s.selfDeaf ? <HeadphoneOff /> : <Headphones />}
+        </BarButton>
+      </DeviceMenu>
     </>
   );
 }
@@ -277,7 +243,7 @@ function BarButton({
       size={text ? "sm" : "icon"}
       className={cn(
         "shrink-0 text-muted-foreground hover:text-foreground",
-        text ? "h-8 flex-1 gap-1.5 bg-secondary/60" : "size-7",
+        text ? "h-8 flex-1 gap-1.5 bg-secondary/60" : "size-6",
         pressed &&
           (tone === "danger"
             ? "bg-danger-soft text-destructive-text hover:bg-danger-soft hover:text-destructive-text"

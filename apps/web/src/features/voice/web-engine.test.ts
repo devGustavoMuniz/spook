@@ -9,6 +9,7 @@ const lk = vi.hoisted(() => {
     ParticipantDisconnected: "pd",
     ActiveSpeakersChanged: "as",
     TrackSubscribed: "ts",
+    TrackPublished: "tp",
     TrackUnsubscribed: "tu",
     LocalTrackPublished: "ltp",
     LocalTrackUnpublished: "ltu",

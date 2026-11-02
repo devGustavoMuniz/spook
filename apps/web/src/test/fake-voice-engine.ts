@@ -2,6 +2,7 @@ import {
   type AudioCapabilities,
   type AudioSource,
   type ConnectionState,
+  type ConnectionStats,
   type ConnectParams,
   type DeviceInfo,
   type DeviceKind,
@@ -38,6 +39,11 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
   micTestCancels = 0;
   /** Opções da última chamada de `setScreenShareEnabled(true, ...)`. */
   lastScreenOpts: { audio?: boolean; quality?: ScreenShareQuality } | undefined;
+  /** `setScreenWatching`, `replaceScreenShareSource` e `getConnectionStats` (lote 2). */
+  watches: [string, boolean][] = [];
+  swaps: ({ audio?: boolean } | undefined)[] = [];
+  failSwap: VoiceMediaError | null = null;
+  stats: ConnectionStats | null = null;
   /** Falhas programadas por operação: o próximo `connect`/mic/câmera/tela lança isto. */
   failConnect: Error | null = null;
   failConnectOnce: Error | null = null;
@@ -88,6 +94,16 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
   setDeafened(d: boolean) {
     this.calls.push(`deaf:${d}`);
     this.deafened = d;
+  }
+  setScreenWatching(identity: string, on: boolean) {
+    this.watches.push([identity, on]);
+  }
+  async replaceScreenShareSource(opts?: { audio?: boolean }) {
+    if (this.failSwap) throw this.failSwap;
+    this.swaps.push(opts);
+  }
+  async getConnectionStats() {
+    return this.stats;
   }
   setParticipantVolume(identity: string, source: AudioSource, volume: number) {
     this.volumes.push([identity, source, volume]);

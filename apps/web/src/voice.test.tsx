@@ -174,6 +174,28 @@ describe("entrar e a barra de controle", () => {
     expect(fake.calls).toContain("resume-audio");
   });
 
+  it("'Ativar áudio' aparece uma vez só: no palco quando ele está na tela, no cartão nos demais lugares", async () => {
+    const user = userEvent.setup();
+    const { nav } = await open();
+    await user.click(voiceButton(nav));
+    const bar = await screen.findByRole("region", { name: "Controles de voz" });
+    await within(bar).findByText("Voz conectada");
+    act(() => fake.fire("audio-blocked", { blocked: true }));
+    const stage = await screen.findByRole("region", { name: "Vídeo da chamada" });
+    expect(await within(stage).findByRole("button", { name: /Ativar áudio/ })).toBeInTheDocument();
+    expect(within(bar).queryByRole("button", { name: /Ativar áudio/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Ativar áudio/ })).toHaveLength(1);
+
+    // Saiu da tela do canal de voz: o palco some e o cartão assume o botão.
+    await user.click(within(nav).getByRole("link", { name: /geral/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Vídeo da chamada" })).not.toBeInTheDocument(),
+    );
+    const card = screen.getByRole("region", { name: "Controles de voz" });
+    expect(within(card).getByRole("button", { name: /Ativar áudio/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Ativar áudio/ })).toHaveLength(1);
+  });
+
   it("sem SPEAK o microfone fica desabilitado com explicação; sem VIDEO câmera e tela também", async () => {
     const user = userEvent.setup();
     const { nav } = await open(BASE | Permission.CONNECT);

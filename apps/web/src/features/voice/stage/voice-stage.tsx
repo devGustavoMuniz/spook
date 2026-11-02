@@ -6,10 +6,20 @@ import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Guild } from "@/lib/guild";
 import { cn } from "@/lib/utils";
-import { clearFocusRequest, resumeAudio, toggleCamera, toggleMute } from "../controller";
+import {
+  clearFocusRequest,
+  resumeAudio,
+  screenSourceSwapSupported,
+  screenWatchSupported,
+  setScreenWatching,
+  swapScreenSource,
+  toggleCamera,
+  toggleMute,
+} from "../controller";
 import { voicePermissions } from "../permissions";
-import { useVoiceStore } from "../store";
+import { useStageMountedStore, useVoiceStore } from "../store";
 import type { PersonLookup } from "../use-person-lookup";
+import { pickAutoFocus, useCallLayoutStore, visibleTiles } from "./call-layout";
 import { ControlBar } from "./control-bar";
 import { InviteTile } from "./invite-tile";
 import { bestGrid } from "./layout";
@@ -27,6 +37,8 @@ export function buildTiles(
   lookup: PersonLookup,
   tracks: ReturnType<typeof useVoiceStore.getState>["videoTracks"],
   me: { id: string; mine: NonNullable<TileModel["mine"]> } | null,
+  /** Engine que escolhe quais telas assinar: telas de outras pessoas sem faixa viram tiles "Assistir". */
+  watch: { supported: boolean; swap?: boolean } = { supported: false },
 ): TileModel[] {
   const out: TileModel[] = [];
   const users = new Set(participants.map((p) => p.user_id));
@@ -59,7 +71,26 @@ export function buildTiles(
       kind: t.kind === "screen" ? "screen" : "person",
       local: t.local,
       video: t,
+      ...(t.kind === "screen" && !t.local && watch.supported ? { canStopWatching: true } : {}),
+      ...(t.kind === "screen" && t.local && watch.swap ? { canSwapSource: true } : {}),
     });
+  }
+  if (watch.supported && me) {
+    // Quem transmite a tela mas eu ainda não assisto: um tile com a prévia e o botão "Assistir".
+    for (const p of ordered) {
+      if (!p.self_screen || p.user_id === me.id) continue;
+      if (tracks.some((t) => t.kind === "screen" && t.identity === p.user_id)) continue;
+      const person = lookup(p.user_id);
+      out.push({
+        key: `s:pending:${p.user_id}`,
+        userId: p.user_id,
+        name: person.name,
+        avatarUrl: person.avatarUrl,
+        kind: "screen",
+        local: false,
+        unwatched: true,
+      });
+    }
   }
   return out;
 }
@@ -123,6 +154,12 @@ export function VoiceStage({
   const audioBlocked = useVoiceStore((s) => s.audioBlocked);
   const mediaIssue = useVoiceStore((s) => s.mediaIssue);
   const focusRequest = useVoiceStore((s) => s.focusRequest);
+  const channelId = useVoiceStore((s) => s.channelId);
+  const layout = useCallLayoutStore((s) => s.layout);
+  // As capacidades dependem da engine criada ao entrar na chamada; `tracks` muda a cada entrada/saída de tela.
+  // Lidas a cada render (a engine só existe depois de entrar); booleanos, para não refazer os tiles à toa.
+  const canWatch = inCall && screenWatchSupported();
+  const canSwap = inCall && screenSourceSwapSupported();
   const perms = voicePermissions(guild);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [issueDismissed, setIssueDismissed] = useState<string | null>(null);
@@ -152,10 +189,32 @@ export function VoiceStage({
               },
             }
           : null,
+        { supported: canWatch, swap: canSwap },
       ),
-    [participants, lookup, inCall, tracks, me, selfMute, selfDeaf, camera, screen, perms.speak],
+    [
+      participants,
+      lookup,
+      inCall,
+      tracks,
+      me,
+      selfMute,
+      selfDeaf,
+      camera,
+      screen,
+      perms.speak,
+      canWatch,
+      canSwap,
+    ],
   );
-  const focused = inCall ? tiles.find((t) => t.key === focusedKey && t.video) : undefined;
+  const allTiles = tiles;
+  const active = inCall && layout === "active" ? visibleTiles(allTiles, speaking) : null;
+  const shownTiles = active ? active.shown : allTiles;
+  const manualFocus = inCall ? shownTiles.find((t) => t.key === focusedKey && t.video) : undefined;
+  const autoFocus =
+    inCall && layout === "focus" && !manualFocus && shownTiles.length > 1
+      ? pickAutoFocus(shownTiles, speaking)
+      : undefined;
+  const focused = manualFocus ?? autoFocus;
   // "Assistir transmissão": põe a tela pedida em foco assim que ela chega (a sala ainda pode estar conectando);
   // vence em 10 s, e some se a pessoa parar de transmitir antes.
   useEffect(() => {
@@ -173,9 +232,15 @@ export function VoiceStage({
     const timer = setTimeout(() => clearFocusRequest(focusRequest.nonce), left);
     return () => clearTimeout(timer);
   }, [inCall, focusRequest, tiles]);
+  // Avisa o cartão da barra lateral que o palco está na tela (ele cuida do "Ativar áudio").
+  useEffect(() => {
+    if (!inCall) return;
+    useStageMountedStore.getState().set(true);
+    return () => useStageMountedStore.getState().set(false);
+  }, [inCall]);
   const connecting = inCall && status === "connecting";
   const showInvite = inCall && !!guild && participants.length === 1 && !focused;
-  const count = tiles.length + (showInvite ? 1 : 0);
+  const count = shownTiles.length + (showInvite ? 1 : 0);
   const grid = bestGrid(size.width || 1000, size.height || 560, count, GAP);
 
   // Destacar/voltar remonta o tile noutro lugar: o foco do teclado acompanha o tile.
@@ -195,6 +260,10 @@ export function VoiceStage({
     tile?.querySelector<HTMLElement>("button[data-focus-target]")?.focus();
   }, [focusedKey]);
 
+  const toggleStageFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen?.();
+    else void root.current?.requestFullscreen?.()?.catch?.(() => {});
+  }, []);
   const onFullscreen = useCallback((key: string) => {
     setFocusedKey(key);
     const el = root.current;
@@ -223,6 +292,8 @@ export function VoiceStage({
     if (!inCall || status !== "connected") return;
     if (e.key.toLowerCase() === "m" && perms.speak) void toggleMute();
     else if (e.key.toLowerCase() === "v" && perms.video) void toggleCamera();
+    else if (e.key.toLowerCase() === "l") useCallLayoutStore.getState().cycle();
+    else if (e.key.toLowerCase() === "f") toggleStageFullscreen();
   }
 
   const speakingNow = (userId: string) => speaking.has(userId);
@@ -242,6 +313,9 @@ export function VoiceStage({
       interactive={inCall}
       onFocusTile={toggleFocus}
       onFullscreen={onFullscreen}
+      onWatch={setScreenWatching}
+      onSwapSource={() => void swapScreenSource()}
+      channelId={channelId}
     />
   );
 
@@ -320,12 +394,12 @@ export function VoiceStage({
                 >
                   {tileFor(focused, { large: true, focused: true, className: "min-h-0 flex-1" })}
                 </ul>
-                {tiles.length > 1 ? (
+                {shownTiles.length > 1 ? (
                   <ul
                     aria-label="Participantes da chamada"
                     className="flex shrink-0 list-none gap-2 overflow-x-auto pb-1"
                   >
-                    {tiles
+                    {shownTiles
                       .filter((t) => t !== focused)
                       .map((t) => tileFor(t, { width: STRIP_TILE, className: "shrink-0" }))}
                   </ul>
@@ -338,10 +412,20 @@ export function VoiceStage({
                 className="m-auto flex min-h-full list-none flex-wrap content-center items-center justify-center"
                 style={{ gap: GAP }}
               >
-                {tiles.map((t) => tileFor(t, { width: grid.tileWidth }))}
+                {shownTiles.map((t) => tileFor(t, { width: grid.tileWidth }))}
                 {showInvite && guild ? <InviteTile guild={guild} width={grid.tileWidth} /> : null}
               </ul>
             )}
+            {active && active.hidden > 0 ? (
+              <p
+                data-testid="hidden-count"
+                className="pointer-events-none absolute top-3 left-3 z-10 rounded-full border border-border bg-card/90 px-3 py-1 text-xs font-medium shadow-sm backdrop-blur-md"
+              >
+                {active.hidden === 1
+                  ? "1 participante oculto"
+                  : `${active.hidden} participantes ocultos`}
+              </p>
+            ) : null}
           </div>
 
           {inCall ? (
@@ -366,10 +450,7 @@ export function VoiceStage({
                   "pointer-events-auto absolute right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] hidden size-11 rounded-full border border-border bg-card/85 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-[var(--dur-base)] sm:inline-flex",
                   barVisible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
                 )}
-                onClick={() => {
-                  if (document.fullscreenElement) void document.exitFullscreen?.();
-                  else void root.current?.requestFullscreen?.()?.catch?.(() => {});
-                }}
+                onClick={toggleStageFullscreen}
               >
                 {fullscreen ? <Minimize /> : <Expand />}
               </Button>

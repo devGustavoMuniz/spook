@@ -7,7 +7,7 @@ import {
 } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { AtSign, Paperclip, Reply, SendHorizontal, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -16,10 +16,19 @@ import { PendingAttachments } from "@/features/attachments/pending-attachments";
 import { ACCEPT, MAX_ATTACHMENTS } from "@/features/attachments/rules";
 import type { ComposerAttachments } from "@/features/attachments/use-composer-attachments";
 import { appMessage } from "@/lib/app-errors";
+import { extractInviteCodes } from "@/lib/invite-links";
+import {
+  applyMention,
+  filterMentionOptions,
+  findMentionQuery,
+  type MentionOption,
+} from "@/lib/mentions";
 import { addMessage, truncateRunes } from "@/lib/message-cache";
 import { createTypingThrottle } from "../typing/throttle";
 import { TypingIndicator } from "../typing/typing-indicator";
+import { InviteCard } from "./invite-card";
 import { COUNTER_FROM, MAX_MESSAGE_LENGTH, runeCount } from "./limits";
+import { MentionSuggestions, mentionListId, mentionOptionId } from "./mention-suggestions";
 
 export function MessageComposer({
   channelId,
@@ -32,6 +41,7 @@ export function MessageComposer({
   onCancelReply,
   onEditLast,
   focusToken = 0,
+  mentionOptions = [],
 }: {
   channelId: string;
   channelName: string;
@@ -49,6 +59,11 @@ export function MessageComposer({
   onEditLast?: () => void;
   /** Muda para devolver o foco ao campo (depois de editar, responder etc.). */
   focusToken?: number;
+  /**
+   * Fonte do autocompletar de `@`: membros do canal/servidor ou participantes da DM. Hoje só `kind: "user"`;
+   * cargos e `@everyone` entram aqui quando o backend os suportar.
+   */
+  mentionOptions?: readonly MentionOption[];
 }) {
   const qc = useQueryClient();
   const { data: me } = useGetMe();
@@ -57,6 +72,13 @@ export function MessageComposer({
   const [text, setText] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
+  const composerId = useId();
+  const [caret, setCaret] = useState(0);
+  const [focused, setFocused] = useState(false);
+  // Esc fecha a lista para o `@` atual (reabre ao começar outro).
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  const [active, setActive] = useState(0);
+  const nextCaret = useRef<number | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const { queue, items, addFiles, canAttach } = attachments;
   // "Digitando…" no máximo a cada 3 s por canal (o servidor também limita); recomeça ao trocar de canal.
@@ -80,6 +102,37 @@ export function MessageComposer({
     const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
+
+  const mentionQuery = useMemo(() => findMentionQuery(text, caret), [text, caret]);
+  const suggestions = useMemo(
+    () =>
+      mentionQuery && mentionQuery.start !== dismissedAt && mentionOptions.length > 0
+        ? filterMentionOptions(mentionOptions, mentionQuery.query)
+        : [],
+    [mentionQuery, dismissedAt, mentionOptions],
+  );
+  const suggestionsOpen = focused && suggestions.length > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a opção ativa volta ao topo quando a consulta muda
+  useEffect(() => setActive(0), [mentionQuery?.query, mentionQuery?.start]);
+  // Depois de inserir uma menção o cursor vai para o fim dela.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: roda a cada texto novo para aplicar o cursor pendente
+  useLayoutEffect(() => {
+    if (nextCaret.current === null) return;
+    input.current?.setSelectionRange(nextCaret.current, nextCaret.current);
+    nextCaret.current = null;
+  }, [text]);
+
+  function pickMention(o: MentionOption) {
+    if (!mentionQuery) return;
+    const r = applyMention(text, mentionQuery, o.handle);
+    nextCaret.current = r.caret;
+    setText(r.text);
+    setCaret(r.caret);
+    input.current?.focus();
+  }
+
+  // Colou um link de convite do próprio domínio: mostra o cartão do servidor acima do campo.
+  const pastedInvite = useMemo(() => extractInviteCodes(text)[0], [text]);
 
   const length = runeCount(text);
   const tooLong = length > MAX_MESSAGE_LENGTH;
@@ -157,12 +210,21 @@ export function MessageComposer({
 
   return (
     <form
-      className="flex flex-col gap-1 px-3 pt-1 pb-3 sm:px-4"
+      className="relative flex flex-col gap-1 px-3 pt-1 pb-3 sm:px-4"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
+      {suggestionsOpen ? (
+        <MentionSuggestions
+          id={composerId}
+          options={suggestions}
+          active={active}
+          onPick={pickMention}
+          onHover={setActive}
+        />
+      ) : null}
       <div
         className={`overflow-hidden rounded-2xl border bg-surface-2 shadow-sm transition-[border-color,box-shadow] duration-[var(--dur-base)] focus-within:border-ring focus-within:shadow-md ${
           tooLong ? "border-destructive-text" : "border-input"
@@ -180,6 +242,11 @@ export function MessageComposer({
               input.current?.focus();
             }}
           />
+        ) : null}
+        {pastedInvite ? (
+          <div className="border-b border-border p-2">
+            <InviteCard code={pastedInvite} preview />
+          </div>
         ) : null}
         <PendingAttachments
           items={items}
@@ -221,14 +288,26 @@ export function MessageComposer({
                 : "Você não tem permissão para anexar arquivos neste canal"}
             </TooltipContent>
           </Tooltip>
+          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-expanded só existe com role="combobox" (lista aberta) */}
           <textarea
             ref={input}
             aria-label={isDm ? `Mensagem para ${channelName}` : `Mensagem em #${channelName}`}
             placeholder={isDm ? `Conversar com ${channelName}` : `Conversar em #${channelName}`}
             rows={1}
             value={text}
+            role={suggestionsOpen ? "combobox" : undefined}
+            aria-expanded={suggestionsOpen ? true : undefined}
+            aria-controls={suggestionsOpen ? mentionListId(composerId) : undefined}
+            aria-autocomplete={suggestionsOpen ? "list" : undefined}
+            aria-activedescendant={
+              suggestionsOpen ? mentionOptionId(composerId, active) : undefined
+            }
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onChange={(e) => {
               setText(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
               // Falha no aviso não atrapalha quem escreve: o indicador dos outros é só um detalhe.
               if (canSend && typing.shouldSend(e.target.value))
                 void startTyping(channelId).catch(() => {});
@@ -241,6 +320,33 @@ export function MessageComposer({
               addFiles(files);
             }}
             onKeyDown={(e) => {
+              if (suggestionsOpen && !e.nativeEvent.isComposing) {
+                const last = suggestions.length - 1;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActive((a) => (a >= last ? 0 : a + 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActive((a) => (a <= 0 ? last : a - 1));
+                  return;
+                }
+                if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+                  const pick = suggestions[active];
+                  if (pick) {
+                    e.preventDefault();
+                    pickMention(pick);
+                    return;
+                  }
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDismissedAt(mentionQuery?.start ?? null);
+                  return;
+                }
+              }
               // Enter envia; Shift+Enter quebra linha. Não envia no meio de uma composição (IME).
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();

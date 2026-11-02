@@ -10,6 +10,7 @@ import {
   type LocalTrackPublication,
   type Participant,
   type RemoteAudioTrack,
+  type RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
   Room,
@@ -27,6 +28,7 @@ import {
   type AudioProcessingStatus,
   type AudioSource,
   type ConnectionState,
+  type ConnectionStats,
   type ConnectParams,
   type DeviceInfo,
   type DeviceKind,
@@ -308,7 +310,12 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     micTest: supportsAudioGraph() && typeof MediaRecorder !== "undefined",
     screenShareQuality: true,
     pictureInPicture: supportsPictureInPicture(),
+    screenWatch: true,
+    screenSourceSwap: true,
+    connectionStats: true,
   };
+  /** Identidades cuja tela o usuário escolheu assistir; as demais telas ficam sem assinatura (economiza banda). */
+  private watching = new Set<string>();
 
   get state(): ConnectionState {
     return this.room ? mapState(this.room.state) : "disconnected";
@@ -321,14 +328,45 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     this.closing = false;
     this.wire(room);
     try {
-      await room.connect(url, token, { autoSubscribe: true });
+      // Assinatura manual: tudo é assinado, menos a tela de quem o usuário ainda não escolheu assistir.
+      await room.connect(url, token, { autoSubscribe: false });
     } catch (err) {
       this.teardown(room);
       throw toConnectError(err);
     }
     // Quem já estava na sala.
-    for (const p of room.remoteParticipants.values())
+    for (const p of room.remoteParticipants.values()) {
+      this.syncSubscriptions(p);
       this.emit("participant-joined", { identity: p.identity });
+    }
+  }
+
+  /** Política de assinatura: a tela (vídeo e áudio) só com "Assistir"; todo o resto é assinado. */
+  private wantSubscribed(source: Track.Source, identity: string): boolean {
+    if (source === Track.Source.ScreenShare || source === Track.Source.ScreenShareAudio)
+      return this.watching.has(identity);
+    return true;
+  }
+
+  private syncSubscriptions(p: RemoteParticipant) {
+    for (const pub of p.trackPublications?.values() ?? []) this.syncSubscription(pub, p.identity);
+  }
+
+  private syncSubscription(pub: RemoteTrackPublication, identity: string) {
+    const want = this.wantSubscribed(pub.source, identity);
+    if (pub.isSubscribed === want) return;
+    try {
+      pub.setSubscribed(want);
+    } catch {
+      // a publicação pode ter sumido entre o evento e a chamada
+    }
+  }
+
+  setScreenWatching(identity: string, on: boolean) {
+    if (on) this.watching.add(identity);
+    else this.watching.delete(identity);
+    const p = this.room?.remoteParticipants.get(identity);
+    if (p) this.syncSubscriptions(p);
   }
 
   async disconnect(): Promise<void> {
@@ -347,14 +385,17 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     for (const el of this.audioEls.values()) el.remove();
     this.audioEls.clear();
     this.micProcessor = null;
+    this.watching.clear();
     this.refreshMonitor();
   }
 
   private wire(room: Room) {
     room
-      .on(RoomEvent.ParticipantConnected, (p) =>
-        this.emit("participant-joined", { identity: p.identity }),
-      )
+      .on(RoomEvent.ParticipantConnected, (p) => {
+        this.syncSubscriptions(p);
+        this.emit("participant-joined", { identity: p.identity });
+      })
+      .on(RoomEvent.TrackPublished, (pub, p) => this.syncSubscription(pub, p.identity))
       .on(RoomEvent.ParticipantDisconnected, (p) =>
         this.emit("participant-left", { identity: p.identity }),
       )
@@ -743,6 +784,109 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
       await lp.setCameraEnabled(enabled);
     } catch (err) {
       throw toMediaError(err, "camera");
+    }
+  }
+
+  async replaceScreenShareSource(opts: { audio?: boolean } = {}) {
+    const lp = this.requireRoom().localParticipant;
+    const pub = lp.getTrackPublication(Track.Source.ScreenShare);
+    const track = pub?.videoTrack;
+    if (!pub || !track) throw new VoiceMediaError("unknown", "screen", "não há tela compartilhada");
+    const q = track.mediaStreamTrack?.getSettings?.();
+    const height = q?.height;
+    try {
+      // Mesma qualidade da transmissão em curso: a captura nova pede o que a antiga entregava.
+      const fresh = await lp.createScreenTracks(
+        screenShareOptions(
+          !!opts.audio,
+          height
+            ? {
+                height: height >= 1440 ? 1440 : height >= 1080 ? 1080 : 720,
+                fps: (q?.frameRate ?? 30) >= 60 ? 60 : (q?.frameRate ?? 30) >= 30 ? 30 : 15,
+                priority: "detail",
+              }
+            : undefined,
+        ),
+      );
+      const video = fresh.find((t) => t.kind === Track.Kind.Video);
+      for (const t of fresh) if (t !== video) t.stop();
+      if (!video) throw new VoiceMediaError("unknown", "screen");
+      // A publicação (sid, codec, bitrate) continua; só a captura por baixo troca.
+      await track.replaceTrack(video.mediaStreamTrack, { userProvidedTrack: false });
+    } catch (err) {
+      throw toMediaError(err, "screen");
+    }
+  }
+
+  async getConnectionStats(): Promise<ConnectionStats | null> {
+    const room = this.room;
+    if (!room || room.state !== LkConnectionState.Connected) return null;
+    const lp = room.localParticipant;
+    let rttMs: number | null = null;
+    let jitterMs: number | null = null;
+    let lost = 0;
+    let total = 0;
+    type Sender = {
+      roundTripTime?: number;
+      jitter?: number;
+      packetsLost?: number;
+      packetsSent?: number;
+    };
+    const read = async (track: { getSenderStats?: () => Promise<unknown> } | undefined) => {
+      const raw = await track?.getSenderStats?.().catch(() => undefined);
+      const list = (Array.isArray(raw) ? raw : raw ? [raw] : []) as Sender[];
+      for (const stats of list) {
+        if (typeof stats.roundTripTime === "number")
+          rttMs = Math.max(rttMs ?? 0, stats.roundTripTime * 1000);
+        if (typeof stats.jitter === "number")
+          jitterMs = Math.max(jitterMs ?? 0, stats.jitter * 1000);
+        lost += stats.packetsLost ?? 0;
+        total += (stats.packetsSent ?? 0) + (stats.packetsLost ?? 0);
+      }
+    };
+    await read(this.micTrack());
+    for (const src of [Track.Source.Camera, Track.Source.ScreenShare])
+      await read(lp.getTrackPublication(src)?.videoTrack);
+    // Sem nada publicado (só ouvindo) o RTT sai do par de candidatos da conexão do assinante.
+    if (rttMs === null) {
+      const rtt = await this.subscriberRtt(room);
+      if (rtt !== null) rttMs = rtt;
+    }
+    if (rttMs === null && jitterMs === null && total === 0) return null;
+    return {
+      rttMs: rttMs === null ? null : Math.round(rttMs),
+      jitterMs: jitterMs === null ? null : Math.round(jitterMs * 10) / 10,
+      lossPct: total > 0 ? Math.round((lost / total) * 1000) / 10 : null,
+    };
+  }
+
+  private async subscriberRtt(room: Room): Promise<number | null> {
+    try {
+      const pc = (
+        room as unknown as {
+          engine?: { pcManager?: { subscriber?: { getStats?: () => Promise<RTCStatsReport> } } };
+        }
+      ).engine?.pcManager?.subscriber;
+      const report = await pc?.getStats?.();
+      if (!report) return null;
+      let rtt: number | null = null;
+      report.forEach((v) => {
+        const r = v as {
+          type?: string;
+          state?: string;
+          nominated?: boolean;
+          currentRoundTripTime?: number;
+        };
+        if (
+          r.type === "candidate-pair" &&
+          (r.nominated || r.state === "succeeded") &&
+          typeof r.currentRoundTripTime === "number"
+        )
+          rtt = r.currentRoundTripTime * 1000;
+      });
+      return rtt;
+    } catch {
+      return null;
     }
   }
 

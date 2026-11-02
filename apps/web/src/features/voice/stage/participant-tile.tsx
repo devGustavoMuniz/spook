@@ -1,13 +1,16 @@
 import type { VoiceStatePayload } from "@spook/shared";
 import {
   Expand,
+  EyeOff,
   HeadphoneOff,
   Maximize2,
   MicOff,
   Minimize2,
   Monitor,
+  MonitorUp,
   MoreHorizontal,
   PictureInPicture2,
+  RefreshCw,
   Video,
   Volume2,
 } from "lucide-react";
@@ -23,11 +26,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { audioCapabilities, participantVolumeMax } from "../controller";
+import { loadViewStreamPreviews } from "../devices";
 import type { VideoTrackInfo } from "../engine";
 import { PersonVolumePanel } from "../person-volume";
 import { togglePictureInPicture, usePictureInPictureId } from "../pip";
+import { useStreamPreview } from "../screen-preview";
 import { useTileColor } from "./dominant-color";
 import { useStageHold } from "./use-auto-hide";
 
@@ -42,6 +48,15 @@ export type TileModel = {
   local: boolean;
   video?: VideoTrackInfo;
   state?: VoiceStatePayload;
+  /**
+   * Tela de outra pessoa que ainda NÃO assisto (sem faixa assinada): mostra a prévia e o botão "Assistir".
+   * Só existe quando a engine deixa escolher (`audioCapabilities.screenWatch`).
+   */
+  unwatched?: boolean;
+  /** Tela de outra pessoa que posso parar de assistir (a engine deixa escolher). */
+  canStopWatching?: boolean;
+  /** Minha tela e a engine troca a fonte sem parar (`screenSourceSwap`). */
+  canSwapSource?: boolean;
   /** Flags da minha própria sessão (valem mais que o estado do servidor, que chega depois). */
   mine?: { mute: boolean; deaf: boolean; camera: boolean; screen: boolean; cannotSpeak: boolean };
 };
@@ -92,6 +107,9 @@ export function ParticipantTile({
   interactive = true,
   onFocusTile,
   onFullscreen,
+  onWatch,
+  onSwapSource,
+  channelId = null,
   className,
 }: {
   tile: TileModel;
@@ -107,6 +125,11 @@ export function ParticipantTile({
   interactive?: boolean;
   onFocusTile?: (key: string) => void;
   onFullscreen?: (key: string) => void;
+  /** Assistir (`true`) ou parar de assistir (`false`) a tela de `userId`. */
+  onWatch?: (userId: string, on: boolean) => void;
+  onSwapSource?: () => void;
+  /** Canal da chamada: de onde vem a miniatura da prévia do tile sem assinatura. */
+  channelId?: string | null;
   className?: string;
 }) {
   const color = useTileColor(tile.avatarUrl, tile.userId);
@@ -118,6 +141,11 @@ export function ParticipantTile({
     return track.source.attach(el);
   }, [track]);
 
+  const previewState = useStreamPreview(
+    channelId ?? "",
+    tile.userId,
+    !!tile.unwatched && !!channelId && loadViewStreamPreviews(),
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
   useStageHold(menuOpen || volumeOpen);
@@ -138,7 +166,7 @@ export function ParticipantTile({
   return (
     <li
       data-testid={track ? "video-tile" : "participant-tile"}
-      data-kind={track ? track.kind : "person"}
+      data-kind={track ? track.kind : tile.unwatched ? "screen" : "person"}
       data-speaking={speaking || undefined}
       data-focused={focused || undefined}
       data-tile-key={tile.key}
@@ -164,7 +192,22 @@ export function ParticipantTile({
         className,
       )}
     >
-      {track ? (
+      {tile.unwatched ? (
+        <div className="absolute inset-0 z-0 flex items-center justify-center bg-black">
+          {previewState.status === "ready" ? (
+            <img
+              src={previewState.url}
+              alt=""
+              className="size-full object-contain opacity-60"
+              draggable={false}
+            />
+          ) : previewState.status === "loading" ? (
+            <Spinner className="text-white/70" />
+          ) : (
+            <MonitorUp className="size-10 text-white/40" aria-hidden />
+          )}
+        </div>
+      ) : track ? (
         <div
           ref={host}
           className={cn(
@@ -212,6 +255,20 @@ export function ParticipantTile({
           speaking ? "ring-[3px] ring-speaking" : "ring-1 ring-white/10",
         )}
       />
+      {tile.unwatched && interactive ? (
+        <div className="absolute inset-0 z-[3] flex items-center justify-center">
+          <Button
+            type="button"
+            size="lg"
+            className="cursor-pointer rounded-full shadow-lg"
+            aria-label={`Assistir tela de ${tile.name}`}
+            data-focus-target
+            onClick={() => onWatch?.(tile.userId, true)}
+          >
+            <Monitor /> Assistir
+          </Button>
+        </div>
+      ) : null}
       {interactive && track ? (
         <button
           type="button"
@@ -243,6 +300,17 @@ export function ParticipantTile({
             menuOpen && "opacity-100",
           )}
         >
+          {tile.canStopWatching && track ? (
+            <Button
+              variant="secondary"
+              size="icon"
+              className="size-8 rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/75 hover:text-white"
+              aria-label={`Parar de assistir a tela de ${tile.name}`}
+              onClick={() => onWatch?.(tile.userId, false)}
+            >
+              <EyeOff />
+            </Button>
+          ) : null}
           {track ? (
             <Button
               variant="secondary"
@@ -272,6 +340,21 @@ export function ParticipantTile({
                   {focused ? "Voltar à grade" : "Destacar"}
                 </DropdownMenuItem>
               ) : null}
+              {tile.unwatched ? (
+                <DropdownMenuItem onSelect={() => onWatch?.(tile.userId, true)}>
+                  <Monitor /> Assistir
+                </DropdownMenuItem>
+              ) : null}
+              {tile.canStopWatching && track ? (
+                <DropdownMenuItem onSelect={() => onWatch?.(tile.userId, false)}>
+                  <EyeOff /> Parar de assistir
+                </DropdownMenuItem>
+              ) : null}
+              {tile.canSwapSource && tile.local && tile.kind === "screen" ? (
+                <DropdownMenuItem onSelect={() => onSwapSource?.()}>
+                  <RefreshCw /> Trocar janela/tela
+                </DropdownMenuItem>
+              ) : null}
               {canVolume ? (
                 <DropdownMenuItem onSelect={() => setVolumeOpen(true)}>
                   <Volume2 /> Volume de {tile.name}
@@ -294,7 +377,7 @@ export function ParticipantTile({
                   <Expand /> Tela cheia
                 </DropdownMenuItem>
               ) : null}
-              {!track && !canVolume ? (
+              {!track && !canVolume && !tile.unwatched ? (
                 <DropdownMenuItem disabled>Nenhuma ação disponível</DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>

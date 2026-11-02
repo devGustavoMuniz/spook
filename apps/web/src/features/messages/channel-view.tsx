@@ -32,6 +32,7 @@ import { useEntryMarker } from "@/features/notifications/use-entry-marker";
 import { useViewportStore } from "@/features/notifications/viewport";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild } from "@/lib/guild";
+import type { MentionOption } from "@/lib/mentions";
 import {
   flattenPages,
   type MessagePages,
@@ -107,6 +108,29 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
       : (guildMembers.data?.members ?? []).map((m) => m.username);
     return new Set(names.map((n) => n.toLowerCase()));
   }, [dm, guildMembers.data]);
+  // Fonte do autocompletar de `@`: membros do servidor ou participantes da DM (menos eu). Cargos e `@everyone`
+  // entram aqui como `kind: "role" | "everyone"` quando o backend os suportar.
+  const mentionOptions = useMemo<MentionOption[]>(() => {
+    if (dm)
+      return recipientsOf(dm)
+        .filter((r) => r.id !== me?.id)
+        .map((r) => ({
+          id: r.id,
+          handle: r.username,
+          label: recipientName(r),
+          avatarUrl: r.avatar_url,
+          kind: "user" as const,
+        }));
+    return (guildMembers.data?.members ?? [])
+      .filter((m) => m.user_id !== me?.id)
+      .map((m) => ({
+        id: m.user_id,
+        handle: m.username,
+        label: memberName(m),
+        avatarUrl: m.avatar_url,
+        kind: "user" as const,
+      }));
+  }, [dm, guildMembers.data, me?.id]);
   const perfOn = import.meta.env.DEV && !!perf;
   const query = useChannelMessages(channelId, !perfOn);
   const perfMessages = useMemo(
@@ -306,6 +330,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
         onCancelReply={() => setReplying(null)}
         onEditLast={editLast}
         focusToken={focusToken}
+        mentionOptions={mentionOptions}
       />
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>

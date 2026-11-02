@@ -9,6 +9,7 @@ import {
 } from "@spook/shared";
 import { toast } from "sonner";
 import { voiceMessage } from "@/lib/app-errors";
+import { playCallSound } from "./call-sounds";
 import {
   loadAudioProcessing,
   loadDevicePrefs,
@@ -21,12 +22,14 @@ import {
   type AudioCapabilities,
   type AudioProcessingOptions,
   type AudioProcessingStatus,
+  type ConnectionStats,
   type DeviceKind,
   type DisconnectReason,
   type ScreenShareQuality,
   type Unsubscribe,
   VoiceConnectError,
   type VoiceEngine,
+  VoiceMediaError,
 } from "./engine";
 import { createVoiceEngine } from "./engine-provider";
 import { mediaMessage } from "./media-errors";
@@ -156,6 +159,7 @@ export async function joinVoice(target: JoinTarget): Promise<boolean> {
     return false;
   }
   await afterConnect(eng, target, gen);
+  if (gen === generation) playCallSound("join");
   return gen === generation;
 }
 
@@ -190,6 +194,8 @@ async function connectWithToken(eng: VoiceEngine, target: JoinTarget, gen: numbe
 
 async function afterConnect(eng: VoiceEngine, target: JoinTarget, gen: number) {
   session().patch({ status: "connected" });
+  // Reaplica as telas que o usuário escolheu assistir (a engine começa sem assinar nenhuma).
+  for (const id of session().watching) eng.setScreenWatching?.(id, true);
   const prefs = loadDevicePrefs();
   for (const kind of Object.keys(prefs) as DeviceKind[]) {
     const id = prefs[kind];
@@ -231,6 +237,7 @@ export async function leaveCall() {
   const eng = engine;
   session().clear();
   useAudioStatusStore.getState().set(null);
+  playCallSound("leave");
   await eng?.disconnect();
   try {
     await leaveVoice();
@@ -259,6 +266,7 @@ export async function toggleMute() {
     ...(undeaf ? { selfDeaf: false } : {}),
   });
   if (undeaf) engine?.setDeafened(false);
+  playCallSound(mute ? "mute" : "unmute");
   await applyMic(!mute);
   await syncState();
 }
@@ -272,11 +280,13 @@ export async function toggleDeafen() {
   }
   if (!s.selfDeaf) {
     session().patch({ selfDeaf: true, selfMute: true, muteBeforeDeaf: s.selfMute });
+    playCallSound("deafen");
     engine?.setDeafened(true);
     await applyMic(false);
   } else {
     const mute = s.muteBeforeDeaf;
     session().patch({ selfDeaf: false, selfMute: mute });
+    playCallSound("undeafen");
     engine?.setDeafened(false);
     await applyMic(!mute);
   }
@@ -388,9 +398,55 @@ export async function watchStream(target: JoinTarget, userId: string): Promise<b
   session().patch({
     focusRequest: { userId, source: "screen", at: Date.now(), nonce: ++focusNonce },
   });
+  setScreenWatching(userId, true);
   const s = session();
   if (s.channelId === target.channelId && s.status !== "idle") return true;
   return joinVoice(target);
+}
+
+/** A engine atual deixa escolher quais telas assistir? Sem isso ela assina todas (o app desktop). */
+export function screenWatchSupported(): boolean {
+  return engine?.audioCapabilities?.screenWatch === true;
+}
+
+/** Começa/para de assistir a tela de `userId` (assina/cancela a faixa; economiza banda). */
+export function setScreenWatching(userId: string, on: boolean) {
+  const cur = session().watching;
+  if (cur.has(userId) !== on) {
+    const next = new Set(cur);
+    if (on) next.add(userId);
+    else next.delete(userId);
+    session().patch({ watching: next });
+  }
+  if (session().status === "connected") engine?.setScreenWatching?.(userId, on);
+}
+
+/** Troca a janela/tela que estou compartilhando, sem parar a transmissão. */
+export async function swapScreenSource() {
+  if (session().status === "idle" || !session().screen || !engine?.replaceScreenShareSource) return;
+  try {
+    await engine.replaceScreenShareSource({ audio: loadScreenSharePrefs().audio });
+    session().patch({ mediaIssue: null });
+  } catch (err) {
+    // Cancelar o seletor mantém a fonte anterior: sem alarme.
+    if (err instanceof VoiceMediaError && err.code === "cancelled") return;
+    reportMediaIssue(err);
+  }
+}
+
+/** A engine permite trocar a fonte da tela em curso? */
+export function screenSourceSwapSupported(): boolean {
+  return engine?.audioCapabilities?.screenSourceSwap === true;
+}
+
+/** Mede a rede agora (RTT, perda, jitter); `null` quando a engine não mede ou não há sala. */
+export async function readConnectionStats(): Promise<ConnectionStats | null> {
+  if (session().status !== "connected" || !engine?.getConnectionStats) return null;
+  try {
+    return await engine.getConnectionStats();
+  } catch {
+    return null;
+  }
 }
 
 /** O pedido de foco foi atendido ou venceu. */
@@ -564,6 +620,7 @@ function forcedOut(message: string) {
   clearTimeout(rejoinTimer);
   session().clear();
   useAudioStatusStore.getState().set(null);
+  playCallSound("leave");
   void engine?.disconnect();
   toast.info(message);
 }
@@ -577,7 +634,9 @@ function forcedOut(message: string) {
  * canal ANTERIOR numa troca também chega assim e deve ser ignorada.
  */
 export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) {
+  const before = useVoiceStatesStore.getState().byUser[u.user_id];
   useVoiceStatesStore.getState().apply(u);
+  playPeerSounds(myId, before, u);
   if (!myId || u.user_id !== myId) return;
   const s = session();
   if (s.status === "idle") return;
@@ -591,6 +650,22 @@ export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) 
       ? "Você entrou em outra chamada em outro dispositivo."
       : "Você foi desconectado da chamada de voz.",
   );
+}
+
+/** Sons de quem chega, sai ou liga/desliga a transmissão na MINHA sala (nunca por mim mesmo). */
+function playPeerSounds(
+  myId: string | null,
+  before: GatewayVoiceState | undefined,
+  after: GatewayVoiceState,
+) {
+  const s = session();
+  if (!myId || after.user_id === myId || s.status !== "connected" || !s.channelId) return;
+  const wasHere = before?.channel_id === s.channelId;
+  const isHere = after.channel_id === s.channelId;
+  if (!wasHere && isHere) playCallSound("peer-join");
+  else if (wasHere && !isHere) playCallSound("peer-leave");
+  else if (isHere && !!before?.self_screen !== !!after.self_screen)
+    playCallSound(after.self_screen ? "stream-start" : "stream-end");
 }
 
 /** READY: o snapshot substitui o mapa e confere se a sala local ainda é a que o servidor conhece. */

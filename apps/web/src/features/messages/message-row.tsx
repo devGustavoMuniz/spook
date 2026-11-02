@@ -22,9 +22,11 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { shownName } from "@/features/account/removed-user";
 import { MessageAttachments } from "@/features/attachments/message-attachments";
 import { formatClock, formatFullDate, formatMessageTime } from "@/lib/format";
 import { useReadableRoleColor } from "@/lib/role-color";
+import { InviteCards } from "./invite-card";
 import { MAX_MESSAGE_LENGTH, runeCount } from "./limits";
 
 export type MessageRowProps = {
@@ -75,7 +77,7 @@ async function copyText(text: string, done: string) {
 
 export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   const { message: m } = p;
-  const name = m.author.display_name || m.author.username;
+  const name = shownName(m.author.display_name, m.author.username);
   const nameColor = useReadableRoleColor(p.color);
   // mention_ids traz quem deve ser NOTIFICADO (o servidor exclui o próprio autor). Só ele destaca a linha;
   // o "@usuário" no texto é destacado sempre que cita você, inclusive numa mensagem sua.
@@ -207,15 +209,24 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                       ? highlightMentions(m.content, p.myUsername, p.mentionable)
                       : m.content}
                     {m.edited_at ? (
-                      <span
-                        className="ml-1 text-2xs text-muted-foreground"
-                        title={`Editada em ${formatFullDate(m.edited_at)}`}
-                      >
-                        (editada)
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            // biome-ignore lint/a11y/noNoninteractiveTabindex: o foco mostra a data pelo teclado
+                            tabIndex={0}
+                            className="ml-1 cursor-default rounded-sm text-2xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            (editada)
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          Editada em {formatFullDate(m.edited_at)}
+                        </TooltipContent>
+                      </Tooltip>
                     ) : null}
                   </p>
                 ) : null}
+                {m.content ? <InviteCards content={m.content} /> : null}
                 <MessageAttachments attachments={m.attachments ?? []} />
               </>
             )}
@@ -434,7 +445,7 @@ function ReplyQuote({
   reply: NonNullable<MessagePayload["reply_to"]>;
   onJumpTo: (messageId: string) => void;
 }) {
-  const author = reply.author.display_name || reply.author.username;
+  const author = shownName(reply.author.display_name, reply.author.username);
   const connector = (
     <span
       aria-hidden

@@ -37,6 +37,11 @@ export type VoiceSession = {
    * tela chega; se não chegar em ~10 s, o pedido vence e é descartado.
    */
   focusRequest: FocusRequest | null;
+  /**
+   * Quem eu escolhi assistir (telas assinadas). Só vale com `audioCapabilities.screenWatch`; sem a capacidade a engine
+   * assina tudo. Sobrevive a `begin` (como o pedido de foco) e é zerado ao sair da chamada.
+   */
+  watching: ReadonlySet<string>;
   speaking: ReadonlySet<string>;
   videoTracks: VideoTrackInfo[];
   quality: LinkQuality;
@@ -68,6 +73,7 @@ const initial: VoiceSession = {
   screen: false,
   screenPreview: false,
   focusRequest: null,
+  watching: new Set(),
   speaking: new Set(),
   videoTracks: [],
   quality: "unknown",
@@ -113,6 +119,14 @@ export const useVoiceAvailabilityStore = create<{
   unavailable: boolean;
   set: (unavailable: boolean) => void;
 }>()((set) => ({ unavailable: false, set: (unavailable) => set({ unavailable }) }));
+
+/**
+ * O palco da chamada está montado (a pessoa está na tela do canal). Serve para mostrar o aviso "Ativar áudio" num
+ * lugar só: no palco quando ele está na tela, no cartão da barra lateral nos demais lugares.
+ */
+export const useStageMountedStore = create<{ mounted: boolean; set: (m: boolean) => void }>()(
+  (set) => ({ mounted: false, set: (mounted) => set({ mounted }) }),
+);
 
 export const isInVoice = (s: Pick<VoiceSession, "status">) => s.status !== "idle";
 
