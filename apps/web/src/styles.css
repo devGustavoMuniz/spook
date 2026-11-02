@@ -6,8 +6,10 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Tokens -> utilitários do Tailwind. Os valores vivem em packages/brand/src/tokens.css. */
 @theme inline {
-  --font-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -25,23 +27,434 @@
   --color-sidebar: var(--sidebar);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-field: var(--field);
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-text: var(--destructive-text);
-  --radius-lg: 0.625rem;
-  --radius-md: 0.5rem;
-  --radius-sm: 0.375rem;
+
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-overlay: var(--overlay);
+  --color-brand-text: var(--brand-text);
+
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-text: var(--success-text);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-text: var(--warning-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-text: var(--info-text);
+  --color-info-soft: var(--info-soft);
+
+  --color-online: var(--online);
+  --color-idle: var(--idle);
+  --color-dnd: var(--dnd);
+  --color-invisible: var(--invisible);
+  --color-offline: var(--offline);
+  --color-speaking: var(--speaking);
+  --color-scroll-thumb: var(--scroll-thumb);
+  --color-scroll-thumb-hover: var(--scroll-thumb-hover);
+
+  /* Cores do mascote nas ilustrações (trocam com o tema). */
+  --color-ghost-body: var(--ghost-body);
+  --color-ghost-line: var(--ghost-line);
+  --color-ghost-eye: var(--ghost-eye);
+  --color-ghost-accent: var(--ghost-accent);
+  --color-ghost-cup: var(--ghost-cup);
+
+  --shadow-xs: var(--elev-xs);
+  --shadow-sm: var(--elev-sm);
+  --shadow-md: var(--elev-md);
+  --shadow-lg: var(--elev-lg);
+  --shadow-xl: var(--elev-xl);
+  --shadow-glow: var(--elev-glow);
+  --shadow-speaking: var(--elev-speaking);
+
+  /* Escala tipográfica: tamanho / entrelinha / tracking. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.375rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.625rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.375rem;
+  --text-4xl--line-height: 2.75rem;
+  --tracking-tight: -0.015em;
+  --tracking-tighter: -0.03em;
+
+  /* Animações dos componentes (só transform e opacity). Entram com `animate-<nome>`. */
+  --animate-overlay-in: overlay-in var(--dur-base) var(--ease-standard);
+  --animate-overlay-out: overlay-out var(--dur-fast) var(--ease-in) forwards;
+  --animate-dialog-in: dialog-in var(--dur-slow) var(--ease-out);
+  --animate-dialog-out: dialog-out var(--dur-fast) var(--ease-in) forwards;
+  --animate-pop-in: pop-in var(--dur-base) var(--ease-out);
+  --animate-pop-out: pop-out var(--dur-instant) var(--ease-in) forwards;
+  --animate-slide-in: slide-in var(--dur-base) var(--ease-out);
+  --animate-shimmer: shimmer 1.6s var(--ease-standard) infinite;
+  --animate-speaking: speaking-ring 1.4s var(--ease-standard) infinite;
+
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes overlay-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+  }
+  @keyframes dialog-out {
+    to {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-2px);
+    }
+  }
+  @keyframes pop-out {
+    to {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  @keyframes slide-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @keyframes shimmer {
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes speaking-ring {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(1.06);
+    }
+  }
 }
 
+/* Raios e curvas: valores fixos (iguais nos dois temas), emitidos como variáveis para uso em CSS puro. */
+@theme {
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Mascote nas ilustrações: corpo/linha/olho por tema (derivados da paleta do logo). */
+:root {
+  --ghost-body: #eee8ff;
+  --ghost-line: #7c5cc4;
+  --ghost-eye: #16112a;
+  --ghost-accent: #5e44a8;
+  --ghost-cup: #cdbef5;
+}
+.dark {
+  --ghost-body: #16112a;
+  --ghost-line: #a58be6;
+  --ghost-eye: #eee8ff;
+  --ghost-accent: #7c5cc4;
+  --ghost-cup: #3b2a6b;
+}
+
+/* ------------------------------------------------------------------------------------------------
+   Base: reset moderno, tipografia, foco, seleção, rolagem e a regra "tudo que é clicável tem
+   cursor pointer e estados". Telas novas herdam tudo daqui: não repita em cada componente.
+   ------------------------------------------------------------------------------------------------ */
 @layer base {
   * {
     @apply border-border;
   }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background font-sans text-foreground antialiased;
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "kern", "liga";
+    overflow-wrap: break-word;
   }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+    letter-spacing: var(--tracking-tight);
+  }
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Números que não podem "pular" quando mudam: horários, contadores, tamanhos. */
+  time,
+  [data-numeric],
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  img,
+  svg,
+  video {
+    display: block;
+    max-width: 100%;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--brand-500) 38%, transparent);
+    color: inherit;
+  }
+
+  /* ---- cursor ---- */
+  :is(
+      button,
+      [role="button"],
+      [role="tab"],
+      [role="menuitem"],
+      [role="menuitemcheckbox"],
+      [role="menuitemradio"],
+      [role="option"],
+      [role="switch"],
+      [role="checkbox"],
+      [role="radio"],
+      [role="link"],
+      [role="slider"],
+      a[href],
+      summary,
+      select,
+      input[type="checkbox"],
+      input[type="radio"],
+      input[type="range"],
+      input[type="file"],
+      input[type="color"],
+      label:has(input[type="checkbox"], input[type="radio"], [role="switch"]),
+      [data-clickable]
+    ) {
+    cursor: pointer;
+  }
+
+  /* ---- desativado ---- */
+  :is(
+      :disabled,
+      [aria-disabled="true"],
+      [data-disabled],
+      fieldset:disabled *,
+      label:has(:disabled),
+      label:has([data-disabled])
+    ) {
+    cursor: not-allowed;
+  }
+  :is(
+      button,
+      [role="button"],
+      input,
+      select,
+      textarea,
+      [role="switch"],
+      [role="tab"],
+      [role="menuitem"],
+      [role="menuitemcheckbox"],
+      [role="menuitemradio"],
+      [role="option"]
+    ):is(
+      :disabled,
+      [aria-disabled="true"],
+      [data-disabled]
+    ) {
+    opacity: 0.5;
+  }
+
+  /* ---- pressionado: feedback tátil sem mexer no layout (a propriedade `scale` não conflita com `transform`) ---- */
+  :is(button, [role="button"], [role="tab"], [role="switch"], a[href]):is(
+      :not(:disabled):not([aria-disabled="true"]):active
+    ) {
+    scale: 0.98;
+  }
+  :is(button, [role="button"], [role="tab"], [role="switch"], a[href]) {
+    transition:
+      color var(--dur-fast) var(--ease-standard),
+      background-color var(--dur-fast) var(--ease-standard),
+      border-color var(--dur-fast) var(--ease-standard),
+      box-shadow var(--dur-fast) var(--ease-standard),
+      opacity var(--dur-fast) var(--ease-standard),
+      scale var(--dur-instant) var(--ease-standard);
+  }
+
+  /* ---- foco: um anel só, em tudo que recebe foco por teclado ---- */
   :focus-visible {
-    @apply outline-2 outline-offset-2 outline-ring;
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
+  :is(input, textarea, select):focus-visible {
+    outline-offset: 0;
+    border-color: var(--ring);
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  @media (forced-colors: active) {
+    :focus-visible {
+      outline-color: Highlight;
+    }
+  }
+
+  /* ---- links no texto corrido ---- */
+  :where(a[href]):not([class]) {
+    color: var(--brand-text);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  :where(a[href]):not([class]):hover {
+    text-decoration-line: underline;
+  }
+
+  ::placeholder {
+    color: var(--muted-foreground);
+    opacity: 1;
+  }
+
+  /* ---- rolagem fina (Firefox e Chromium atual usam as propriedades padrão; WebKit antigo, o fallback) ---- */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
+  @supports not (scrollbar-color: auto) {
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--scroll-thumb);
+      border: 3px solid transparent;
+      border-radius: 999px;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--scroll-thumb-hover);
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+  }
+
+  /* ---- movimento reduzido: tira transições e animações não essenciais (.motion-essential fica) ---- */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *:not(.motion-essential),
+    *:not(.motion-essential)::before,
+    *:not(.motion-essential)::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+    }
+  }
+}
+
+/* ---- utilitários do design system ---- */
+/* Fundo com profundidade: brilho roxo difuso no topo, por cima do `background`. Telas de entrada, vazios, palco de voz. */
+@utility bg-brand-glow {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(
+      60rem 32rem at 50% -10%,
+      color-mix(in oklab, var(--brand-500) 22%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      36rem 24rem at 100% 100%,
+      color-mix(in oklab, var(--brand-700) 14%, transparent),
+      transparent 70%
+    );
+}
+
+/* Variante mais discreta, para painéis. */
+@utility bg-brand-wash {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--brand-500) 10%, transparent),
+    transparent 60%
+  );
+}
+
+/* Barra de rolagem escondida quando a rolagem é só gesto (carrosséis, abas). */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Spinner e outros movimentos que comunicam estado não são removidos com movimento reduzido. */
+@utility motion-essential {
+  /* marcador: veja o bloco de movimento reduzido na camada base */
+  --motion-essential: 1;
 }

@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   redirect,
 } from "@tanstack/react-router";
@@ -183,7 +184,21 @@ const adminCallsRoute = createRoute({
   component: AdminCallsPage,
 });
 
+// Referência dos componentes (docs/design/DESIGN-SYSTEM.md): só existe em desenvolvimento, o build de produção não a inclui.
+const devRoutes = import.meta.env.DEV
+  ? [
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: "/dev/design-system",
+        component: lazyRouteComponent(() =>
+          import("@/pages/dev/design-system").then((m) => ({ default: m.DesignSystemPage })),
+        ),
+      }),
+    ]
+  : [];
+
 const routeTree = rootRoute.addChildren([
+  ...devRoutes,
   adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminServersRoute, adminCallsRoute]),
   loginRoute,
   registerRoute,

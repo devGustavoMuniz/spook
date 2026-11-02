@@ -1,4 +1,4 @@
-import { Avatar } from "@/components/avatar";
+import { Avatar, StatusDot } from "@/components/ui/avatar";
 import { type DisplayStatus, usePresence } from "@/features/presence/store";
 import { cn } from "@/lib/utils";
 
@@ -8,14 +8,6 @@ export const statusLabel: Record<DisplayStatus, string> = {
   dnd: "Não perturbar",
   invisible: "Invisível",
   offline: "Offline",
-};
-
-const statusColor: Record<DisplayStatus, string> = {
-  online: "bg-emerald-500",
-  idle: "bg-amber-500",
-  dnd: "bg-red-500",
-  invisible: "bg-zinc-400 dark:bg-zinc-500",
-  offline: "bg-zinc-400 dark:bg-zinc-500",
 };
 
 /** Bolinha de status (online / ausente / offline), com texto para leitores de tela. */
@@ -29,18 +21,7 @@ export function PresenceDot({
   className?: string;
 }) {
   return (
-    <span
-      role="img"
-      aria-label={statusLabel[status]}
-      title={statusLabel[status]}
-      data-status={status}
-      style={{ width: size, height: size }}
-      className={cn(
-        "inline-block rounded-full ring-2 ring-sidebar",
-        statusColor[status],
-        className,
-      )}
-    />
+    <StatusDot status={status} label={statusLabel[status]} size={size} className={className} />
   );
 }
 

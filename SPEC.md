@@ -620,6 +620,14 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Web.** Rota `/admin` com layout próprio (barra lateral recolhível com Dashboard, Usuários, Servidores e Chamadas, "Voltar ao app", usuário/tema/sair; breadcrumb), componentes no estilo shadcn dos tokens do tema (claro/escuro pelo `ThemeProvider`), tabelas ordenáveis com `aria-sort`, busca com debounce de 300 ms e paginação, estados de carga/erro/vazio. Link "Painel de administração" na barra de servidores e no cabeçalho das páginas de configurações, só para admins. Sem dependência nova.
 - **Testes.** Go: unitários do service (autorização, séries com dias vazios, comparação, cache/singleflight, filtro e resumo de chamadas, taxa de eventos, validação de ordenação) e do parser Prometheus; integração (401/403, rebaixar vale na hora, bootstrap idempotente, 14 dias e cache, usuários com busca/ordenação/paginação e sem dados sensíveis, servidores, chamadas com LiveKit falso, sistema). Web: Vitest + MSW (guarda, link, dashboard, polling com relógio falso, ordenação, busca, paginação, estados) e E2E `apps/web/e2e/admin.spec.ts` (precisa de `E2E_PROMOTE_CMD`, ver `apps/web/README.md`).
 
+**Repaginação visual — Etapa 1 (auditoria e design system)** (fora das fases; web)
+- **Tokens.** Neutros com tom roxo em camadas (`background` < `surface-1` < `surface-2` < `surface-3`), escala `brand-50…950` a partir da paleta do logo, semânticas (sucesso, aviso, perigo, info), cores de presença e `speaking`. Valores finais e contraste em 9.2; checagem automática em `scripts/contrast.mjs`. `--input` e `--ring` (claro) mudaram para passar 3:1; `--primary-foreground` passou de `#FAFAFA` para `#FFFFFF`; roxo em texto usa `--brand-text`.
+- **CSS base.** Cursor, hover/active/foco/desativado e movimento reduzido ficam no CSS base (9.5). Os seletores usam `:is()` e não `:where()` porque o preflight do Tailwind tem `button { opacity: 1 }` (especificidade de tag) que anularia o `opacity` de desativado.
+- **Componentes.** `ui/` ganhou `skeleton`, `separator`, `scroll-area`, `kbd`, `empty-state`, `spinner`, `badge` (com `CountBadge`), `slider`, `context-menu`, `avatar` (iniciais, anel de fala, status); `Button` ganhou `loading`, `soft` e tamanhos `xl`/`icon-sm`/`icon-lg`; `Dialog`, menus, tooltips e toasts ganharam animação. A API anterior continua válida. Novas dependências: `@radix-ui/react-context-menu`, `@radix-ui/react-scroll-area`, `@radix-ui/react-slider` (mesma família já usada; só entram no bundle se importadas).
+- **Avatar.** O fallback padrão continua a mini logo (9.4); `fallback="initials"` mostra iniciais sobre gradiente derivado do id/username, sempre com texto branco AA. A troca do padrão é decisão das etapas de tela.
+- **Página de referência.** `/dev/design-system` só existe com `import.meta.env.DEV` (rota lazy, ausente do build de produção).
+- **Capturas.** `apps/web/design/` (Playwright próprio, fora do CI e do `pnpm e2e`): `capture.spec.ts` captura cada tela em claro/escuro e 1440×900/390×844 em `docs/design/${DESIGN_OUT}` (`antes` ou `depois`); `design-system.spec.ts` captura a página de referência. Medição de bundle: `scripts/bundle-size.sh`.
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
@@ -984,28 +992,83 @@ Fonte: a ficha `packages/brand/Spook-identidade-visual.pdf` e os arquivos em `pa
 - Frases da tela de entrada: "Seus servidores, sua galera, num só lugar." e "Chat · Voz · Vídeo · Compartilhar tela". Não há slogan separado.
 - Instalador do desktop: `Spook-<versão>-<so>-<arquitetura>` (ex.: `Spook-0.1.0-windows-x64.exe`).
 
-### 9.2 Cores (tokens do shadcn)
+### 9.2 Cores e tokens (design system)
 
-Roxo como cor principal, igual nos dois temas; preto e branco para o resto. Os valores entram como variáveis CSS do shadcn (em `packages/brand`, importadas pelo `apps/web`). Não existe tom do Tailwind igual a `#7C5CC4`, então a cor entra como personalizada.
+Roxo como cor principal, igual nos dois temas, sobre neutros com leve tom roxo (matiz ~270°, saturação baixa) em **camadas de superfície**. Os valores são variáveis CSS em `packages/brand/src/tokens.css` (cores, sombras, z-index, durações) e `apps/web/src/styles.css` (raios, curvas, escala tipográfica, animações e CSS base), expostos como utilitários do Tailwind; os nomes semânticos do shadcn continuam valendo. A referência viva dos componentes é a rota `/dev/design-system` (só em desenvolvimento) e `docs/design/DESIGN-SYSTEM.md`. Não existe tom do Tailwind igual a `#7C5CC4`, então a cor entra como personalizada. A ficha `Spook-identidade-visual.pdf` não está no repositório: valem a paleta do logo (abaixo) e este registro; se a ficha divergir, ela prevalece.
 
-| Variável shadcn | Uso | Claro | Escuro |
+**Cores base (nomes do shadcn + camadas)**
+
+| Variável | Uso | Claro | Escuro |
 | --- | --- | --- | --- |
-| `--primary` | Cor da marca: botões, links, destaques | `#7C5CC4` | `#7C5CC4` |
-| `--primary-foreground` | Texto sobre a cor principal | `#FAFAFA` | `#FAFAFA` |
-| `--background` | Fundo da tela | `#FFFFFF` | `#060606` |
-| `--card`, `--popover` | Painéis e cartões | `#FFFFFF` | `#0D0D0D` |
-| `--sidebar` | Barra lateral | `#F7F7F7` | `#0B0B0B` |
-| `--foreground` (e `*-foreground` neutros) | Texto principal | `#0A0A0A` | `#FAFAFA` |
-| `--muted-foreground` | Texto secundário | `#636363` | `#9E9E9E` |
-| `--secondary`, `--muted` | Cinza de apoio: botões secundários, áreas suaves | `#F2F2F2` | `#1B1B1B` |
-| `--accent` | Destaque suave no hover (tom arroxeado) | `#F1ECFA` | `#221B33` |
-| `--border`, `--input` | Bordas | `#E1E1E1` | `#222222` |
-| `--ring` | Anel de foco (teclado) | `#A58BE6` | `#A58BE6` |
-| `--destructive` | Erro e ações destrutivas (fundo de botão) | `#9F0712` | `#9F0712` |
-| `--destructive-text` (personalizada) | Texto de erro | `#9F0712` | `#FF6467` |
+| `--primary` | Marca: botões, destaques | `#7C5CC4` | `#7C5CC4` |
+| `--primary-foreground` | Texto sobre a marca | `#FFFFFF` | `#FFFFFF` |
+| `--brand-text` | Roxo para **texto** (links, ênfase) | `#5E44A8` | `#B7A2F0` |
+| `--background` | Fundo da tela | `#FBFAFE` | `#0A0912` |
+| `--surface-1` / `--sidebar` | Painéis, barras laterais | `#F4F1FA` | `#100E1A` |
+| `--surface-2` / `--card` / `--popover` | Cartões, diálogos, menus | `#FFFFFF` | `#161325` |
+| `--surface-3` / `--secondary` | Elevado, botão secundário, hover forte | `#ECE7F7` | `#1F1B33` |
+| `--muted` | Áreas suaves | `#EFEBF8` | `#1A1730` |
+| `--accent` | Hover/seleção suave (tom roxo) | `#EFE9FB` | `#241F3D` |
+| `--overlay` | Fundo atrás de diálogos | `rgb(23 19 42 / .55)` | `rgb(5 4 12 / .72)` |
+| `--foreground` | Texto principal | `#17132A` | `#F4F2FA` |
+| `--muted-foreground` | Texto secundário | `#5B5473` | `#A59FBD` |
+| `--border` | Bordas e divisores | `#E2DCF0` | `#2A2540` |
+| `--input` | Borda de campos (3:1) | `#7F779D` | `#6F6890` |
+| `--field` | Fundo de campos | `#FFFFFF` | `#110F1E` |
+| `--ring` | Anel de foco | `#6B4BB5` | `#A58BE6` |
+| `--destructive` | Fundo de ação destrutiva | `#9F0712` | `#9F0712` |
+| `--destructive-text` | Texto de erro | `#9F0712` | `#FF6467` |
 
-- O erro continua vermelho de propósito: um botão de excluir roxo pareceria um botão comum.
+**Escala da marca** (`brand-50` … `950`): `#F5F2FF`, `#EEE8FF`, `#CDBEF5`, `#B7A2F0`, `#A58BE6`, `#7C5CC4`, `#6B4EB5`, `#5E44A8`, `#3B2A6B`, `#261B47`, `#16112A`. Os degraus 100, 200, 400, 500, 700, 800 e 950 são as cores do logo.
+
+**Semânticas** (cada uma tem sólido + texto sobre o sólido, texto sobre superfície e fundo suave `-soft`):
+
+| Token | Sólido claro / escuro | Texto claro / escuro | Fundo suave claro / escuro |
+| --- | --- | --- | --- |
+| `success` | `#157A38` / `#2FBF71` | `#126B36` / `#4CC77E` | `#E3F4EA` / `#11291C` |
+| `warning` | `#F2B63D` / `#F2B63D` | `#8A5A00` / `#F2B63D` | `#FDF1D6` / `#2E2410` |
+| `info` | `#1D5FB8` / `#4D8FE8` | `#1D5FB8` / `#6FA8F5` | `#E1ECFB` / `#14233D` |
+| `danger` (`destructive`) | `#9F0712` / `#9F0712` | `#9F0712` / `#FF6467` | `#FBE4E6` / `#34141A` |
+
+**Presença e voz:** `online` `#188A3F` / `#3DDC84`; `idle` `#AD6F00` / `#F2B63D`; `dnd` `#D13438` / `#FF6B6B`; `invisible` e `offline` `#7A7490` / `#8A849F`; `speaking` (anel de quem fala) `#188A3F` / `#3DDC84`.
+
+**Contraste calculado (WCAG 2.x)**: `node scripts/contrast.mjs` lê `tokens.css`, calcula cada par nos dois temas e falha se algum ficar abaixo do mínimo (texto 4.5:1; borda de campo, anel de foco e bolinhas 3:1). Pior caso de cada par sobre as quatro superfícies:
+
+| Par | Token | Claro | Escuro | Pior contraste (claro) | Pior contraste (escuro) | Mínimo |
+| --- | --- | --- | --- | --- | --- | --- |
+| texto principal | `--foreground` | `#17132a` | `#f4f2fa` | 14.9 | 15.0 | 4.5:1 |
+| texto secundário | `--muted-foreground` | `#5b5473` | `#a59fbd` | 5.9 | 6.2 | 4.5:1 |
+| roxo em texto (links) | `--brand-text` | `#5e44a8` | `#b7a2f0` | 6.0 | 7.1 | 4.5:1 |
+| texto sobre o roxo da marca | `--primary-foreground` | `#ffffff` | `#ffffff` | 5.0 | 5.0 | 4.5:1 |
+| texto de erro | `--destructive-text` | `#9f0712` | `#ff6467` | 6.9 | 5.8 | 4.5:1 |
+| texto sobre botão destrutivo | `--destructive-foreground` | `#ffffff` | `#ffffff` | 8.4 | 8.4 | 4.5:1 |
+| texto de sucesso | `--success-text` | `#126b36` | `#4cc77e` | 5.4 | 7.2 | 4.5:1 |
+| texto sobre sucesso sólido | `--success-foreground` | `#ffffff` | `#04210f` | 5.4 | 7.2 | 4.5:1 |
+| texto de aviso | `--warning-text` | `#8a5a00` | `#f2b63d` | 4.9 | 8.4 | 4.5:1 |
+| texto sobre aviso sólido | `--warning-foreground` | `#2a1b00` | `#2a1b00` | 9.2 | 9.2 | 4.5:1 |
+| texto de info | `--info-text` | `#1d5fb8` | `#6fa8f5` | 5.1 | 6.4 | 4.5:1 |
+| texto sobre info sólido | `--info-foreground` | `#ffffff` | `#04122b` | 6.2 | 5.7 | 4.5:1 |
+| borda de campo (UI 3:1) | `--input` | `#7f779d` | `#6f6890` | 4.0 | 3.5 | 3:1 |
+| anel de foco (UI 3:1) | `--ring` | `#6b4bb5` | `#a58be6` | 5.3 | 5.9 | 3:1 |
+| anel de quem fala (UI 3:1) | `--speaking` | `#188a3f` | `#3ddc84` | 3.7 | 9.3 | 3:1 |
+| status online | `--online` | `#188a3f` | `#3ddc84` | 3.7 | 9.3 | 3:1 |
+| status ausente | `--idle` | `#ad6f00` | `#f2b63d` | 3.4 | 9.1 | 3:1 |
+| status não perturbar | `--dnd` | `#d13438` | `#ff6b6b` | 4.1 | 6.0 | 3:1 |
+| status invisível/offline | `--invisible` | `#7a7490` | `#8a849f` | 3.7 | 4.7 | 3:1 |
+
+- O erro continua vermelho de propósito: um botão de excluir roxo pareceria um botão comum. O `#7C5CC4` puro como texto não alcança AA sobre todas as superfícies (4.0:1 no escuro); por isso existe `--brand-text`. Texto sobre o roxo da marca é branco (5.0:1).
+- Divergências da versão anterior da tabela, por contraste: `--input` (antes `#E1E1E1`, 1.3:1) e `--ring` no claro (antes `#A58BE6`, 2.8:1) agora passam de 3:1.
 - Tema inicial: o do sistema operacional; o usuário pode trocar e a escolha fica salva.
+
+**Raios:** `xs` 4 px, `sm` 6, `md` 8 (controles), `lg` 12 (menus, toasts), `xl` 16 (cartões, diálogos), `2xl` 20, `full`.
+
+**Sombras:** `xs`, `sm`, `md`, `lg`, `xl` (tinta roxa no claro; no escuro, mais densas e com filete de luz de 1 px) e `glow`, o brilho neon do mascote, reservado a realces (hover do botão primário no escuro, destaque). `speaking` é o anel verde de fala com brilho.
+
+**Tipografia (escala):** `2xs` 11/16, `xs` 12/16, `sm` 14/22 (corpo da interface), `base` 16/24 (leitura longa), `lg` 18/26, `xl` 20/28, `2xl` 24/32, `3xl` 30/36, `4xl` 38/44; títulos com `tracking` -0.015em (`-0.03em` no display) e `text-wrap: balance`. Números tabulares em horários, contadores e tabelas.
+
+**Movimento:** curvas `standard` (.2,0,0,1), `out` (.16,1,.3,1; entradas), `in` (.4,0,1,1; saídas) e `spring` (.34,1.56,.64,1). Durações `instant` 80 ms, `fast` 120, `base` 180, `slow` 260, `slower` 400. Só `transform` e `opacity`; com `prefers-reduced-motion` tudo é instantâneo (exceto o spinner).
+
+**z-index:** sticky 10, dropdown 40, overlay 50, modal 60, popover 70, toast 80, tooltip 90.
 
 **Paleta do logo** (mascote, lettering e ilustrações): `#16112A` corpo · `#3B2A6B` sombra · `#5E44A8` base · `#7C5CC4` principal · `#A58BE6` claro · `#CDBEF5` suave · `#EEE8FF` núcleo.
 
@@ -1033,6 +1096,14 @@ Todos os arquivos ficam em `packages/brand/assets/`. Os destinos abaixo são có
 
 - O neon dos SVGs usa filtro de brilho (`feGaussianBlur`). Onde o filtro pesar ou não renderizar (listas longas, ícones pequenos), usar o PNG ou a mini logo.
 - Cores de e-mail (fundo `#050505`, cartão `#111111`, botão `#7C5CC4`, confirmação `#16A34A`) ficam registradas para quando houver envio de e-mail.
+
+### 9.5 Regras de interface (valem para toda tela)
+
+- **Tudo que é clicável tem `cursor: pointer` e estados**: hover, active (pressionado), `:focus-visible` (anel de 2 px com offset, cor `--ring`) e disabled (`cursor: not-allowed` e opacidade .5, sem `pointer-events: none`). Isso mora no **CSS base** (`apps/web/src/styles.css`, camada `base`): botões, links, `[role=button|tab|menuitem*|option|switch|checkbox|radio|link|slider]`, `summary`, `select`, `label` de checkbox/radio/switch, e `[data-clickable]`. Componente ou tela nova não repete isso; use `<button>`/`<a href>` ou dê o `role` correto.
+- Nada de cor, raio, sombra, duração ou z-index fora dos tokens (9.2).
+- Contraste AA nos dois temas, conferido por `scripts/contrast.mjs`; estado nunca só por cor.
+- Animações só com `transform` e `opacity`, respeitando `prefers-reduced-motion`.
+- Componentes base em `apps/web/src/components/ui/` (documentados em `docs/design/DESIGN-SYSTEM.md`); ilustrações do mascote em `components/illustrations/` (SVG próprio, cores por tokens, `aria-hidden`).
 
 ---
 

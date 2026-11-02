@@ -6,6 +6,14 @@ Front-end do Spook (React 19, Vite, TanStack Router/Query/Virtual, Tailwind, com
 - `pnpm --filter @spook/web test`: Vitest + React Testing Library + MSW (backend falso em `src/test/server.ts`).
 - Medir a lista de mensagens: em desenvolvimento, abra `/channels/<servidor>/<canal>?perf=10000`. A rota injeta 10.000 mensagens falsas (só no `DEV`; o build de produção ignora o parâmetro).
 
+## Design: capturas e referência dos componentes
+
+Fora do CI e do `pnpm e2e` (Playwright próprio em `design/`; docs em `docs/design/`):
+
+- `/dev/design-system` (só no `pnpm dev`): referência viva dos componentes, nos dois temas. Capturas: `DESIGN_BASE_URL=http://localhost:5180 pnpm --filter @spook/web exec playwright test -c design/playwright.config.ts design/design-system.spec.ts`.
+- Capturar todas as telas (claro/escuro, 1440 e 390 px) contra o build servido pelo backend (mesmo passo a passo do E2E abaixo, com Garage liberando a origem e LiveKit local para o palco de voz): `DESIGN_OUT=antes|depois pnpm --filter @spook/web exec playwright test -c design/playwright.config.ts design/capture.spec.ts`. Saída em `docs/design/<DESIGN_OUT>/NN-tela-tema-viewport.png`; o que não deu para capturar fica em `_falhas.txt`. Cada execução cria contas e servidores novos. Se o Chromium do Playwright instalado não bater com a versão, aponte `CHROMIUM_PATH` para um Chromium completo.
+- Bundle: `scripts/bundle-size.sh` (raiz do repositório) lista bruto e gzip de cada chunk JS/CSS do `apps/web/dist`. Contraste dos tokens: `node scripts/contrast.mjs`.
+
 ## E2E (Playwright, RNF06)
 
 O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. A Fase 4 (`e2e/dms.spec.ts`) cobre DMs 1:1 e em grupo com 3 contas, presença (online, ausente com relógio falso e offline) e "digitando…"; ela precisa do backend com `SPOOK_PRESENCE_OFFLINE_GRACE=2s` (offline em 2 s em vez de 15 s; é só para o E2E, produção usa o padrão). A Fase 6 (`e2e/attachments-notifications.spec.ts`) cobre anexos com thumbnail, não lidas, menções, avisos in-app e a inscrição de push com `serviceWorker`/`PushManager` simulados (push real não dá para receber no Playwright: fica em `VALIDACAO-MANUAL.md`). Cada execução registra 10 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.

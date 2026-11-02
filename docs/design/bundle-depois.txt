@@ -1,0 +1,12 @@
+# Build de produção DEPOIS da etapa 1 (design system; bytes; JS+CSS)
+arquivo                                                 bruto         gzip
+gate-worklet-BjP8kQVi.js                                 5883         2375
+index-CXxvxdQE.js                                      401924       117780
+noise-processor-DRg2CIDF.js                              3430         1602
+radix-C4kKNFBh.js                                       96163        29009
+react-CmYRMVnZ.js                                      187609        58943
+settings-dialog-D443WCNN.js                             19707         6997
+vendor-BwvRArSI.js                                    1046541       292402
+workletProcessor-CTUsFnsu.js                            64483        11636
+index-C6qARXxk.css                                      64382        12442
+TOTAL                                                 1890122       533186
