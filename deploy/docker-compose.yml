@@ -104,6 +104,21 @@ services:
       # Painel /admin (usernames separados por vírgula, promovidos no boot). O Prometheus do LiveKit é lido de
       # http://livekit:6789/metrics (rede interna do Compose).
       ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
+      # E-mail e login social (adicional): vazios em dev = modo degradado (e-mail só no log). Veja .env.example.
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8090}
+      SPOOK_SECRET_KEY: ${SPOOK_SECRET_KEY:-}
+      MAILER_DRIVER: ${MAILER_DRIVER:-}
+      MAIL_FLOWS_ON_LOG: ${MAIL_FLOWS_ON_LOG:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
     ports: ["8090:8090"]
     depends_on:
       postgres: { condition: service_healthy }

@@ -68,9 +68,39 @@ func (s *PGStore) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 func (s *PGStore) DeleteExpired(ctx context.Context) (int64, error) {
+	_, _ = s.q.DeleteExpiredDesktopLoginCodes(ctx)
 	n, err := s.q.DeleteExpiredSessions(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("limpar sessões expiradas: %w", err)
 	}
 	return n, nil
+}
+
+func (s *PGStore) DeleteAllSessions(ctx context.Context, userID int64) error {
+	if err := s.q.DeleteSessionsByUser(ctx, userID); err != nil {
+		return fmt.Errorf("encerrar sessões: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) InsertDesktopCode(ctx context.Context, codeHash []byte, userID int64, challenge string, expires time.Time) error {
+	err := s.q.InsertDesktopLoginCode(ctx, dbgen.InsertDesktopLoginCodeParams{
+		CodeHash: codeHash, UserID: userID, CodeChallenge: challenge, ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("criar código do desktop: %w", err)
+	}
+	return nil
+}
+
+// ConsumeDesktopCode marca o código como usado de forma atômica; ErrInvalidCode se não existir, já foi usado ou expirou.
+func (s *PGStore) ConsumeDesktopCode(ctx context.Context, codeHash []byte) (int64, string, error) {
+	row, err := s.q.ConsumeDesktopLoginCode(ctx, codeHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", ErrInvalidCode
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("consumir código do desktop: %w", err)
+	}
+	return row.UserID, row.CodeChallenge, nil
 }

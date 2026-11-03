@@ -16,7 +16,8 @@ WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
 
 -- name: UpdateUserEmail :one
-UPDATE users SET email = $2 WHERE id = $1 AND deleted_at IS NULL
+-- Troca direta (sem SMTP): o endereço novo volta a não verificado.
+UPDATE users SET email = $2, email_verified_at = NULL, pending_email = NULL WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
 
 -- name: UpdateUserPassword :exec

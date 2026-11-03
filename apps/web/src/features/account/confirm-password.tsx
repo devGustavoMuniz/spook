@@ -62,7 +62,9 @@ export function useConfirmPassword() {
     },
     [ctx],
   );
-  return { run };
+  /** Abre o diálogo "Confirme sua senha" agora (para ações que saem do app, como vincular um provedor). */
+  const confirmNow = useCallback(async (): Promise<boolean> => (ctx ? ctx.request() : true), [ctx]);
+  return { run, confirmNow };
 }
 
 /** Monta o diálogo uma vez para a área autenticada. */

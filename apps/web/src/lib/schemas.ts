@@ -32,6 +32,28 @@ export const registerSchema = z.object({
 });
 export type RegisterForm = z.infer<typeof registerSchema>;
 
+export const forgotSchema = z.object({ email: emailSchema });
+export type ForgotForm = z.infer<typeof forgotSchema>;
+
+export const resetSchema = z
+  .object({ new_password: passwordSchema, confirm: z.string() })
+  .refine((v) => v.new_password === v.confirm, {
+    path: ["confirm"],
+    message: "As senhas não coincidem.",
+  });
+export type ResetForm = z.infer<typeof resetSchema>;
+
+export const chooseUsernameSchema = z.object({ username: usernameSchema });
+export type ChooseUsernameForm = z.infer<typeof chooseUsernameSchema>;
+
+export const setPasswordSchema = z
+  .object({ new_password: passwordSchema, confirm: z.string() })
+  .refine((v) => v.new_password === v.confirm, {
+    path: ["confirm"],
+    message: "As senhas não coincidem.",
+  });
+export type SetPasswordForm = z.infer<typeof setPasswordSchema>;
+
 export const profileSchema = z.object({
   display_name: z.string().max(32, "No máximo 32 caracteres."),
 });

@@ -83,6 +83,8 @@ func (s *PGStore) Delete(ctx context.Context, userID int64, enqueue EnqueueFunc)
 	for name, run := range map[string]func() error{
 		"membros":                func() error { return q.DeleteMembershipsByUser(ctx, userID) },
 		"sessões":                func() error { return q.DeleteSessionsByUser(ctx, userID) },
+		"contas sociais":         func() error { return q.DeleteSocialAccountsByUser(ctx, userID) },
+		"tokens de e-mail":       func() error { return q.DeleteEmailTokensByUser(ctx, userID) },
 		"inscrições de push":     func() error { return q.DeletePushSubscriptionsByUser(ctx, userID) },
 		"configurações de aviso": func() error { return q.DeleteNotificationSettingsByUser(ctx, userID) },
 		"estados de leitura":     func() error { return q.DeleteReadStatesByUser(ctx, userID) },

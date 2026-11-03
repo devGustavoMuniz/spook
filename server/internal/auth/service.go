@@ -65,7 +65,11 @@ type Store interface {
 	ConfirmSession(ctx context.Context, tokenHash []byte, at time.Time) error
 	DeleteOtherSessions(ctx context.Context, userID int64, keepHash []byte) (int64, error)
 	DeleteSession(ctx context.Context, tokenHash []byte) error
+	DeleteAllSessions(ctx context.Context, userID int64) error
 	DeleteExpired(ctx context.Context) (int64, error)
+	// Login do desktop pelo navegador (handoff PKCE).
+	InsertDesktopCode(ctx context.Context, codeHash []byte, userID int64, challenge string, expires time.Time) error
+	ConsumeDesktopCode(ctx context.Context, codeHash []byte) (userID int64, challenge string, err error)
 }
 
 type IDGenerator interface{ Next() int64 }
@@ -78,6 +82,8 @@ type Service struct {
 	now    func() time.Time
 	// onRevoke avisa o gateway para derrubar as conexões das sessões encerradas (nil = ninguém a avisar).
 	onRevoke func(userID int64, keepKey string)
+	// onRegistered roda depois de um cadastro com senha (ex.: enviar o e-mail de verificação); erros só viram log.
+	onRegistered func(ctx context.Context, u user.User)
 	// dummyHash é verificado quando o e-mail não existe, para o tempo de resposta não revelar contas.
 	dummyHash string
 }
@@ -106,8 +112,14 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 		return user.User{}, "", err
 	}
 	token, err := s.newSession(ctx, u.ID, userAgent)
+	if err == nil && s.onRegistered != nil {
+		s.onRegistered(ctx, u)
+	}
 	return u, token, err
 }
+
+// OnRegistered registra o gancho pós-cadastro (nil desliga).
+func (s *Service) OnRegistered(fn func(ctx context.Context, u user.User)) { s.onRegistered = fn }
 
 func (s *Service) Login(ctx context.Context, email, password string, userAgent *string) (user.User, string, error) {
 	u, hash, err := s.users.Credentials(ctx, email)
@@ -117,6 +129,10 @@ func (s *Service) Login(ctx context.Context, email, password string, userAgent *
 	}
 	if err != nil {
 		return user.User{}, "", err
+	}
+	if hash == user.NoPassword { // conta sem senha (login social): só entra pelo provedor
+		_, _ = s.hasher.Verify(ctx, password, s.dummyHash)
+		return user.User{}, "", ErrUnauthorized
 	}
 	ok, err := s.hasher.Verify(ctx, password, hash)
 	if err != nil {
@@ -168,6 +184,11 @@ func (s *Service) StartJanitor(ctx context.Context, every time.Duration) {
 	}()
 }
 
+// NewSession abre uma sessão para o usuário (login social e handoff do desktop); devolve o token em claro.
+func (s *Service) NewSession(ctx context.Context, userID int64, userAgent *string) (string, error) {
+	return s.newSession(ctx, userID, userAgent)
+}
+
 func (s *Service) newSession(ctx context.Context, userID int64, userAgent *string) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -205,6 +226,9 @@ func (s *Service) VerifyPassword(ctx context.Context, userID int64, password str
 	hash, err := s.users.PasswordHash(ctx, userID)
 	if err != nil {
 		return err
+	}
+	if hash == user.NoPassword {
+		return ErrWrongPassword
 	}
 	ok, err := s.hasher.Verify(ctx, password, hash)
 	if err != nil {
@@ -264,4 +288,71 @@ func (s *Service) RecentlyConfirmed(ctx context.Context, token string) (bool, er
 		return false, err
 	}
 	return info.ConfirmedAt != nil && s.now().Sub(*info.ConfirmedAt) < ConfirmTTL, nil
+}
+
+// ValidateNewPassword aplica as regras de força de senha (para quem define senha fora do auth).
+func (s *Service) ValidateNewPassword(pw string) error { return ValidatePassword(pw) }
+
+// HasPassword diz se a conta tem senha (falso nas contas criadas por login social).
+func (s *Service) HasPassword(ctx context.Context, userID int64) (bool, error) {
+	hash, err := s.users.PasswordHash(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return hash != user.NoPassword, nil
+}
+
+// ResetPassword define uma senha nova sem exigir a atual (recuperação por e-mail ou pelo admin) e encerra
+// TODAS as sessões do usuário, inclusive as conexões do gateway.
+func (s *Service) ResetPassword(ctx context.Context, userID int64, next string) error {
+	if err := ValidatePassword(next); err != nil {
+		return err
+	}
+	hash, err := s.hasher.Hash(ctx, next)
+	if err != nil {
+		return err
+	}
+	if err := s.users.SetPasswordHash(ctx, userID, hash); err != nil {
+		return err
+	}
+	if err := s.store.DeleteAllSessions(ctx, userID); err != nil {
+		return err
+	}
+	s.NotifyRevoked(userID, "")
+	return nil
+}
+
+// ErrHasPassword: SetInitialPassword só vale para contas sem senha.
+var ErrHasPassword = errors.New("a conta já tem senha")
+
+// SetInitialPassword define a primeira senha de uma conta criada por login social. A confirmação recente
+// (reautenticação social) é exigida pela camada HTTP. As outras sessões são encerradas; a atual continua.
+func (s *Service) SetInitialPassword(ctx context.Context, userID int64, token, next string) error {
+	has, err := s.HasPassword(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if has {
+		return ErrHasPassword
+	}
+	if err := ValidatePassword(next); err != nil {
+		return err
+	}
+	hash, err := s.hasher.Hash(ctx, next)
+	if err != nil {
+		return err
+	}
+	if err := s.users.SetPasswordHash(ctx, userID, hash); err != nil {
+		return err
+	}
+	if _, err := s.store.DeleteOtherSessions(ctx, userID, hashToken(token)); err != nil {
+		return err
+	}
+	s.NotifyRevoked(userID, TokenKey(token))
+	return nil
+}
+
+// ConfirmRecent marca a sessão como confirmada agora sem senha (reautenticação social de quem não tem senha).
+func (s *Service) ConfirmRecent(ctx context.Context, token string) error {
+	return s.store.ConfirmSession(ctx, hashToken(token), s.now())
 }

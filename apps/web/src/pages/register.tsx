@@ -6,6 +6,8 @@ import { useForm } from "react-hook-form";
 import { FormAlert } from "@/auth/form-alert";
 import { InviteBanner, inviteCodeOf } from "@/auth/invite-banner";
 import { PasswordInput } from "@/auth/password-input";
+import { SocialButtons } from "@/auth/social-buttons";
+import { socialErrorMessage } from "@/auth/social-errors";
 import { AuthLayout } from "@/components/auth-layout";
 import { describedBy, Field } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
@@ -26,7 +28,11 @@ export function RegisterPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
-  const { redirect } = useSearch({ strict: false }) as { redirect?: string };
+  const { redirect, social_error } = useSearch({ strict: false }) as {
+    redirect?: string;
+    social_error?: string;
+  };
+  const socialError = socialErrorMessage(social_error);
   const registerUser = useRegister();
   const {
     register,
@@ -66,6 +72,7 @@ export function RegisterPage() {
             {inviteCodeOf(redirect) && redirect ? (
               <InviteBanner redirect={redirect} current="register" />
             ) : null}
+            {socialError ? <FormAlert>{socialError}</FormAlert> : null}
             {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
             <Field id="email" label="E-mail" error={errors.email?.message}>
               <Input
@@ -119,6 +126,7 @@ export function RegisterPage() {
             <Button type="submit" size="xl" className="w-full" loading={busy}>
               Criar conta
             </Button>
+            <SocialButtons redirect={redirect} />
             <p className="text-sm text-muted-foreground">
               Já tem conta?{" "}
               <Link

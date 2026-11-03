@@ -43,7 +43,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - Reações, threads, menções com autocomplete, embeds de links (responder com citação e fixar mensagens **entraram**, ver RF13 e RF14)
 - Permissões por canal (overwrites); só há permissões por cargo no servidor
 - Multi-idioma (i18n)
-- Login social (OAuth) e 2FA
+- 2FA (descartado pelo dono). O login social (Google e Discord) **entrou** como adicional, ver RF24
 
 ---
 
@@ -192,11 +192,21 @@ Entraram depois do checkpoint do SPEC (`checkpoint-spec-completo`). As decisões
 Itens 1.1, 1.3, 1.7, 1.8, 5.1, 5.2, 5.3 e (parte de) 1.2 do `PLANO-ADICIONAIS-2.md`. Sem 2FA e sem código de cadastro (decisão do dono). Verificação de e-mail, recuperação de senha e login social ficam para o lote que depende de SMTP/OAuth.
 - RF23.1 Trocar senha logado (`POST /api/users/me/password`): exige a senha atual, a nova segue as regras do cadastro (8 a 128 caracteres) e precisa ser diferente. Encerra as **outras** sessões (e derruba as conexões delas no gateway, close 4010) e mantém a atual.
 - RF23.2 Confirmar senha ("modo sudo", `POST /api/auth/confirm-password`): a sessão fica "confirmada" por 10 min. Ações sensíveis (trocar e-mail e, na Onda 2, excluir servidor) respondem `403` com `code: "password_confirmation_required"` sem confirmação recente; a web abre "Confirme sua senha" e repete a ação (`useConfirmPassword`).
-- RF23.3 Trocar e-mail (`PUT /api/users/me/email`): exige confirmação recente; formato e unicidade (sem diferenciar caixa) validados; a troca é direta por enquanto (ponto de extensão `EmailChangeVerifier` para a verificação por e-mail).
+- RF23.3 Trocar e-mail (`PUT /api/users/me/email`): exige confirmação recente; formato e unicidade (sem diferenciar caixa) validados; a troca é direta quando o servidor está sem e-mail (modo degradado); com e-mail ligado ela é confirmada no endereço novo (RF24.2, `EmailChangeVerifier`).
 - RF23.4 Excluir conta (`DELETE /api/users/me` com a senha no corpo): recusa dono de servidor (409 com a lista); as mensagens permanecem com o autor "Usuário removido"; avatar e banner saem do S3 por job.
 - RF23.5 Usernames reservados (admin, root, spook, suporte, everyone, here...) recusados no cadastro com 422 claro; contas existentes não são afetadas.
 - RF23.6 Perfil: bio (até 190 caracteres), pronomes (até 40), banner (imagem OU cor sólida) e avatar animado (GIF/WebP preservados). Aparecem no cartão de perfil. Em Configurações > Perfil ficam os editores e a seção de segurança (senha, e-mail, excluir conta).
 - Teste: `auth/service_test.go`, `user/service_test.go`, `gateway` (fixtures), `app/account_integration_test.go`; Vitest `account.test.tsx`; E2E `e2e/account.spec.ts`.
+
+### RF24 — E-mail e login social (adicional)
+- RF24.1 Verificação de e-mail: `users.email_verified_at`; token de uso único (24 h) enviado por e-mail; `POST /api/auth/email/verify` (sem sessão, o link pode abrir em outro navegador) e `POST /api/auth/email/resend` (limitado). Contas existentes contam como **não verificadas**, mas **nada é bloqueado** por padrão: com `REQUIRE_EMAIL_VERIFICATION=true`, criar servidor e criar convite respondem `403` com `code: "email_verification_required"` (só quando o e-mail está ligado). Web: faixa discreta "Verifique seu e-mail" (reenviar/dispensar), página `/verify-email?token=` com os estados sucesso, expirado e inválido.
+- RF24.2 Trocar e-mail passa a **verificar o endereço novo**: `PUT /api/users/me/email` responde `202` com `pending_email`, manda o link ao endereço NOVO e avisa o antigo; a conta só muda ao confirmar (que também marca o e-mail como verificado e avisa o antigo de novo). Sem e-mail (modo degradado) a troca continua direta.
+- RF24.3 Recuperação de senha: `POST /api/auth/password/forgot` (resposta `202` idêntica exista ou não a conta, duração mínima fixa, limite por IP e por e-mail) e `POST /api/auth/password/reset` (token de uso único, 30 min, mesmas regras de senha, **encerra todas as sessões** e derruba o gateway). Web: `/forgot-password`, `/reset-password?token=` e "Esqueci minha senha" no login. Alternativa sem SMTP: `spook admin reset-password <username>` imprime um link de uso único (via SSH/`deploy/admin.sh`).
+- RF24.4 Login social (Google e Discord; OAuth2 authorization code + PKCE): `GET /api/auth/providers` lista os provedores ligados (sem `*_CLIENT_ID/SECRET` o provedor fica desligado e a web não mostra o botão); `GET /api/auth/social/{provider}/start|callback`. Conta social existente entra direto; e-mail do provedor igual ao de uma conta existente **não vincula automaticamente** (evita tomada de conta): pede login com senha e vínculo em Configurações; sem conta, a pessoa vai a `/auth/choose-username` e conclui o cadastro **sem senha** (`POST /api/auth/social/complete`), com e-mail já verificado. Contas sem senha podem definir uma (`POST /api/users/me/password/initial`, exige reautenticação social).
+- RF24.5 Vincular e desvincular em Configurações > Perfil ("Contas vinculadas"): vincular exige a senha confirmada há pouco (ou, sem senha, reautenticar com o provedor já vinculado); desvincular idem; **nunca** remove o último método de login (`409 last_login_method`). `GET /api/users/me/login-methods` lista senha e contas.
+- RF24.6 Login do desktop pelo navegador (handoff): o app abre `PUBLIC_URL/desktop-login?code_challenge=...`; a pessoa confirma "Entrar no app do computador"; `POST /api/auth/desktop/authorize` gera um código de uso único (60 s) e a página abre `spook://auth?code=...`; o app troca por Bearer em `POST /api/auth/desktop/exchange {code, code_verifier}` (PKCE S256). O lado Rust do deep link (`spook://`) **não está feito**: o módulo web `desktop/browser-login.ts` fica atrás da capability `browserLogin` (desligada). O login do desktop por e-mail e senha continua.
+- RF24.7 Modo degradado: sem `SMTP_HOST` (ou `MAILER_DRIVER=log`) o app sobe normalmente, o driver `log` só escreve no log e nenhuma função de e-mail fica ativa (cadastro não exige verificação, troca de e-mail é direta, "esqueci a senha" avisa que o servidor não envia e-mails).
+- Teste: `platform/mailer`, `platform/secret`, `platform/config`, `mailflow`, `social`, `auth/desktop_test.go`, `app/email_social_integration_test.go`; Vitest `email-social.test.tsx` e `desktop/browser-login.test.ts`; E2E `e2e/email-recovery.spec.ts`.
 
 ---
 
@@ -229,6 +239,7 @@ Itens 1.1, 1.3, 1.7, 1.8, 5.1, 5.2, 5.3 e (parte de) 1.2 do `PLANO-ADICIONAIS-2.
 - Rate limiting por usuário e por IP nas rotas REST e no gateway.
 - Uploads validados por tipo e tamanho; URLs pré-assinadas de curta duração.
 - Tokens do LiveKit emitidos pelo backend, com escopo de uma sala e expiração curta.
+- Tokens de e-mail, de handoff do desktop e sessões só existem em claro com quem os recebeu: o banco guarda o hash; nenhum vai a log ou a URL persistente (modelo de ameaça em 5.5, "Adicional: e-mail e login social").
 
 ### RNF05 — Infraestrutura
 - Tudo roda no VPS Hostinger KVM 2 (2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB de banda) via Docker Compose, no mesmo padrão do antrax: cada app tem seu usuário Linux (o do Spook é `spook`) com Docker rootless. O deploy não usa root.
@@ -727,6 +738,23 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Observabilidade e logs.** Spans `account.Delete` e `account.purge_files`; logs sem senha, e-mail ou hash (só IDs e contagens). Erros 5xx continuam genéricos.
 - **Testes.** Go: `auth/service_test.go` (trocar senha, janela de 10 min, reservados), `user/service_test.go` (bio, pronomes, banner, e-mail, GIF/WebP, reservados), `app/account_integration_test.go` (outras sessões caem e o gateway fecha com 4010, rate limit com `Retry-After`, 401 sem sessão, 403 com `code`, 422 de senha errada, e-mail por citext e por sessão, expiração, reservados, perfil com GIF animado no S3, membros com perfil, recusa de dono com a lista, cascata completa, mensagens anonimizadas, DMs/grupo, job de S3). Vitest `account.test.tsx` (14). E2E `e2e/account.spec.ts`.
 
+**Adicional: e-mail e login social** (backend + web; `PLANO-ADICIONAIS-2.md` itens 1.2, 1.4, 1.5, 1.6 e 1.9; migration `00011_email_social`)
+- **Mailer (`platform/mailer`).** Interface mínima `Sender.Send(ctx, Message)` (definida para quem consome). Implementações: `SMTP` (stdlib `net/smtp`; porta 465 = TLS direto, as demais exigem **STARTTLS** quando há usuário/senha, nunca credencial em claro; cabeçalhos sem CR/LF; multipart texto + HTML em base64; erros sem corpo nem senha), `Log` (padrão: escreve destinatário **mascarado** e assunto; o corpo/link só vai ao log em `SPOOK_ENV=development`) e `Memory` (dublê dos testes, com falhas simuladas). Modelos pt-br (`templates.go`): verificação, troca de e-mail (ao novo endereço), aviso de pedido de troca e de troca concluída (ao antigo) e redefinição de senha; HTML simples com a marca e CSS inline, **sem imagens remotas**, tudo escapado. Config: `MAILER_DRIVER=smtp|log` (padrão `smtp` se houver `SMTP_HOST`, senão `log`), `SMTP_HOST/PORT(587)/USER/PASSWORD/FROM`, `PUBLIC_URL` (base dos links e callbacks; em dev padrão `http://localhost:8090`; em produção é obrigatória com SMTP ou login social). **Decisão (degradado):** sem `SMTP_HOST` o app sobe com o driver `log`; `Mail.Enabled()` é falso e os fluxos por e-mail ficam desligados (ver RF24.7). `MAIL_FLOWS_ON_LOG=true` mantém os fluxos ligados com o driver `log` (desenvolvimento e E2E).
+- **Envio por job River.** `mailflow.SendArgs` (kind `mail_send`, 8 tentativas, backoff padrão do River). O **token vai cifrado** (AES-GCM, chave derivada de `SPOOK_SECRET_KEY`) nos args: o token em claro nunca fica em `river_job` (teste confere). **Idempotente:** o worker só envia se o token ainda não foi usado, não expirou e `email_tokens.sent_at` está vazio; depois de enviar grava `sent_at`. Se a chave do servidor mudou (reinício sem `SPOOK_SECRET_KEY`), o token é ilegível e o job é descartado (a pessoa pede outro). Sem pool do pgx (testes unitários) o envio é direto. O River agora sobe sempre que há pool do pgx (antes só com storage ou push).
+- **Segredos.** `SPOOK_SECRET_KEY` (opcional) assina o cookie do fluxo OAuth e cifra os tokens dos jobs. Vazia = chave aleatória por processo (aviso no boot em produção): fluxos OAuth em andamento e e-mails na fila não sobrevivem a um reinício. Em produção, defina-a (Secret).
+- **Tokens de e-mail (`email_tokens`).** 256 bits aleatórios (base64url), guardados só como SHA-256; `kind` = `verify` | `email_change` | `password_reset`; uso único e atômico (`UPDATE ... WHERE used_at IS NULL AND expires_at > now() RETURNING`), então uma corrida só deixa um vencer; um pedido novo do mesmo tipo invalida o anterior. `410` com `code: token_invalid` (não existe ou não bate mais com a conta) ou `token_expired` (expirou ou já usado). A verificação confere que o e-mail ainda é o do token, a troca confere `users.pending_email`, a redefinição confere o e-mail e **valida a senha antes de gastar o token** (senha fraca não queima o link). TTLs: 24 h (verificação e troca) e 30 min (redefinição). Redefinir pelo link prova a posse do endereço e marca `email_verified_at`.
+- **Troca de e-mail com verificação.** `mailflow.Service` implementa `user.EmailChangeVerifier`: grava `users.pending_email` + token e manda o link ao endereço novo; `user.Service.ChangeEmail` devolve o estado atual com `ErrEmailVerificationPending` e o handler responde **202** (mesmo schema `View` com `pending_email`); `409` se o novo endereço já é de outra conta (verificado de novo ao confirmar). Troca direta (degradado) zera `email_verified_at`.
+- **Contas existentes.** Entram com `email_verified_at` nulo ("não verificadas"). Com `REQUIRE_EMAIL_VERIFICATION=false` (padrão) nada muda. Com `true` (e e-mail ligado), `Handler.Gate` barra `createGuild` e `createInvite` (403 `email_verification_required`); entrar por convite, mensagens e o resto seguem livres. Em modo degradado a exigência é ignorada (ninguém conseguiria verificar).
+- **Recuperação de senha.** `Forgot` devolve sempre `202` com a mesma resposta; a duração tem **piso de 500 ms** (`ForgotMinDuration`); limites: por IP (`ForgotLimiter`, rajada 5 e 1 a cada 2 min; `429`) e por destinatário (`RecipientLimiter`, rajada 3 e 1 a cada 2 min; **silencioso**, acima disso nada é enviado e a resposta continua igual). `Reset` chama `auth.Service.ResetPassword`: grava o hash e remove **todas** as sessões, derrubando o gateway (close 4010). Reenvio da verificação: `ResendLimiter` (rajada 3, 1 por min, por usuário) e o mesmo limite por destinatário. `spook admin reset-password <username>` (`mailflow.RunResetPassword`) cria o token com NodeID Snowflake próprio, imprime `PUBLIC_URL/reset-password?token=` e vale 30 min.
+- **Contas sem senha.** `users.password_hash = '!'` (o mesmo marcador das contas excluídas; `user.NoPassword`) nunca valida: login e confirmação respondem como senha errada. `View.has_password` mostra o estado. `POST /api/users/me/password/initial` define a primeira senha (só quem não tem; exige o "modo sudo", que sem senha se obtém reautenticando pelo provedor) e encerra as outras sessões.
+- **Login social (`social`).** `Provider` é uma porta (`AuthURL`, `Exchange`); `google` (`/o/oauth2/v2/auth`, escopo `openid email profile`) e `discord` (escopos `identify email`) falam com um `HTTPDoer` injetável (10 s de timeout, corpo até 1 MB, erros sem corpo nem URL); os testes usam um provedor falso e servidores `httptest` locais: **nenhum teste chama a rede**. **Decisão:** o perfil do Google vem do endpoint `userinfo` com o token recém-trocado (TLS direto com o Google), em vez de validar o ID token por JWKS (mesmo resultado, menos código criptográfico; nonce não se aplica). O token de acesso vive só numa variável local da troca: **nunca é gravado nem logado** (a tabela não tem coluna de token; teste confere). Fluxo: `start` gera `state` (24 bytes) e verificador PKCE (48 bytes → 64 caracteres) e os guarda no cookie `spook_oauth` (assinado por HMAC, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth/social`, 10 min, `Secure` fora do dev, de uso único); `callback` valida assinatura, prazo, provedor e `state` em tempo constante, troca o código com o verificador e decide. Intenções: `login` (padrão), `link` (exige sessão + senha confirmada há pouco, no início **e** no retorno, e que a sessão seja a do usuário que iniciou) e `reauth` (confirma a sessão atual se a conta do provedor é uma das vinculadas ao usuário). `redirect` passa por `SafeRedirect` (só caminhos internos; `//`, `\\`, esquemas e CR/LF viram `/`). Erros voltam à web como `?social_error=<código>` (`state`, `denied`, `provider_error`, `no_email`, `email_unverified`, `email_in_use`, `already_linked`, `provider_linked`, `wrong_account`, `need_session`, `need_confirm`, `provider_off`, `internal`), com mensagem amigável em `auth/social-errors.ts`. **Sem vínculo automático por e-mail** (nem com e-mail verificado pelo provedor). Conta nova exige e-mail **verificado pelo provedor**; vira `social_signups` (token de 15 min, só o hash) + cookie `spook_social_signup` e a tela `/auth/choose-username`; `Complete` gasta o pendente, cria usuário (sem senha, `email_verified_at = now()`, nome de exibição do provedor) e a conta social **numa transação** e abre a sessão. Desvincular trava a linha do usuário e confere senha/outros vínculos na mesma transação (`last_login_method` sem corrida). Excluir a conta apaga vínculos e tokens.
+- **Login do desktop (`auth/desktop.go`).** `desktop_login_codes` guarda só o hash do código (256 bits, 60 s, uso único atômico). `exchange` **consome o código antes de conferir o verificador** (tentativa errada queima o código; 43 a 128 caracteres `[A-Za-z0-9-._~]`; comparação do desafio S256 em tempo constante) e devolve sessão Bearer no corpo. `authorize` exige sessão e é limitado como as demais ações de senha. Web: `/desktop-login` (público, redireciona ao login e volta), confirmação "Entrar no app do computador" e o deep link `spook://auth?code=` (também como link "Abrir o app"). `desktop/browser-login.ts`: PKCE (`crypto.subtle`), escuta o deep link (`deep-link://new-url`) **antes** de abrir o navegador (`plugin:opener|open_url`), troca o código e limpa a escuta; atrás da capability `browserLogin` (`VITE_DESKTOP_BROWSER_LOGIN=true`, padrão desligada). **Rust não foi tocado:** falta registrar o plugin `tauri-plugin-deep-link` (esquema `spook://` e instância única) e as permissões `deep-link:default` (ver `PENDENCIAS-DONO.md`).
+- **Modelo de ameaça (resumo).** (1) *Vazamento do banco:* tokens, códigos e sessões só existem como hash; chaves de OAuth e SMTP só em variáveis de ambiente. (2) *Enumeração de contas:* `forgot` idêntico + piso de duração + limite silencioso por e-mail; login com hash dummy; cadastro social e `email_in_use` só aparecem a quem provou controlar o e-mail no provedor. (3) *Tomada de conta por e-mail:* nada vincula automaticamente; vincular exige senha/reauth recente; e-mail de provedor precisa ser verificado. (4) *CSRF:* cookies `SameSite=Lax`; as mutações são POST/PUT/DELETE JSON (o navegador não envia JSON entre origens sem preflight e o CORS só libera as origens do Tauri); os GETs de OAuth não mudam estado sem o `state` assinado ligado ao cookie do mesmo navegador (login CSRF falha no `state`); `link` ainda exige a senha confirmada. (5) *Token em URL:* o link do e-mail tem o token em `?token=`; as páginas o leem uma vez e o retiram da URL (`navigate replace`), o servidor responde `Referrer-Policy: no-referrer` e `Cache-Control: no-store` em `/api/auth/*`, e nada loga o token (o driver `log` em produção mascara tudo). (6) *Força bruta:* limite por IP em `/api/auth/*`, por usuário nas ações de senha e por destinatário nos e-mails. (7) *Cabeçalhos:* `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` em todas as respostas. (8) *Open redirect:* `SafeRedirect` (backend) e `safeRedirect` (web). (9) *Handoff do desktop:* o código sozinho é inútil sem o verificador PKCE, que só existe na memória do app; vale 60 s e uma vez.
+- **Caixa de saída de desenvolvimento.** `GET /api/dev/mail/last?to=` (último e-mail enviado ao endereço, com o link) existe **só** com `SPOOK_ENV=development` e driver `log`; teste de integração confere que em `production` a rota não existe (404). Serve ao E2E.
+- **Observabilidade.** Spans `mailflow.*`, `social.Start|Callback|Complete`; logs sem token, sem senha e com e-mail mascarado (`ma***@dominio`). Erros 5xx continuam genéricos.
+- **Web.** Páginas `/forgot-password`, `/reset-password`, `/verify-email`, `/auth/choose-username` e `/desktop-login` (cartões de estado em `auth/status-card.tsx`, no padrão das telas de entrada, 390 px); botões "Continuar com Google/Discord" (`auth/social-buttons.tsx`; ícones SVG próprios; só dos provedores ligados e fora do desktop); faixa `features/account/verify-banner.tsx`; Configurações > Perfil ganhou o estado da verificação, "Contas vinculadas" e "Definir senha".
+- **Testes.** Go: `mailer` (modelos escapados, `log` sem vazar, SMTP contra servidor falso, injeção de cabeçalho), `secret`, `config`, `mailflow` (cifra do token e idempotência do envio), `social` (estado/PKCE/cookie adulterado, `SafeRedirect`, provedores contra `httptest`), `auth/desktop_test.go` (vetor da RFC 7636, uso único, TTL, verificador), `app/email_social_integration_test.go` (verificar, reenviar, expirar, retentativa do envio, troca de e-mail, degradado, exigência de verificação, esqueci/redefinir com sessões encerradas, TTL de 30 min, limites, piso de duração, CLI do admin, cabeçalhos, caixa de saída só em dev, login social novo/existente/cookie adulterado/`state`/e-mail coincidente sem vínculo/vincular/desvincular/último método/reauth/definir senha, handoff do desktop). Web: Vitest e E2E `e2e/email-recovery.spec.ts` (precisa de backend em desenvolvimento com `MAILER_DRIVER=log MAIL_FLOWS_ON_LOG=true`; pula sozinho sem e-mail ligado).
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
@@ -738,13 +766,15 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | email | citext UNIQUE | |
 | username | citext UNIQUE | 2–32 caracteres, `[a-z0-9_.]` |
 | display_name | text NULL | até 32 caracteres |
-| password_hash | text | Argon2id |
+| password_hash | text | Argon2id; `!` = conta sem senha (login social) ou excluída |
 | avatar_key | text NULL | chave no storage (PNG, JPEG, WebP ou GIF; animados preservados) |
 | bio | text NULL | até 190 caracteres (migration 00010, adicional) |
 | pronouns | text NULL | até 40 caracteres |
 | banner_key | text NULL | imagem do banner no storage; exclusiva com `banner_color` |
 | banner_color | integer NULL | cor sólida do banner (RGB 0..16777215) |
 | deleted_at | timestamptz NULL | conta excluída: a linha vira o marcador "Usuário removido" (ver 5.5, "Adicional: contas e perfil") |
+| email_verified_at | timestamptz NULL | e-mail confirmado (nulo = não verificado; contas antigas começam assim; migration 00011, adicional) |
+| pending_email | citext NULL | endereço novo aguardando confirmação por e-mail |
 | status_pref | text | `online` (padrão), `dnd` ou `invisible` (migration 00008, adicional) |
 | custom_status_text, custom_status_emoji | text NULL | status personalizado (até 128 e 32 caracteres) |
 | custom_status_expires_at | timestamptz NULL | vencido = sem status (avaliado no servidor) |
@@ -883,6 +913,35 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | level | text NULL | `all`, `mentions`, `none`; nulo herda (canal -> servidor -> padrão) |
 | updated_at | timestamptz | |
 
+### email_tokens (adicional)
+| Coluna | Tipo | Notas |
+| --- | --- | --- |
+| id | bigint PK | |
+| user_id | bigint FK users | cascata |
+| kind | text | `verify`, `email_change` ou `password_reset` |
+| email | citext | endereço que o token confirma |
+| token_hash | bytea UNIQUE | SHA-256 do token; o token em claro só existe no link do e-mail |
+| expires_at | timestamptz | 24 h (verificação, troca) ou 30 min (redefinição) |
+| used_at, sent_at | timestamptz NULL | uso único; `sent_at` torna o envio idempotente |
+
+### social_accounts (adicional)
+| Coluna | Tipo | Notas |
+| --- | --- | --- |
+| id | bigint PK | |
+| user_id | bigint FK users | cascata |
+| provider | text | `google` ou `discord` |
+| provider_user_id | text | UNIQUE com `provider`; UNIQUE `(user_id, provider)` |
+| email | citext NULL | e-mail do provedor na hora do vínculo (informativo) |
+| created_at | timestamptz | |
+
+Tokens de acesso do provedor **nunca** são guardados.
+
+### social_signups (adicional)
+Cadastro social aguardando o username: `token_hash` (PK, SHA-256 do cookie), `provider`, `provider_user_id`, `email`, `display_name`, `suggested`, `expires_at` (15 min). Apagado ao concluir.
+
+### desktop_login_codes (adicional)
+`code_hash` (PK), `user_id` FK, `code_challenge` (PKCE S256), `expires_at` (60 s), `used_at`. Uso único.
+
 ### Mapa de migrations
 
 Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrations).
@@ -894,6 +953,7 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | 00008_status_notifications | `users.status_pref`, `custom_status_*` e a tabela `notification_settings` (adicional) |
 | 00009_admin | `users.is_admin` e índice `messages (author_id)` (adicional) |
 | 00010_account_profile | `users.bio`, `pronouns`, `banner_key`, `banner_color`, `deleted_at` e `sessions.password_confirmed_at` (adicional) |
+| 00011_email_social | `users.email_verified_at` e `pending_email`; tabelas `email_tokens`, `social_accounts`, `social_signups` e `desktop_login_codes` (adicional) |
 
 ### Estado só em memória (não persistido)
 - Presença e sessões do gateway
@@ -1020,6 +1080,25 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 - Erros: senha errada (atual, de confirmação ou de exclusão) é `422` (nunca `401`, para o cliente não deslogar); sem confirmação recente `403` com `code: "password_confirmation_required"`; dono de servidor ao excluir a conta `409` com `code: "owns_guilds"` e `guilds: [{id, name}]`; e-mail em uso `409`; e-mail inválido, username reservado, banner ou perfil inválido `422`.
 - Autorização: todas as rotas são do próprio usuário, sobre si mesmo; não há edição de terceiros.
 
+### 7.11 E-mail e login social (adicional)
+
+| Regra | Valor | Fonte |
+| --- | --- | --- |
+| Validade: verificação / troca de e-mail | 24 h, uso único | `mailflow.VerifyTTL`, `EmailChangeTTL` |
+| Validade: redefinição de senha | 30 min, uso único | `mailflow.ResetTTL` |
+| Validade: código do desktop | 60 s, uso único, PKCE S256 | `auth.DesktopCodeTTL` |
+| Validade: fluxo OAuth (cookie e `state`) | 10 min, uso único | `social.flowTTL` |
+| Validade: cadastro social pendente | 15 min | `social.PendingTTL` |
+| Esqueci a senha | rajada de 5 e 1 a cada 2 min por IP (429); por e-mail rajada de 3 e 1 a cada 2 min (silencioso); resposta idêntica; mínimo de 500 ms | `Deps.ForgotLimiter`, `RecipientLimiter`, `ForgotDelay` |
+| Reenviar verificação | rajada de 3 e 1 por minuto por usuário | `Deps.ResendLimiter` |
+| E-mails por destinatário | rajada de 3 e 1 a cada 2 min | `Deps.RecipientLimiter` |
+| Envio | job River, 8 tentativas com backoff; idempotente | `mailflow.SendArgs` |
+| Exigência de verificação | desligada; `REQUIRE_EMAIL_VERIFICATION=true` barra criar servidor e criar convite (403) | `mailflow.Handler.Gate` |
+| Username no cadastro social | mesmas regras e reservados do cadastro | `social.Complete` |
+
+- Erros: token inválido/expirado `410` com `code` `token_invalid`/`token_expired`; senha fraca `422` (sem gastar o token); reenvio de e-mail já verificado `409 already_verified`; e-mail desligado `503 email_disabled`; último método de login `409 last_login_method`; ação sem confirmação recente `403 password_confirmation_required`; cadastro social expirado `410`; troca de e-mail com verificação `202`.
+- Autorização: verificar/redefinir/trocar o e-mail são autorizados pelo token (posse da caixa de entrada); reenviar, vincular, desvincular, definir senha e autorizar o desktop exigem sessão; ninguém age sobre outra conta.
+
 ---
 
 ## 8. Critérios de aceite por fase
@@ -1104,6 +1183,7 @@ Cada item abaixo é aceito pelos critérios do RF correspondente (seção 3) e p
 - [x] Controles de voz no painel do usuário (RF19; aparência na validação manual).
 - [ ] Bandeja, início com o sistema, contador no ícone e clique na notificação nos três SOs (RF20).
 - [x] Contas e perfil: trocar senha (derruba as outras sessões), confirmar senha, trocar e-mail, excluir conta (recusa dono; mensagens anonimizadas), usernames reservados, bio, pronomes, banner e avatar animado (RF23); [ ] conferência visual dos editores e do cartão em navegador real e da exclusão em produção.
+- [x] E-mail e login social: verificação, troca de e-mail confirmada no endereço novo, recuperação de senha (e `spook admin reset-password`), Google/Discord (entrar, vincular, desvincular, último método) e login do desktop por navegador (backend e páginas) (RF24); [ ] SMTP real, apps OAuth reais, deep link `spook://` no Rust e conferência visual (ver `VALIDACAO-MANUAL.md` e `PENDENCIAS-DONO.md`).
 - [x] Painel `/admin` e `spook admin` verificados por testes; [ ] conferência dos números e da mídia do LiveKit contra a produção (RF21).
 
 ---

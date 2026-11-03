@@ -6,23 +6,56 @@
  */
 
 import type {
+  DataTag,
+  DefinedInitialDataOptions,
+  DefinedUseQueryResult,
   MutationFunction,
   QueryClient,
+  QueryFunction,
+  QueryKey,
+  UndefinedInitialDataOptions,
   UseMutationOptions,
   UseMutationResult,
+  UseQueryOptions,
+  UseQueryResult,
 } from "@tanstack/react-query";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { http } from "../../../http";
 import type {
+  CompleteInputBody,
   ConfirmPasswordInputBody,
   ConfirmPasswordOutputBody,
+  DesktopAuthorizeInputBody,
+  DesktopAuthorizeOutputBody,
+  DesktopExchangeInputBody,
   ErrorModel,
+  ForgotInputBody,
   LoginInputBody,
+  PendingOutputBody,
+  ProvidersOutputBody,
   RegisterInputBody,
+  ResetInputBody,
   SessionBody,
+  VerifyInputBody,
+  VerifyOutputBody,
 } from "../../model";
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKey: K } => {
+  const result = { queryKey } as T & { queryKey: K };
+  for (const key of Object.keys(query)) {
+    // The explicit queryKey always wins, matching the previous
+    // `{ ...query, queryKey }` spread where it was set last.
+    if (key === "queryKey") continue;
+    Object.defineProperty(result, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => (query as Record<string, unknown>)[key],
+    });
+  }
+  return result;
+};
 
 export const getConfirmPasswordUrl = () => {
   return `/api/auth/confirm-password`;
@@ -129,6 +162,400 @@ export const useConfirmPassword = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getConfirmPasswordMutationOptions(options), queryClient);
+};
+export const getDesktopAuthorizeUrl = () => {
+  return `/api/auth/desktop/authorize`;
+};
+
+/**
+ * Chamado pela página /desktop-login depois que a pessoa confirma "Entrar no app do computador" (sessão do navegador). Devolve o código (vale 60 s, uso único) e o deep link `spook://auth?code=...`. O app troca o código em `POST /api/auth/desktop/exchange` com o `code_verifier` (PKCE).
+ * @summary Login do desktop pelo navegador: gera o código de uso único para o app
+ */
+export const desktopAuthorize = async (
+  desktopAuthorizeInputBody: DesktopAuthorizeInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<DesktopAuthorizeOutputBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<DesktopAuthorizeOutputBody>(getDesktopAuthorizeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(desktopAuthorizeInputBody),
+  });
+};
+
+export const getDesktopAuthorizeMutationKey = () => ["desktopAuthorize"] as const;
+
+export const getDesktopAuthorizeMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof desktopAuthorize>>,
+    TError,
+    DesktopAuthorizeMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof desktopAuthorize>>,
+  TError,
+  DesktopAuthorizeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDesktopAuthorizeMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof desktopAuthorize>>,
+    DesktopAuthorizeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return desktopAuthorize(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DesktopAuthorizeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof desktopAuthorize>>
+>;
+export type DesktopAuthorizeMutationBody = DesktopAuthorizeInputBody;
+export type DesktopAuthorizeMutationError = ErrorModel;
+export type DesktopAuthorizeMutationVariables = { data: DesktopAuthorizeInputBody };
+
+/**
+ * @summary Login do desktop pelo navegador: gera o código de uso único para o app
+ */
+export const useDesktopAuthorize = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof desktopAuthorize>>,
+      TError,
+      DesktopAuthorizeMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof desktopAuthorize>>,
+  TError,
+  DesktopAuthorizeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDesktopAuthorizeMutationOptions(options), queryClient);
+};
+export const getDesktopExchangeUrl = () => {
+  return `/api/auth/desktop/exchange`;
+};
+
+/**
+ * Sem sessão prévia. O código é de uso único e vale 60 s; uma tentativa com verificador errado também consome o código. Devolve o token no corpo (como o login com `X-Spook-Client: desktop`) e abre a sessão.
+ * @summary Troca o código do handoff (+ code_verifier PKCE) por um token Bearer do desktop
+ */
+export const desktopExchange = async (
+  desktopExchangeInputBody: DesktopExchangeInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<SessionBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<SessionBody>(getDesktopExchangeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(desktopExchangeInputBody),
+  });
+};
+
+export const getDesktopExchangeMutationKey = () => ["desktopExchange"] as const;
+
+export const getDesktopExchangeMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof desktopExchange>>,
+    TError,
+    DesktopExchangeMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof desktopExchange>>,
+  TError,
+  DesktopExchangeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDesktopExchangeMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof desktopExchange>>,
+    DesktopExchangeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return desktopExchange(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DesktopExchangeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof desktopExchange>>
+>;
+export type DesktopExchangeMutationBody = DesktopExchangeInputBody;
+export type DesktopExchangeMutationError = ErrorModel;
+export type DesktopExchangeMutationVariables = { data: DesktopExchangeInputBody };
+
+/**
+ * @summary Troca o código do handoff (+ code_verifier PKCE) por um token Bearer do desktop
+ */
+export const useDesktopExchange = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof desktopExchange>>,
+      TError,
+      DesktopExchangeMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof desktopExchange>>,
+  TError,
+  DesktopExchangeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDesktopExchangeMutationOptions(options), queryClient);
+};
+export const getResendVerificationEmailUrl = () => {
+  return `/api/auth/email/resend`;
+};
+
+/**
+ * Limite: 3 pedidos e depois 1 por minuto por usuário, e por destinatário. 409 `already_verified` se o e-mail já foi confirmado; 503 `email_disabled` quando o servidor está sem e-mail (modo degradado).
+ * @summary Reenvia o e-mail de verificação
+ */
+export const resendVerificationEmail = async (
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getResendVerificationEmailUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getResendVerificationEmailMutationKey = () => ["resendVerificationEmail"] as const;
+
+export const getResendVerificationEmailMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resendVerificationEmail>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resendVerificationEmail>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getResendVerificationEmailMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resendVerificationEmail>>,
+    void
+  > = () => {
+    return resendVerificationEmail(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResendVerificationEmailMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resendVerificationEmail>>
+>;
+
+export type ResendVerificationEmailMutationError = ErrorModel;
+
+/**
+ * @summary Reenvia o e-mail de verificação
+ */
+export const useResendVerificationEmail = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof resendVerificationEmail>>,
+      TError,
+      void,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof resendVerificationEmail>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getResendVerificationEmailMutationOptions(options), queryClient);
+};
+export const getVerifyEmailUrl = () => {
+  return `/api/auth/email/verify`;
+};
+
+/**
+ * Sem sessão: o link pode abrir em outro navegador. Token de uso único (24 h). Inválido, expirado ou já usado: 410 com `code` `token_invalid` ou `token_expired`. O token só trafega no corpo do POST (a página do link o remove da URL).
+ * @summary Confirma o e-mail (cadastro) ou conclui a troca de e-mail, com o token do link
+ */
+export const verifyEmail = async (
+  verifyInputBody: VerifyInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<VerifyOutputBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<VerifyOutputBody>(getVerifyEmailUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(verifyInputBody),
+  });
+};
+
+export const getVerifyEmailMutationKey = () => ["verifyEmail"] as const;
+
+export const getVerifyEmailMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyEmail>>,
+    TError,
+    VerifyEmailMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyEmail>>,
+  TError,
+  VerifyEmailMutationVariables,
+  TContext
+> => {
+  const mutationKey = getVerifyEmailMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyEmail>>,
+    VerifyEmailMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return verifyEmail(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyEmailMutationResult = NonNullable<Awaited<ReturnType<typeof verifyEmail>>>;
+export type VerifyEmailMutationBody = VerifyInputBody;
+export type VerifyEmailMutationError = ErrorModel;
+export type VerifyEmailMutationVariables = { data: VerifyInputBody };
+
+/**
+ * @summary Confirma o e-mail (cadastro) ou conclui a troca de e-mail, com o token do link
+ */
+export const useVerifyEmail = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof verifyEmail>>,
+      TError,
+      VerifyEmailMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof verifyEmail>>,
+  TError,
+  VerifyEmailMutationVariables,
+  TContext
+> => {
+  return useMutation(getVerifyEmailMutationOptions(options), queryClient);
 };
 export const getLoginUrl = () => {
   return `/api/auth/login`;
@@ -279,6 +706,324 @@ export const useLogout = <TError = ErrorModel, TContext = unknown>(
 ): UseMutationResult<Awaited<ReturnType<typeof logout>>, TError, void, TContext> => {
   return useMutation(getLogoutMutationOptions(options), queryClient);
 };
+export const getForgotPasswordUrl = () => {
+  return `/api/auth/password/forgot`;
+};
+
+/**
+ * A resposta é SEMPRE a mesma (202), exista ou não conta com esse e-mail, e demora um mínimo fixo para o tempo não revelar nada. Limite por IP (5 e depois 1 a cada 2 min) e por e-mail (silencioso: acima do limite nada é enviado). O link vale 30 min, uso único.
+ * @summary Pede o link de redefinição de senha por e-mail
+ */
+export const forgotPassword = async (
+  forgotInputBody: ForgotInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getForgotPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(forgotInputBody),
+  });
+};
+
+export const getForgotPasswordMutationKey = () => ["forgotPassword"] as const;
+
+export const getForgotPasswordMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof forgotPassword>>,
+    TError,
+    ForgotPasswordMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof forgotPassword>>,
+  TError,
+  ForgotPasswordMutationVariables,
+  TContext
+> => {
+  const mutationKey = getForgotPasswordMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof forgotPassword>>,
+    ForgotPasswordMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return forgotPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ForgotPasswordMutationResult = NonNullable<Awaited<ReturnType<typeof forgotPassword>>>;
+export type ForgotPasswordMutationBody = ForgotInputBody;
+export type ForgotPasswordMutationError = ErrorModel;
+export type ForgotPasswordMutationVariables = { data: ForgotInputBody };
+
+/**
+ * @summary Pede o link de redefinição de senha por e-mail
+ */
+export const useForgotPassword = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof forgotPassword>>,
+      TError,
+      ForgotPasswordMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof forgotPassword>>,
+  TError,
+  ForgotPasswordMutationVariables,
+  TContext
+> => {
+  return useMutation(getForgotPasswordMutationOptions(options), queryClient);
+};
+export const getResetPasswordUrl = () => {
+  return `/api/auth/password/reset`;
+};
+
+/**
+ * Token de uso único (30 min). Senha fora das regras (8 a 128) responde 422 sem gastar o token. Inválido/expirado: 410 com `code`.
+ * @summary Redefine a senha com o token do e-mail (encerra TODAS as sessões)
+ */
+export const resetPassword = async (
+  resetInputBody: ResetInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getResetPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(resetInputBody),
+  });
+};
+
+export const getResetPasswordMutationKey = () => ["resetPassword"] as const;
+
+export const getResetPasswordMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    ResetPasswordMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  ResetPasswordMutationVariables,
+  TContext
+> => {
+  const mutationKey = getResetPasswordMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetPassword>>,
+    ResetPasswordMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return resetPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetPasswordMutationResult = NonNullable<Awaited<ReturnType<typeof resetPassword>>>;
+export type ResetPasswordMutationBody = ResetInputBody;
+export type ResetPasswordMutationError = ErrorModel;
+export type ResetPasswordMutationVariables = { data: ResetInputBody };
+
+/**
+ * @summary Redefine a senha com o token do e-mail (encerra TODAS as sessões)
+ */
+export const useResetPassword = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof resetPassword>>,
+      TError,
+      ResetPasswordMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  ResetPasswordMutationVariables,
+  TContext
+> => {
+  return useMutation(getResetPasswordMutationOptions(options), queryClient);
+};
+export const getAuthProvidersUrl = () => {
+  return `/api/auth/providers`;
+};
+
+/**
+ * @summary Provedores de login social ligados e se o e-mail está ativo
+ */
+export const authProviders = async (
+  options?: Parameters<typeof http>[1],
+): Promise<ProvidersOutputBody> => {
+  return http<ProvidersOutputBody>(getAuthProvidersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAuthProvidersQueryKey = () => {
+  return [`/api/auth/providers`] as const;
+};
+
+export const getAuthProvidersQueryOptions = <
+  TData = Awaited<ReturnType<typeof authProviders>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof authProviders>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAuthProvidersQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof authProviders>>> = ({ signal }) =>
+    authProviders({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof authProviders>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AuthProvidersQueryResult = NonNullable<Awaited<ReturnType<typeof authProviders>>>;
+export type AuthProvidersQueryError = ErrorModel;
+
+export function useAuthProviders<
+  TData = Awaited<ReturnType<typeof authProviders>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof authProviders>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof authProviders>>,
+          TError,
+          Awaited<ReturnType<typeof authProviders>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAuthProviders<
+  TData = Awaited<ReturnType<typeof authProviders>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof authProviders>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof authProviders>>,
+          TError,
+          Awaited<ReturnType<typeof authProviders>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAuthProviders<
+  TData = Awaited<ReturnType<typeof authProviders>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof authProviders>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Provedores de login social ligados e se o e-mail está ativo
+ */
+
+export function useAuthProviders<
+  TData = Awaited<ReturnType<typeof authProviders>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof authProviders>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAuthProvidersQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getRegisterUrl = () => {
   return `/api/auth/register`;
 };
@@ -378,4 +1123,314 @@ export const useRegister = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getRegisterMutationOptions(options), queryClient);
+};
+export const getSocialSignupCompleteUrl = () => {
+  return `/api/auth/social/complete`;
+};
+
+/**
+ * A conta nasce sem senha e com o e-mail já verificado pelo provedor; é possível definir uma senha depois. Username em uso: 409; reservado ou inválido: 422; cadastro expirado: 410.
+ * @summary Conclui o cadastro social com o username escolhido (sem senha) e abre a sessão
+ */
+export const socialSignupComplete = async (
+  completeInputBody: CompleteInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<SessionBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<SessionBody>(getSocialSignupCompleteUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(completeInputBody),
+  });
+};
+
+export const getSocialSignupCompleteMutationKey = () => ["socialSignupComplete"] as const;
+
+export const getSocialSignupCompleteMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof socialSignupComplete>>,
+    TError,
+    SocialSignupCompleteMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof socialSignupComplete>>,
+  TError,
+  SocialSignupCompleteMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSocialSignupCompleteMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof socialSignupComplete>>,
+    SocialSignupCompleteMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return socialSignupComplete(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SocialSignupCompleteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof socialSignupComplete>>
+>;
+export type SocialSignupCompleteMutationBody = CompleteInputBody;
+export type SocialSignupCompleteMutationError = ErrorModel;
+export type SocialSignupCompleteMutationVariables = { data: CompleteInputBody };
+
+/**
+ * @summary Conclui o cadastro social com o username escolhido (sem senha) e abre a sessão
+ */
+export const useSocialSignupComplete = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof socialSignupComplete>>,
+      TError,
+      SocialSignupCompleteMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof socialSignupComplete>>,
+  TError,
+  SocialSignupCompleteMutationVariables,
+  TContext
+> => {
+  return useMutation(getSocialSignupCompleteMutationOptions(options), queryClient);
+};
+export const getSocialSignupPendingUrl = () => {
+  return `/api/auth/social/pending`;
+};
+
+/**
+ * Lê o cookie httpOnly `spook_social_signup`, criado quando o provedor confirma a identidade de alguém sem conta. 410 se o cadastro expirou (15 min) ou não existe.
+ * @summary Dados do cadastro social em andamento (tela "Escolha seu username")
+ */
+export const socialSignupPending = async (
+  options?: Parameters<typeof http>[1],
+): Promise<PendingOutputBody> => {
+  return http<PendingOutputBody>(getSocialSignupPendingUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getSocialSignupPendingQueryKey = () => {
+  return [`/api/auth/social/pending`] as const;
+};
+
+export const getSocialSignupPendingQueryOptions = <
+  TData = Awaited<ReturnType<typeof socialSignupPending>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof socialSignupPending>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSocialSignupPendingQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof socialSignupPending>>> = ({ signal }) =>
+    socialSignupPending({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof socialSignupPending>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type SocialSignupPendingQueryResult = NonNullable<
+  Awaited<ReturnType<typeof socialSignupPending>>
+>;
+export type SocialSignupPendingQueryError = ErrorModel;
+
+export function useSocialSignupPending<
+  TData = Awaited<ReturnType<typeof socialSignupPending>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof socialSignupPending>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof socialSignupPending>>,
+          TError,
+          Awaited<ReturnType<typeof socialSignupPending>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSocialSignupPending<
+  TData = Awaited<ReturnType<typeof socialSignupPending>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof socialSignupPending>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof socialSignupPending>>,
+          TError,
+          Awaited<ReturnType<typeof socialSignupPending>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSocialSignupPending<
+  TData = Awaited<ReturnType<typeof socialSignupPending>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof socialSignupPending>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Dados do cadastro social em andamento (tela "Escolha seu username")
+ */
+
+export function useSocialSignupPending<
+  TData = Awaited<ReturnType<typeof socialSignupPending>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof socialSignupPending>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getSocialSignupPendingQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getUnlinkSocialUrl = (provider: "google" | "discord") => {
+  return `/api/auth/social/${provider}`;
+};
+
+/**
+ * Nunca remove o último método de login: sem senha e com um só provedor, responde 409 `last_login_method`. Sem confirmação recente: 403 `password_confirmation_required`.
+ * @summary Desvincula uma conta social (exige a senha ou a reautenticação social recente)
+ */
+export const unlinkSocial = async (
+  provider: "google" | "discord",
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getUnlinkSocialUrl(provider), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getUnlinkSocialMutationKey = () => ["unlinkSocial"] as const;
+
+export const getUnlinkSocialMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unlinkSocial>>,
+    TError,
+    UnlinkSocialMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unlinkSocial>>,
+  TError,
+  UnlinkSocialMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUnlinkSocialMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unlinkSocial>>,
+    UnlinkSocialMutationVariables
+  > = (props) => {
+    const { provider } = props ?? {};
+
+    return unlinkSocial(provider, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnlinkSocialMutationResult = NonNullable<Awaited<ReturnType<typeof unlinkSocial>>>;
+
+export type UnlinkSocialMutationError = ErrorModel;
+export type UnlinkSocialMutationVariables = { provider: "google" | "discord" };
+
+/**
+ * @summary Desvincula uma conta social (exige a senha ou a reautenticação social recente)
+ */
+export const useUnlinkSocial = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof unlinkSocial>>,
+      TError,
+      UnlinkSocialMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof unlinkSocial>>,
+  TError,
+  UnlinkSocialMutationVariables,
+  TContext
+> => {
+  return useMutation(getUnlinkSocialMutationOptions(options), queryClient);
 };

@@ -153,8 +153,11 @@ func TestFullAccountFlow(t *testing.T) {
 	if bytes.Contains(b, []byte(`"token"`)) {
 		t.Fatalf("a web não deve receber o token no corpo: %s", b)
 	}
-	if bytes.Contains(b, []byte("password")) {
-		t.Fatalf("resposta não pode conter dados de senha: %s", b)
+	// `has_password` (booleano) é permitido: o que não pode vazar é a senha, o hash ou o campo de senha.
+	for _, banned := range []string{`"password"`, "password_hash", "argon2"} {
+		if bytes.Contains(b, []byte(banned)) {
+			t.Fatalf("resposta não pode conter dados de senha (%s): %s", banned, b)
+		}
 	}
 
 	resp, b = e.do(t, "GET", "/api/users/me", nil, nil)

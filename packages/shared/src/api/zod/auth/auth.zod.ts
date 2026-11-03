@@ -23,6 +23,132 @@ export const ConfirmPasswordResponse = zod.object({
 });
 
 /**
+ * Chamado pela página /desktop-login depois que a pessoa confirma "Entrar no app do computador" (sessão do navegador). Devolve o código (vale 60 s, uso único) e o deep link `spook://auth?code=...`. O app troca o código em `POST /api/auth/desktop/exchange` com o `code_verifier` (PKCE).
+ * @summary Login do desktop pelo navegador: gera o código de uso único para o app
+ */
+export const desktopAuthorizeBodyCodeChallengeMin = 43;
+export const desktopAuthorizeBodyCodeChallengeMax = 43;
+
+export const desktopAuthorizeBodyCodeChallengeRegExp = /^[A-Za-z0-9_-]{43}$/;
+
+export const DesktopAuthorizeBody = zod.object({
+  code_challenge: zod
+    .string()
+    .min(desktopAuthorizeBodyCodeChallengeMin)
+    .max(desktopAuthorizeBodyCodeChallengeMax)
+    .regex(desktopAuthorizeBodyCodeChallengeRegExp),
+});
+
+export const DesktopAuthorizeResponse = zod.object({
+  code: zod.string().describe("Código de uso único (60 s) para o app trocar por um token"),
+  expires_at: zod.iso.datetime({ offset: true }),
+  redirect_url: zod
+    .string()
+    .describe("Deep link spook://auth?code=... para o navegador abrir o app"),
+});
+
+/**
+ * Sem sessão prévia. O código é de uso único e vale 60 s; uma tentativa com verificador errado também consome o código. Devolve o token no corpo (como o login com `X-Spook-Client: desktop`) e abre a sessão.
+ * @summary Troca o código do handoff (+ code_verifier PKCE) por um token Bearer do desktop
+ */
+export const DesktopExchangeHeader = zod.object({
+  "User-Agent": zod.string().optional(),
+  "X-Spook-Client": zod.string().optional().describe('Use "desktop" para receber o token no corpo'),
+});
+
+export const desktopExchangeBodyCodeMin = 20;
+export const desktopExchangeBodyCodeMax = 128;
+
+export const desktopExchangeBodyCodeVerifierMin = 43;
+export const desktopExchangeBodyCodeVerifierMax = 128;
+
+export const desktopExchangeBodyCodeVerifierRegExp = /^[A-Za-z0-9._~-]+$/;
+
+export const DesktopExchangeBody = zod.object({
+  code: zod.string().min(desktopExchangeBodyCodeMin).max(desktopExchangeBodyCodeMax),
+  code_verifier: zod
+    .string()
+    .min(desktopExchangeBodyCodeVerifierMin)
+    .max(desktopExchangeBodyCodeVerifierMax)
+    .regex(desktopExchangeBodyCodeVerifierRegExp)
+    .describe("PKCE: o segredo cujo SHA-256 (base64url) foi enviado como code_challenge"),
+});
+
+export const DesktopExchangeResponse = zod.object({
+  token: zod
+    .string()
+    .optional()
+    .describe(
+      "Só é devolvido ao cliente desktop (header X-Spook-Client: desktop); a web usa o cookie httpOnly",
+    ),
+  user: zod.object({
+    avatar_url: zod
+      .string()
+      .optional()
+      .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+    banner_color: zod
+      .int()
+      .optional()
+      .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+    banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+    bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
+    created_at: zod.iso.datetime({ offset: true }),
+    display_name: zod.string().optional(),
+    email: zod.string(),
+    email_verified: zod
+      .boolean()
+      .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+    has_password: zod
+      .boolean()
+      .describe("Falso em contas criadas por login social que ainda não definiram senha"),
+    id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
+    is_admin: zod
+      .boolean()
+      .describe(
+        "Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)",
+      ),
+    pending_email: zod
+      .string()
+      .optional()
+      .describe(
+        "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+      ),
+    pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
+    username: zod.string(),
+  }),
+});
+
+/**
+ * Limite: 3 pedidos e depois 1 por minuto por usuário, e por destinatário. 409 `already_verified` se o e-mail já foi confirmado; 503 `email_disabled` quando o servidor está sem e-mail (modo degradado).
+ * @summary Reenvia o e-mail de verificação
+ */
+export const ResendVerificationEmailResponse = zod.void();
+
+/**
+ * Sem sessão: o link pode abrir em outro navegador. Token de uso único (24 h). Inválido, expirado ou já usado: 410 com `code` `token_invalid` ou `token_expired`. O token só trafega no corpo do POST (a página do link o remove da URL).
+ * @summary Confirma o e-mail (cadastro) ou conclui a troca de e-mail, com o token do link
+ */
+export const verifyEmailBodyTokenMin = 20;
+export const verifyEmailBodyTokenMax = 128;
+
+export const verifyEmailBodyTokenRegExp = /^[A-Za-z0-9_-]{20,128}$/;
+
+export const VerifyEmailBody = zod.object({
+  token: zod
+    .string()
+    .min(verifyEmailBodyTokenMin)
+    .max(verifyEmailBodyTokenMax)
+    .regex(verifyEmailBodyTokenRegExp),
+});
+
+export const VerifyEmailResponse = zod.object({
+  email: zod.string(),
+  status: zod
+    .enum(["verified", "changed"])
+    .describe("verified: e-mail confirmado; changed: troca de e-mail concluída"),
+});
+
+/**
  * @summary Login
  */
 export const LoginHeader = zod.object({
@@ -60,11 +186,23 @@ export const LoginResponse = zod.object({
     created_at: zod.iso.datetime({ offset: true }),
     display_name: zod.string().optional(),
     email: zod.string(),
+    email_verified: zod
+      .boolean()
+      .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+    has_password: zod
+      .boolean()
+      .describe("Falso em contas criadas por login social que ainda não definiram senha"),
     id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
     is_admin: zod
       .boolean()
       .describe(
         "Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)",
+      ),
+    pending_email: zod
+      .string()
+      .optional()
+      .describe(
+        "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
       ),
     pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
@@ -75,6 +213,59 @@ export const LoginResponse = zod.object({
  * @summary Logout (encerra a sessão atual)
  */
 export const LogoutResponse = zod.void();
+
+/**
+ * A resposta é SEMPRE a mesma (202), exista ou não conta com esse e-mail, e demora um mínimo fixo para o tempo não revelar nada. Limite por IP (5 e depois 1 a cada 2 min) e por e-mail (silencioso: acima do limite nada é enviado). O link vale 30 min, uso único.
+ * @summary Pede o link de redefinição de senha por e-mail
+ */
+export const forgotPasswordBodyEmailMax = 254;
+
+export const ForgotPasswordBody = zod.object({
+  email: zod.email().max(forgotPasswordBodyEmailMax),
+});
+
+export const ForgotPasswordResponse = zod.void();
+
+/**
+ * Token de uso único (30 min). Senha fora das regras (8 a 128) responde 422 sem gastar o token. Inválido/expirado: 410 com `code`.
+ * @summary Redefine a senha com o token do e-mail (encerra TODAS as sessões)
+ */
+export const resetPasswordBodyNewPasswordMin = 8;
+export const resetPasswordBodyNewPasswordMax = 128;
+
+export const resetPasswordBodyTokenMin = 20;
+export const resetPasswordBodyTokenMax = 128;
+
+export const resetPasswordBodyTokenRegExp = /^[A-Za-z0-9_-]{20,128}$/;
+
+export const ResetPasswordBody = zod.object({
+  new_password: zod
+    .string()
+    .min(resetPasswordBodyNewPasswordMin)
+    .max(resetPasswordBodyNewPasswordMax),
+  token: zod
+    .string()
+    .min(resetPasswordBodyTokenMin)
+    .max(resetPasswordBodyTokenMax)
+    .regex(resetPasswordBodyTokenRegExp),
+});
+
+export const ResetPasswordResponse = zod.void();
+
+/**
+ * @summary Provedores de login social ligados e se o e-mail está ativo
+ */
+export const AuthProvidersResponse = zod.object({
+  email_enabled: zod
+    .boolean()
+    .describe(
+      "O servidor envia e-mails (verificação, recuperação de senha). Falso = modo degradado",
+    ),
+  providers: zod
+    .array(zod.string())
+    .nullable()
+    .describe("Provedores de login social ligados (google, discord)"),
+});
 
 /**
  * @summary Cadastro (já abre a sessão)
@@ -125,13 +316,111 @@ export const RegisterResponse = zod.object({
     created_at: zod.iso.datetime({ offset: true }),
     display_name: zod.string().optional(),
     email: zod.string(),
+    email_verified: zod
+      .boolean()
+      .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+    has_password: zod
+      .boolean()
+      .describe("Falso em contas criadas por login social que ainda não definiram senha"),
     id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
     is_admin: zod
       .boolean()
       .describe(
         "Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)",
       ),
+    pending_email: zod
+      .string()
+      .optional()
+      .describe(
+        "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+      ),
     pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
   }),
 });
+
+/**
+ * A conta nasce sem senha e com o e-mail já verificado pelo provedor; é possível definir uma senha depois. Username em uso: 409; reservado ou inválido: 422; cadastro expirado: 410.
+ * @summary Conclui o cadastro social com o username escolhido (sem senha) e abre a sessão
+ */
+export const SocialSignupCompleteHeader = zod.object({
+  "User-Agent": zod.string().optional(),
+  "X-Spook-Client": zod.string().optional().describe('Use "desktop" para receber o token no corpo'),
+});
+
+export const socialSignupCompleteBodyUsernameMin = 2;
+export const socialSignupCompleteBodyUsernameMax = 32;
+
+export const socialSignupCompleteBodyUsernameRegExp = /^[a-z0-9_.]{2,32}$/;
+
+export const SocialSignupCompleteBody = zod.object({
+  username: zod
+    .string()
+    .min(socialSignupCompleteBodyUsernameMin)
+    .max(socialSignupCompleteBodyUsernameMax)
+    .regex(socialSignupCompleteBodyUsernameRegExp),
+});
+
+export const SocialSignupCompleteResponse = zod.object({
+  token: zod
+    .string()
+    .optional()
+    .describe(
+      "Só é devolvido ao cliente desktop (header X-Spook-Client: desktop); a web usa o cookie httpOnly",
+    ),
+  user: zod.object({
+    avatar_url: zod
+      .string()
+      .optional()
+      .describe("URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"),
+    banner_color: zod
+      .int()
+      .optional()
+      .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+    banner_url: zod.string().optional().describe("URL temporária de leitura do banner (imagem)"),
+    bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
+    created_at: zod.iso.datetime({ offset: true }),
+    display_name: zod.string().optional(),
+    email: zod.string(),
+    email_verified: zod
+      .boolean()
+      .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+    has_password: zod
+      .boolean()
+      .describe("Falso em contas criadas por login social que ainda não definiram senha"),
+    id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
+    is_admin: zod
+      .boolean()
+      .describe(
+        "Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)",
+      ),
+    pending_email: zod
+      .string()
+      .optional()
+      .describe(
+        "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+      ),
+    pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
+    username: zod.string(),
+  }),
+});
+
+/**
+ * Lê o cookie httpOnly `spook_social_signup`, criado quando o provedor confirma a identidade de alguém sem conta. 410 se o cadastro expirou (15 min) ou não existe.
+ * @summary Dados do cadastro social em andamento (tela "Escolha seu username")
+ */
+export const SocialSignupPendingResponse = zod.object({
+  email: zod.string(),
+  provider: zod.string(),
+  suggested_username: zod.string().describe("Sugestão derivada do nome; a pessoa pode trocar"),
+});
+
+/**
+ * Nunca remove o último método de login: sem senha e com um só provedor, responde 409 `last_login_method`. Sem confirmação recente: 403 `password_confirmation_required`.
+ * @summary Desvincula uma conta social (exige a senha ou a reautenticação social recente)
+ */
+export const UnlinkSocialParams = zod.object({
+  provider: zod.enum(["google", "discord"]),
+});
+
+export const UnlinkSocialResponse = zod.void();

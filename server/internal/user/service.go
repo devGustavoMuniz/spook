@@ -61,6 +61,16 @@ func (s *Service) Create(ctx context.Context, email, username, passwordHash stri
 
 func (s *Service) Get(ctx context.Context, id int64) (User, error) { return s.store.ByID(ctx, id) }
 
+// NoPassword é o marcador em password_hash das contas sem senha (criadas por login social, ou excluídas).
+// Nenhum hash argon2 válido é igual a ele, então a verificação de senha sempre falha.
+const NoPassword = "!"
+
+// ByEmail devolve a conta ativa com esse e-mail (ErrNotFound se não houver).
+func (s *Service) ByEmail(ctx context.Context, email string) (User, error) {
+	u, _, err := s.store.ByEmail(ctx, strings.TrimSpace(email))
+	return u, err
+}
+
 // Credentials devolve o usuário e o hash da senha, para o login (pacote auth).
 func (s *Service) Credentials(ctx context.Context, email string) (User, string, error) {
 	return s.store.ByEmail(ctx, strings.TrimSpace(email))
@@ -209,7 +219,12 @@ func (s *Service) ChangeEmail(ctx context.Context, id int64, email string) (User
 			return User{}, err
 		}
 		if !apply {
-			return User{}, ErrEmailVerificationPending
+			// A conta não muda; devolve-se o estado atual (com pending_email) junto do erro.
+			fresh, gerr := s.store.ByID(ctx, id)
+			if gerr != nil {
+				return User{}, gerr
+			}
+			return fresh, ErrEmailVerificationPending
 		}
 	}
 	return s.store.UpdateEmail(ctx, id, email)

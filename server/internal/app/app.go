@@ -3,7 +3,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/pprof"
 	"strings"
@@ -30,6 +32,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/health"
 	"github.com/devGustavoMuniz/spook/server/internal/invite"
+	"github.com/devGustavoMuniz/spook/server/internal/mailflow"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
@@ -40,11 +43,14 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/jobs"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/mailer"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/secret"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/servertiming"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/webui"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/social"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
 	"github.com/devGustavoMuniz/spook/server/internal/user"
 	"github.com/devGustavoMuniz/spook/server/internal/voice"
@@ -83,6 +89,16 @@ type Deps struct {
 	EmailLimiter    *ratelimit.Limiter // padrão: 5 por hora
 	DeleteLimiter   *ratelimit.Limiter // padrão: rajada de 3 e 1 por minuto
 
+	// E-mail e login social (SPEC 5.5, "Adicional: e-mail e login social"). Os fluxos por e-mail ficam ligados
+	// quando Cfg.Mail.Enabled() (driver smtp, ou log com MAIL_FLOWS_ON_LOG).
+	Mailer           mailer.Sender              // testes: substitui o envio (nulo = o do Cfg.Mail.Driver)
+	SocialProviders  map[string]social.Provider // testes: substitui os provedores (nulo = os de Cfg.Google/Discord)
+	ForgotLimiter    *ratelimit.Limiter         // por IP em "esqueci/redefinir senha" (padrão: rajada 5, 1 a cada 2 min)
+	ResendLimiter    *ratelimit.Limiter         // reenvio da verificação por usuário (padrão: rajada 3, 1 por min)
+	RecipientLimiter *ratelimit.Limiter         // e-mails por destinatário (padrão: rajada 3, 1 a cada 2 min)
+	// ForgotDelay é o piso de duração do "esqueci a senha" (0 = 500 ms; negativo = sem piso, para testes).
+	ForgotDelay time.Duration
+
 	// Push (testes): AllowPrivate relaxa o anti-SSRF (o "serviço de push" do teste fica em 127.0.0.1) e
 	// HTTPClient substitui o cliente do envio (para confiar no certificado do servidor de teste).
 	Push PushOptions
@@ -108,6 +124,8 @@ type App struct {
 	presence *presence.Service // acessado pelos testes de integração
 	jobs     *jobs.Client      // nil sem storage nem push; parado por Close
 	notify   *notification.Service
+	// Outbox guarda os últimos e-mails do driver log em desenvolvimento (nil fora dele).
+	Outbox *mailer.Outbox
 }
 
 // Close para o processamento de jobs: espera os em andamento terminarem (ou ctx expirar). Chame antes de
@@ -171,6 +189,98 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	authSvc.StartJanitor(ctx, time.Hour)
 
+	// E-mail (mailflow) e login social (social). O River só existe com o pool do pgx; sem ele o e-mail sai direto.
+	box, ephemeral, err := secret.New(d.Cfg.SecretKey)
+	if err != nil {
+		return nil, err
+	}
+	if ephemeral && (d.Cfg.Mail.Enabled() || d.Cfg.Google.Enabled() || d.Cfg.Discord.Enabled()) && !d.Cfg.IsDev() {
+		slog.Warn("SPOOK_SECRET_KEY ausente: chave aleatória por processo; fluxos de login social e e-mails em fila não sobrevivem a um reinício")
+	}
+	var outbox *mailer.Outbox
+	sender := d.Mailer
+	if sender == nil {
+		switch d.Cfg.Mail.Driver {
+		case "smtp":
+			sender = mailer.NewSMTP(mailer.SMTPConfig{
+				Host: d.Cfg.Mail.SMTP.Host, Port: d.Cfg.Mail.SMTP.Port, User: d.Cfg.Mail.SMTP.User,
+				Password: d.Cfg.Mail.SMTP.Password, From: d.Cfg.Mail.SMTP.From,
+			})
+		default:
+			if d.Cfg.IsDev() {
+				outbox = &mailer.Outbox{}
+			}
+			sender = mailer.Log{Verbose: d.Cfg.IsDev(), Outbox: outbox}
+		}
+	}
+	mailEnabled := d.Cfg.Mail.Enabled()
+	if !mailEnabled {
+		slog.Info("e-mail em modo degradado (sem SMTP): verificação e recuperação por e-mail desligadas; a troca de e-mail é direta")
+	}
+	mailStore := mailflow.NewStore(pool)
+	mailJobs := &mailflow.Enqueuer{} // ligado ao client do River logo abaixo
+	deliverer := &mailflow.Deliverer{Sender: sender, Box: box, State: mailStore, PublicURL: d.Cfg.PublicURL}
+	recipientLimiter := d.RecipientLimiter
+	if recipientLimiter == nil {
+		recipientLimiter = ratelimit.New(1.0/120, 3)
+	}
+	forgotLimiter := d.ForgotLimiter
+	if forgotLimiter == nil {
+		forgotLimiter = ratelimit.New(1.0/120, 5)
+	}
+	resendLimiter := d.ResendLimiter
+	if resendLimiter == nil {
+		resendLimiter = ratelimit.New(1.0/60, 3)
+	}
+	forgotDelay := d.ForgotDelay
+	switch {
+	case forgotDelay == 0:
+		forgotDelay = 500 * time.Millisecond
+	case forgotDelay < 0:
+		forgotDelay = 0
+	}
+	// A fila é ligada depois, com o client do River: até lá (e sem pool do pgx) o envio é direto.
+	mailQueue := &lateQueue{direct: deliverer}
+	mailSvc := mailflow.NewService(mailflow.Deps{
+		Store: mailStore, Users: userSvc, Passwords: authSvc, Queue: mailQueue, Deliver: deliverer, Box: box, IDs: ids,
+		Enabled: mailEnabled, Recipient: recipientLimiter, ForgotMinDuration: forgotDelay,
+	})
+	if mailEnabled {
+		userSvc.SetEmailChangeVerifier(mailSvc)
+		authSvc.OnRegistered(mailSvc.OnRegistered)
+	}
+	providers := d.SocialProviders
+	if providers == nil {
+		providers = map[string]social.Provider{}
+		if d.Cfg.Google.Enabled() {
+			providers[social.Google] = social.NewGoogle(d.Cfg.Google.ClientID, d.Cfg.Google.ClientSecret, nil, nil)
+		}
+		if d.Cfg.Discord.Enabled() {
+			providers[social.Discord] = social.NewDiscord(d.Cfg.Discord.ClientID, d.Cfg.Discord.ClientSecret, nil, nil)
+		}
+	}
+	socialStore := social.NewStore(pool)
+	socialSvc := social.NewService(social.Deps{
+		Providers: providers, PublicURL: d.Cfg.PublicURL, Box: box, Store: socialStore, Sessions: authSvc, IDs: ids,
+	})
+	go func() { // limpeza horária de tokens de e-mail e cadastros sociais vencidos
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if _, err := mailStore.Purge(ctx); err != nil {
+					slog.Error("limpeza de tokens de e-mail", "err", err)
+				}
+				if _, err := socialStore.Purge(ctx); err != nil {
+					slog.Error("limpeza de cadastros sociais", "err", err)
+				}
+			}
+		}
+	}()
+
 	passwordLimiter := d.PasswordLimiter
 	if passwordLimiter == nil {
 		passwordLimiter = ratelimit.New(1.0/30, 5)
@@ -185,6 +295,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	userH := user.NewHandler(userSvc, auth.UserID).WithLimiter(emailLimiter)
 	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View).WithLimiter(passwordLimiter)
+	mailH := mailflow.NewHandler(mailSvc, auth.UserID).WithLimiters(forgotLimiter, resendLimiter).RequireVerified(d.Cfg.Mail.RequireVerification)
+	socialH := social.NewHandler(socialSvc, auth.UserID, userH.View, !d.Cfg.IsDev()).WithEmailEnabled(mailEnabled).WithLimiter(passwordLimiter)
 
 	authLimiter := d.AuthLimiter
 	if authLimiter == nil {
@@ -256,11 +368,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	notifySvc.Start(ctx, bus)
 
 	accountJobs := &account.Enqueuer{} // ligado ao client do River logo abaixo
-	// Jobs (River): thumbnails, limpeza de anexos órfãos e Web Push. Só existem com o pool do pgx e com
-	// storage ou push ligados.
+	// Jobs (River): e-mails, thumbnails, limpeza de anexos órfãos e Web Push. Só existem com o pool do pgx.
 	var jobClient *jobs.Client
-	if rp, ok := d.Pool.(*pgxpool.Pool); ok && (objects != nil || notifySvc.PushEnabled()) {
+	if rp, ok := d.Pool.(*pgxpool.Pool); ok {
 		workers := river.NewWorkers()
+		mailflow.RegisterWorkers(workers, deliverer)
 		var periodic []*river.PeriodicJob
 		if objects != nil {
 			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
@@ -276,6 +388,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		thumbJobs.Set(jobClient)
 		pushJobs.Set(jobClient)
 		accountJobs.Set(jobClient)
+		mailJobs.Set(jobClient)
+		mailQueue.queue = mailJobs
 		// Sem o cancelamento de ctx: o desligamento é explícito (App.Close), para os jobs terminarem.
 		if err := jobClient.Start(context.WithoutCancel(ctx)); err != nil {
 			return nil, err
@@ -365,6 +479,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
 	r.Use(middleware.RequestID, httpx.LogServerErrors, middleware.Recoverer)
+	r.Use(httpx.SecurityHeaders, httpx.WithClientIP(d.Cfg.RealIPHeader))
 	r.Use(cors.Middleware(d.Cfg.AllowedOrigins)) // antes do rate limit: o preflight não consome limite e o 429 leva CORS
 	r.Use(limitByPath(d.Cfg.RealIPHeader, authLimiter, apiLimiter, gwLimiter))
 
@@ -372,7 +487,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH)
+	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH)
+	socialH.RegisterRoutes(r) // /api/auth/social/{provider}/start|callback: redirecionamentos, fora do OpenAPI
+	if outbox != nil {        // SÓ em desenvolvimento com o driver log: lê o último e-mail (E2E e dev local)
+		r.Get("/api/dev/mail/last", devMailHandler(outbox))
+	}
 	r.Method(http.MethodGet, "/api/gateway", gatewayH) // upgrade WebSocket (fora do OpenAPI)
 
 	// Webhook do LiveKit: sem sessão (a assinatura autentica) e fora do rate limit por IP.
@@ -394,7 +513,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
 		}))
-	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient, notify: notifySvc}, nil
+	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient, notify: notifySvc, Outbox: outbox}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
@@ -403,11 +522,13 @@ func OpenAPIYAML() ([]byte, error) {
 }
 
 // buildOpenAPI monta o contrato sem dependências reais (só os tipos das rotas), para o YAML e para os testes.
-func buildOpenAPI() *huma.OpenAPI {
-	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
+func buildOpenAPI() *huma.OpenAPI { return buildAPI().OpenAPI() }
+
+// buildAPI registra todas as rotas sem dependências reais (só os tipos), para o contrato e para os testes.
+func buildAPI() huma.API {
+	return registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), mailflow.NewHandler(nil, nil), social.NewHandler(nil, nil, nil, true), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
-	return api.OpenAPI()
 }
 
 // lateAccess resolve a dependência circular channel -> guild na montagem.
@@ -417,7 +538,7 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 	return a.svc.Member(ctx, guildID, userID)
 }
 
-func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handler, accountH *account.Handler,
+func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Handler, socialH *social.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
 	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
@@ -438,6 +559,13 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, userH *user.Handle
 	// Outras features aplicam o mesmo valor às suas ações sensíveis (ex.: excluir servidor).
 	sensitive := huma.Middlewares{authed[0], authH.RequireRecentPassword(api)}
 	authH.Register(api, authed)
+	mailH.Register(api, authed)
+	socialH.Register(api, authed, sensitive)
+	// Criar servidor e convidar exigem e-mail verificado quando REQUIRE_EMAIL_VERIFICATION=true (o gate não faz
+	// nada nos demais casos).
+	gate := huma.Middlewares{authed[0], mailH.Gate(api)}
+	guildH.WithGate(gate)
+	inviteH.WithGate(gate)
 	userH.WithSensitive(sensitive).Register(api, authed, auth.Security)
 	accountH.Register(api, authed, auth.Security)
 	guildH.Register(api, authed, auth.Security)
@@ -504,4 +632,30 @@ func (p accountPasswords) CheckPassword(ctx context.Context, userID int64, passw
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// lateQueue encaminha para o River depois que ele existe; antes (ou sem pool do pgx) entrega direto.
+type lateQueue struct {
+	queue  mailflow.Queue
+	direct *mailflow.Deliverer
+}
+
+func (q *lateQueue) Enqueue(ctx context.Context, a mailflow.SendArgs) error {
+	if q.queue != nil {
+		return q.queue.Enqueue(ctx, a)
+	}
+	return q.direct.Deliver(ctx, a)
+}
+
+// devMailHandler devolve o último e-mail enviado a ?to= (só existe em desenvolvimento com o driver log).
+func devMailHandler(ob *mailer.Outbox) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		m, ok := ob.Last(r.URL.Query().Get("to"))
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"to": m.To, "subject": m.Subject, "text": m.Text})
+	}
 }

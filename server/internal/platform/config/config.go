@@ -57,6 +57,35 @@ func (v VAPID) Partial() bool {
 	return n > 0 && n < 3
 }
 
+// SMTP reúne o envio de e-mail por SMTP (SMTP_*). Porta 465 usa TLS direto; as demais, STARTTLS.
+type SMTP struct {
+	Host     string
+	Port     int
+	User     string
+	Password string // segredo: nunca logar
+	From     string
+}
+
+// Mail reúne a configuração de e-mail. Driver "smtp" entrega de verdade; "log" só escreve no log
+// (modo degradado: as funções que dependem de e-mail ficam desligadas, a menos que LogActive).
+type Mail struct {
+	Driver string // MAILER_DRIVER: smtp | log (padrão: smtp se SMTP_HOST existir, senão log)
+	SMTP   SMTP
+	// LogActive (MAIL_FLOWS_ON_LOG=true) mantém os fluxos por e-mail ligados mesmo com o driver log: serve
+	// ao desenvolvimento e ao E2E, onde o link sai no log e na caixa de saída de desenvolvimento.
+	LogActive bool
+	// RequireVerification (REQUIRE_EMAIL_VERIFICATION=true) exige e-mail verificado para criar servidor e convidar.
+	RequireVerification bool
+}
+
+// Enabled diz se os fluxos por e-mail (verificar, recuperar senha, confirmar troca) estão ligados.
+func (m Mail) Enabled() bool { return m.Driver == "smtp" || (m.Driver == "log" && m.LogActive) }
+
+// OAuthApp é um app OAuth2 de provedor social; sem ID e segredo o provedor fica desligado.
+type OAuthApp struct{ ClientID, ClientSecret string }
+
+func (a OAuthApp) Enabled() bool { return a.ClientID != "" && a.ClientSecret != "" }
+
 type Config struct {
 	Addr         string
 	Env          string
@@ -81,6 +110,15 @@ type Config struct {
 	// AdminUsernames (ADMIN_USERNAMES, separados por vírgula) são promovidos a administradores do painel
 	// /admin no boot, de forma idempotente. Nunca rebaixa ninguém.
 	AdminUsernames []string
+	// PublicURL é a URL pública do app (PUBLIC_URL, sem barra final): base dos links dos e-mails e dos
+	// callbacks OAuth (PUBLIC_URL/api/auth/social/{provider}/callback).
+	PublicURL string
+	Mail      Mail
+	Google    OAuthApp // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+	Discord   OAuthApp // DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET
+	// SecretKey (SPOOK_SECRET_KEY) assina o estado OAuth e cifra os tokens em jobs. Vazio = chave aleatória por
+	// processo (fluxos em andamento e e-mails na fila não sobrevivem a um reinício).
+	SecretKey string
 	// Version identifica o build no painel (SPOOK_VERSION; em produção, a imagem). Vazio = "dev".
 	Version string
 	// Commit é opcional (SPOOK_COMMIT); sem ele o painel usa o vcs.revision do build, se houver.
@@ -118,6 +156,9 @@ func Load() (Config, error) {
 			APISecret:   os.Getenv("LIVEKIT_API_SECRET"),
 			InternalURL: getenv("LIVEKIT_INTERNAL_URL", "http://livekit:7880"),
 		},
+	}
+	if err := loadMail(&c); err != nil {
+		return Config{}, err
 	}
 	c.Version, c.Commit = strings.TrimSpace(os.Getenv("SPOOK_VERSION")), strings.TrimSpace(os.Getenv("SPOOK_COMMIT"))
 	for _, u := range splitList(os.Getenv("ADMIN_USERNAMES")) {
@@ -159,6 +200,52 @@ func Load() (Config, error) {
 		return Config{}, errors.New("S3_ENDPOINT definido sem S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY")
 	}
 	return c, nil
+}
+
+func loadMail(c *Config) error {
+	c.PublicURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/")
+	if c.PublicURL == "" && c.IsDev() {
+		c.PublicURL = "http://localhost:8090"
+	}
+	c.SecretKey = os.Getenv("SPOOK_SECRET_KEY")
+	c.Google = OAuthApp{strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")), strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET"))}
+	c.Discord = OAuthApp{strings.TrimSpace(os.Getenv("DISCORD_CLIENT_ID")), strings.TrimSpace(os.Getenv("DISCORD_CLIENT_SECRET"))}
+	m := &c.Mail
+	m.SMTP = SMTP{
+		Host: strings.TrimSpace(os.Getenv("SMTP_HOST")), User: os.Getenv("SMTP_USER"),
+		Password: os.Getenv("SMTP_PASSWORD"), From: strings.TrimSpace(os.Getenv("SMTP_FROM")), Port: 587,
+	}
+	if v := os.Getenv("SMTP_PORT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("SMTP_PORT inválido: %q", v)
+		}
+		m.SMTP.Port = n
+	}
+	m.Driver = strings.ToLower(strings.TrimSpace(os.Getenv("MAILER_DRIVER")))
+	switch m.Driver {
+	case "":
+		m.Driver = "log"
+		if m.SMTP.Host != "" {
+			m.Driver = "smtp"
+		}
+	case "smtp", "log":
+	default:
+		return fmt.Errorf("MAILER_DRIVER inválido: %q (use smtp ou log)", m.Driver)
+	}
+	if m.Driver == "smtp" && m.SMTP.Host == "" {
+		// Sem SMTP_HOST o app sobe em modo degradado em vez de recusar o boot (ver SPEC 5.5).
+		m.Driver = "log"
+	}
+	if m.Driver == "smtp" && m.SMTP.From == "" {
+		return errors.New("SMTP_HOST definido sem SMTP_FROM")
+	}
+	m.LogActive = os.Getenv("MAIL_FLOWS_ON_LOG") == "true"
+	m.RequireVerification = os.Getenv("REQUIRE_EMAIL_VERIFICATION") == "true"
+	if !c.IsDev() && c.PublicURL == "" && (m.Driver == "smtp" || c.Google.Enabled() || c.Discord.Enabled()) {
+		return errors.New("PUBLIC_URL é obrigatória com SMTP ou login social (base dos links e callbacks)")
+	}
+	return nil
 }
 
 // defaultMetricsURL deriva o Prometheus do LiveKit (porta 6789) do host da API interna.

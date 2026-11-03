@@ -250,3 +250,22 @@ aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevoke
 - **Decisões:** mensagens permanecem com o autor `removido_<id>` ("Usuário removido"); convites criados continuam; DMs 1:1 continuam e grupos passam o dono; a confirmação de senha fica na sessão (banco); senha errada responde 422 (não 401); a senha do `DELETE` vale como confirmação. Detalhes no SPEC 5.5 ("Adicional: contas e perfil"), 6, 7.10 e RF23.
 - **Pontos de atenção:** avatar e banner não são reprocessados (animação preservada, mas EXIF/GPS não é removido); arquivos antigos não são apagados ao trocar a imagem; excluir servidor ainda não exige a senha (o agente da Onda 2 aplica o `sensitive` já pronto).
 - **Verificação:** Go (unitários, integração completa), Vitest, E2E `account.spec.ts`; ver o SPEC 5.5.
+
+## E-mail e login social (03/11/2026)
+
+**Pedido:** Onda 5 do `PLANO-ADICIONAIS-2.md` (itens 1.2 completo, 1.4, 1.5, 1.6 e 1.9).
+
+| Parte | Estado |
+| --- | --- |
+| Mailer (`platform/mailer`): SMTP (STARTTLS/TLS), driver `log` e dublê; modelos pt-br (texto + HTML sem imagens remotas); envio por job River com retentativa e idempotência | Feito (SMTP real depende de credenciais) |
+| Verificação de e-mail (token de uso único, reenvio com limite, faixa e página `/verify-email`) | Feito |
+| Troca de e-mail confirmada no endereço novo (`EmailChangeVerifier`), com aviso ao antigo | Feito |
+| Esqueci/redefinir senha (resposta idêntica, piso de duração, limites, encerra todas as sessões) + `spook admin reset-password` | Feito |
+| Login social Google e Discord (OAuth2 + PKCE, sem vínculo automático por e-mail, escolher username, vincular/desvincular, último método, definir senha) | Feito (falta criar os apps OAuth) |
+| Login do desktop pelo navegador (backend, páginas web, módulo `browser-login.ts` atrás da capability `browserLogin`) | Backend e web feitos; **deep link `spook://` no Rust pendente** |
+| Modo degradado sem SMTP (documentado) e `REQUIRE_EMAIL_VERIFICATION` | Feito |
+
+- **Decisões:** contas antigas "não verificadas" sem bloquear nada (padrão); sem `SMTP_HOST` o app sobe com o driver `log` e os fluxos por e-mail ficam desligados; token cifrado nos args do job (nunca em claro no banco); Google lido por `userinfo`, não por JWKS; nunca vincular por e-mail automaticamente; contas sociais nascem sem senha (`password_hash = '!'`) e definem uma depois com reautenticação social; `SPOOK_SECRET_KEY` opcional (chave efêmera por processo se faltar). Detalhes e modelo de ameaça em SPEC 5.5 ("Adicional: e-mail e login social"), RF24, 6 e 7.11.
+- **Pontos de atenção:** `GET /api/users/me` e login/cadastro ganharam `email_verified`, `has_password` e `pending_email`; `PUT /users/me/email` pode responder 202; o River agora sobe sempre (antes só com storage ou push); o teste `TestFullAccountFlow` deixou de proibir a palavra "password" (agora proíbe o campo `"password"`, `password_hash` e `argon2`); sem `SPOOK_SECRET_KEY` em produção, reinícios derrubam fluxos OAuth em andamento.
+- **Verificação:** Go (unitários, `golangci-lint` v2, integração completa), Vitest, E2E `e2e/email-recovery.spec.ts`; ver o SPEC 5.5 e `VALIDACAO-MANUAL.md`.
+

@@ -14,17 +14,20 @@ import (
 )
 
 type View struct {
-	ID          string    `json:"id" doc:"ID Snowflake (string, pois excede 53 bits)"`
-	Email       string    `json:"email"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"display_name,omitempty"`
-	AvatarURL   string    `json:"avatar_url,omitempty" doc:"URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"`
-	Bio         string    `json:"bio,omitempty" doc:"Sobre mim (até 190 caracteres)"`
-	Pronouns    string    `json:"pronouns,omitempty" doc:"Pronomes (até 40 caracteres)"`
-	BannerURL   string    `json:"banner_url,omitempty" doc:"URL temporária de leitura do banner (imagem)"`
-	BannerColor *int32    `json:"banner_color,omitempty" doc:"Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"`
-	CreatedAt   time.Time `json:"created_at"`
-	IsAdmin     bool      `json:"is_admin" doc:"Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"`
+	ID            string    `json:"id" doc:"ID Snowflake (string, pois excede 53 bits)"`
+	Email         string    `json:"email"`
+	Username      string    `json:"username"`
+	DisplayName   string    `json:"display_name,omitempty"`
+	AvatarURL     string    `json:"avatar_url,omitempty" doc:"URL temporária de leitura do avatar (pode ser animado: GIF/WebP)"`
+	Bio           string    `json:"bio,omitempty" doc:"Sobre mim (até 190 caracteres)"`
+	Pronouns      string    `json:"pronouns,omitempty" doc:"Pronomes (até 40 caracteres)"`
+	BannerURL     string    `json:"banner_url,omitempty" doc:"URL temporária de leitura do banner (imagem)"`
+	BannerColor   *int32    `json:"banner_color,omitempty" doc:"Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"`
+	CreatedAt     time.Time `json:"created_at"`
+	EmailVerified bool      `json:"email_verified" doc:"O e-mail foi confirmado. Contas antigas começam como não verificadas"`
+	PendingEmail  string    `json:"pending_email,omitempty" doc:"Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)"`
+	HasPassword   bool      `json:"has_password" doc:"Falso em contas criadas por login social que ainda não definiram senha"`
+	IsAdmin       bool      `json:"is_admin" doc:"Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"`
 }
 
 type Handler struct {
@@ -50,6 +53,10 @@ func (h *Handler) View(ctx context.Context, u User) View {
 		ID: strconv.FormatInt(u.ID, 10), Email: u.Email, Username: u.Username,
 		CreatedAt: u.CreatedAt, AvatarURL: h.svc.AvatarURL(ctx, u), IsAdmin: u.IsAdmin,
 	}
+	v.EmailVerified, v.HasPassword = u.EmailVerifiedAt != nil, u.HasPassword
+	if u.PendingEmail != nil {
+		v.PendingEmail = *u.PendingEmail
+	}
 	if u.DisplayName != nil {
 		v.DisplayName = *u.DisplayName
 	}
@@ -64,6 +71,12 @@ func (h *Handler) View(ctx context.Context, u User) View {
 }
 
 type MeOutput struct{ Body View }
+
+// EmailChangeOutput: 200 com a troca feita, ou 202 quando o endereço novo precisa ser confirmado por e-mail.
+type EmailChangeOutput struct {
+	Status int
+	Body   View
+}
 
 type UpdateProfileInput struct {
 	Body struct {
@@ -158,16 +171,20 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 	}
 	emailOp.Description = "Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora."
 	emailOp.Errors = append(emailOp.Errors, http.StatusForbidden, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusTooManyRequests)
-	huma.Register(api, emailOp, func(ctx context.Context, in *EmailInput) (*MeOutput, error) {
+	emailOp.Description += " Com e-mail ativo no servidor, o endereço novo precisa ser confirmado pelo link enviado a ele: a resposta é 202 com `pending_email` e a conta só muda ao confirmar (`POST /api/auth/email/verify`); sem e-mail (modo degradado) a troca é direta (200)."
+	huma.Register(api, emailOp, func(ctx context.Context, in *EmailInput) (*EmailChangeOutput, error) {
 		uid := h.userID(ctx)
 		if err := httpx.Take(h.limiter, "email:"+httpx.ID(uid)); err != nil {
 			return nil, err
 		}
 		u, err := h.svc.ChangeEmail(ctx, uid, in.Body.Email)
+		if errors.Is(err, ErrEmailVerificationPending) {
+			return &EmailChangeOutput{Status: http.StatusAccepted, Body: h.View(ctx, u)}, nil
+		}
 		if err != nil {
 			return nil, mapErr(err)
 		}
-		return &MeOutput{Body: h.View(ctx, u)}, nil
+		return &EmailChangeOutput{Status: http.StatusOK, Body: h.View(ctx, u)}, nil
 	})
 }
 

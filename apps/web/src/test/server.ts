@@ -20,6 +20,9 @@ export type FakeUser = {
   banner_url?: string;
   banner_color?: number;
   is_admin?: boolean;
+  email_verified?: boolean;
+  pending_email?: string;
+  has_password?: boolean;
   created_at: string;
 };
 
@@ -27,6 +30,8 @@ export const sampleUser: FakeUser = {
   id: "1",
   email: "ana@spook.dev",
   username: "ana",
+  email_verified: true,
+  has_password: true,
   created_at: "2026-10-30T12:00:00Z",
 };
 
@@ -52,6 +57,33 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       deletes: [] as string[],
       ownedGuilds: [] as { id: string; name: string }[],
       bannerUploads: [] as { content_type: string; size: number }[],
+    },
+    /** E-mail e login social (adicional): o que o servidor falso responde e o que recebeu. */
+    auth: {
+      providers: [] as string[],
+      emailEnabled: false,
+      /** token do link -> resultado de `POST /auth/email/verify` e `/auth/password/reset`. */
+      tokens: {} as Record<string, "verified" | "changed" | "expired" | "invalid">,
+      verifies: [] as string[],
+      resends: 0,
+      resendStatus: 204,
+      forgots: [] as string[],
+      forgotStatus: 202,
+      resets: [] as { token: string; new_password: string }[],
+      /** Cadastro social em andamento (`null` = expirado, 410). */
+      pending: null as null | { provider: string; email: string; suggested_username: string },
+      completes: [] as string[],
+      methods: {
+        has_password: true,
+        accounts: [] as { provider: string; email?: string; created_at: string }[],
+      },
+      unlinks: [] as string[],
+      unlinkStatus: 204,
+      initialPasswords: [] as string[],
+      initialPasswordStatus: 204,
+      desktopChallenges: [] as string[],
+      /** Troca de e-mail com verificação: o servidor responde 202 com `pending_email`. */
+      emailChangePending: false,
     },
     // Servidores (fonte de verdade da lista), membros e mensagens por canal (ordem crescente).
     guilds: [] as DetailPayload[],
@@ -212,8 +244,101 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       const b = (await request.json()) as { email: string };
       if (b.email === "ocupado@spook.dev") return problem(409, "e-mail já cadastrado");
       state.account.emailChanges.push(b.email);
+      if (state.auth.emailChangePending) {
+        state.user = { ...state.user, pending_email: b.email };
+        return HttpResponse.json(state.user, { status: 202 });
+      }
       state.user = { ...state.user, email: b.email };
       return HttpResponse.json(state.user);
+    }),
+    // ---- E-mail e login social (adicional) ----
+    http.get("*/api/auth/providers", () =>
+      HttpResponse.json({
+        providers: state.auth.providers,
+        email_enabled: state.auth.emailEnabled,
+      }),
+    ),
+    http.post("*/api/auth/email/verify", async ({ request }) => {
+      const b = (await request.json()) as { token: string };
+      state.auth.verifies.push(b.token);
+      const r = state.auth.tokens[b.token] ?? "invalid";
+      if (r === "expired")
+        return problem(410, "link expirado ou já usado; peça um novo", [], {
+          code: "token_expired",
+        });
+      if (r === "invalid")
+        return problem(410, "link inválido; peça um novo", [], { code: "token_invalid" });
+      if (r === "verified") state.user = { ...state.user, email_verified: true };
+      return HttpResponse.json({ status: r, email: state.user.email });
+    }),
+    http.post("*/api/auth/email/resend", () => {
+      state.auth.resends++;
+      if (state.auth.resendStatus === 409)
+        return problem(409, "seu e-mail já está verificado", [], { code: "already_verified" });
+      if (state.auth.resendStatus === 429) return problem(429, "muitas tentativas");
+      return new HttpResponse(null, { status: state.auth.resendStatus });
+    }),
+    http.post("*/api/auth/password/forgot", async ({ request }) => {
+      const b = (await request.json()) as { email: string };
+      state.auth.forgots.push(b.email);
+      if (state.auth.forgotStatus === 429) return problem(429, "muitas tentativas");
+      return new HttpResponse(null, { status: 202 });
+    }),
+    http.post("*/api/auth/password/reset", async ({ request }) => {
+      const b = (await request.json()) as { token: string; new_password: string };
+      state.auth.resets.push(b);
+      const r = state.auth.tokens[b.token] ?? "invalid";
+      if (r === "expired") return problem(410, "link expirado", [], { code: "token_expired" });
+      if (r === "invalid") return problem(410, "link inválido", [], { code: "token_invalid" });
+      return new HttpResponse(null, { status: 204 });
+    }),
+    http.get("*/api/auth/social/pending", () =>
+      state.auth.pending
+        ? HttpResponse.json(state.auth.pending)
+        : problem(410, "o cadastro expirou; entre com o provedor de novo"),
+    ),
+    http.post("*/api/auth/social/complete", async ({ request }) => {
+      const b = (await request.json()) as { username: string };
+      state.auth.completes.push(b.username);
+      if (b.username === "ocupado") return problem(409, "nome de usuário já em uso");
+      if (b.username === "admin") return problem(422, "esse nome de usuário é reservado");
+      state.signedIn = true;
+      state.user = { ...sampleUser, username: b.username, has_password: false };
+      return HttpResponse.json({ user: state.user }, { status: 201 });
+    }),
+    http.get("*/api/users/me/login-methods", () => HttpResponse.json(state.auth.methods)),
+    http.delete("*/api/auth/social/:provider", ({ params }) => {
+      if (state.auth.unlinkStatus === 403)
+        return problem(403, "confirme sua senha", [], { code: "password_confirmation_required" });
+      if (state.auth.unlinkStatus === 409)
+        return problem(409, "último método", [], { code: "last_login_method" });
+      state.auth.unlinks.push(String(params.provider));
+      state.auth.methods = {
+        ...state.auth.methods,
+        accounts: state.auth.methods.accounts.filter((a) => a.provider !== params.provider),
+      };
+      return new HttpResponse(null, { status: 204 });
+    }),
+    http.post("*/api/users/me/password/initial", async ({ request }) => {
+      const b = (await request.json()) as { new_password: string };
+      if (state.auth.initialPasswordStatus === 403)
+        return problem(403, "confirme sua identidade", [], {
+          code: "password_confirmation_required",
+        });
+      state.auth.initialPasswords.push(b.new_password);
+      state.user = { ...state.user, has_password: true };
+      state.auth.methods = { ...state.auth.methods, has_password: true };
+      return new HttpResponse(null, { status: 204 });
+    }),
+    http.post("*/api/auth/desktop/authorize", async ({ request }) => {
+      if (!state.signedIn) return problem(401, "autenticação necessária");
+      const b = (await request.json()) as { code_challenge: string };
+      state.auth.desktopChallenges.push(b.code_challenge);
+      return HttpResponse.json({
+        code: "codigo-de-uso-unico-123456",
+        redirect_url: "spook://auth?code=codigo-de-uso-unico-123456",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
     }),
     http.delete("*/api/users/me", async ({ request }) => {
       const b = (await request.json()) as { password: string };

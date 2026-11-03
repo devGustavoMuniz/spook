@@ -1,5 +1,22 @@
 components:
   schemas:
+    AccountView:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        email:
+          type: string
+        provider:
+          enum:
+            - google
+            - discord
+          type: string
+      required:
+        - provider
+        - created_at
+      type: object
     AckBody:
       additionalProperties: false
       properties:
@@ -287,6 +304,18 @@ components:
         - previous
         - change_pct
       type: object
+    CompleteInputBody:
+      additionalProperties: false
+      properties:
+        username:
+          maxLength: 32
+          minLength: 2
+          pattern: ^[a-z0-9_.]{2,32}$
+          patternDescription: "2 a 32 caracteres: a-z, 0-9, _ e ."
+          type: string
+      required:
+        - username
+      type: object
     ConfirmPasswordInputBody:
       additionalProperties: false
       properties:
@@ -433,6 +462,52 @@ components:
       required:
         - password
       type: object
+    DesktopAuthorizeInputBody:
+      additionalProperties: false
+      properties:
+        code_challenge:
+          maxLength: 43
+          minLength: 43
+          pattern: ^[A-Za-z0-9_-]{43}$
+          patternDescription: base64url(SHA-256(code_verifier)), 43 caracteres
+          type: string
+      required:
+        - code_challenge
+      type: object
+    DesktopAuthorizeOutputBody:
+      additionalProperties: false
+      properties:
+        code:
+          description: Código de uso único (60 s) para o app trocar por um token
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        redirect_url:
+          description: Deep link spook://auth?code=... para o navegador abrir o app
+          type: string
+      required:
+        - code
+        - redirect_url
+        - expires_at
+      type: object
+    DesktopExchangeInputBody:
+      additionalProperties: false
+      properties:
+        code:
+          maxLength: 128
+          minLength: 20
+          type: string
+        code_verifier:
+          description: "PKCE: o segredo cujo SHA-256 (base64url) foi enviado como code_challenge"
+          maxLength: 128
+          minLength: 43
+          pattern: ^[A-Za-z0-9._~-]+$
+          type: string
+      required:
+        - code
+        - code_verifier
+      type: object
     DetailPayload:
       additionalProperties: false
       properties:
@@ -551,6 +626,16 @@ components:
             - https://example.com/errors/example
           format: uri
           type: string
+      type: object
+    ForgotInputBody:
+      additionalProperties: false
+      properties:
+        email:
+          format: email
+          maxLength: 254
+          type: string
+      required:
+        - email
       type: object
     GuildPayload:
       additionalProperties: false
@@ -871,6 +956,21 @@ components:
         - reply_to
         - pinned
       type: object
+    MethodsOutputBody:
+      additionalProperties: false
+      properties:
+        accounts:
+          items:
+            $ref: "#/components/schemas/AccountView"
+          type:
+            - array
+            - "null"
+        has_password:
+          type: boolean
+      required:
+        - has_password
+        - accounts
+      type: object
     NotificationSettingBody:
       additionalProperties: false
       properties:
@@ -1085,6 +1185,21 @@ components:
         - new_7d
         - growth_pct
       type: object
+    PendingOutputBody:
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        provider:
+          type: string
+        suggested_username:
+          description: Sugestão derivada do nome; a pessoa pode trocar
+          type: string
+      required:
+        - provider
+        - email
+        - suggested_username
+      type: object
     PinsOutputBody:
       additionalProperties: false
       properties:
@@ -1174,6 +1289,23 @@ components:
         - max_uses
         - uses
         - expires_at
+      type: object
+    ProvidersOutputBody:
+      additionalProperties: false
+      properties:
+        email_enabled:
+          description: O servidor envia e-mails (verificação, recuperação de senha). Falso = modo degradado
+          type: boolean
+        providers:
+          description: Provedores de login social ligados (google, discord)
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+      required:
+        - providers
+        - email_enabled
       type: object
     ReadStatePayload:
       additionalProperties: false
@@ -1332,6 +1464,23 @@ components:
         - upload_url
         - key
       type: object
+    ResetInputBody:
+      additionalProperties: false
+      properties:
+        new_password:
+          maxLength: 128
+          minLength: 8
+          type: string
+        token:
+          maxLength: 128
+          minLength: 20
+          pattern: ^[A-Za-z0-9_-]{20,128}$
+          patternDescription: token do link do e-mail
+          type: string
+      required:
+        - token
+        - new_password
+      type: object
     RolePayload:
       additionalProperties: false
       properties:
@@ -1482,6 +1631,16 @@ components:
           $ref: "#/components/schemas/View"
       required:
         - user
+      type: object
+    SetPasswordInputBody:
+      additionalProperties: false
+      properties:
+        new_password:
+          maxLength: 128
+          minLength: 8
+          type: string
+      required:
+        - new_password
       type: object
     SettingPayload:
       additionalProperties: false
@@ -2075,6 +2234,33 @@ components:
       required:
         - public_key
       type: object
+    VerifyInputBody:
+      additionalProperties: false
+      properties:
+        token:
+          maxLength: 128
+          minLength: 20
+          pattern: ^[A-Za-z0-9_-]{20,128}$
+          patternDescription: token do link do e-mail
+          type: string
+      required:
+        - token
+      type: object
+    VerifyOutputBody:
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+        status:
+          description: "verified: e-mail confirmado; changed: troca de e-mail concluída"
+          enum:
+            - verified
+            - changed
+          type: string
+      required:
+        - status
+        - email
+      type: object
     View:
       additionalProperties: false
       properties:
@@ -2098,12 +2284,21 @@ components:
           type: string
         email:
           type: string
+        email_verified:
+          description: O e-mail foi confirmado. Contas antigas começam como não verificadas
+          type: boolean
+        has_password:
+          description: Falso em contas criadas por login social que ainda não definiram senha
+          type: boolean
         id:
           description: ID Snowflake (string, pois excede 53 bits)
           type: string
         is_admin:
           description: Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)
           type: boolean
+        pending_email:
+          description: Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)
+          type: string
         pronouns:
           description: Pronomes (até 40 caracteres)
           type: string
@@ -2114,6 +2309,8 @@ components:
         - email
         - username
         - created_at
+        - email_verified
+        - has_password
         - is_admin
       type: object
   securitySchemes:
@@ -2473,6 +2670,183 @@ paths:
       summary: "Confirma a senha (\"modo sudo\"): a sessão fica confirmada por 10 minutos"
       tags:
         - auth
+  /api/auth/desktop/authorize:
+    post:
+      description: Chamado pela página /desktop-login depois que a pessoa confirma "Entrar no app do computador" (sessão do navegador). Devolve o código (vale 60 s, uso único) e o deep link `spook://auth?code=...`. O app troca o código em `POST /api/auth/desktop/exchange` com o `code_verifier` (PKCE).
+      operationId: desktopAuthorize
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DesktopAuthorizeInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesktopAuthorizeOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Login do desktop pelo navegador: gera o código de uso único para o app"
+      tags:
+        - auth
+  /api/auth/desktop/exchange:
+    post:
+      description: "Sem sessão prévia. O código é de uso único e vale 60 s; uma tentativa com verificador errado também consome o código. Devolve o token no corpo (como o login com `X-Spook-Client: desktop`) e abre a sessão."
+      operationId: desktopExchange
+      parameters:
+        - in: header
+          name: User-Agent
+          schema:
+            type: string
+        - description: Use "desktop" para receber o token no corpo
+          in: header
+          name: X-Spook-Client
+          schema:
+            description: Use "desktop" para receber o token no corpo
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DesktopExchangeInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionBody"
+          description: OK
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Troca o código do handoff (+ code_verifier PKCE) por um token Bearer do desktop
+      tags:
+        - auth
+  /api/auth/email/resend:
+    post:
+      description: "Limite: 3 pedidos e depois 1 por minuto por usuário, e por destinatário. 409 `already_verified` se o e-mail já foi confirmado; 503 `email_disabled` quando o servidor está sem e-mail (modo degradado)."
+      operationId: resendVerificationEmail
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Reenvia o e-mail de verificação
+      tags:
+        - auth
+  /api/auth/email/verify:
+    post:
+      description: "Sem sessão: o link pode abrir em outro navegador. Token de uso único (24 h). Inválido, expirado ou já usado: 410 com `code` `token_invalid` ou `token_expired`. O token só trafega no corpo do POST (a página do link o remove da URL)."
+      operationId: verifyEmail
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyInputBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyOutputBody"
+          description: OK
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "410":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Gone
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Confirma o e-mail (cadastro) ou conclui a troca de e-mail, com o token do link
+      tags:
+        - auth
   /api/auth/login:
     post:
       operationId: login
@@ -2553,6 +2927,99 @@ paths:
       summary: Logout (encerra a sessão atual)
       tags:
         - auth
+  /api/auth/password/forgot:
+    post:
+      description: "A resposta é SEMPRE a mesma (202), exista ou não conta com esse e-mail, e demora um mínimo fixo para o tempo não revelar nada. Limite por IP (5 e depois 1 a cada 2 min) e por e-mail (silencioso: acima do limite nada é enviado). O link vale 30 min, uso único."
+      operationId: forgotPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotInputBody"
+        required: true
+      responses:
+        "202":
+          description: Accepted
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Pede o link de redefinição de senha por e-mail
+      tags:
+        - auth
+  /api/auth/password/reset:
+    post:
+      description: "Token de uso único (30 min). Senha fora das regras (8 a 128) responde 422 sem gastar o token. Inválido/expirado: 410 com `code`."
+      operationId: resetPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "410":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Gone
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Redefine a senha com o token do e-mail (encerra TODAS as sessões)
+      tags:
+        - auth
+  /api/auth/providers:
+    get:
+      operationId: authProviders
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvidersOutputBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Provedores de login social ligados e se o e-mail está ativo
+      tags:
+        - auth
   /api/auth/register:
     post:
       operationId: register
@@ -2603,6 +3070,170 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Internal Server Error
       summary: Cadastro (já abre a sessão)
+      tags:
+        - auth
+  /api/auth/social/complete:
+    post:
+      description: "A conta nasce sem senha e com o e-mail já verificado pelo provedor; é possível definir uma senha depois. Username em uso: 409; reservado ou inválido: 422; cadastro expirado: 410."
+      operationId: socialSignupComplete
+      parameters:
+        - in: header
+          name: User-Agent
+          schema:
+            type: string
+        - description: Use "desktop" para receber o token no corpo
+          in: header
+          name: X-Spook-Client
+          schema:
+            description: Use "desktop" para receber o token no corpo
+            type: string
+        - in: cookie
+          name: spook_social_signup
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteInputBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionBody"
+          description: Created
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "410":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Gone
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Conclui o cadastro social com o username escolhido (sem senha) e abre a sessão
+      tags:
+        - auth
+  /api/auth/social/pending:
+    get:
+      description: Lê o cookie httpOnly `spook_social_signup`, criado quando o provedor confirma a identidade de alguém sem conta. 410 se o cadastro expirou (15 min) ou não existe.
+      operationId: socialSignupPending
+      parameters:
+        - in: cookie
+          name: spook_social_signup
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingOutputBody"
+          description: OK
+        "410":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Gone
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      summary: Dados do cadastro social em andamento (tela "Escolha seu username")
+      tags:
+        - auth
+  /api/auth/social/{provider}:
+    delete:
+      description: "Nunca remove o último método de login: sem senha e com um só provedor, responde 409 `last_login_method`. Sem confirmação recente: 403 `password_confirmation_required`."
+      operationId: unlinkSocial
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            enum:
+              - google
+              - discord
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Desvincula uma conta social (exige a senha ou a reautenticação social recente)
       tags:
         - auth
   /api/channels/{channel_id}:
@@ -3806,6 +4437,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
         "409":
           content:
             application/problem+json:
@@ -5785,7 +6422,7 @@ paths:
         - users
   /api/users/me/email:
     put:
-      description: "Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora."
+      description: "Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora. Com e-mail ativo no servidor, o endereço novo precisa ser confirmado pelo link enviado a ele: a resposta é 202 com `pending_email` e a conta só muda ao confirmar (`POST /api/auth/email/verify`); sem e-mail (modo degradado) a troca é direta (200)."
       operationId: changeEmail
       requestBody:
         content:
@@ -5842,6 +6479,34 @@ paths:
       summary: Troca o e-mail (exige confirmação recente de senha)
       tags:
         - users
+  /api/users/me/login-methods:
+    get:
+      operationId: getLoginMethods
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MethodsOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Métodos de login da conta: senha e contas sociais vinculadas"
+      tags:
+        - users
   /api/users/me/password:
     post:
       description: "Exige a senha atual. A nova segue as regras do cadastro (8 a 128 caracteres) e precisa ser diferente. As demais sessões (e conexões do gateway) são encerradas. Limite: 5 tentativas e depois 1 a cada 30 s por usuário."
@@ -5883,6 +6548,61 @@ paths:
         - cookieAuth: []
         - bearerAuth: []
       summary: Troca a senha (encerra as outras sessões e mantém a atual)
+      tags:
+        - users
+  /api/users/me/password/initial:
+    post:
+      description: "Só para contas sem senha (`has_password: false`). Exige a sessão reautenticada nos últimos 10 min (`/api/auth/social/google|discord/start?intent=reauth`); sem isso responde 403 `password_confirmation_required`. Encerra as outras sessões. Conta que já tem senha responde 409."
+      operationId: setInitialPassword
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPasswordInputBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Define a primeira senha de uma conta criada por login social
       tags:
         - users
   /api/voice/leave:

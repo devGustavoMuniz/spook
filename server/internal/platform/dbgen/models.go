@@ -39,10 +39,31 @@ type ChannelRecipient struct {
 	UserID    int64
 }
 
+type DesktopLoginCode struct {
+	CodeHash      []byte
+	UserID        int64
+	CodeChallenge string
+	ExpiresAt     pgtype.Timestamptz
+	UsedAt        pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+}
+
 type DmPair struct {
 	UserA     int64
 	UserB     int64
 	ChannelID int64
+}
+
+type EmailToken struct {
+	ID        int64
+	UserID    int64
+	Kind      string
+	Email     string
+	TokenHash []byte
+	ExpiresAt pgtype.Timestamptz
+	UsedAt    pgtype.Timestamptz
+	SentAt    pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
 }
 
 type Guild struct {
@@ -134,6 +155,26 @@ type Session struct {
 	PasswordConfirmedAt pgtype.Timestamptz
 }
 
+type SocialAccount struct {
+	ID             int64
+	UserID         int64
+	Provider       string
+	ProviderUserID string
+	Email          *string
+	CreatedAt      pgtype.Timestamptz
+}
+
+type SocialSignup struct {
+	TokenHash      []byte
+	Provider       string
+	ProviderUserID string
+	Email          string
+	DisplayName    *string
+	Suggested      string
+	ExpiresAt      pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
 type User struct {
 	ID                    int64
 	Email                 string
@@ -152,4 +193,6 @@ type User struct {
 	BannerKey             *string
 	BannerColor           *int32
 	DeletedAt             pgtype.Timestamptz
+	EmailVerifiedAt       pgtype.Timestamptz
+	PendingEmail          *string
 }

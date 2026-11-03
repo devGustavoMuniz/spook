@@ -85,6 +85,7 @@ type fakeSession struct {
 type fakeStore struct {
 	mu       sync.Mutex
 	sessions map[string]*fakeSession
+	codes    map[string]*fakeCode
 }
 
 func (f *fakeStore) CreateSession(_ context.Context, id, userID int64, hash []byte, _ *string, exp time.Time) error {
@@ -134,6 +135,45 @@ func (f *fakeStore) DeleteSession(_ context.Context, hash []byte) error {
 	defer f.mu.Unlock()
 	delete(f.sessions, string(hash))
 	return nil
+}
+
+func (f *fakeStore) DeleteAllSessions(_ context.Context, userID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k, s := range f.sessions {
+		if s.userID == userID {
+			delete(f.sessions, k)
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) InsertDesktopCode(_ context.Context, hash []byte, userID int64, challenge string, exp time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.codes == nil {
+		f.codes = map[string]*fakeCode{}
+	}
+	f.codes[string(hash)] = &fakeCode{userID: userID, challenge: challenge, expires: exp}
+	return nil
+}
+
+func (f *fakeStore) ConsumeDesktopCode(_ context.Context, hash []byte) (int64, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c, ok := f.codes[string(hash)]
+	if !ok || c.used || !c.expires.After(time.Now()) {
+		return 0, "", ErrInvalidCode
+	}
+	c.used = true
+	return c.userID, c.challenge, nil
+}
+
+type fakeCode struct {
+	userID    int64
+	challenge string
+	expires   time.Time
+	used      bool
 }
 
 func (f *fakeStore) DeleteExpired(context.Context) (int64, error) { return 0, nil }

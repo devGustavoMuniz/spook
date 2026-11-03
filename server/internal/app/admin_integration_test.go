@@ -13,24 +13,9 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/go-chi/chi/v5"
 	lk "github.com/livekit/protocol/livekit"
 
-	"github.com/devGustavoMuniz/spook/server/internal/account"
 	"github.com/devGustavoMuniz/spook/server/internal/admin"
-	"github.com/devGustavoMuniz/spook/server/internal/attachment"
-	"github.com/devGustavoMuniz/spook/server/internal/auth"
-	"github.com/devGustavoMuniz/spook/server/internal/channel"
-	"github.com/devGustavoMuniz/spook/server/internal/dm"
-	"github.com/devGustavoMuniz/spook/server/internal/gateway"
-	"github.com/devGustavoMuniz/spook/server/internal/guild"
-	"github.com/devGustavoMuniz/spook/server/internal/invite"
-	"github.com/devGustavoMuniz/spook/server/internal/message"
-	"github.com/devGustavoMuniz/spook/server/internal/notification"
-	"github.com/devGustavoMuniz/spook/server/internal/presence"
-	"github.com/devGustavoMuniz/spook/server/internal/typing"
-	"github.com/devGustavoMuniz/spook/server/internal/user"
-	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
 func (e *testEnv) makeAdmin(t *testing.T, a *actor) {
@@ -325,9 +310,7 @@ func TestAdminCLIGrantRevokeList(t *testing.T) {
 // /api/admin. Nada de lista manual: uma rota nova entra aqui sozinha e passa a ser testada.
 func adminOps(t *testing.T) (ops []struct{ method, path string }) {
 	t.Helper()
-	api := registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
-		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
+	api := buildAPI()
 	for path, item := range api.OpenAPI().Paths {
 		for method, op := range map[string]*huma.Operation{
 			"GET": item.Get, "POST": item.Post, "PUT": item.Put, "PATCH": item.Patch,

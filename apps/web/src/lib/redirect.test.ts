@@ -18,3 +18,11 @@ describe("safeRedirect", () => {
     });
   });
 });
+
+describe("authSearch: social_error", () => {
+  it("mantém só códigos conhecidos em formato seguro", () => {
+    expect(authSearch({ social_error: "email_in_use" })).toEqual({ social_error: "email_in_use" });
+    expect(authSearch({ social_error: "<script>", redirect: "/x" })).toEqual({ redirect: "/x" });
+    expect(authSearch({ social_error: 42 })).toEqual({});
+  });
+});

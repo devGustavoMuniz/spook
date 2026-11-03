@@ -135,6 +135,18 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           ADMIN_USERNAMES: ${{ vars.ADMIN_USERNAMES }}
+          # E-mail e login social: todos opcionais (sem SMTP_HOST o app sobe em modo degradado).
+          SPOOK_SECRET_KEY: ${{ secrets.SPOOK_SECRET_KEY }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ vars.SMTP_FROM }}
+          REQUIRE_EMAIL_VERIFICATION: ${{ vars.REQUIRE_EMAIL_VERIFICATION || 'false' }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           GARAGE_CAPACITY: ${{ vars.GARAGE_CAPACITY || '50GB' }}
           LIVEKIT_NODE_IP: ${{ vars.LIVEKIT_NODE_IP || '187.127.26.46' }}
@@ -154,6 +166,12 @@ jobs:
             printf 'VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\nVAPID_SUBJECT=%s\n' "$VAPID_PUBLIC_KEY" "$VAPID_PRIVATE_KEY" "$VAPID_SUBJECT"
             # Painel /admin: usernames promovidos a administrador no boot (Variable, não é segredo); vazio = ninguém.
             printf 'ADMIN_USERNAMES=%s\n' "$ADMIN_USERNAMES"
+            # E-mail e login social (opcionais; vazio = desligado)
+            printf 'PUBLIC_URL=%s\nSPOOK_SECRET_KEY=%s\n' "$PUBLIC_URL" "$SPOOK_SECRET_KEY"
+            printf 'SMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nSMTP_FROM=%s\n' "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USER" "$SMTP_PASSWORD" "$SMTP_FROM"
+            printf 'REQUIRE_EMAIL_VERIFICATION=%s\n' "$REQUIRE_EMAIL_VERIFICATION"
+            printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_ID" "$GOOGLE_CLIENT_SECRET"
+            printf 'DISCORD_CLIENT_ID=%s\nDISCORD_CLIENT_SECRET=%s\n' "$DISCORD_CLIENT_ID" "$DISCORD_CLIENT_SECRET"
             printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN"
           } > "$RUNNER_TEMP/env"
           .github/scripts/ssh-retry.sh "$RUNNER_TEMP/env" write-env

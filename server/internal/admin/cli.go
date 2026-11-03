@@ -14,7 +14,7 @@ import (
 )
 
 // Uso do comando `spook admin`, exibido em erro de argumentos.
-const Usage = "uso: spook admin grant <username> | revoke <username> | list"
+const Usage = "uso: spook admin grant <username> | revoke <username> | list | reset-password <username>"
 
 // RunCLI executa `spook admin grant|revoke|list`: gerencia quem é administrador sem passar pelo
 // deploy. Roda no container do backend (docker exec) e escreve o resultado em out.

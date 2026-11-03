@@ -121,9 +121,34 @@ Em **Settings → Secrets and variables → Actions** (repositório). O workflow
 | `VAPID_SUBJECT` | contato do operador, sem espaços (`mailto:voce@dominio`) |
 | `CLOUDFLARE_TUNNEL_TOKEN` | token de 1.4 |
 
+**Secrets opcionais de e-mail e login social** (vazios = recurso desligado; ver 2.1):
+| Secret | Valor |
+| --- | --- |
+| `SPOOK_SECRET_KEY` | `openssl rand -hex 32`. Assina o estado do OAuth e cifra os tokens dos e-mails na fila. Sem ela a chave muda a cada reinício (fluxos em andamento e e-mails na fila se perdem) |
+| `SMTP_USER`, `SMTP_PASSWORD` | credenciais do servidor de saída (ex.: chave de API do Resend, SES ou o SMTP do seu provedor) |
+| `GOOGLE_CLIENT_SECRET`, `DISCORD_CLIENT_SECRET` | segredos dos apps OAuth (2.1) |
+
 **Variables** (opcionais; o padrão está entre parênteses):
 `PUBLIC_URL` (`https://spook.dottadigital.com`), `GARAGE_CAPACITY` (`50GB`), `LIVEKIT_NODE_IP` (`187.127.26.46`),
 `ADMIN_USERNAMES` (vazio; usernames separados por vírgula promovidos a administrador do painel `/admin` no boot do backend: cadastre a conta, defina a Variable e refaça o deploy; nunca rebaixa ninguém, para isso use `UPDATE users SET is_admin = false WHERE username = '...'`), `S3_ENDPOINT` (`https://spook-files.dottadigital.com`), `S3_CORS_ORIGINS` (`https://spook.dottadigital.com,tauri://localhost,http://tauri.localhost`: a web e o app desktop).
+
+`SMTP_HOST` (vazio: modo degradado), `SMTP_PORT` (`587`; `465` usa TLS direto), `SMTP_FROM` (obrigatório com `SMTP_HOST`, ex.: `Spook <no-reply@dottadigital.com>`), `REQUIRE_EMAIL_VERIFICATION` (`false`), `GOOGLE_CLIENT_ID`, `DISCORD_CLIENT_ID` (vazios: provedor desligado).
+
+### 2.1 E-mail (SMTP) e login social 🔒
+
+**Nada disto é obrigatório.** Sem `SMTP_HOST` o app sobe em **modo degradado**: nenhum e-mail é enviado (o driver `log` só registra destinatário mascarado e assunto, **nunca o link**), o cadastro não exige verificação, a troca de e-mail é direta e "Esqueci minha senha" avisa que o servidor não envia e-mails. Para um esquecimento de senha nesse modo, gere um link de uso único no VPS e repasse por um canal seguro:
+
+```sh
+ssh <host administrador> "sudo -iu spook /srv/spook/prod/deploy/admin.sh reset-password <username>"
+```
+
+**SMTP.** Escolha um provedor de envio (Resend, Amazon SES, Brevo, ou o SMTP do seu domínio), verifique o domínio remetente (SPF/DKIM no DNS da Cloudflare) e defina: Variables `SMTP_HOST`, `SMTP_PORT` (587 com STARTTLS ou 465 com TLS), `SMTP_FROM`; Secrets `SMTP_USER` e `SMTP_PASSWORD`. Se o servidor SMTP não oferecer STARTTLS, o app **recusa** enviar as credenciais em claro. Faça o deploy e confira com a conta de teste: cadastro => chega o e-mail "Confirme seu e-mail". Opcional: `REQUIRE_EMAIL_VERIFICATION=true` passa a exigir e-mail verificado para criar servidor e criar convite (as contas antigas entram como não verificadas: avise antes de ligar).
+
+**Google.** Em console.cloud.google.com > APIs e serviços > Credenciais > *Criar credenciais > ID do cliente OAuth* (tipo *Aplicativo da Web*). Em *URIs de redirecionamento autorizados* coloque `https://spook.dottadigital.com/api/auth/social/google/callback` (e, para testar local, `http://localhost:8090/api/auth/social/google/callback`). Na tela de consentimento, escopos `openid`, `email` e `profile`. Guarde o ID (Variable `GOOGLE_CLIENT_ID`) e o segredo (Secret `GOOGLE_CLIENT_SECRET`).
+
+**Discord.** Em discord.com/developers/applications > *New Application* > OAuth2: em *Redirects* adicione `https://spook.dottadigital.com/api/auth/social/discord/callback` (e o de localhost para testar). O ID vai em `DISCORD_CLIENT_ID` (Variable) e o *Client Secret* em `DISCORD_CLIENT_SECRET` (Secret). Os escopos usados são `identify` e `email`.
+
+Um provedor só aparece nos botões do login quando ID **e** segredo existem. O app não guarda tokens do provedor e só aceita e-mail **verificado** pelo provedor para criar contas.
 
 `GITHUB_TOKEN` (automático) publica a imagem e segue pelo stdin do comando `deploy` para o `docker login` no GHCR; o
 `deploy.sh` faz `docker logout` ao terminar. Nada de PAT.

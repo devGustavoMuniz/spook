@@ -5,6 +5,7 @@ import { useSessionGuard } from "@/components/app-shell";
 import { NavDrawer, ShellProvider, useShell } from "@/components/shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfirmPasswordProvider } from "@/features/account/confirm-password";
+import { VerifyEmailBanner } from "@/features/account/verify-banner";
 import { GatewayProvider } from "@/features/gateway/gateway-provider";
 import { ServerRail } from "@/features/guilds/server-rail";
 import { useUnreadTitle } from "@/features/notifications/use-unread-title";
@@ -52,6 +53,7 @@ function Frame({ guilds, onSlot }: { guilds: Guild[]; onSlot: (el: HTMLElement |
   const rail = <ServerRail guilds={guilds} />;
   return (
     <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <VerifyEmailBanner />
       <div className="flex min-h-0 flex-1">
         {compact ? null : rail}
         <div className="min-w-0 flex-1" inert={compact && shell?.navOpen}>

@@ -18,6 +18,12 @@ type User struct {
 	BannerColor *int32
 	CreatedAt   time.Time
 	IsAdmin     bool
+	// EmailVerifiedAt é nulo enquanto o e-mail não foi verificado (contas antigas entram assim).
+	EmailVerifiedAt *time.Time
+	// PendingEmail é o endereço novo aguardando confirmação (troca de e-mail com verificação).
+	PendingEmail *string
+	// HasPassword é falso nas contas criadas por login social que ainda não definiram senha.
+	HasPassword bool
 	// DeletedAt é preenchido quando a conta foi excluída (a linha vira o marcador "Usuário removido").
 	DeletedAt *time.Time
 }

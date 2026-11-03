@@ -14,7 +14,12 @@ import (
 type Handler struct {
 	svc    *Service
 	userID func(context.Context) int64
+	// gate são os middlewares da ação que exige e-mail verificado (REQUIRE_EMAIL_VERIFICATION); nil = sem exigência.
+	gate huma.Middlewares
 }
+
+// WithGate troca os middlewares da ação "criar convite" por gate (sessão + e-mail verificado).
+func (h *Handler) WithGate(gate huma.Middlewares) *Handler { h.gate = gate; return h }
 
 func NewHandler(svc *Service, userID func(context.Context) int64) *Handler {
 	return &Handler{svc: svc, userID: userID}
@@ -34,7 +39,12 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 	}
 	forbidden, invalid, gone := http.StatusForbidden, http.StatusUnprocessableEntity, http.StatusGone
 
-	huma.Register(api, op("createInvite", http.MethodPost, "/api/guilds/{guild_id}/invites", "Gera um convite (CREATE_INVITE)", http.StatusCreated, forbidden, invalid),
+	createInviteOp := op("createInvite", http.MethodPost, "/api/guilds/{guild_id}/invites", "Gera um convite (CREATE_INVITE)", http.StatusCreated, forbidden, invalid)
+	if h.gate != nil {
+		createInviteOp.Middlewares = h.gate
+	}
+	createInviteOp.Errors = appendStatus(createInviteOp.Errors, http.StatusForbidden)
+	huma.Register(api, createInviteOp,
 		func(ctx context.Context, in *struct {
 			GuildID string `path:"guild_id"`
 			Body    struct {
@@ -111,4 +121,14 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			}
 			return nil, httpx.Err(h.svc.Revoke(ctx, h.userID(ctx), in.Code))
 		})
+}
+
+// appendStatus acrescenta um status à lista de erros documentados, sem repetir.
+func appendStatus(list []int, status int) []int {
+	for _, s := range list {
+		if s == status {
+			return list
+		}
+	}
+	return append(list, status)
 }

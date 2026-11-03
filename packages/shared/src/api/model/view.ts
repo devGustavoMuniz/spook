@@ -17,10 +17,16 @@ export interface View {
   created_at: string;
   display_name?: string;
   email: string;
+  /** O e-mail foi confirmado. Contas antigas começam como não verificadas */
+  email_verified: boolean;
+  /** Falso em contas criadas por login social que ainda não definiram senha */
+  has_password: boolean;
   /** ID Snowflake (string, pois excede 53 bits) */
   id: string;
   /** Administrador do painel /admin (só para mostrar o link; o backend decide o acesso) */
   is_admin: boolean;
+  /** Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link) */
+  pending_email?: string;
   /** Pronomes (até 40 caracteres) */
   pronouns?: string;
   username: string;

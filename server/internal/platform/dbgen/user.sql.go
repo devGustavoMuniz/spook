@@ -12,7 +12,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (id, email, username, password_hash)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at, email_verified_at, pending_email
 `
 
 type CreateUserParams struct {
@@ -48,12 +48,14 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.BannerKey,
 		&i.BannerColor,
 		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.PendingEmail,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at FROM users WHERE email = $1 AND deleted_at IS NULL
+SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at, email_verified_at, pending_email FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -77,12 +79,14 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.BannerKey,
 		&i.BannerColor,
 		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.PendingEmail,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at FROM users WHERE id = $1
+SELECT id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at, email_verified_at, pending_email FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
@@ -106,13 +110,15 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.BannerKey,
 		&i.BannerColor,
 		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.PendingEmail,
 	)
 	return i, err
 }
 
 const updateUserEmail = `-- name: UpdateUserEmail :one
-UPDATE users SET email = $2 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at
+UPDATE users SET email = $2, email_verified_at = NULL, pending_email = NULL WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at, email_verified_at, pending_email
 `
 
 type UpdateUserEmailParams struct {
@@ -120,6 +126,7 @@ type UpdateUserEmailParams struct {
 	Email string
 }
 
+// Troca direta (sem SMTP): o endereço novo volta a não verificado.
 func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
 	row := q.db.QueryRow(ctx, updateUserEmail, arg.ID, arg.Email)
 	var i User
@@ -141,6 +148,8 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.BannerKey,
 		&i.BannerColor,
 		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.PendingEmail,
 	)
 	return i, err
 }
@@ -163,7 +172,7 @@ const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET display_name = $2, avatar_key = $3, bio = $4, pronouns = $5, banner_key = $6, banner_color = $7
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at
+RETURNING id, email, username, display_name, password_hash, avatar_key, created_at, status_pref, custom_status_text, custom_status_emoji, custom_status_expires_at, is_admin, bio, pronouns, banner_key, banner_color, deleted_at, email_verified_at, pending_email
 `
 
 type UpdateUserProfileParams struct {
@@ -205,6 +214,8 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.BannerKey,
 		&i.BannerColor,
 		&i.DeletedAt,
+		&i.EmailVerifiedAt,
+		&i.PendingEmail,
 	)
 	return i, err
 }

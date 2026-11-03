@@ -22,9 +22,14 @@ func toUser(u dbgen.User) User {
 		t := u.DeletedAt.Time
 		deleted = &t
 	}
+	var verified *time.Time
+	if u.EmailVerifiedAt.Valid {
+		t := u.EmailVerifiedAt.Time
+		verified = &t
+	}
 	return User{
-		DeletedAt: deleted,
-		ID:        u.ID, Email: u.Email, Username: u.Username,
+		DeletedAt: deleted, EmailVerifiedAt: verified, PendingEmail: u.PendingEmail, HasPassword: u.PasswordHash != NoPassword,
+		ID: u.ID, Email: u.Email, Username: u.Username,
 		DisplayName: u.DisplayName, AvatarKey: u.AvatarKey, Bio: u.Bio, Pronouns: u.Pronouns,
 		BannerKey: u.BannerKey, BannerColor: u.BannerColor, CreatedAt: u.CreatedAt.Time, IsAdmin: u.IsAdmin,
 	}

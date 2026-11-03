@@ -162,14 +162,49 @@ type ChangePasswordInput struct {
 	}
 }
 
+type SetPasswordInput struct {
+	Body struct {
+		NewPassword string `json:"new_password" minLength:"8" maxLength:"128"`
+	}
+}
+
+type DesktopAuthorizeInput struct {
+	Body struct {
+		CodeChallenge string `json:"code_challenge" pattern:"^[A-Za-z0-9_-]{43}$" patternDescription:"base64url(SHA-256(code_verifier)), 43 caracteres" minLength:"43" maxLength:"43"`
+	}
+}
+
+type DesktopAuthorizeOutput struct {
+	Body struct {
+		Code        string    `json:"code" doc:"Código de uso único (60 s) para o app trocar por um token"`
+		RedirectURL string    `json:"redirect_url" doc:"Deep link spook://auth?code=... para o navegador abrir o app"`
+		ExpiresAt   time.Time `json:"expires_at"`
+	}
+}
+
+type DesktopExchangeInput struct {
+	ClientHeaders
+	Body struct {
+		Code         string `json:"code" minLength:"20" maxLength:"128"`
+		CodeVerifier string `json:"code_verifier" minLength:"43" maxLength:"128" pattern:"^[A-Za-z0-9._~-]+$" doc:"PKCE: o segredo cujo SHA-256 (base64url) foi enviado como code_challenge"`
+	}
+}
+
+type DesktopExchangeOutput struct{ Body SessionBody }
+
 type LogoutOutput struct {
 	SetCookie http.Cookie `header:"Set-Cookie"`
 }
 
 func (h *Handler) cookie(value string, maxAge int) http.Cookie {
+	return SessionCookie(value, h.secure, maxAge)
+}
+
+// SessionCookie monta o cookie de sessão (httpOnly, SameSite=Lax; Secure fora do http de desenvolvimento).
+func SessionCookie(value string, secure bool, maxAge int) http.Cookie {
 	return http.Cookie{
 		Name: CookieName, Value: value, Path: "/", MaxAge: maxAge,
-		HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteLaxMode,
+		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 	}
 }
 
@@ -253,6 +288,34 @@ func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
 		return out, nil
 	})
 
+	h.registerDesktop(api, authed)
+
+	setPwd := huma.Operation{
+		OperationID: "setInitialPassword", Method: http.MethodPost, Path: "/api/users/me/password/initial",
+		Summary: "Define a primeira senha de uma conta criada por login social",
+		Description: "Só para contas sem senha (`has_password: false`). Exige a sessão reautenticada nos últimos 10 min " +
+			"(`/api/auth/social/google|discord/start?intent=reauth`); sem isso responde 403 `password_confirmation_required`. " +
+			"Encerra as outras sessões. Conta que já tem senha responde 409.",
+		Tags: []string{"users"}, Security: Security, Middlewares: huma.Middlewares{authed[0], h.RequireRecentPassword(api)}, DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusTooManyRequests},
+	}
+	huma.Register(api, setPwd, func(ctx context.Context, in *SetPasswordInput) (*struct{}, error) {
+		uid := UserID(ctx)
+		if err := httpx.Take(h.limiter, "pwd:"+httpx.ID(uid)); err != nil {
+			return nil, err
+		}
+		err := h.svc.SetInitialPassword(ctx, uid, token(ctx), in.Body.NewPassword)
+		switch {
+		case errors.Is(err, ErrHasPassword):
+			return nil, huma.Error409Conflict("a conta já tem senha; use a troca de senha")
+		case errors.Is(err, ErrWeakPassword):
+			return nil, huma.Error422UnprocessableEntity("a senha deve ter de 8 a 128 caracteres")
+		case err != nil:
+			return nil, err
+		}
+		return nil, nil
+	})
+
 	huma.Register(api, huma.Operation{
 		OperationID: "changePassword", Method: http.MethodPost, Path: "/api/users/me/password",
 		Summary: "Troca a senha (encerra as outras sessões e mantém a atual)",
@@ -277,6 +340,53 @@ func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
 			return nil, err
 		}
 		return nil, nil
+	})
+}
+
+// DesktopRedirectScheme é o esquema do deep link do app desktop.
+const DesktopRedirectScheme = "spook://auth"
+
+func (h *Handler) registerDesktop(api huma.API, authed huma.Middlewares) {
+	huma.Register(api, huma.Operation{
+		OperationID: "desktopAuthorize", Method: http.MethodPost, Path: "/api/auth/desktop/authorize",
+		Summary: "Login do desktop pelo navegador: gera o código de uso único para o app",
+		Description: "Chamado pela página /desktop-login depois que a pessoa confirma \"Entrar no app do computador\" (sessão do navegador). " +
+			"Devolve o código (vale 60 s, uso único) e o deep link `spook://auth?code=...`. O app troca o código em `POST /api/auth/desktop/exchange` com o `code_verifier` (PKCE).",
+		Tags: []string{"auth"}, Security: Security, Middlewares: authed,
+		Errors: []int{http.StatusUnauthorized, http.StatusTooManyRequests},
+	}, func(ctx context.Context, in *DesktopAuthorizeInput) (*DesktopAuthorizeOutput, error) {
+		uid := UserID(ctx)
+		if err := httpx.Take(h.limiter, "desktop:"+httpx.ID(uid)); err != nil {
+			return nil, err
+		}
+		code, exp, err := h.svc.DesktopAuthorize(ctx, uid, in.Body.CodeChallenge)
+		if errors.Is(err, ErrInvalidChallenge) {
+			return nil, huma.Error422UnprocessableEntity("code_challenge inválido")
+		}
+		if err != nil {
+			return nil, err
+		}
+		out := &DesktopAuthorizeOutput{}
+		out.Body.Code, out.Body.ExpiresAt = code, exp
+		out.Body.RedirectURL = DesktopRedirectScheme + "?code=" + code
+		return out, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "desktopExchange", Method: http.MethodPost, Path: "/api/auth/desktop/exchange",
+		Summary: "Troca o código do handoff (+ code_verifier PKCE) por um token Bearer do desktop",
+		Description: "Sem sessão prévia. O código é de uso único e vale 60 s; uma tentativa com verificador errado também consome o código. " +
+			"Devolve o token no corpo (como o login com `X-Spook-Client: desktop`) e abre a sessão.",
+		Tags: []string{"auth"}, Errors: []int{http.StatusUnprocessableEntity},
+	}, func(ctx context.Context, in *DesktopExchangeInput) (*DesktopExchangeOutput, error) {
+		u, tok, err := h.svc.DesktopExchange(ctx, in.Body.Code, in.Body.CodeVerifier, optional(in.UserAgent))
+		if errors.Is(err, ErrInvalidCode) {
+			return nil, huma.Error422UnprocessableEntity("código inválido ou expirado; entre pelo navegador de novo")
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &DesktopExchangeOutput{Body: SessionBody{User: h.view(ctx, u), Token: tok}}, nil
 	})
 }
 

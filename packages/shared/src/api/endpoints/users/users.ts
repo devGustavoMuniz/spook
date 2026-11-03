@@ -28,6 +28,8 @@ import type {
   DeleteInputBody,
   EmailInputBody,
   ErrorModel,
+  MethodsOutputBody,
+  SetPasswordInputBody,
   UpdateProfileInputBody,
   View,
 } from "../../model";
@@ -564,7 +566,7 @@ export const getChangeEmailUrl = () => {
 };
 
 /**
- * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora.
+ * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora. Com e-mail ativo no servidor, o endereço novo precisa ser confirmado pelo link enviado a ele: a resposta é 202 com `pending_email` e a conta só muda ao confirmar (`POST /api/auth/email/verify`); sem e-mail (modo degradado) a troca é direta (200).
  * @summary Troca o e-mail (exige confirmação recente de senha)
  */
 export const changeEmail = async (
@@ -660,6 +662,119 @@ export const useChangeEmail = <TError = ErrorModel, TContext = unknown>(
 > => {
   return useMutation(getChangeEmailMutationOptions(options), queryClient);
 };
+export const getGetLoginMethodsUrl = () => {
+  return `/api/users/me/login-methods`;
+};
+
+/**
+ * @summary Métodos de login da conta: senha e contas sociais vinculadas
+ */
+export const getLoginMethods = async (
+  options?: Parameters<typeof http>[1],
+): Promise<MethodsOutputBody> => {
+  return http<MethodsOutputBody>(getGetLoginMethodsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLoginMethodsQueryKey = () => {
+  return [`/api/users/me/login-methods`] as const;
+};
+
+export const getGetLoginMethodsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLoginMethods>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoginMethods>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLoginMethodsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getLoginMethods>>> = ({ signal }) =>
+    getLoginMethods({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLoginMethods>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetLoginMethodsQueryResult = NonNullable<Awaited<ReturnType<typeof getLoginMethods>>>;
+export type GetLoginMethodsQueryError = ErrorModel;
+
+export function useGetLoginMethods<
+  TData = Awaited<ReturnType<typeof getLoginMethods>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoginMethods>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getLoginMethods>>,
+          TError,
+          Awaited<ReturnType<typeof getLoginMethods>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetLoginMethods<
+  TData = Awaited<ReturnType<typeof getLoginMethods>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoginMethods>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getLoginMethods>>,
+          TError,
+          Awaited<ReturnType<typeof getLoginMethods>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetLoginMethods<
+  TData = Awaited<ReturnType<typeof getLoginMethods>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoginMethods>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Métodos de login da conta: senha e contas sociais vinculadas
+ */
+
+export function useGetLoginMethods<
+  TData = Awaited<ReturnType<typeof getLoginMethods>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getLoginMethods>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetLoginMethodsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getChangePasswordUrl = () => {
   return `/api/users/me/password`;
 };
@@ -763,4 +878,110 @@ export const useChangePassword = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getChangePasswordMutationOptions(options), queryClient);
+};
+export const getSetInitialPasswordUrl = () => {
+  return `/api/users/me/password/initial`;
+};
+
+/**
+ * Só para contas sem senha (`has_password: false`). Exige a sessão reautenticada nos últimos 10 min (`/api/auth/social/google|discord/start?intent=reauth`); sem isso responde 403 `password_confirmation_required`. Encerra as outras sessões. Conta que já tem senha responde 409.
+ * @summary Define a primeira senha de uma conta criada por login social
+ */
+export const setInitialPassword = async (
+  setPasswordInputBody: SetPasswordInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getSetInitialPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(setPasswordInputBody),
+  });
+};
+
+export const getSetInitialPasswordMutationKey = () => ["setInitialPassword"] as const;
+
+export const getSetInitialPasswordMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setInitialPassword>>,
+    TError,
+    SetInitialPasswordMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setInitialPassword>>,
+  TError,
+  SetInitialPasswordMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSetInitialPasswordMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setInitialPassword>>,
+    SetInitialPasswordMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return setInitialPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetInitialPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setInitialPassword>>
+>;
+export type SetInitialPasswordMutationBody = SetPasswordInputBody;
+export type SetInitialPasswordMutationError = ErrorModel;
+export type SetInitialPasswordMutationVariables = { data: SetPasswordInputBody };
+
+/**
+ * @summary Define a primeira senha de uma conta criada por login social
+ */
+export const useSetInitialPassword = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setInitialPassword>>,
+      TError,
+      SetInitialPasswordMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setInitialPassword>>,
+  TError,
+  SetInitialPasswordMutationVariables,
+  TContext
+> => {
+  return useMutation(getSetInitialPasswordMutationOptions(options), queryClient);
 };

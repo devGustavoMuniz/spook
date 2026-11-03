@@ -52,6 +52,22 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # E-mail e login social (adicional). Tudo opcional: sem SMTP_HOST o app sobe em modo degradado (sem verificação nem
+      # recuperação de senha por e-mail; use `deploy/admin.sh reset-password <username>`). PUBLIC_URL monta os links dos
+      # e-mails e os callbacks OAuth (<PUBLIC_URL>/api/auth/social/{google,discord}/callback).
+      PUBLIC_URL: ${PUBLIC_URL:-https://spook.dottadigital.com}
+      SPOOK_SECRET_KEY: ${SPOOK_SECRET_KEY:-}
+      MAILER_DRIVER: ${MAILER_DRIVER:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
       # Painel /admin: usernames (separados por vírgula) promovidos a administrador no boot. Opcional.
       ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
       # Identifica o build no painel (a imagem, com o tag). O Prometheus do LiveKit é lido de http://livekit:6789/metrics.

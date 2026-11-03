@@ -2,7 +2,8 @@
 //
 // Subcomandos: (nenhum) inicia o servidor; `openapi` imprime o contrato OpenAPI;
 // `healthcheck` consulta /healthz local (usado pelo HEALTHCHECK do container);
-// `admin grant|revoke <username>|list` gerencia administradores do painel /admin.
+// `admin grant|revoke <username>|list` gerencia administradores do painel /admin;
+// `admin reset-password <username>` imprime um link de redefinição de senha (uso único, 30 min).
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/admin"
 	"github.com/devGustavoMuniz/spook/server/internal/app"
+	"github.com/devGustavoMuniz/spook/server/internal/mailflow"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/logger"
@@ -58,6 +60,10 @@ func adminCommand(args []string) error {
 		return err
 	}
 	defer pool.Close()
+	if len(args) > 0 && args[0] == "reset-password" {
+		// NodeID próprio do comando: não colide com os IDs Snowflake do servidor em execução.
+		return mailflow.RunResetPassword(ctx, pool, cfg.PublicURL, (cfg.NodeID+512)%1024, args[1:], os.Stdout)
+	}
 	return admin.RunCLI(ctx, pool, args, os.Stdout)
 }
 
@@ -120,6 +126,16 @@ func run() error {
 	if err := migrate.Up(ctx, pool); err != nil {
 		return err
 	}
+
+	switch {
+	case cfg.Mail.Driver == "smtp":
+		log.Info("e-mail por SMTP", "host", cfg.Mail.SMTP.Host, "port", cfg.Mail.SMTP.Port)
+	case cfg.Mail.Enabled():
+		log.Warn("e-mail: driver log com os fluxos ligados (MAIL_FLOWS_ON_LOG); nada é enviado de verdade")
+	default:
+		log.Warn("e-mail em modo degradado: sem SMTP_HOST (verificação e recuperação por e-mail desligadas; use `spook admin reset-password`)")
+	}
+	log.Info("login social", "google", cfg.Google.Enabled(), "discord", cfg.Discord.Enabled())
 
 	var avatars app.Storage // interface nil = upload desligado
 	if cfg.S3.Enabled() {

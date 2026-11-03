@@ -162,3 +162,80 @@ func TestLoadAdminUsernamesAndMetricsURL(t *testing.T) {
 		t.Fatalf("MetricsURL explícita ignorada: %q", c.LiveKit.MetricsURL)
 	}
 }
+
+func TestMailConfig(t *testing.T) {
+	base := func(t *testing.T) {
+		t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+		for _, k := range []string{"SMTP_HOST", "SMTP_PORT", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD", "MAILER_DRIVER", "PUBLIC_URL",
+			"MAIL_FLOWS_ON_LOG", "REQUIRE_EMAIL_VERIFICATION", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET"} {
+			t.Setenv(k, "")
+		}
+	}
+	t.Run("sem SMTP: driver log, degradado", func(t *testing.T) {
+		base(t)
+		t.Setenv("SPOOK_ENV", "production")
+		c, err := Load()
+		if err != nil || c.Mail.Driver != "log" || c.Mail.Enabled() || c.Mail.RequireVerification {
+			t.Fatalf("%+v %v", c.Mail, err)
+		}
+	})
+	t.Run("MAILER_DRIVER=smtp sem host cai para log (degradado)", func(t *testing.T) {
+		base(t)
+		t.Setenv("MAILER_DRIVER", "smtp")
+		c, err := Load()
+		if err != nil || c.Mail.Driver != "log" {
+			t.Fatalf("%+v %v", c.Mail, err)
+		}
+	})
+	t.Run("SMTP completo", func(t *testing.T) {
+		base(t)
+		t.Setenv("SPOOK_ENV", "production")
+		t.Setenv("SMTP_HOST", "smtp.exemplo.com")
+		t.Setenv("SMTP_FROM", "Spook <no-reply@exemplo.com>")
+		t.Setenv("PUBLIC_URL", "https://spook.exemplo.com/")
+		t.Setenv("REQUIRE_EMAIL_VERIFICATION", "true")
+		c, err := Load()
+		if err != nil || c.Mail.Driver != "smtp" || c.Mail.SMTP.Port != 587 || !c.Mail.Enabled() || c.PublicURL != "https://spook.exemplo.com" || !c.Mail.RequireVerification {
+			t.Fatalf("%+v %v", c, err)
+		}
+	})
+	t.Run("SMTP sem remetente", func(t *testing.T) {
+		base(t)
+		t.Setenv("SMTP_HOST", "smtp.exemplo.com")
+		if _, err := Load(); err == nil {
+			t.Fatal("deveria exigir SMTP_FROM")
+		}
+	})
+	t.Run("produção com SMTP ou social exige PUBLIC_URL", func(t *testing.T) {
+		base(t)
+		t.Setenv("SPOOK_ENV", "production")
+		t.Setenv("GOOGLE_CLIENT_ID", "id")
+		t.Setenv("GOOGLE_CLIENT_SECRET", "segredo")
+		if _, err := Load(); err == nil {
+			t.Fatal("deveria exigir PUBLIC_URL")
+		}
+	})
+	t.Run("provedor social só liga com id e segredo", func(t *testing.T) {
+		base(t)
+		t.Setenv("DISCORD_CLIENT_ID", "id")
+		c, err := Load()
+		if err != nil || c.Discord.Enabled() || c.Google.Enabled() {
+			t.Fatalf("%+v %v", c, err)
+		}
+		if c.PublicURL != "http://localhost:8090" {
+			t.Fatalf("PUBLIC_URL padrão em dev: %s", c.PublicURL)
+		}
+	})
+	t.Run("valores inválidos", func(t *testing.T) {
+		base(t)
+		t.Setenv("MAILER_DRIVER", "pombo")
+		if _, err := Load(); err == nil {
+			t.Fatal("driver inválido")
+		}
+		base(t)
+		t.Setenv("SMTP_PORT", "abc")
+		if _, err := Load(); err == nil {
+			t.Fatal("porta inválida")
+		}
+	})
+}

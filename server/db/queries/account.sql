@@ -13,7 +13,7 @@ SELECT guild_id FROM guild_members WHERE user_id = $1;
 UPDATE users
 SET email = $2, username = $3, display_name = NULL, avatar_key = NULL, banner_key = NULL, banner_color = NULL,
     bio = NULL, pronouns = NULL, password_hash = '!', custom_status_text = NULL, custom_status_emoji = NULL,
-    custom_status_expires_at = NULL, is_admin = false, deleted_at = now()
+    custom_status_expires_at = NULL, is_admin = false, email_verified_at = NULL, pending_email = NULL, deleted_at = now()
 WHERE id = $1;
 
 -- name: DeleteMembershipsByUser :exec
@@ -49,3 +49,9 @@ UPDATE channels SET owner_id = $2 WHERE id = $1;
 
 -- name: DeleteChannelByID :exec
 DELETE FROM channels WHERE id = $1;
+
+-- name: DeleteSocialAccountsByUser :exec
+DELETE FROM social_accounts WHERE user_id = $1;
+
+-- name: DeleteEmailTokensByUser :exec
+DELETE FROM email_tokens WHERE user_id = $1;

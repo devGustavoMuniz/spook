@@ -15,7 +15,7 @@ const anonymizeUser = `-- name: AnonymizeUser :exec
 UPDATE users
 SET email = $2, username = $3, display_name = NULL, avatar_key = NULL, banner_key = NULL, banner_color = NULL,
     bio = NULL, pronouns = NULL, password_hash = '!', custom_status_text = NULL, custom_status_emoji = NULL,
-    custom_status_expires_at = NULL, is_admin = false, deleted_at = now()
+    custom_status_expires_at = NULL, is_admin = false, email_verified_at = NULL, pending_email = NULL, deleted_at = now()
 WHERE id = $1
 `
 
@@ -36,6 +36,15 @@ DELETE FROM channels WHERE id = $1
 
 func (q *Queries) DeleteChannelByID(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, deleteChannelByID, id)
+	return err
+}
+
+const deleteEmailTokensByUser = `-- name: DeleteEmailTokensByUser :exec
+DELETE FROM email_tokens WHERE user_id = $1
+`
+
+func (q *Queries) DeleteEmailTokensByUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteEmailTokensByUser, userID)
 	return err
 }
 
@@ -95,6 +104,15 @@ DELETE FROM sessions WHERE user_id = $1
 
 func (q *Queries) DeleteSessionsByUser(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, deleteSessionsByUser, userID)
+	return err
+}
+
+const deleteSocialAccountsByUser = `-- name: DeleteSocialAccountsByUser :exec
+DELETE FROM social_accounts WHERE user_id = $1
+`
+
+func (q *Queries) DeleteSocialAccountsByUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteSocialAccountsByUser, userID)
 	return err
 }
 

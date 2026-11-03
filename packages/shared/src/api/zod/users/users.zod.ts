@@ -35,10 +35,22 @@ export const GetMeResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }),
   display_name: zod.string().optional(),
   email: zod.string(),
+  email_verified: zod
+    .boolean()
+    .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+  has_password: zod
+    .boolean()
+    .describe("Falso em contas criadas por login social que ainda não definiram senha"),
   id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
   is_admin: zod
     .boolean()
     .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
+  pending_email: zod
+    .string()
+    .optional()
+    .describe(
+      "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+    ),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
 });
@@ -101,10 +113,22 @@ export const UpdateMeResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }),
   display_name: zod.string().optional(),
   email: zod.string(),
+  email_verified: zod
+    .boolean()
+    .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+  has_password: zod
+    .boolean()
+    .describe("Falso em contas criadas por login social que ainda não definiram senha"),
   id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
   is_admin: zod
     .boolean()
     .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
+  pending_email: zod
+    .string()
+    .optional()
+    .describe(
+      "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+    ),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
 });
@@ -156,7 +180,7 @@ export const RequestBannerUploadResponse = zod.object({
 });
 
 /**
- * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora.
+ * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora. Com e-mail ativo no servidor, o endereço novo precisa ser confirmado pelo link enviado a ele: a resposta é 202 com `pending_email` e a conta só muda ao confirmar (`POST /api/auth/email/verify`); sem e-mail (modo degradado) a troca é direta (200).
  * @summary Troca o e-mail (exige confirmação recente de senha)
  */
 export const changeEmailBodyEmailMax = 254;
@@ -179,12 +203,40 @@ export const ChangeEmailResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }),
   display_name: zod.string().optional(),
   email: zod.string(),
+  email_verified: zod
+    .boolean()
+    .describe("O e-mail foi confirmado. Contas antigas começam como não verificadas"),
+  has_password: zod
+    .boolean()
+    .describe("Falso em contas criadas por login social que ainda não definiram senha"),
   id: zod.string().describe("ID Snowflake (string, pois excede 53 bits)"),
   is_admin: zod
     .boolean()
     .describe("Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"),
+  pending_email: zod
+    .string()
+    .optional()
+    .describe(
+      "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+    ),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
+});
+
+/**
+ * @summary Métodos de login da conta: senha e contas sociais vinculadas
+ */
+export const GetLoginMethodsResponse = zod.object({
+  accounts: zod
+    .array(
+      zod.object({
+        created_at: zod.iso.datetime({ offset: true }),
+        email: zod.string().optional(),
+        provider: zod.enum(["google", "discord"]),
+      }),
+    )
+    .nullable(),
+  has_password: zod.boolean(),
 });
 
 /**
@@ -205,3 +257,19 @@ export const ChangePasswordBody = zod.object({
 });
 
 export const ChangePasswordResponse = zod.void();
+
+/**
+ * Só para contas sem senha (`has_password: false`). Exige a sessão reautenticada nos últimos 10 min (`/api/auth/social/google|discord/start?intent=reauth`); sem isso responde 403 `password_confirmation_required`. Encerra as outras sessões. Conta que já tem senha responde 409.
+ * @summary Define a primeira senha de uma conta criada por login social
+ */
+export const setInitialPasswordBodyNewPasswordMin = 8;
+export const setInitialPasswordBodyNewPasswordMax = 128;
+
+export const SetInitialPasswordBody = zod.object({
+  new_password: zod
+    .string()
+    .min(setInitialPasswordBodyNewPasswordMin)
+    .max(setInitialPasswordBodyNewPasswordMax),
+});
+
+export const SetInitialPasswordResponse = zod.void();

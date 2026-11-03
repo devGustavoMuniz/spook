@@ -21,8 +21,11 @@ import { AdminDashboardPage } from "@/pages/admin/dashboard";
 import { AdminServersPage } from "@/pages/admin/servers";
 import { AdminUsersPage } from "@/pages/admin/users";
 import { AppSettingsPage } from "@/pages/app-settings";
+import { ChooseUsernamePage } from "@/pages/choose-username";
+import { DesktopLoginPage } from "@/pages/desktop-login";
 import { DmIndex, DmLayout, DmPage } from "@/pages/dms";
 import { DownloadPage } from "@/pages/download";
+import { ForgotPasswordPage } from "@/pages/forgot-password";
 import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
 import { HomePage } from "@/pages/home";
 import { InvitePage } from "@/pages/invite";
@@ -30,8 +33,10 @@ import { LoginPage } from "@/pages/login";
 import { NotificationsPage } from "@/pages/notifications";
 import { ProfilePage } from "@/pages/profile";
 import { RegisterPage } from "@/pages/register";
+import { ResetPasswordPage } from "@/pages/reset-password";
 import { AppearancePage } from "@/pages/settings-appearance";
 import { VoiceSettingsPage } from "@/pages/settings-voice";
+import { VerifyEmailPage } from "@/pages/verify-email";
 
 export type RouterContext = { queryClient: QueryClient };
 
@@ -75,6 +80,46 @@ const registerRoute = createRoute({
   validateSearch: authSearch,
   beforeLoad: redirectIfSignedIn,
   component: RegisterPage,
+});
+
+// Recuperação de senha, verificação de e-mail e cadastro social: públicas (o link do e-mail pode abrir em outro
+// navegador, sem sessão). O `token` é lido pela página e retirado da URL.
+const tokenSearch = (s: Record<string, unknown>): { token?: string } =>
+  typeof s.token === "string" || typeof s.token === "number" ? { token: String(s.token) } : {};
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forgot-password",
+  component: ForgotPasswordPage,
+});
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password",
+  validateSearch: tokenSearch,
+  component: ResetPasswordPage,
+});
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/verify-email",
+  validateSearch: tokenSearch,
+  component: VerifyEmailPage,
+});
+const chooseUsernameRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/auth/choose-username",
+  validateSearch: authSearch,
+  component: ChooseUsernamePage,
+});
+// Login do app desktop pelo navegador: precisa de sessão (volta aqui depois de entrar).
+const desktopLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/desktop-login",
+  validateSearch: (s: Record<string, unknown>): { code_challenge?: string } =>
+    typeof s.code_challenge === "string" ? { code_challenge: s.code_challenge } : {},
+  beforeLoad: async ({ context, location }) => {
+    if (!(await fetchSession(context.queryClient)))
+      throw redirect({ to: "/login", search: { redirect: safeRedirect(location.href) } });
+  },
+  component: DesktopLoginPage,
 });
 
 // Protegidas: sem sessão (401) => /login.
@@ -236,6 +281,11 @@ const routeTree = rootRoute.addChildren([
   adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminServersRoute, adminCallsRoute]),
   loginRoute,
   registerRoute,
+  forgotPasswordRoute,
+  resetPasswordRoute,
+  verifyEmailRoute,
+  chooseUsernameRoute,
+  desktopLoginRoute,
   downloadRoute,
   legacyProfileRoute,
   authedRoute.addChildren([
