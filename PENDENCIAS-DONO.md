@@ -42,3 +42,10 @@
 - [ ] (Opcional) Definir os `LIMIT_*` e `EVERYONE_PUSH_MAX` (Variables/ambiente do backend; ver `deploy/README.md` 7.1). Os limites de canais (500), membros (10000), cargos (250) e convites (1000) são decisões minhas (o SPEC só fixava servidores e anexo): ajuste se quiser outros.
 - [ ] Se subir `LIMIT_ATTACHMENT_MB` acima de 25, conferir o limite de corpo do túnel/Cloudflare e do bucket.
 - [ ] Rodar as verificações novas de `VALIDACAO-MANUAL.md` ("Menções em massa, mensagem de entrada...").
+
+## Social (amizades, bloqueio e chamada em DM)
+- [ ] **`PUBLIC_URL` em produção** (Variable já documentada em `deploy/README.md`): é a base do link enviado por "Convidar para servidor" (`<PUBLIC_URL>/invite/<código>`); sem ela esse endpoint responde 503. Conferir que o valor é o mesmo domínio que o app serve (o cartão de convite inline só reconhece links do próprio host).
+- [ ] **Push de chamada**: usa as mesmas chaves VAPID do push de mensagens (nada novo a configurar). Validar em produção (`VALIDACAO-MANUAL.md`, "Social").
+- [ ] **LiveKit real para validar o toque**: o backend de testes e o E2E usam LiveKit falso/desligado; a chamada de ponta a ponta com áudio só se confirma com o LiveKit de produção ou de desenvolvimento.
+- [ ] (Decisões minhas, ajuste se quiser outras) limites de 1000 amigos, 200 pedidos enviados pendentes e 500 bloqueados; pedidos de amizade a 20 por hora; toque de 45 s; chamar de novo logo após cancelar limitado a 5 de rajada e 1 a cada 5 s. Estão em `server/internal/relationship/relationship.go` e `app/app.go`.
+- [ ] (Opcional) E2E da chamada no CI: o spec `e2e/social.spec.ts` pula o teste de chamada quando o backend não tem `LIVEKIT_*`. Para rodá-lo no job `e2e` seria preciso passar valores de desenvolvimento de `LIVEKIT_URL/API_KEY/API_SECRET` ao backend, o que faria o `voice-off.spec.ts` pular (ele só roda sem LiveKit); escolha qual cobertura prefere no CI.

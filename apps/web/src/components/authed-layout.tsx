@@ -11,6 +11,7 @@ import { ServerRail } from "@/features/guilds/server-rail";
 import { useUnreadTitle } from "@/features/notifications/use-unread-title";
 import { usePushSync } from "@/features/push/use-push";
 import { trackReturnPath } from "@/features/settings/return-path";
+import { IncomingCalls } from "@/features/social/incoming-call";
 import type { Guild } from "@/lib/guild";
 
 /**
@@ -29,6 +30,7 @@ export function AuthedLayout() {
         <ConfirmPasswordProvider>
           <ShellProvider navSlot={navSlot}>
             <Frame guilds={guilds.data ?? []} onSlot={setNavSlot} />
+            <IncomingCalls />
           </ShellProvider>
         </ConfirmPasswordProvider>
       </GatewayProvider>

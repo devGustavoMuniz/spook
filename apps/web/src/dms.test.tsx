@@ -153,7 +153,9 @@ describe("iniciar DM", () => {
     await user.click(within(panel).getByRole("button", { name: "Opções de bia" }));
     await user.click(await screen.findByRole("menuitem", { name: "Enviar mensagem" }));
     expect(
-      await screen.findByText("Você só pode conversar com quem compartilha um servidor com você."),
+      await screen.findByText(
+        "Não foi possível abrir essa conversa. É preciso compartilhar um servidor com a pessoa ou ser amigo dela.",
+      ),
     ).toBeInTheDocument();
   });
 });

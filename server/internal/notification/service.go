@@ -79,7 +79,8 @@ type Deps struct {
 
 type Service struct {
 	Deps
-	m *metrics
+	m      *metrics
+	blocks Blocks
 
 	startOnce, stopOnce sync.Once
 	cancelBus           func()
@@ -219,6 +220,10 @@ func (s *Service) Resolve(ctx context.Context, ch channel.Channel, authorID int6
 	if len(names) > 0 {
 		ids, err := s.resolveUsers(ctx, ch, authorID, names)
 		if err != nil {
+			return message.MentionResult{}, err
+		}
+		// Menção de quem foi bloqueado não destaca nem notifica o bloqueador (e não revela o bloqueio).
+		if ids, err = s.withoutBlockers(ctx, authorID, ids); err != nil {
 			return message.MentionResult{}, err
 		}
 		res.UserIDs = ids
@@ -445,6 +450,11 @@ func (s *Service) onMessage(ctx context.Context, ev events.Event) error {
 		}
 	}
 	targets := notifyTargets(authorID, isDM, participants, append(slices.Clone(mentioned), bulk...))
+	// Quem bloqueou o autor não soma menção nem recebe aviso (nas DMs em grupo e nos servidores).
+	targets, ferr := s.withoutBlockers(ctx, authorID, targets)
+	if ferr != nil {
+		return ferr
+	}
 	if len(targets) == 0 {
 		return nil
 	}

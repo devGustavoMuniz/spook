@@ -124,6 +124,11 @@ type SystemChannels interface {
 	SystemChannel(ctx context.Context, guildID int64) (channelID int64, enabled bool, err error)
 }
 
+// DMGate diz se uma DM 1:1 tem bloqueio entre os dois participantes (relationship.Service). Nulo = sem bloqueios.
+type DMGate interface {
+	PairBlocked(ctx context.Context, channelID int64) (bool, error)
+}
+
 // Limiter limita o envio (5 mensagens a cada 5 s por usuário e canal).
 type Limiter interface {
 	Take(key string) (ok bool, retryAfter time.Duration)
@@ -146,6 +151,7 @@ type Service struct {
 	mentions Mentions
 	system   SystemChannels
 	everyone Limiter // @everyone/@here: 1 por 30 s por usuário e canal (nil = sem limite)
+	gate     DMGate
 	now      func() time.Time
 }
 
@@ -155,6 +161,9 @@ func (s *Service) SetMentions(m Mentions) { s.mentions = m }
 // SetSystemChannels liga as mensagens de entrada; SetEveryoneLimiter, o limite de uso de @everyone/@here.
 func (s *Service) SetSystemChannels(c SystemChannels) { s.system = c }
 func (s *Service) SetEveryoneLimiter(l Limiter)       { s.everyone = l }
+
+// SetDMGate liga a recusa de mensagens novas em DMs 1:1 entre quem tem bloqueio (nos dois sentidos).
+func (s *Service) SetDMGate(g DMGate) { s.gate = g }
 
 func NewService(store Store, channels Channels, limiter Limiter, avatars Avatars, atts Attachments, ids IDGenerator, pub events.Publisher) *Service {
 	return &Service{store: store, channels: channels, limiter: limiter, avatars: avatars, atts: atts, ids: ids, pub: pub, now: time.Now}
@@ -196,6 +205,16 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 	}
 	if ch.Type != channel.TypeText && !ch.IsDM() {
 		return Message{}, apperr.Invalid("só canais de texto e DMs recebem mensagens")
+	}
+	if ch.Type == channel.TypeDM && s.gate != nil {
+		// Mensagens antigas ficam; as novas são recusadas com um erro genérico que não revela o bloqueio.
+		blocked, err := s.gate.PairBlocked(ctx, channelID)
+		if err != nil {
+			return Message{}, err
+		}
+		if blocked {
+			return Message{}, ErrCannotSend
+		}
 	}
 	if ok, wait := s.limiter.Take("msg:" + strconv.FormatInt(userID, 10) + ":" + strconv.FormatInt(channelID, 10)); !ok {
 		return Message{}, apperr.RateLimited("você está enviando mensagens rápido demais", wait)

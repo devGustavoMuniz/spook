@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import type { MemberPayload } from "@spook/shared";
 import { useGetMe } from "@spook/shared";
-import { Copy, Gavel, MessageCircle, Pencil, ShieldCheck, UserMinus } from "lucide-react";
+import { Copy, Gavel, Pencil, ShieldCheck, UserMinus } from "lucide-react";
 import { type CSSProperties, useMemo } from "react";
 import { toast } from "sonner";
 import { statusLabel } from "@/components/presence-dot";
@@ -10,9 +10,9 @@ import { Avatar, avatarColor } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { shownName } from "@/features/account/removed-user";
-import { useStartDm } from "@/features/dms/use-start-dm";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
+import { PersonActions } from "@/features/social/person-actions";
 import { colorToHex } from "@/lib/colors";
 import { formatDay } from "@/lib/format";
 import { canBan, canKick, canManageRole, canNickname, type Guild, rolesOf } from "@/lib/guild";
@@ -49,7 +49,7 @@ const CARD_WIDTH = 320;
 /**
  * Cartão de perfil: popover ancorado ao clique (largura >= 640 px) ou bottom sheet (celular).
  * Só mostra o que a API tem: nome, @username, status, cargos, membro desde e as ações já existentes
- * (enviar mensagem, copiar ID, gerenciar cargos e expulsar quando há permissão).
+ * (enviar mensagem, ligar, amizade, bloqueio, copiar ID, gerenciar cargos e expulsar quando há permissão).
  */
 export function ProfileCard({
   person,
@@ -74,7 +74,6 @@ export function ProfileCard({
 }) {
   const narrow = useMediaQuery(NARROW_QUERY);
   const { data: me } = useGetMe();
-  const { startDm } = useStartDm();
   const status = usePresence(person.id);
   const isMe = me?.id === person.id;
   const name = member ? memberName(member) : shownName(person.displayName, person.username);
@@ -212,14 +211,12 @@ export function ProfileCard({
             <Separator className="my-3" />
             <div className="flex flex-col gap-2">
               {!isMe ? (
-                <Button
-                  onClick={() => {
-                    onClose();
-                    void startDm(person.id);
-                  }}
-                >
-                  <MessageCircle /> Enviar mensagem
-                </Button>
+                <PersonActions
+                  userId={person.id}
+                  username={person.username}
+                  name={name}
+                  onClose={onClose}
+                />
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" size="sm" onClick={() => void copyId()}>

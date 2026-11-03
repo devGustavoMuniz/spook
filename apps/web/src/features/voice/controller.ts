@@ -138,7 +138,11 @@ async function fetchToken(channelId: string) {
 }
 
 /** Entra (ou troca de canal). Devolve `true` se conectou. Erros viram aviso; nunca lança. */
-export async function joinVoice(target: JoinTarget): Promise<boolean> {
+export async function joinVoice(
+  target: JoinTarget,
+  /** Token já emitido (ex.: pela resposta de "Atender"): usado na primeira tentativa em vez de pedir outro. */
+  prefetched?: { url: string; token: string },
+): Promise<boolean> {
   const s = session();
   if (s.channelId === target.channelId && s.status !== "idle") return true;
   const gen = ++generation;
@@ -154,7 +158,7 @@ export async function joinVoice(target: JoinTarget): Promise<boolean> {
   // Pedir o token de outro canal já tira o usuário do anterior no servidor; o cliente sai da sala antiga.
   if (s.status !== "idle") await eng.disconnect();
   session().begin(target);
-  const ok = await connectWithToken(eng, target, gen);
+  const ok = await connectWithToken(eng, target, gen, prefetched);
   if (gen !== generation) return false;
   if (!ok) {
     session().clear();
@@ -166,11 +170,16 @@ export async function joinVoice(target: JoinTarget): Promise<boolean> {
 }
 
 /** Token + conexão; com token recusado (vencido) pede outro uma vez. */
-async function connectWithToken(eng: VoiceEngine, target: JoinTarget, gen: number) {
+async function connectWithToken(
+  eng: VoiceEngine,
+  target: JoinTarget,
+  gen: number,
+  prefetched?: { url: string; token: string },
+) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    let token: Awaited<ReturnType<typeof fetchToken>>;
+    let token: { url: string; token: string };
     try {
-      token = await fetchToken(target.channelId);
+      token = attempt === 0 && prefetched ? prefetched : await fetchToken(target.channelId);
     } catch (err) {
       if (gen === generation) {
         toast.error(voiceMessage(err));

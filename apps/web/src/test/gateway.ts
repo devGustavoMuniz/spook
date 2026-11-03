@@ -23,6 +23,8 @@ export async function connectGateway(
     notification_settings?: object[];
     voice_states?: VoiceStatePayload[];
     read_states?: ReadStatePayload[];
+    relationships?: object;
+    calls?: object[];
   } = {},
 ) {
   await waitFor(() => expect(FakeSocket.instances.length).toBeGreaterThan(0));
@@ -39,6 +41,8 @@ export async function connectGateway(
       read_states: extra.read_states ?? [],
       ...(extra.self_presence ? { self_presence: extra.self_presence } : {}),
       notification_settings: extra.notification_settings ?? [],
+      ...(extra.relationships ? { relationships: extra.relationships } : {}),
+      calls: extra.calls ?? [],
     });
   });
   return sock;

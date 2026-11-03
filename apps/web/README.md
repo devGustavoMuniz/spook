@@ -28,6 +28,8 @@ E-mail e recuperação de senha (`e2e/email-recovery.spec.ts`): cadastro com fai
 
 Moderação (`e2e/moderation.spec.ts`): banir e tentar reentrar, canal privado ao vivo, apelido, registro de auditoria e telas em 390 px; não precisa de serviços extras.
 
+Social (`e2e/social.spec.ts`): pedir e aceitar amizade pela tela de Amigos, DM entre amigos sem servidor em comum, bloqueio (DM e mensagem nova recusadas sem revelar o bloqueio), convidar amigo para um servidor pela DM (cartão de convite) e, em 390 px, a tela de Amigos sem rolagem horizontal. A chamada em DM tocando, recusando, cancelando e atendendo só roda com **voz ligada no backend** (`LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET`; valores de desenvolvimento servem porque o toque não fala com o LiveKit) e pula sozinha sem elas (como no job `e2e` do CI; com elas o `voice-off.spec.ts` é que pula). Para o cartão de convite aparecer, `PUBLIC_URL` do backend precisa ser a mesma origem que o navegador usa (`E2E_BASE_URL`). Cada ligação conta no limite de 5 de rajada por usuário; o teste usa 5.
+
 Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
 
 ### Local, sem instalar nada global (Docker)

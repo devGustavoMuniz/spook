@@ -1,11 +1,13 @@
 // Liga os eventos do gateway ao cache do TanStack Query (SPEC 5.5, Fase 3 front). Sem React aqui:
 // a função `applyGatewayEvent` é pura em relação ao `QueryClient` e fácil de testar.
 import type {
+  CallPayload,
   ChannelPayload,
   DetailPayload,
   GatewayEvent,
   MessagePayload,
   ReadStatePayload,
+  RelationshipsReady,
   VoiceStatePayload,
 } from "@spook/shared";
 import type { QueryClient } from "@tanstack/react-query";
@@ -39,6 +41,9 @@ import { effective, useNotificationSettings } from "../notifications/settings";
 import { reloadReadStates } from "../notifications/sync";
 import type { Viewing } from "../notifications/viewport";
 import { isDnd, usePresenceStore } from "../presence/store";
+import { useCallStore } from "../social/call-store";
+import { invalidateRelationships } from "../social/hooks";
+import { useSocialStore } from "../social/store";
 import { useTypingStore } from "../typing/store";
 import { reconcileVoiceSnapshot, reconcileVoiceUpdate } from "../voice/controller";
 
@@ -79,6 +84,8 @@ export function applyReady(
     private_channels?: ChannelPayload[] | null;
     voice_states?: VoiceStatePayload[] | null;
     read_states?: ReadStatePayload[] | null;
+    relationships?: RelationshipsReady;
+    calls?: CallPayload[] | null;
   },
   fx: GatewayEffects,
 ) {
@@ -87,6 +94,10 @@ export function applyReady(
   // Snapshot completo: canal ausente = zero não lidas.
   useReadStateStore.getState().replaceAll(ready.read_states ?? []);
   setDMs(qc, ready.private_channels ?? []);
+  // Social: amizades (resumo) e chamadas que estão tocando para mim agora.
+  useSocialStore.getState().replaceAll(ready.relationships);
+  useCallStore.getState().replaceIncoming(ready.calls ?? []);
+  invalidateRelationships(qc);
   // Snapshot de voz (sempre completo): zera o mapa e confere se a sala local ainda existe no servidor.
   reconcileVoiceSnapshot(fx.myId(), ready.voice_states ?? []);
   void qc.invalidateQueries(
@@ -214,6 +225,22 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
       if (ev.d.user_id === fx.myId()) return;
       return useTypingStore.getState().start(ev.d.channel_id, ev.d.user_id);
 
+    // ---- social: amizades, bloqueios e chamadas de DM (só chegam a quem está envolvido) ----
+    case "RELATIONSHIP_ADD":
+    case "RELATIONSHIP_UPDATE":
+      useSocialStore.getState().upsert(ev.d);
+      return invalidateRelationships(qc, ev.d.user.id);
+    case "RELATIONSHIP_REMOVE":
+      useSocialStore.getState().remove(ev.d.user_id);
+      return invalidateRelationships(qc, ev.d.user_id);
+    case "CALL_RING":
+      useCallStore.getState().ring(ev.d);
+      return notifyCall(fx, ev.d);
+    case "CALL_UPDATE":
+      return useCallStore.getState().update(fx.myId(), ev.d);
+    case "CALL_END":
+      return useCallStore.getState().end(ev.d.channel_id);
+
     // ---- voz (Fase 5) ----
     case "VOICE_STATE_UPDATE":
       return reconcileVoiceUpdate(fx.myId(), ev.d);
@@ -228,6 +255,19 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
     default:
       return;
   }
+}
+
+/** Chamada recebida com a aba oculta: aviso do navegador/SO (o cartão da chamada só aparece à vista). */
+function notifyCall(fx: GatewayEffects, call: CallPayload) {
+  if (typeof document === "undefined" || document.visibilityState !== "hidden") return;
+  const who = call.caller?.display_name || call.caller?.username || "Alguém";
+  fx.notify({
+    channelId: `call-${call.channel_id}`,
+    title: call.group && call.channel_name ? call.channel_name : who,
+    body: call.group ? `${who} está ligando` : "Chamada de voz recebida",
+    url: channelUrl(undefined, call.channel_id),
+    mention: false,
+  });
 }
 
 /**

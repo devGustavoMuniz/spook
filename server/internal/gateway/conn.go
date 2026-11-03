@@ -16,10 +16,12 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/relationship"
 	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
@@ -303,6 +305,22 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		}
 	}
 
+	rels := relationship.RelationshipsReady{BlockedIDs: []string{}, Items: []relationship.Relationship{}}
+	if h.rels != nil {
+		// Complementar: sem o resumo o READY sai vazio e os eventos/REST seguem valendo.
+		if r, rerr := h.rels.Ready(ctx, c.userID); rerr != nil {
+			slog.Warn("gateway: relacionamentos indisponíveis para o READY", "user", c.userID, "err", rerr)
+		} else {
+			rels = r
+		}
+	}
+	calls := []dmcall.Call{}
+	if h.calls != nil {
+		if cs := h.calls.Ringing(c.userID); cs != nil {
+			calls = cs
+		}
+	}
+
 	payloads := make([]guild.DetailPayload, len(details))
 	for i, g := range details {
 		payloads[i] = g.Payload()
@@ -351,7 +369,7 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	ready, err := json.Marshal(Ready{
 		SessionID: s.id, User: ReadyUser{ID: strconv.FormatInt(c.userID, 10)}, Guilds: payloads,
 		PrivateChannels: channel.Payloads(dmList), Presences: presences, VoiceStates: voiceStates, ReadStates: readStates,
-		SelfPresence: selfPresence, NotificationSettings: notifSettings,
+		SelfPresence: selfPresence, NotificationSettings: notifSettings, Relationships: rels, Calls: calls,
 	})
 	if err != nil {
 		h.dropSession(s)

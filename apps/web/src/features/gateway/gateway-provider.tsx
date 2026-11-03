@@ -12,6 +12,8 @@ import { resetAckMemory } from "../notifications/use-auto-ack";
 import { pageActive, useViewportStore, viewingOf } from "../notifications/viewport";
 import { watchIdle } from "../presence/idle-detector";
 import { usePresenceStore } from "../presence/store";
+import { useCallStore } from "../social/call-store";
+import { useSocialStore } from "../social/store";
 import { useTypingStore } from "../typing/store";
 import { leaveOnPageHide, shutdownVoice } from "../voice/controller";
 import {
@@ -118,6 +120,8 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       useGatewayStore.getState().reset();
       usePresenceStore.getState().reset();
       useTypingStore.getState().reset();
+      useSocialStore.getState().reset();
+      useCallStore.getState().reset();
       useReadStateStore.getState().reset();
       useNotificationSettings.getState().reset();
       cancelReloadReadStates();

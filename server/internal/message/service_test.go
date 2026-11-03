@@ -907,3 +907,45 @@ func TestListPinsAuthorizesAndReturnsPinned(t *testing.T) {
 		t.Fatalf("sem acesso: %v", err)
 	}
 }
+
+type fakeGate struct {
+	blocked bool
+	err     error
+	calls   int
+}
+
+func (g *fakeGate) PairBlocked(context.Context, int64) (bool, error) {
+	g.calls++
+	return g.blocked, g.err
+}
+
+func TestSendRefusesNewMessagesInBlockedDM1to1(t *testing.T) {
+	svc, st, ch, lim, rec := setup()
+	ch.ch = channel.Channel{ID: 20, Type: channel.TypeDM}
+	gate := &fakeGate{}
+	svc.SetDMGate(gate)
+	if _, err := svc.Send(context.Background(), 1, 20, "oi", nil, SendOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	gate.blocked = true
+	_, err := svc.Send(context.Background(), 1, 20, "de novo", nil, SendOptions{})
+	if !apperr.IsKind(err, apperr.KindForbidden) || strings.Contains(strings.ToLower(err.Error()), "bloque") {
+		t.Fatalf("erro deveria ser 403 genérico: %v", err)
+	}
+	if st.inserts != 1 || len(rec.evs) != 1 {
+		t.Fatal("a mensagem recusada não pode ser gravada nem publicada")
+	}
+	if len(lim.keys) != 1 {
+		t.Fatal("a recusa vem antes do limite de envio")
+	}
+	gate.err = errors.New("banco fora")
+	if _, err := svc.Send(context.Background(), 1, 20, "x", nil, SendOptions{}); err == nil {
+		t.Fatal("falha de infraestrutura não deve liberar o envio")
+	}
+	// DMs em grupo e canais de servidor nunca consultam o bloqueio.
+	gate.err, gate.calls = nil, 0
+	ch.ch = channel.Channel{ID: 21, Type: channel.TypeGroupDM}
+	if _, err := svc.Send(context.Background(), 1, 21, "grupo", nil, SendOptions{}); err != nil || gate.calls != 0 {
+		t.Fatalf("grupo: %v (consultas %d)", err, gate.calls)
+	}
+}

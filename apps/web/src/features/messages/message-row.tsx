@@ -1,5 +1,6 @@
 import type { MessagePayload } from "@spook/shared";
 import {
+  Ban,
   Copy,
   Hash,
   MoreHorizontal,
@@ -34,6 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { shownName } from "@/features/account/removed-user";
 import { MessageAttachments } from "@/features/attachments/message-attachments";
+import { useIsBlocked } from "@/features/social/store";
 import { formatClock, formatFullDate, formatMessageTime } from "@/lib/format";
 import { bulkMentionsMe, type MentionContext } from "@/lib/mentions";
 import { useReadableRoleColor } from "@/lib/role-color";
@@ -99,6 +101,9 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   const mentionsMe =
     (m.mention_ids ?? []).includes(p.myId) || bulkMentionsMe(m, p.myId, p.mentionCtx);
   const [touchMenu, setTouchMenu] = useState(false);
+  // Mensagens de quem eu bloqueei ficam recolhidas (a menos que eu peça para ver, só nesta linha).
+  const blocked = useIsBlocked(m.author.id);
+  const [revealed, setRevealed] = useState(false);
   const press = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hasActions = !p.editing && (p.canEdit || p.canDelete || p.canReply || p.canPin);
 
@@ -141,6 +146,28 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
         {p.marker ? <NewMessagesDivider /> : null}
         {p.day ? <DayDivider label={p.day} /> : null}
         <JoinRow name={name} at={m.created_at} />
+      </>
+    );
+
+  if (blocked && !revealed && m.author.id !== p.myId)
+    return (
+      <>
+        {p.marker ? <NewMessagesDivider /> : null}
+        {p.day ? <DayDivider label={p.day} /> : null}
+        <article
+          aria-label="Mensagem de usuário bloqueado"
+          className="flex items-center gap-2 px-4 py-1.5 text-xs text-muted-foreground"
+        >
+          <Ban aria-hidden className="size-3.5 shrink-0" />
+          <span>Mensagem de usuário bloqueado —</span>
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="rounded-sm font-medium text-brand-text underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            mostrar
+          </button>
+        </article>
       </>
     );
 

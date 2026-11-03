@@ -88,6 +88,8 @@ func (s *PGStore) Delete(ctx context.Context, userID int64, enqueue EnqueueFunc)
 		"inscrições de push":     func() error { return q.DeletePushSubscriptionsByUser(ctx, userID) },
 		"configurações de aviso": func() error { return q.DeleteNotificationSettingsByUser(ctx, userID) },
 		"estados de leitura":     func() error { return q.DeleteReadStatesByUser(ctx, userID) },
+		"amizades":               func() error { return q.DeleteFriendshipsByUser(ctx, userID) },
+		"bloqueios":              func() error { return q.DeleteBlocksByUser(ctx, userID) },
 	} {
 		if err := run(); err != nil {
 			return Result{}, fmt.Errorf("apagar %s: %w", name, err)

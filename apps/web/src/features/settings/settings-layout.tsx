@@ -17,6 +17,7 @@ import { SECTIONS, sectionOf } from "./sections";
 const TO = {
   profile: "/settings/profile",
   notifications: "/settings/notifications",
+  blocked: "/settings/blocked",
   voice: "/settings/voice",
   appearance: "/settings/appearance",
   app: "/settings/app",

@@ -278,6 +278,9 @@ func (s *Service) GuildStates(ctx context.Context, userID, guildID int64) ([]Sta
 	return payloads(out), nil
 }
 
+// Occupants diz quantas pessoas estão na sala do canal agora (DM ou canal de voz).
+func (s *Service) Occupants(channelID int64) int { return len(s.store.ByChannel(channelID)) }
+
 // Snapshot devolve os estados de voz dos servidores e DMs informados (READY). Só memória; o
 // chamador (gateway) já sabe quais servidores o usuário vê. Nunca devolve nil.
 func (s *Service) Snapshot(guildIDs, dmChannelIDs []int64) []StatePayload {

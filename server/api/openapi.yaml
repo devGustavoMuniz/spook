@@ -242,6 +242,80 @@ components:
         - banned_by_username
         - created_at
       type: object
+    Call:
+      additionalProperties: false
+      properties:
+        caller:
+          $ref: "#/components/schemas/CallCaller"
+          description: Quem está ligando (CALL_RING)
+        channel_id:
+          type: string
+        channel_name:
+          description: Nome da DM em grupo, se tiver
+          type: string
+        expires_at:
+          description: Quando o toque para (só enquanto toca)
+          format: date-time
+          type: string
+        group:
+          description: A chamada é numa DM em grupo
+          type: boolean
+        reason:
+          description: "CALL_UPDATE e CALL_END: o que aconteceu"
+          enum:
+            - cancelled
+            - missed
+            - declined
+            - answered
+            - ended
+          type: string
+        started_at:
+          format: date-time
+          type: string
+        started_by:
+          type: string
+        state:
+          enum:
+            - ringing
+            - active
+            - ended
+          type: string
+        user_id:
+          description: "CALL_UPDATE: quem atendeu ou recusou"
+          type: string
+      required:
+        - channel_id
+        - state
+        - started_by
+        - started_at
+        - group
+      type: object
+    CallAcceptResult:
+      additionalProperties: false
+      properties:
+        call:
+          $ref: "#/components/schemas/Call"
+        voice:
+          $ref: "#/components/schemas/TokenResponse"
+      required:
+        - call
+        - voice
+      type: object
+    CallCaller:
+      additionalProperties: false
+      properties:
+        avatar_url:
+          type: string
+        display_name:
+          type: string
+        id:
+          type: string
+        username:
+          type: string
+      required:
+        - id
+        - username
+      type: object
     CallRoom:
       additionalProperties: false
       properties:
@@ -791,6 +865,22 @@ components:
       required:
         - email
       type: object
+    FriendInviteResult:
+      additionalProperties: false
+      properties:
+        channel_id:
+          description: DM onde a mensagem com o link foi enviada
+          type: string
+        code:
+          description: Código do convite usado (criado ou reaproveitado)
+          type: string
+        message_id:
+          type: string
+      required:
+        - channel_id
+        - message_id
+        - code
+      type: object
     GetMyChannelPermissionsResponse:
       additionalProperties: false
       properties:
@@ -853,6 +943,15 @@ components:
         - guild_id
         - unread_count
         - mention_count
+      type: object
+    InviteFriendToGuildRequest:
+      additionalProperties: false
+      properties:
+        guild_id:
+          description: Servidor para o qual convidar
+          type: string
+      required:
+        - guild_id
       type: object
     InvitePayload:
       additionalProperties: false
@@ -1611,6 +1710,81 @@ components:
         - username
         - password
       type: object
+    Relationship:
+      additionalProperties: false
+      properties:
+        since:
+          description: "Desde quando: aceite da amizade, envio do pedido ou bloqueio"
+          format: date-time
+          type: string
+        type:
+          description: friend (amigo), incoming (pedido recebido), outgoing (pedido enviado) ou blocked (você bloqueou)
+          enum:
+            - friend
+            - incoming
+            - outgoing
+            - blocked
+          type: string
+        user:
+          $ref: "#/components/schemas/RelationshipUser"
+      required:
+        - user
+        - type
+        - since
+      type: object
+    RelationshipPage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: "#/components/schemas/Relationship"
+          type:
+            - array
+            - "null"
+        next_after:
+          description: ID da última pessoa da página; passe em after para a próxima. Nulo = fim
+          type:
+            - string
+            - "null"
+      required:
+        - items
+        - next_after
+      type: object
+    RelationshipState:
+      additionalProperties: false
+      properties:
+        since:
+          format: date-time
+          type: string
+        type:
+          enum:
+            - none
+            - friend
+            - incoming
+            - outgoing
+            - blocked
+          type: string
+        user_id:
+          type: string
+      required:
+        - user_id
+        - type
+      type: object
+    RelationshipUser:
+      additionalProperties: false
+      properties:
+        avatar_url:
+          type: string
+        display_name:
+          type: string
+        id:
+          type: string
+        username:
+          type: string
+      required:
+        - id
+        - username
+      type: object
     ReorderChannelsInputBody:
       additionalProperties: false
       properties:
@@ -1658,6 +1832,17 @@ components:
         - content
         - has_attachments
         - deleted
+      type: object
+    RequestFriendRequest:
+      additionalProperties: false
+      properties:
+        username:
+          description: Username da pessoa (com ou sem @)
+          maxLength: 64
+          minLength: 1
+          type: string
+      required:
+        - username
       type: object
     RequestGuildIconUploadRequest:
       additionalProperties: false
@@ -3686,6 +3871,226 @@ paths:
       summary: Marca o canal como lido até uma mensagem (nunca regride; zera as menções ao alcançar a última)
       tags:
         - notifications
+  /api/channels/{channel_id}/call/accept:
+    post:
+      operationId: acceptDMCall
+      parameters:
+        - description: ID da DM
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID da DM
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallAcceptResult"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Atende a chamada: devolve o token de voz da DM (use-o como o de POST /voice/token)"
+      tags:
+        - calls
+  /api/channels/{channel_id}/call/cancel:
+    post:
+      operationId: cancelDMCall
+      parameters:
+        - description: ID da DM
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID da DM
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Cancela a chamada que você iniciou (idempotente): o toque para para todos"
+      tags:
+        - calls
+  /api/channels/{channel_id}/call/decline:
+    post:
+      operationId: declineDMCall
+      parameters:
+        - description: ID da DM
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID da DM
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Recusa a chamada (idempotente; quem ligou não pode recusar, só cancelar)
+      tags:
+        - calls
+  /api/channels/{channel_id}/call/ring:
+    post:
+      operationId: ringDMCall
+      parameters:
+        - description: ID da DM
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID da DM
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Call"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Liga para as outras pessoas da DM: elas tocam por até 45 s (CALL_RING). Uma chamada tocando por DM; quem bloqueou, está em Não perturbar ou silenciou a conversa não ouve nada"
+      tags:
+        - calls
   /api/channels/{channel_id}/messages:
     get:
       operationId: listMessages
@@ -7542,6 +7947,109 @@ paths:
       summary: Gera URL pré-assinada para enviar o banner do perfil
       tags:
         - users
+  /api/users/me/blocks/{user_id}:
+    delete:
+      operationId: unblockUser
+      parameters:
+        - description: ID da outra pessoa
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID da outra pessoa
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Desbloqueia a pessoa (idempotente; a amizade não volta)
+      tags:
+        - relationships
+    put:
+      operationId: blockUser
+      parameters:
+        - description: ID da outra pessoa
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID da outra pessoa
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Relationship"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Bloqueia a pessoa: desfaz a amizade e cancela pedidos; impede DM 1:1 e chamadas nos dois sentidos (idempotente)"
+      tags:
+        - relationships
   /api/users/me/email:
     put:
       description: "Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora. Com e-mail ativo no servidor, o endereço novo precisa ser confirmado pelo link enviado a ele: a resposta é 202 com `pending_email` e a conta só muda ao confirmar (`POST /api/auth/email/verify`); sem e-mail (modo degradado) a troca é direta (200)."
@@ -7601,6 +8109,251 @@ paths:
       summary: Troca o e-mail (exige confirmação recente de senha)
       tags:
         - users
+  /api/users/me/friends:
+    post:
+      operationId: requestFriend
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestFriendRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Relationship"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Envia um pedido de amizade por username (se a pessoa já pediu a sua, aceita). Se a pessoa bloqueou você, a resposta é idêntica à de um pedido enviado, mas nada é gravado. Limite: 20 pedidos por hora"
+      tags:
+        - relationships
+  /api/users/me/friends/{user_id}:
+    delete:
+      operationId: removeFriend
+      parameters:
+        - description: ID da outra pessoa
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID da outra pessoa
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Desfaz a amizade, cancela o pedido enviado ou recusa o recebido (idempotente)
+      tags:
+        - relationships
+    put:
+      operationId: acceptFriend
+      parameters:
+        - description: ID da outra pessoa
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID da outra pessoa
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Relationship"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Aceita o pedido de amizade recebido da pessoa
+      tags:
+        - relationships
+  /api/users/me/friends/{user_id}/invite:
+    post:
+      operationId: inviteFriendToGuild
+      parameters:
+        - description: ID do amigo
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID do amigo
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteFriendToGuildRequest"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendInviteResult"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Envia ao amigo, na DM, o link de um convite do servidor (cria ou reaproveita o convite; exige CREATE_INVITE no servidor)
+      tags:
+        - relationships
   /api/users/me/login-methods:
     get:
       operationId: getLoginMethods
@@ -7727,6 +8480,119 @@ paths:
       summary: Define a primeira senha de uma conta criada por login social
       tags:
         - users
+  /api/users/me/relationships:
+    get:
+      operationId: listRelationships
+      parameters:
+        - description: Filtra por tipo; omitido = todos
+          explode: false
+          in: query
+          name: type
+          schema:
+            description: Filtra por tipo; omitido = todos
+            enum:
+              - friend
+              - incoming
+              - outgoing
+              - blocked
+            type: string
+        - description: ID da última pessoa da página anterior (next_after)
+          explode: false
+          in: query
+          name: after
+          schema:
+            description: ID da última pessoa da página anterior (next_after)
+            type: string
+        - description: Itens por página (máx. 200)
+          explode: false
+          in: query
+          name: limit
+          schema:
+            default: 100
+            description: Itens por página (máx. 200)
+            format: int64
+            maximum: 200
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationshipPage"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Amigos, pedidos recebidos/enviados e bloqueados, paginados por ID da outra pessoa
+      tags:
+        - relationships
+  /api/users/{user_id}/relationship:
+    get:
+      operationId: getUserRelationship
+      parameters:
+        - description: ID da outra pessoa
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID da outra pessoa
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationshipState"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Seu relacionamento com a pessoa (none, friend, incoming, outgoing ou blocked): um só pedido para o cartão de perfil"
+      tags:
+        - relationships
   /api/voice/leave:
     post:
       operationId: leaveVoice

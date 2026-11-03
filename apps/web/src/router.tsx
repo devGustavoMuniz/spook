@@ -14,6 +14,7 @@ import { CrashScreen } from "@/components/error-boundary";
 import { NotFoundPage } from "@/components/not-found";
 import { AdminLayout } from "@/features/admin/admin-layout";
 import { SettingsLayout } from "@/features/settings/settings-layout";
+import { FriendsPage } from "@/features/social/friends-page";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
 import { AdminCallsPage } from "@/pages/admin/calls";
@@ -35,6 +36,7 @@ import { ProfilePage } from "@/pages/profile";
 import { RegisterPage } from "@/pages/register";
 import { ResetPasswordPage } from "@/pages/reset-password";
 import { AppearancePage } from "@/pages/settings-appearance";
+import { BlockedPage } from "@/pages/settings-blocked";
 import { VoiceSettingsPage } from "@/pages/settings-voice";
 import { VerifyEmailPage } from "@/pages/verify-email";
 
@@ -164,6 +166,11 @@ const notificationsRoute = createRoute({
   path: "notifications",
   component: NotificationsPage,
 });
+const blockedRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "blocked",
+  component: BlockedPage,
+});
 const voiceSettingsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "voice",
@@ -218,6 +225,12 @@ const dmRoute = createRoute({
   component: DmLayout,
 });
 const dmIndexRoute = createRoute({ getParentRoute: () => dmRoute, path: "/", component: DmIndex });
+// `/channels/@me/friends` (estático) tem prioridade sobre `$channelId`.
+const friendsRoute = createRoute({
+  getParentRoute: () => dmRoute,
+  path: "friends",
+  component: FriendsPage,
+});
 const dmChannelRoute = createRoute({
   getParentRoute: () => dmRoute,
   path: "$channelId",
@@ -294,11 +307,12 @@ const routeTree = rootRoute.addChildren([
       settingsIndexRoute,
       profileRoute,
       notificationsRoute,
+      blockedRoute,
       voiceSettingsRoute,
       appearanceRoute,
       appSettingsRoute,
     ]),
-    dmRoute.addChildren([dmIndexRoute, dmChannelRoute]),
+    dmRoute.addChildren([dmIndexRoute, friendsRoute, dmChannelRoute]),
     guildRoute.addChildren([guildIndexRoute, channelRoute]),
     inviteRoute,
   ]),

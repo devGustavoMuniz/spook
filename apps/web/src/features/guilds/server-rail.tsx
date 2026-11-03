@@ -24,6 +24,7 @@ import {
 } from "@/features/notifications/badges";
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { useIsMuted } from "@/features/notifications/settings";
+import { useIncomingCount } from "@/features/social/store";
 import { type Guild, initials } from "@/lib/guild";
 import { cn } from "@/lib/utils";
 import { AddServerDialog } from "./add-server-dialog";
@@ -144,6 +145,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
   const [adding, setAdding] = useState(false);
   const { signOut, pending } = useSignOut();
   const dms = useDmTotals();
+  const friendRequests = useIncomingCount();
   const { data: me } = useGetMe();
   const shell = useShell();
   const params = useParams({ strict: false }) as { guildId?: string };
@@ -180,7 +182,13 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
               Início (mensagens diretas)
             </TooltipContent>
           </Tooltip>
-          {dms.mentions > 0 ? (
+          {friendRequests > 0 && dms.mentions === 0 ? (
+            <MentionBadge
+              count={friendRequests}
+              label={`${friendRequests} ${friendRequests === 1 ? "pedido de amizade" : "pedidos de amizade"}`}
+              className="pointer-events-none absolute -right-1.5 -bottom-1.5 h-[1.125rem] min-w-[1.125rem] ring-[3px] ring-sidebar"
+            />
+          ) : dms.mentions > 0 ? (
             <MentionBadge
               count={dms.mentions}
               label={`${dms.mentions > 99 ? "99+" : dms.mentions} mensagens diretas não lidas`}

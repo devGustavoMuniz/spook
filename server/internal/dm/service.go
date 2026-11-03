@@ -36,6 +36,13 @@ type Store interface {
 	IsRecipient(ctx context.Context, channelID, userID int64) (bool, error)
 }
 
+// Relations é o que dm precisa da feature de relacionamentos (relationship.Service): amizade libera a DM e
+// bloqueio (em qualquer sentido) a impede. Nulo = só vale o servidor em comum.
+type Relations interface {
+	FriendsAmong(ctx context.Context, userID int64, candidates []int64) ([]int64, error)
+	BlockedAmong(ctx context.Context, userID int64, candidates []int64) ([]int64, error)
+}
+
 // Limiter limita a criação de DMs por usuário.
 type Limiter interface {
 	Take(key string) (ok bool, retryAfter time.Duration)
@@ -54,7 +61,11 @@ type Service struct {
 	avatars Avatars
 	limiter Limiter
 	created metric.Int64Counter
+	rel     Relations
 }
+
+// SetRelations liga amizades e bloqueios às regras de quem pode abrir DM.
+func (s *Service) SetRelations(r Relations) { s.rel = r }
 
 func NewService(store Store, ids IDGenerator, pub events.Publisher, avatars Avatars, limiter Limiter) *Service {
 	s := &Service{store: store, ids: ids, pub: pub, avatars: avatars, limiter: limiter}
@@ -126,16 +137,40 @@ func (s *Service) takeCreate(userID int64) error {
 	return nil
 }
 
-// requireSharing exige que todos os candidatos compartilhem um servidor com userID.
+// requireSharing exige que todos os candidatos possam receber uma DM de userID: compartilham um servidor com
+// ele ou são seus amigos, e nenhum tem bloqueio com ele (em qualquer sentido). O erro é o mesmo nos dois casos.
 func (s *Service) requireSharing(ctx context.Context, userID int64, candidates []int64) error {
+	if s.rel != nil {
+		blocked, err := s.rel.BlockedAmong(ctx, userID, candidates)
+		if err != nil {
+			return err
+		}
+		if len(blocked) > 0 {
+			return ErrCannotDM
+		}
+	}
 	ok, err := s.store.SharingGuild(ctx, userID, candidates)
 	if err != nil {
 		return err
 	}
+	var missing []int64
 	for _, c := range candidates {
 		if !slices.Contains(ok, c) {
-			return ErrNoSharedGuild
+			missing = append(missing, c)
 		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if s.rel != nil {
+		friends, err := s.rel.FriendsAmong(ctx, userID, missing)
+		if err != nil {
+			return err
+		}
+		missing = slices.DeleteFunc(missing, func(c int64) bool { return slices.Contains(friends, c) })
+	}
+	if len(missing) > 0 {
+		return ErrCannotDM
 	}
 	return nil
 }
@@ -228,6 +263,16 @@ func (s *Service) load(ctx context.Context, userID, channelID int64) (channel.Ch
 		return channel.Channel{}, ErrNotFound
 	}
 	return c, nil
+}
+
+// Get devolve a DM com os participantes, se userID participa (senão ErrNotFound). Serve às features que
+// precisam saber quem está numa DM (chamadas).
+func (s *Service) Get(ctx context.Context, userID, channelID int64) (channel.Channel, error) {
+	c, err := s.load(ctx, userID, channelID)
+	if err != nil {
+		return channel.Channel{}, err
+	}
+	return s.one(ctx, c)
 }
 
 func isOwner(c channel.Channel, userID int64) bool { return c.OwnerID != nil && *c.OwnerID == userID }

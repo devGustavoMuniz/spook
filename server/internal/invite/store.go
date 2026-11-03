@@ -36,6 +36,18 @@ func (s *PGStore) Count(ctx context.Context, guildID int64) (int, error) {
 	return int(n), nil
 }
 
+// FindReusable devolve um convite reaproveitável do criador no servidor.
+func (s *PGStore) FindReusable(ctx context.Context, guildID, creatorID int64) (Invite, error) {
+	r, err := s.q.FindReusableInvite(ctx, dbgen.FindReusableInviteParams{GuildID: guildID, CreatorID: creatorID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Invite{}, ErrNotFound
+	}
+	if err != nil {
+		return Invite{}, fmt.Errorf("buscar convite reaproveitável: %w", err)
+	}
+	return toInvite(r), nil
+}
+
 func ts(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
 		return nil

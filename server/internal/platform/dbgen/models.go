@@ -34,6 +34,12 @@ type AuditLog struct {
 	CreatedAt  pgtype.Timestamptz
 }
 
+type Block struct {
+	BlockerID int64
+	BlockedID int64
+	CreatedAt pgtype.Timestamptz
+}
+
 type Channel struct {
 	ID            int64
 	Type          int16
@@ -85,6 +91,15 @@ type EmailToken struct {
 	UsedAt    pgtype.Timestamptz
 	SentAt    pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type Friendship struct {
+	UserA       int64
+	UserB       int64
+	Status      string
+	RequestedBy int64
+	CreatedAt   pgtype.Timestamptz
+	AcceptedAt  pgtype.Timestamptz
 }
 
 type Guild struct {
@@ -233,4 +248,11 @@ type User struct {
 	DeletedAt             pgtype.Timestamptz
 	EmailVerifiedAt       pgtype.Timestamptz
 	PendingEmail          *string
+}
+
+type UserRelationship struct {
+	UserID  int64
+	OtherID int64
+	Kind    string
+	Since   pgtype.Timestamptz
 }

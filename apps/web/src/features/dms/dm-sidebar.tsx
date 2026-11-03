@@ -1,10 +1,19 @@
 import { type ChannelPayload, useGetMe } from "@spook/shared";
 import { Link } from "@tanstack/react-router";
-import { BellOff, MessageSquarePlus, MoreVertical, Search, SearchX, Users } from "lucide-react";
+import {
+  BellOff,
+  MessageSquarePlus,
+  MoreVertical,
+  Search,
+  SearchX,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { useState } from "react";
 import { EmptyChatIllustration } from "@/components/illustrations";
 import { StatusAvatar } from "@/components/presence-dot";
 import { ShellSidebar } from "@/components/shell";
+import { CountBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +26,7 @@ import { MentionBadge, UnreadDot, useChannelRead } from "@/features/notification
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { useIsMuted } from "@/features/notifications/settings";
 import { UserPanel } from "@/features/presence/user-panel";
+import { useIncomingCount } from "@/features/social/store";
 import { appMessage } from "@/lib/app-errors";
 import { shortListTime, snowflakeTime } from "@/lib/snowflake-time";
 import { dmTitle, isGroupDm, otherRecipient, recipientsOf } from "./dm-utils";
@@ -29,6 +39,7 @@ export function DmSidebar() {
   const dms = useDms();
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
+  const pendingRequests = useIncomingCount();
   const q = query.trim().toLocaleLowerCase("pt-BR");
   const shown =
     me && q
@@ -51,6 +62,19 @@ export function DmSidebar() {
           >
             <MessageSquarePlus />
           </Button>
+        </div>
+        <div className="shrink-0 px-2 pt-2">
+          <Link
+            to="/channels/@me/friends"
+            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[status=active]:bg-brand-500/15 data-[status=active]:font-medium data-[status=active]:text-foreground data-[status=active]:shadow-[inset_2px_0_0_var(--primary)]"
+          >
+            <UserRound className="size-5" aria-hidden />
+            <span className="flex-1">Amigos</span>
+            <CountBadge
+              count={pendingRequests}
+              aria-label={`${pendingRequests} ${pendingRequests === 1 ? "pedido de amizade" : "pedidos de amizade"}`}
+            />
+          </Link>
         </div>
         {dms.list.length > 0 ? (
           <div className="relative shrink-0 px-2 pt-2">

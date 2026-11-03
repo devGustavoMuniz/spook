@@ -30,3 +30,10 @@ WHERE i.code = $1;
 -- name: CountInvitesByGuild :one
 SELECT count(*) FROM invites
 WHERE guild_id = $1 AND (expires_at IS NULL OR expires_at > now()) AND (max_uses IS NULL OR uses < max_uses);
+
+-- Convite reaproveitável para compartilhar: do próprio criador, sem limite de usos e válido por pelo menos mais 1 dia
+-- (ou sem validade). Usado por "Convidar amigo para o servidor".
+-- name: FindReusableInvite :one
+SELECT * FROM invites
+WHERE guild_id = $1 AND creator_id = $2 AND max_uses IS NULL AND (expires_at IS NULL OR expires_at > now() + interval '1 day')
+ORDER BY created_at DESC LIMIT 1;

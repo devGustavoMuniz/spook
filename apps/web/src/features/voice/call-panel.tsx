@@ -3,6 +3,8 @@ import { Phone, PhoneOff } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { dmTitle } from "@/features/dms/dm-utils";
+import { cancelCall, placeCall } from "@/features/social/call-actions";
+import { useCallStore } from "@/features/social/call-store";
 import { cn } from "@/lib/utils";
 import { joinVoice, leaveCall, watchStream } from "./controller";
 import { VoiceStage } from "./stage/voice-stage";
@@ -39,20 +41,42 @@ export function useStageParticipants(channelId: string, guildId: string | null, 
   }, [list, me, inCall, channelId, guildId]);
 }
 
-/** Botão de chamada no cabeçalho da DM (mesmo fluxo do canal de voz; sala = ID da DM). */
+/**
+ * Botão de chamada no cabeçalho da DM (sala = ID da DM). "Ligar" faz as outras pessoas tocarem (até 45 s) e entra
+ * na sala; enquanto ninguém atende mostra "Chamando…" com "Cancelar". Com uma chamada já em andamento vira
+ * "Entrar na chamada" (sem tocar de novo) e, dentro dela, "Em chamada" + "Sair da chamada".
+ */
 export function DmCallButton({ channel }: { channel: ChannelPayload }) {
   const { data: me } = useGetMe();
   const inThis = useVoiceStore((s) => s.channelId === channel.id && s.status !== "idle");
   const connecting = useVoiceStore((s) => s.status === "connecting");
+  const ringing = useCallStore((s) => !!s.outgoing[channel.id]);
   const participants = useCallParticipants(channel.id);
   if (!me) return null;
   const ongoing = participants.length > 0;
+  const title = dmTitle(channel, me.id);
 
+  if (inThis && ringing)
+    return (
+      <div className="flex items-center gap-2">
+        <output className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Phone aria-hidden className="size-4 animate-pulse" /> Chamando…
+        </output>
+        <Button variant="destructive" size="sm" onClick={() => void cancelCall(channel.id)}>
+          <PhoneOff /> Cancelar
+        </Button>
+      </div>
+    );
   if (inThis)
     return (
-      <Button variant="destructive" size="sm" onClick={() => void leaveCall()}>
-        <PhoneOff /> Sair da chamada
-      </Button>
+      <div className="flex items-center gap-2">
+        <span className="hidden items-center gap-1.5 text-sm text-emerald-600 sm:flex dark:text-emerald-400">
+          <span aria-hidden className="size-2 rounded-full bg-emerald-500" /> Em chamada
+        </span>
+        <Button variant="destructive" size="sm" onClick={() => void leaveCall()}>
+          <PhoneOff /> Sair da chamada
+        </Button>
+      </div>
     );
   return (
     <Button
@@ -60,12 +84,9 @@ export function DmCallButton({ channel }: { channel: ChannelPayload }) {
       size="sm"
       disabled={connecting}
       onClick={() =>
-        void joinVoice({
-          channelId: channel.id,
-          guildId: null,
-          channelName: dmTitle(channel, me.id),
-          canSpeak: true,
-        })
+        void (ongoing
+          ? joinVoice({ channelId: channel.id, guildId: null, channelName: title, canSpeak: true })
+          : placeCall(channel.id, title))
       }
     >
       <Phone /> {ongoing ? "Entrar na chamada" : "Ligar"}

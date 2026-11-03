@@ -6,6 +6,7 @@ import type {
   MemberPayload,
   MessagePayload,
   ReadStatePayload,
+  Relationship,
 } from "@spook/shared";
 import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
@@ -157,6 +158,28 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       overwriteError: null as null | { status: number; detail: string },
       /** Convites cujo POST responde 403 `banned`. */
       bannedInvites: new Set<string>(),
+    },
+    /** Social (adicional): amizades, bloqueios e chamadas de DM do servidor falso. */
+    social: {
+      /** Fonte de verdade de `GET /users/me/relationships` (e de `GET /users/{id}/relationship`). */
+      relationships: [] as Relationship[],
+      /** Pessoas que existem (username → quem é), para `POST /users/me/friends`. */
+      users: {} as Record<string, { id: string; username: string; display_name?: string }>,
+      requests: [] as string[],
+      accepts: [] as string[],
+      removes: [] as string[],
+      blocks: [] as string[],
+      unblocks: [] as string[],
+      invites: [] as { userId: string; guildId: string }[],
+      /** Erro forçado de `POST /users/me/friends` e de `POST .../invite`. */
+      requestError: null as null | { status: number; detail: string },
+      inviteError: null as null | { status: number; detail: string },
+      /** Chamadas de DM: o que o cliente enviou e erros forçados. */
+      rings: [] as string[],
+      accepts_call: [] as string[],
+      declines: [] as string[],
+      cancels: [] as string[],
+      ringError: null as null | { status: number; detail: string },
     },
     /** Voz (Fase 5): erro forçado do token, tokens emitidos e PATCH /voice/state / leave recebidos. */
     voice: {
@@ -382,6 +405,7 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     }),
     ...guildHandlers(),
     ...dmHandlers(),
+    ...socialHandlers(),
     ...voiceHandlers(),
     ...notificationHandlers(),
   ];
@@ -507,6 +531,141 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           },
           { status: 201 },
         );
+      }),
+    ];
+  }
+
+  function socialHandlers() {
+    const rels = () => state.social.relationships;
+    const find = (id: string) => rels().find((r) => r.user.id === id);
+    const set = (r: Relationship) => {
+      state.social.relationships = [...rels().filter((x) => x.user.id !== r.user.id), r];
+    };
+    const drop = (id: string) => {
+      state.social.relationships = rels().filter((r) => r.user.id !== id);
+    };
+    const userOf = (id: string) =>
+      find(id)?.user ??
+      Object.values(state.social.users).find((u) => u.id === id) ?? { id, username: `user${id}` };
+    const now = () => new Date().toISOString();
+    return [
+      http.get("*/api/users/me/relationships", ({ request }) => {
+        track(request);
+        const url = new URL(request.url);
+        const type = url.searchParams.get("type");
+        const after = url.searchParams.get("after");
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        const all = rels()
+          .filter((r) => !type || r.type === type)
+          .sort((a, b) => (BigInt(a.user.id) < BigInt(b.user.id) ? -1 : 1))
+          .filter((r) => !after || BigInt(r.user.id) > BigInt(after));
+        const items = all.slice(0, limit);
+        return HttpResponse.json({
+          items,
+          next_after: all.length > limit ? (items[items.length - 1]?.user.id ?? null) : null,
+        });
+      }),
+      http.post("*/api/users/me/friends", async ({ request }) => {
+        const b = (await request.json()) as { username: string };
+        state.social.requests.push(b.username);
+        const e = state.social.requestError;
+        if (e) return problem(e.status, e.detail);
+        const u = state.social.users[b.username.toLowerCase()];
+        if (!u) return problem(404, "usuário não encontrado");
+        const cur = find(u.id);
+        if (cur?.type === "incoming") {
+          const friend: Relationship = { ...cur, type: "friend", since: now() };
+          set(friend);
+          return HttpResponse.json(friend, { status: 201 });
+        }
+        const out: Relationship = { user: u, type: "outgoing", since: now() };
+        if (!cur) set(out);
+        return HttpResponse.json(cur ?? out, { status: 201 });
+      }),
+      http.put("*/api/users/me/friends/:userId", ({ params }) => {
+        const id = String(params.userId);
+        state.social.accepts.push(id);
+        const cur = find(id);
+        if (cur?.type !== "incoming") return problem(404, "pedido de amizade não encontrado");
+        const friend: Relationship = { ...cur, type: "friend", since: now() };
+        set(friend);
+        return HttpResponse.json(friend);
+      }),
+      http.delete("*/api/users/me/friends/:userId", ({ params }) => {
+        const id = String(params.userId);
+        state.social.removes.push(id);
+        drop(id);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/users/me/friends/:userId/invite", async ({ params, request }) => {
+        const b = (await request.json()) as { guild_id: string };
+        const e = state.social.inviteError;
+        if (e) return problem(e.status, e.detail);
+        state.social.invites.push({ userId: String(params.userId), guildId: b.guild_id });
+        return HttpResponse.json(
+          { channel_id: "dm-1", message_id: nextId(), code: "ConviteX1" },
+          { status: 201 },
+        );
+      }),
+      http.put("*/api/users/me/blocks/:userId", ({ params }) => {
+        const id = String(params.userId);
+        state.social.blocks.push(id);
+        const blocked: Relationship = { user: userOf(id), type: "blocked", since: now() };
+        set(blocked);
+        return HttpResponse.json(blocked);
+      }),
+      http.delete("*/api/users/me/blocks/:userId", ({ params }) => {
+        const id = String(params.userId);
+        state.social.unblocks.push(id);
+        drop(id);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get("*/api/users/:userId/relationship", ({ params }) => {
+        const r = find(String(params.userId));
+        return HttpResponse.json({
+          user_id: String(params.userId),
+          type: r?.type ?? "none",
+          ...(r ? { since: r.since } : {}),
+        });
+      }),
+      // ---- chamadas em DM ----
+      http.post("*/api/channels/:channelId/call/ring", ({ params }) => {
+        const id = String(params.channelId);
+        state.social.rings.push(id);
+        const e = state.social.ringError;
+        if (e) return problem(e.status, e.detail);
+        return HttpResponse.json({
+          channel_id: id,
+          state: "ringing",
+          started_by: state.user.id,
+          started_at: now(),
+          expires_at: new Date(Date.now() + 45_000).toISOString(),
+          group: false,
+        });
+      }),
+      http.post("*/api/channels/:channelId/call/accept", ({ params }) => {
+        const id = String(params.channelId);
+        state.social.accepts_call.push(id);
+        return HttpResponse.json({
+          call: {
+            channel_id: id,
+            state: "active",
+            started_by: "50",
+            started_at: now(),
+            group: false,
+            reason: "answered",
+            user_id: state.user.id,
+          },
+          voice: { url: "ws://livekit.test:7880", token: `accept-${id}`, expires_in: 600 },
+        });
+      }),
+      http.post("*/api/channels/:channelId/call/decline", ({ params }) => {
+        state.social.declines.push(String(params.channelId));
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("*/api/channels/:channelId/call/cancel", ({ params }) => {
+        state.social.cancels.push(String(params.channelId));
+        return new HttpResponse(null, { status: 204 });
       }),
     ];
   }

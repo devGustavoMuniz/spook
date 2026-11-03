@@ -1,6 +1,7 @@
 export * from "./admin/admin.zod";
 export * from "./audit/audit.zod";
 export * from "./auth/auth.zod";
+export * from "./calls/calls.zod";
 export * from "./channels/channels.zod";
 export * from "./dms/dms.zod";
 export * from "./gateway/gateway.zod";
@@ -9,6 +10,7 @@ export * from "./invites/invites.zod";
 export * from "./messages/messages.zod";
 export * from "./notifications/notifications.zod";
 export * from "./presence/presence.zod";
+export * from "./relationships/relationships.zod";
 export * from "./uploads/uploads.zod";
 export * from "./users/users.zod";
 export * from "./voice/voice.zod";

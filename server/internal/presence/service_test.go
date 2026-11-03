@@ -645,3 +645,48 @@ func TestUpdateBetweenSelfAndConnectIsNotLost(t *testing.T) {
 		t.Fatalf("invisível no snapshot: %+v", snap)
 	}
 }
+
+func TestFriendshipAcceptedMakesFriendsSeeEachOtherWithoutSharedGuild(t *testing.T) {
+	r := newRig(t)
+	r.svc.Connect(1, "s1")
+	r.svc.Connect(2, "s2")
+	r.flush()
+	r.pub.mu.Lock()
+	r.pub.got = nil
+	r.pub.mu.Unlock()
+
+	// O RELATIONSHIP_UPDATE de cada lado traz a OUTRA pessoa em user.id e vai só ao tópico do destinatário.
+	rel := func(other string) map[string]any {
+		return map[string]any{"user": map[string]any{"id": other}, "type": "friend"}
+	}
+	r.svc.onEvent(events.Event{Type: events.RelationshipUpdate, Topics: []string{"user:1"}, Data: rel("2")})
+	r.svc.onEvent(events.Event{Type: events.RelationshipUpdate, Topics: []string{"user:2"}, Data: rel("1")})
+	r.flush()
+	got := map[string]string{}
+	for _, ev := range r.pub.all() {
+		if p, ok := ev.Data.(UpdatePayload); ok && ev.Type == events.PresenceUpdate {
+			got[ev.Topics[0]] = p.UserID + "=" + p.Status
+		}
+	}
+	if got["user:1"] != "2=online" || got["user:2"] != "1=online" {
+		t.Fatalf("presenças trocadas = %v", got)
+	}
+
+	// Invisível não aparece; dnd aparece como dnd (a visão pública).
+	r.pub.mu.Lock()
+	r.pub.got = nil
+	r.pub.mu.Unlock()
+	pref := PrefInvisible
+	if _, err := r.svc.Update(context.Background(), 2, Update{StatusPref: &pref}); err != nil {
+		t.Fatal(err)
+	}
+	r.flush()
+	r.pub.mu.Lock()
+	r.pub.got = nil
+	r.pub.mu.Unlock()
+	r.svc.onEvent(events.Event{Type: events.RelationshipUpdate, Topics: []string{"user:1"}, Data: rel("2")})
+	r.flush()
+	if len(r.pub.all()) != 0 {
+		t.Fatalf("invisível não pode ser exposta ao novo amigo: %v", r.pub.all())
+	}
+}

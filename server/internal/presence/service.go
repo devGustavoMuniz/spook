@@ -546,6 +546,28 @@ func (s *Service) onEvent(ev events.Event) {
 		if ch, ok := ev.Data.(channel.ChannelPayload); ok && ch.Type == int(channel.TypeGroupDM) {
 			s.groupDMCreated(ev, ch)
 		}
+	case events.RelationshipUpdate:
+		// Pedido aceito: o evento vai a cada um dos dois (user:<id>) com a OUTRA pessoa em User. Quem recebe passa
+		// a ver a presença da outra (mesmo sem servidor em comum). Respeita invisível e dnd (shownOf).
+		var p struct {
+			User struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		}
+		b, err := json.Marshal(ev.Data)
+		if err != nil || json.Unmarshal(b, &p) != nil || len(ev.Topics) != 1 {
+			return
+		}
+		other, err1 := strconv.ParseInt(p.User.ID, 10, 64)
+		if err1 != nil {
+			return
+		}
+		topic := ev.Topics[0]
+		s.shardFor(other).push(func() {
+			if d := s.shownOf(other); d.Status != StatusOffline {
+				s.pub.Publish(events.Event{Type: events.PresenceUpdate, Topics: []string{topic}, Data: d})
+			}
+		})
 	}
 }
 

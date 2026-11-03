@@ -38,6 +38,9 @@ type Store interface {
 	List(ctx context.Context, guildID int64) ([]Invite, error)
 	// Count devolve os convites ainda válidos do servidor (limite por servidor).
 	Count(ctx context.Context, guildID int64) (int, error)
+	// FindReusable devolve um convite do criador sem limite de usos e com mais de 1 dia de validade (ou sem
+	// validade); ErrNotFound se não há.
+	FindReusable(ctx context.Context, guildID, creatorID int64) (Invite, error)
 	Delete(ctx context.Context, code string) error
 	Preview(ctx context.Context, code string) (Preview, error) // ErrNotFound
 	// Redeem entra no servidor numa transação: quem já é membro não consome uso; senão
@@ -178,6 +181,35 @@ func (s *Service) Create(ctx context.Context, userID, guildID int64, in CreatePa
 		return created, err
 	}
 	return Invite{}, errors.New("não foi possível gerar um código único")
+}
+
+// ShareValidity é a validade dos convites criados para compartilhar por mensagem.
+const ShareValidity = 7 * 24 * time.Hour
+
+// Share devolve o código de um convite do usuário para mandar a alguém (ex.: a um amigo, pela DM): reaproveita um
+// convite dele sem limite de usos e ainda válido por mais de 1 dia; senão cria um de 7 dias. Exige CREATE_INVITE.
+func (s *Service) Share(ctx context.Context, userID, guildID int64) (string, error) {
+	ctx, span := tracer.Start(ctx, "invite.Share")
+	defer span.End()
+	m, err := s.member(ctx, guildID, userID)
+	if err != nil {
+		return "", err
+	}
+	if !m.Has(perm.CreateInvite) {
+		return "", ErrForbidden
+	}
+	switch inv, err := s.store.FindReusable(ctx, guildID, userID); {
+	case err == nil:
+		return inv.Code, nil
+	case !errors.Is(err, ErrNotFound):
+		return "", err
+	}
+	d := ShareValidity
+	inv, err := s.Create(ctx, userID, guildID, CreateParams{ExpiresIn: &d})
+	if err != nil {
+		return "", err
+	}
+	return inv.Code, nil
 }
 
 // List lista os convites do servidor; exige MANAGE_GUILD.

@@ -1,6 +1,7 @@
 export * from "./admin/admin";
 export * from "./audit/audit";
 export * from "./auth/auth";
+export * from "./calls/calls";
 export * from "./channels/channels";
 export * from "./dms/dms";
 export * from "./gateway/gateway";
@@ -9,6 +10,7 @@ export * from "./invites/invites";
 export * from "./messages/messages";
 export * from "./notifications/notifications";
 export * from "./presence/presence";
+export * from "./relationships/relationships";
 export * from "./uploads/uploads";
 export * from "./users/users";
 export * from "./voice/voice";

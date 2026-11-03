@@ -18,6 +18,51 @@
     "unknown": 4000
   },
   "dispatch": {
+    "CALL_END": {
+      "op": 0,
+      "t": "CALL_END",
+      "s": 29,
+      "d": {
+        "channel_id": "500",
+        "state": "ended",
+        "started_by": "12",
+        "started_at": "2026-10-31T12:00:00Z",
+        "group": false,
+        "reason": "missed"
+      }
+    },
+    "CALL_RING": {
+      "op": 0,
+      "t": "CALL_RING",
+      "s": 27,
+      "d": {
+        "channel_id": "500",
+        "state": "ringing",
+        "started_by": "12",
+        "started_at": "2026-10-31T12:00:00Z",
+        "expires_at": "2026-10-31T12:00:45Z",
+        "caller": {
+          "id": "12",
+          "username": "maria",
+          "display_name": "Maria"
+        },
+        "group": false
+      }
+    },
+    "CALL_UPDATE": {
+      "op": 0,
+      "t": "CALL_UPDATE",
+      "s": 28,
+      "d": {
+        "channel_id": "500",
+        "state": "active",
+        "started_by": "12",
+        "started_at": "2026-10-31T12:00:00Z",
+        "group": false,
+        "reason": "answered",
+        "user_id": "11"
+      }
+    },
     "CHANNEL_CREATE": {
       "op": 0,
       "t": "CHANNEL_CREATE",
@@ -379,6 +424,42 @@
         "mention_count": 2
       }
     },
+    "RELATIONSHIP_ADD": {
+      "op": 0,
+      "t": "RELATIONSHIP_ADD",
+      "s": 24,
+      "d": {
+        "user": {
+          "id": "13",
+          "username": "joao"
+        },
+        "type": "incoming",
+        "since": "2026-10-31T12:00:00Z"
+      }
+    },
+    "RELATIONSHIP_REMOVE": {
+      "op": 0,
+      "t": "RELATIONSHIP_REMOVE",
+      "s": 26,
+      "d": {
+        "user_id": "13"
+      }
+    },
+    "RELATIONSHIP_UPDATE": {
+      "op": 0,
+      "t": "RELATIONSHIP_UPDATE",
+      "s": 25,
+      "d": {
+        "user": {
+          "id": "12",
+          "username": "maria",
+          "display_name": "Maria",
+          "avatar_url": "https://files.spook.example/avatars/12.png"
+        },
+        "type": "friend",
+        "since": "2026-10-31T12:00:00Z"
+      }
+    },
     "ROLE_CREATE": {
       "op": 0,
       "t": "ROLE_CREATE",
@@ -708,6 +789,50 @@
           "muted_until": null,
           "level": "none",
           "suppress_everyone": false
+        }
+      ],
+      "relationships": {
+        "friend_count": 1,
+        "incoming_count": 1,
+        "outgoing_count": 0,
+        "blocked_ids": [
+          "20"
+        ],
+        "items": [
+          {
+            "user": {
+              "id": "13",
+              "username": "joao"
+            },
+            "type": "incoming",
+            "since": "2026-10-31T12:00:00Z"
+          },
+          {
+            "user": {
+              "id": "12",
+              "username": "maria",
+              "display_name": "Maria",
+              "avatar_url": "https://files.spook.example/avatars/12.png"
+            },
+            "type": "friend",
+            "since": "2026-10-31T12:00:00Z"
+          }
+        ],
+        "truncated": false
+      },
+      "calls": [
+        {
+          "channel_id": "500",
+          "state": "ringing",
+          "started_by": "12",
+          "started_at": "2026-10-31T12:00:00Z",
+          "expires_at": "2026-10-31T12:00:45Z",
+          "caller": {
+            "id": "12",
+            "username": "maria",
+            "display_name": "Maria"
+          },
+          "group": false
         }
       ]
     }

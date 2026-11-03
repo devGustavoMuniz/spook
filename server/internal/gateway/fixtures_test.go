@@ -11,11 +11,13 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/relationship"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
 	voicepkg "github.com/devGustavoMuniz/spook/server/internal/voice"
 )
@@ -118,6 +120,19 @@ func buildFixtures(t *testing.T) map[string]any {
 		RoleIDs: []string{"400"},
 	}
 
+	friend := relationship.Relationship{
+		User: relationship.RelationshipUser{ID: "12", Username: "maria", DisplayName: "Maria", AvatarURL: "https://files.spook.example/avatars/12.png"},
+		Type: "friend", Since: at,
+	}
+	incoming := relationship.Relationship{User: relationship.RelationshipUser{ID: "13", Username: "joao"}, Type: "incoming", Since: at}
+	callAt := at.Add(45 * time.Second)
+	ring := dmcall.Call{
+		ChannelID: "500", State: "ringing", StartedBy: "12", StartedAt: at, ExpiresAt: &callAt,
+		Caller: &dmcall.CallCaller{ID: "12", Username: "maria", DisplayName: "Maria"}, Group: false,
+	}
+	answered := dmcall.Call{ChannelID: "500", State: "active", StartedBy: "12", StartedAt: at, Reason: "answered", UserID: ptr("11")}
+	ended := dmcall.Call{ChannelID: "500", State: "ended", StartedBy: "12", StartedAt: at, Reason: "missed"}
+
 	dispatches := []struct {
 		name string
 		data any
@@ -144,6 +159,12 @@ func buildFixtures(t *testing.T) map[string]any {
 		{EventNotificationSettingsUpdate, notification.SettingPayload{Scope: "channel", TargetID: "300", Muted: true, MutedUntil: &at, Level: ptr("mentions")}},
 		{EventVoiceStateUpdate, VoiceStateUpdate{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "11", SelfMute: true, SelfVideo: true}},
 		{EventReadStateUpdate, ReadStateUpdate{ChannelID: "300", LastReadMessageID: "901", MentionCount: 2}},
+		{EventRelationshipAdd, incoming},
+		{EventRelationshipUpdate, friend},
+		{EventRelationshipRemove, relationship.RelationshipRemoved{UserID: "13"}},
+		{EventCallRing, ring},
+		{EventCallUpdate, answered},
+		{EventCallEnd, ended},
 	}
 	disp := map[string]json.RawMessage{}
 	for i, d := range dispatches {
@@ -168,6 +189,11 @@ func buildFixtures(t *testing.T) map[string]any {
 				{ChannelID: "300", GuildID: "100", LastReadMessageID: "890", MentionCount: 2, UnreadCount: 12},
 				{ChannelID: "500", LastReadMessageID: "880", UnreadCount: 100},
 			},
+			Relationships: relationship.RelationshipsReady{
+				FriendCount: 1, IncomingCount: 1, OutgoingCount: 0, BlockedIDs: []string{"20"},
+				Items: []relationship.Relationship{incoming, friend},
+			},
+			Calls: []dmcall.Call{ring},
 		}),
 		"set_presence":        control(t, OpPresence, "", SetPresence{Status: presence.StatusIdle}),
 		"dm_channel_create":   dispatch(t, 2, events.ChannelCreate, dm),

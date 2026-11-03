@@ -29,6 +29,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/dm"
+	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
 	"github.com/devGustavoMuniz/spook/server/internal/gateway"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/health"
@@ -51,6 +52,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/webui"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/relationship"
 	"github.com/devGustavoMuniz/spook/server/internal/social"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
 	"github.com/devGustavoMuniz/spook/server/internal/user"
@@ -87,6 +89,10 @@ type Deps struct {
 	EveryoneLimiter *ratelimit.Limiter // padrão: 1 uso de @everyone/@here a cada 30 s por usuário e canal
 	ModLimiter      *ratelimit.Limiter // padrão: rajada de 20 e 1 por segundo por usuário nas ações de moderação
 
+	// Social (SPEC 7.4, "Adicional: social"): pedidos de amizade, demais ações de amizade/bloqueio/convite e ligações em DM.
+	FriendRequestLimiter *ratelimit.Limiter // padrão: rajada de 10 e 20 por hora por usuário ("friends.request")
+	SocialLimiter        *ratelimit.Limiter // padrão: rajada de 30 e 1 por segundo por usuário
+	CallLimiter          *ratelimit.Limiter // padrão: rajada de 5 e 1 a cada 5 s por usuário ("call.ring")
 	// Limitadores por usuário das ações de conta (SPEC 7.x): senha (trocar/confirmar), e-mail e exclusão.
 	PasswordLimiter *ratelimit.Limiter // padrão: rajada de 5 e 1 a cada 30 s
 	EmailLimiter    *ratelimit.Limiter // padrão: 5 por hora
@@ -346,7 +352,21 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	guildSvc.SetLimiter(modLimiter)
 	channelSvc.SetAudit(auditSvc)
 	channelSvc.SetLimiter(modLimiter)
+	friendReqLimiter := d.FriendRequestLimiter
+	if friendReqLimiter == nil {
+		friendReqLimiter = ratelimit.New(20.0/3600, 10)
+	}
+	socialLimiter := d.SocialLimiter
+	if socialLimiter == nil {
+		socialLimiter = ratelimit.New(1, 30)
+	}
+	callLimiter := d.CallLimiter
+	if callLimiter == nil {
+		callLimiter = ratelimit.New(0.2, 5)
+	}
+	relSvc := relationship.NewService(relationship.NewStore(pool), bus, userSvc, friendReqLimiter, socialLimiter)
 	dmSvc := dm.NewService(dm.NewStore(pool), ids, bus, userSvc, dmLimiter)
+	dmSvc.SetRelations(relSvc)
 	channelSvc.SetDMs(dmSvc)
 	typingSvc := typing.NewService(channelSvc, typingLimiter, bus)
 	presenceSvc := presence.NewService(ctx, d.Presence, presence.NewStore(pool), bus, bus)
@@ -359,6 +379,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	thumbJobs := &attachment.Enqueuer{} // ligado ao client do River logo abaixo
 	messageSvc := message.NewService(message.NewStore(pool, thumbJobs), channelSvc, msgLimiter, userSvc, attachmentSvc, ids, bus)
 	messageSvc.SetSystemChannels(guildSvc)
+	messageSvc.SetDMGate(relSvc)
 	everyoneLimiter := d.EveryoneLimiter
 	if everyoneLimiter == nil {
 		everyoneLimiter = ratelimit.New(1.0/30, 1) // @everyone/@here: 1 a cada 30 s por usuário e canal
@@ -386,6 +407,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		notifDeps.Push, notifDeps.Sender, notifDeps.Queue = pushCfg, sender, pushJobs
 	}
 	notifySvc := notification.NewService(notifDeps)
+	notifySvc.SetBlocks(relSvc)
 	messageSvc.SetMentions(notifySvc)
 	notifySvc.Start(ctx, bus)
 
@@ -436,7 +458,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	voiceSvc := voice.NewService(voice.Deps{
 		Provider: voiceProv, Store: voicememory.New(), Previews: voicememory.NewPreviews(), Pub: bus,
-		Access: voiceAccess{channels: channelSvc, guilds: guildSvc}, Users: voiceUsers{users: userSvc}, Audit: auditSvc,
+		Access: voiceAccess{channels: channelSvc, guilds: guildSvc, dmBlocked: relSvc.PairBlocked}, Users: voiceUsers{users: userSvc}, Audit: auditSvc,
 	})
 	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam
 	go func() { <-ctx.Done(); cancelVoice() }()
@@ -447,23 +469,29 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	go voiceSvc.Run(ctx, reconcileEvery)
 	voiceH := voice.NewHandler(voiceSvc, auth.UserID)
 
+	// Chamadas em DM com toque: acompanha a sala de voz pelo barramento e responde ao gateway (READY).
+	callSvc := dmcall.NewService(dmcall.Deps{DMs: dmSvc, Voice: voiceSvc, Blocks: relSvc, Notify: notifySvc, Pub: bus, Limiter: callLimiter})
+	cancelCalls := bus.Subscribe(callSvc.OnEvent)
+	go func() { <-ctx.Done(); cancelCalls(); callSvc.Close() }()
+
 	gwCfg := d.Gateway
 	if gwCfg.AllowedOrigins == nil {
 		gwCfg.AllowedOrigins = d.Cfg.AllowedOrigins
 	}
 	gwCfg.Dev = d.Cfg.IsDev()
-	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc), gateway.WithReadStates(notifySvc), gateway.WithNotificationSettings(notifySvc))
+	hub := gateway.NewHub(ctx, gwCfg, guildSvc, bus, gateway.WithDMs(dmSvc), gateway.WithPresence(presenceSvc), gateway.WithVoice(voiceSvc), gateway.WithReadStates(notifySvc), gateway.WithNotificationSettings(notifySvc), gateway.WithRelationships(relSvc), gateway.WithCalls(callSvc))
 	gatewayH := gateway.NewHandler(hub, authSvc, auth.UserID)
 	gwLimiter := d.GatewayLimiter
 	if gwLimiter == nil {
 		gwLimiter = ratelimit.New(50, 200)
 	}
 	authSvc.OnRevoke(hub.RevokeAuth) // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
-	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter)
+	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter, friendReqLimiter, socialLimiter, callLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool).WithLimits(lim), guildSvc, guildSvc, guildSvc)
 	inviteSvc.SetAudit(auditSvc)
 	inviteSvc.SetLimits(lim)
 	inviteSvc.SetJoiner(messageSvc) // mensagem de sistema "fulano entrou"
+	relSvc.SetInvites(guildMembers{guildSvc}, inviteSvc, dmOpener{dmSvc}, messageSender{messageSvc}, d.Cfg.PublicURL)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
 	channelH := channel.NewHandler(channelSvc, auth.UserID)
@@ -486,6 +514,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	notifyH := notification.NewHandler(notifySvc, auth.UserID)
 	auditH := audit.NewHandler(auditSvc, auth.UserID)
 	presenceH := presence.NewHandler(presenceSvc, auth.UserID)
+	relH := relationship.NewHandler(relSvc, auth.UserID)
+	callH := dmcall.NewHandler(callSvc, auth.UserID)
 
 	// Painel administrativo (/admin): leituras agregadas; voz, gateway, pool e Prometheus entram por interfaces.
 	adminDeps := admin.Deps{
@@ -518,7 +548,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH)
+	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH)
 	socialH.RegisterRoutes(r) // /api/auth/social/{provider}/start|callback: redirecionamentos, fora do OpenAPI
 	if outbox != nil {        // SÓ em desenvolvimento com o driver log: lê o último e-mail (E2E e dev local)
 		r.Get("/api/dev/mail/last", devMailHandler(outbox))
@@ -559,7 +589,8 @@ func buildOpenAPI() *huma.OpenAPI { return buildAPI().OpenAPI() }
 func buildAPI() huma.API {
 	return registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), mailflow.NewHandler(nil, nil), social.NewHandler(nil, nil, nil, true), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil), audit.NewHandler(nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil), audit.NewHandler(nil, nil),
+		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil))
 }
 
 // lateAccess resolve a dependência circular channel -> guild na montagem.
@@ -579,7 +610,8 @@ func (a *lateAccess) OverwriteTarget(ctx context.Context, guildID int64, t perm.
 
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Handler, socialH *social.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
-	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler, auditH *audit.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler, auditH *audit.Handler,
+	relH *relationship.Handler, callH *dmcall.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -620,6 +652,8 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	gatewayH.Register(api, authed, auth.Security)
 	adminH.Register(api, authed, auth.Security)
 	auditH.Register(api, authed, auth.Security)
+	relH.Register(api, authed, auth.Security)
+	callH.Register(api, authed, auth.Security)
 	return api
 }
 

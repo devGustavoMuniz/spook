@@ -129,6 +129,51 @@ describe("fixtures do gateway", () => {
     expect(parsed.notification_settings).toEqual([]);
   });
 
+  it("social: relacionamentos e chamadas de DM (READY e eventos)", () => {
+    const ready = eventSchemas.READY.parse(fixtures.ready.d);
+    expect(ready.relationships).toMatchObject({
+      friend_count: 1,
+      incoming_count: 1,
+      blocked_ids: ["20"],
+      truncated: false,
+    });
+    expect(ready.relationships.items?.map((r) => r.type)).toEqual(["incoming", "friend"]);
+    expect(ready.calls?.[0]).toMatchObject({
+      channel_id: "500",
+      state: "ringing",
+      caller: { id: "12" },
+    });
+    const add = dispatchFrameSchema("RELATIONSHIP_ADD").parse(fixtures.dispatch.RELATIONSHIP_ADD);
+    expect(add.d).toMatchObject({ type: "incoming", user: { id: "13", username: "joao" } });
+    expect(
+      dispatchFrameSchema("RELATIONSHIP_UPDATE").parse(fixtures.dispatch.RELATIONSHIP_UPDATE).d
+        .type,
+    ).toBe("friend");
+    expect(
+      dispatchFrameSchema("RELATIONSHIP_REMOVE").parse(fixtures.dispatch.RELATIONSHIP_REMOVE).d,
+    ).toEqual({ user_id: "13" });
+    expect(dispatchFrameSchema("CALL_RING").parse(fixtures.dispatch.CALL_RING).d).toMatchObject({
+      state: "ringing",
+      caller: { username: "maria" },
+    });
+    expect(dispatchFrameSchema("CALL_UPDATE").parse(fixtures.dispatch.CALL_UPDATE).d).toMatchObject(
+      {
+        state: "active",
+        reason: "answered",
+        user_id: "11",
+      },
+    );
+    expect(dispatchFrameSchema("CALL_END").parse(fixtures.dispatch.CALL_END).d).toMatchObject({
+      state: "ended",
+      reason: "missed",
+    });
+    // Servidor anterior: sem os campos novos, entram os padrões.
+    const { relationships: _r, calls: _c, ...old } = fixtures.ready.d;
+    const parsed = eventSchemas.READY.parse(old);
+    expect(parsed.relationships.friend_count).toBe(0);
+    expect(parsed.calls).toEqual([]);
+  });
+
   it("VOICE_STATE_UPDATE: o fixture do Go e as variantes de saída e de DM", () => {
     const frame = dispatchFrameSchema("VOICE_STATE_UPDATE").parse(
       fixtures.dispatch.VOICE_STATE_UPDATE,

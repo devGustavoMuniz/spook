@@ -9,11 +9,13 @@ import "github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 const MaxParticipants = 10
 
 var (
-	ErrNotFound      = apperr.NotFound("canal não encontrado")
-	ErrNoSharedGuild = apperr.Forbidden("você só pode abrir DM com quem compartilha um servidor com você")
-	ErrOnlyOwner     = apperr.Forbidden("só o dono da DM em grupo pode fazer isso")
-	ErrGroupFull     = apperr.Conflict("a DM em grupo já tem 10 participantes")
-	ErrOwnerStays    = apperr.Conflict("o dono não pode sair da DM em grupo nem ser removido")
-	ErrNotAGroup     = apperr.Invalid("DMs 1:1 não têm participantes a adicionar ou remover")
-	ErrSelf          = apperr.Invalid("você não pode abrir uma DM consigo mesmo")
+	ErrNotFound = apperr.NotFound("canal não encontrado")
+	// ErrCannotDM serve para "sem servidor em comum nem amizade" e para bloqueio, de propósito com a mesma mensagem:
+	// quem foi bloqueado não descobre o bloqueio.
+	ErrCannotDM   = apperr.Forbidden("não foi possível abrir uma DM com essa pessoa: só é possível com quem compartilha um servidor com você ou é seu amigo")
+	ErrOnlyOwner  = apperr.Forbidden("só o dono da DM em grupo pode fazer isso")
+	ErrGroupFull  = apperr.Conflict("a DM em grupo já tem 10 participantes")
+	ErrOwnerStays = apperr.Conflict("o dono não pode sair da DM em grupo nem ser removido")
+	ErrNotAGroup  = apperr.Invalid("DMs 1:1 não têm participantes a adicionar ou remover")
+	ErrSelf       = apperr.Invalid("você não pode abrir uma DM consigo mesmo")
 )

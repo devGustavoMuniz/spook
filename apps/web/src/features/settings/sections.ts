@@ -1,6 +1,6 @@
-import { Bell, type LucideIcon, Mic, Monitor, Palette, UserRound } from "lucide-react";
+import { Ban, Bell, type LucideIcon, Mic, Monitor, Palette, UserRound } from "lucide-react";
 
-export type SectionKey = "profile" | "notifications" | "voice" | "appearance" | "app";
+export type SectionKey = "profile" | "notifications" | "blocked" | "voice" | "appearance" | "app";
 
 export type Section = {
   key: SectionKey;
@@ -23,6 +23,12 @@ export const SECTIONS: readonly Section[] = [
     label: "Notificações",
     description: "Avisos no app, push e o que está silenciado.",
     icon: Bell,
+  },
+  {
+    key: "blocked",
+    label: "Bloqueados",
+    description: "Pessoas que você bloqueou e como desbloquear.",
+    icon: Ban,
   },
   {
     key: "voice",

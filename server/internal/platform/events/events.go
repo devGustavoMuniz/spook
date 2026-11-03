@@ -36,6 +36,14 @@ const (
 	PresenceSelfUpdate = "PRESENCE_SELF_UPDATE"
 	// NotificationSettingsUpdate: silenciar/nível de notificação mudou (user:<id>, sincroniza sessões).
 	NotificationSettingsUpdate = "NOTIFICATION_SETTINGS_UPDATE"
+	// Social (tópico user:<id>, só ao usuário envolvido): amizades, pedidos e bloqueios.
+	RelationshipAdd    = "RELATIONSHIP_ADD"    // novo relacionamento (pedido enviado/recebido, bloqueio)
+	RelationshipUpdate = "RELATIONSHIP_UPDATE" // pedido recebido virou amizade
+	RelationshipRemove = "RELATIONSHIP_REMOVE" // amizade desfeita, pedido cancelado/recusado ou desbloqueio
+	// Chamada em DM com toque (tópico user:<id> dos participantes).
+	CallRing   = "CALL_RING"   // chamada recebida (só quem deve tocar)
+	CallUpdate = "CALL_UPDATE" // o estado da chamada mudou (atendida, recusada por alguém...)
+	CallEnd    = "CALL_END"    // a chamada acabou (cancelada, sem resposta, recusada por todos, encerrada)
 )
 
 // Event é um fato ocorrido no domínio. Topics diz quem deve recebê-lo

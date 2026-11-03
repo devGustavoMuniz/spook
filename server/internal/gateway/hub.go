@@ -18,11 +18,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/relationship"
 	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
@@ -81,6 +83,16 @@ type ReadStates interface {
 	ReadyStates(ctx context.Context, userID int64) ([]notification.ReadStatePayload, error)
 }
 
+// Relationships dá o resumo de amizades do READY (relationship.Service).
+type Relationships interface {
+	Ready(ctx context.Context, userID int64) (relationship.RelationshipsReady, error)
+}
+
+// Calls dá as chamadas de DM que estão tocando para o usuário (dmcall.Service), para o READY.
+type Calls interface {
+	Ringing(userID int64) []dmcall.Call
+}
+
 // Option liga uma dependência opcional do Hub.
 type Option func(*Hub)
 
@@ -101,6 +113,10 @@ func WithNotificationSettings(n NotificationSettings) Option {
 	return func(h *Hub) { h.notifSettings = n }
 }
 
+// WithRelationships liga o resumo de amizades do READY; WithCalls, as chamadas tocando.
+func WithRelationships(r Relationships) Option { return func(h *Hub) { h.rels = r } }
+func WithCalls(c Calls) Option                 { return func(h *Hub) { h.calls = c } }
+
 // Bus é o que o gateway precisa do barramento de eventos.
 type Bus interface {
 	Subscribe(fn func(events.Event)) (cancel func())
@@ -115,6 +131,8 @@ type Hub struct {
 	voice         Voice
 	reads         ReadStates
 	notifSettings NotificationSettings
+	rels          Relationships
+	calls         Calls
 	met           *metrics
 	tk            *tickets
 

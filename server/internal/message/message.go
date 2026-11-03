@@ -35,6 +35,8 @@ var (
 
 	ErrTooManyAttachments = apperr.Invalid("uma mensagem pode ter no máximo 10 anexos")
 	ErrEmptyMessage       = apperr.Invalid("a mensagem não pode ser vazia")
+	// ErrCannotSend é o erro de envio em DM 1:1 com bloqueio: genérico, para não revelar o bloqueio.
+	ErrCannotSend = apperr.Forbidden("não foi possível enviar mensagens nesta conversa")
 
 	ErrReplyTarget = apperr.Invalid("a mensagem respondida não existe mais, foi apagada ou é de outro canal")
 	ErrSystemMsg   = apperr.Invalid("mensagens do sistema não podem ser editadas nem respondidas")

@@ -40,6 +40,9 @@ SELECT DISTINCT r2.user_id
 FROM channel_recipients r1
 JOIN channel_recipients r2 ON r2.channel_id = r1.channel_id AND r2.user_id <> r1.user_id
 WHERE r1.user_id = $1
+UNION
+SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END
+FROM friendships WHERE status = 'accepted' AND (user_a = $1 OR user_b = $1)
 `
 
 // Quem divide uma DM (1:1 ou grupo) com o usuário (tópicos user:<id>).
@@ -101,6 +104,10 @@ UNION
 SELECT r2.user_id FROM channel_recipients r1
 JOIN channel_recipients r2 ON r2.channel_id = r1.channel_id AND r2.user_id = ANY($2::bigint[])
 WHERE r1.user_id = $1 AND r2.user_id <> $1
+UNION
+SELECT CASE WHEN user_a = $1 THEN user_b ELSE user_a END FROM friendships
+WHERE status = 'accepted'
+  AND ((user_a = $1 AND user_b = ANY($2::bigint[])) OR (user_b = $1 AND user_a = ANY($2::bigint[])))
 `
 
 type ListOnlineSharingParams struct {

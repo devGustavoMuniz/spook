@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
+	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
+	"github.com/devGustavoMuniz/spook/server/internal/relationship"
 	"github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
@@ -66,6 +68,13 @@ const (
 	// Adicionais: a preferência de status do próprio usuário e os silêncios/níveis de notificação (tópico user:<id>).
 	EventPresenceSelfUpdate         = events.PresenceSelfUpdate
 	EventNotificationSettingsUpdate = events.NotificationSettingsUpdate
+	// Social (tópico user:<id>): amizades, bloqueios e chamadas de DM.
+	EventRelationshipAdd    = events.RelationshipAdd
+	EventRelationshipUpdate = events.RelationshipUpdate
+	EventRelationshipRemove = events.RelationshipRemove
+	EventCallRing           = events.CallRing
+	EventCallUpdate         = events.CallUpdate
+	EventCallEnd            = events.CallEnd
 )
 
 // Hello é o d do op 10.
@@ -104,6 +113,8 @@ type Ready struct {
 	ReadStates           []notification.ReadStatePayload `json:"read_states" doc:"Canais com não lidas ou menções (mesmo formato de GET /api/users/@me/read-states); canal ausente = zero"`
 	SelfPresence         presence.SelfPayload            `json:"self_presence" doc:"Preferência de status do próprio usuário (online, dnd ou invisible) e status personalizado"`
 	NotificationSettings []notification.SettingPayload   `json:"notification_settings" doc:"Silêncios e níveis de notificação que diferem do padrão (GET /api/users/@me/notification-settings)"`
+	Relationships        relationship.RelationshipsReady `json:"relationships" doc:"Resumo das amizades: contagens, IDs de todos os bloqueados e até 200 pedidos e amigos (o resto: GET /api/users/me/relationships)"`
+	Calls                []dmcall.Call                   `json:"calls" doc:"Chamadas de DM tocando para você agora (quem recarregou no meio do toque)"`
 }
 
 // ReadyUser é o usuário autenticado no READY.

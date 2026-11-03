@@ -4,6 +4,7 @@
 export * from "./api/endpoints/admin/admin";
 export * from "./api/endpoints/audit/audit";
 export * from "./api/endpoints/auth/auth";
+export * from "./api/endpoints/calls/calls";
 export * from "./api/endpoints/channels/channels";
 export * from "./api/endpoints/dms/dms";
 export * from "./api/endpoints/gateway/gateway";
@@ -12,6 +13,7 @@ export * from "./api/endpoints/invites/invites";
 export * from "./api/endpoints/messages/messages";
 export * from "./api/endpoints/notifications/notifications";
 export * from "./api/endpoints/presence/presence";
+export * from "./api/endpoints/relationships/relationships";
 export * from "./api/endpoints/uploads/uploads";
 export * from "./api/endpoints/users/users";
 export * from "./api/endpoints/voice/voice";

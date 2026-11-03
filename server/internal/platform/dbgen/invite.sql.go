@@ -36,6 +36,34 @@ func (q *Queries) DeleteInvite(ctx context.Context, code string) (int64, error) 
 	return result.RowsAffected(), nil
 }
 
+const findReusableInvite = `-- name: FindReusableInvite :one
+SELECT code, guild_id, creator_id, max_uses, uses, expires_at, created_at FROM invites
+WHERE guild_id = $1 AND creator_id = $2 AND max_uses IS NULL AND (expires_at IS NULL OR expires_at > now() + interval '1 day')
+ORDER BY created_at DESC LIMIT 1
+`
+
+type FindReusableInviteParams struct {
+	GuildID   int64
+	CreatorID int64
+}
+
+// Convite reaproveitável para compartilhar: do próprio criador, sem limite de usos e válido por pelo menos mais 1 dia
+// (ou sem validade). Usado por "Convidar amigo para o servidor".
+func (q *Queries) FindReusableInvite(ctx context.Context, arg FindReusableInviteParams) (Invite, error) {
+	row := q.db.QueryRow(ctx, findReusableInvite, arg.GuildID, arg.CreatorID)
+	var i Invite
+	err := row.Scan(
+		&i.Code,
+		&i.GuildID,
+		&i.CreatorID,
+		&i.MaxUses,
+		&i.Uses,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getInvite = `-- name: GetInvite :one
 SELECT code, guild_id, creator_id, max_uses, uses, expires_at, created_at FROM invites WHERE code = $1
 `

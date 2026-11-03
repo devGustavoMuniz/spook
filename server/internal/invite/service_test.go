@@ -41,6 +41,14 @@ func (f *fakeStore) Get(_ context.Context, code string) (Invite, error) {
 }
 func (f *fakeStore) List(context.Context, int64) ([]Invite, error) { return nil, nil }
 func (f *fakeStore) Count(context.Context, int64) (int, error)     { return f.count, nil }
+func (f *fakeStore) FindReusable(_ context.Context, g, c int64) (Invite, error) {
+	for _, i := range f.invites {
+		if i.GuildID == g && i.CreatorID == c && i.MaxUses == nil && (i.ExpiresAt == nil || i.ExpiresAt.After(time.Now().Add(24*time.Hour))) {
+			return i, nil
+		}
+	}
+	return Invite{}, ErrNotFound
+}
 func (f *fakeStore) Delete(_ context.Context, code string) error {
 	f.deleted = append(f.deleted, code)
 	delete(f.invites, code)
@@ -250,5 +258,40 @@ func TestListRequiresManageGuild(t *testing.T) {
 	}
 	if _, err := svc.List(ctx, owner, 1); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestShareReusesOrCreatesInviteAndNeedsCreateInvite(t *testing.T) {
+	svc, st, _ := setup()
+	ctx := context.Background()
+	code, err := svc.Share(ctx, member, 1)
+	if err != nil || len(code) != CodeLength {
+		t.Fatalf("primeiro: %q %v", code, err)
+	}
+	inv := st.invites[code]
+	if inv.MaxUses != nil || inv.ExpiresAt == nil || time.Until(*inv.ExpiresAt) < 6*24*time.Hour {
+		t.Fatalf("convite de compartilhar: sem limite de usos e com ~7 dias: %+v", inv)
+	}
+	again, err := svc.Share(ctx, member, 1)
+	if err != nil || again != code || len(st.invites) != 1 {
+		t.Fatalf("deveria reaproveitar %s, veio %q (%d convites)", code, again, len(st.invites))
+	}
+	// Convite de outra pessoa não é reaproveitado.
+	other, err := svc.Share(ctx, owner, 1)
+	if err != nil || other == code {
+		t.Fatalf("convite do dono: %q %v", other, err)
+	}
+	// Quase vencido (menos de 1 dia) ou com limite de usos: cria outro.
+	soon := time.Now().Add(2 * time.Hour)
+	inv.ExpiresAt = &soon
+	st.invites[code] = inv
+	if fresh, _ := svc.Share(ctx, member, 1); fresh == code {
+		t.Fatal("convite perto de vencer não deve ser reaproveitado")
+	}
+	if _, err := svc.Share(ctx, noInvitePerm, 1); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("sem CREATE_INVITE: %v", err)
+	}
+	if _, err := svc.Share(ctx, stranger, 1); !errors.Is(err, guild.ErrNotFound) {
+		t.Fatalf("não-membro: %v", err)
 	}
 }

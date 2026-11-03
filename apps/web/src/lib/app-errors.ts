@@ -40,7 +40,7 @@ export function dmMessage(err: unknown, action: DmAction): string {
   switch (err.status) {
     case 403:
       return action === "open" || action === "create" || action === "add"
-        ? "Você só pode conversar com quem compartilha um servidor com você."
+        ? "Não foi possível abrir essa conversa. É preciso compartilhar um servidor com a pessoa ou ser amigo dela."
         : "Só o dono da conversa pode fazer isso.";
     case 404:
       return "Você não participa mais desta conversa.";

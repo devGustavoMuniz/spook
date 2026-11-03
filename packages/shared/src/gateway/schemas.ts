@@ -205,6 +205,56 @@ export const readStatePayloadSchema = z.object({
   unread_count: z.number().int().nonnegative(),
 });
 
+// ---- Social (adicional): amizades, bloqueios e chamadas de DM ----
+
+export const relationshipTypeSchema = z.enum(["friend", "incoming", "outgoing", "blocked"]);
+export const relationshipUserSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  display_name: z.string().optional(),
+  avatar_url: z.string().optional(),
+});
+/** Um relacionamento (RELATIONSHIP_ADD/UPDATE, READY.relationships.items e GET /api/users/me/relationships). */
+export const relationshipPayloadSchema = z.object({
+  user: relationshipUserSchema,
+  type: relationshipTypeSchema,
+  since: z.string(),
+});
+export type RelationshipPayload = z.infer<typeof relationshipPayloadSchema>;
+export const relationshipRemoveDataSchema = z.object({ user_id: z.string() });
+/** Resumo do READY: contagens, IDs de todos os bloqueados e uma lista limitada (o resto vem por REST). */
+export const relationshipsReadySchema = z.object({
+  friend_count: z.number().int().nonnegative(),
+  incoming_count: z.number().int().nonnegative(),
+  outgoing_count: z.number().int().nonnegative(),
+  blocked_ids: z.array(z.string()).nullable().default([]),
+  items: z.array(relationshipPayloadSchema).nullable().default([]),
+  truncated: z.boolean().default(false),
+});
+export type RelationshipsReady = z.infer<typeof relationshipsReadySchema>;
+
+export const callReasonSchema = z.enum(["cancelled", "missed", "declined", "answered", "ended"]);
+export const callCallerSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  display_name: z.string().optional(),
+  avatar_url: z.string().optional(),
+});
+/** Chamada de DM (CALL_RING, CALL_UPDATE, CALL_END e READY.calls). */
+export const callPayloadSchema = z.object({
+  channel_id: z.string(),
+  state: z.enum(["ringing", "active", "ended"]),
+  started_by: z.string(),
+  started_at: z.string(),
+  expires_at: z.string().optional(),
+  caller: callCallerSchema.optional(),
+  channel_name: z.string().optional(),
+  group: z.boolean().default(false),
+  reason: callReasonSchema.optional(),
+  user_id: z.string().optional(),
+});
+export type CallPayload = z.infer<typeof callPayloadSchema>;
+
 function presenceUpdateDataSchemaBase() {
   return z.object({
     user_id: z.string(),
@@ -228,6 +278,16 @@ export const readyDataSchema = z.object({
   // Adicionais: a minha preferência de status e os silêncios/níveis de notificação (o `default` tolera servidor antigo).
   self_presence: selfPresenceSchema.default({ status_pref: "online" }),
   notification_settings: z.array(notificationSettingSchema).nullable().default([]),
+  // Social (adicional): resumo das amizades e chamadas de DM tocando agora. `default` tolera servidor anterior.
+  relationships: relationshipsReadySchema.default({
+    friend_count: 0,
+    incoming_count: 0,
+    outgoing_count: 0,
+    blocked_ids: [],
+    items: [],
+    truncated: false,
+  }),
+  calls: z.array(callPayloadSchema).nullable().default([]),
 });
 
 export const resumedDataSchema = z.object({
@@ -284,6 +344,12 @@ export const eventSchemas = {
   READ_STATE_UPDATE: readStateUpdateDataSchema,
   PRESENCE_SELF_UPDATE: selfPresenceSchema,
   NOTIFICATION_SETTINGS_UPDATE: notificationSettingSchema,
+  RELATIONSHIP_ADD: relationshipPayloadSchema,
+  RELATIONSHIP_UPDATE: relationshipPayloadSchema,
+  RELATIONSHIP_REMOVE: relationshipRemoveDataSchema,
+  CALL_RING: callPayloadSchema,
+  CALL_UPDATE: callPayloadSchema,
+  CALL_END: callPayloadSchema,
 } as const;
 
 export type GatewayEventName = keyof typeof eventSchemas;

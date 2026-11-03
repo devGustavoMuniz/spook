@@ -62,6 +62,7 @@ func (e *Enqueuer) EnqueuePush(ctx context.Context, args []PushArgs) error {
 // RegisterWorkers registra o worker de push (só chame com o push ligado).
 func RegisterWorkers(w *river.Workers, svc *Service) {
 	river.AddWorker(w, &PushWorker{svc: svc})
+	river.AddWorker(w, &CallPushWorker{svc: svc})
 }
 
 type PushWorker struct {

@@ -17,6 +17,8 @@ import (
 type voiceAccess struct {
 	channels *channel.Service
 	guilds   *guild.Service
+	// dmBlocked diz se a DM 1:1 tem bloqueio entre os participantes (nulo = sem bloqueios): ninguém liga nem entra.
+	dmBlocked func(ctx context.Context, channelID int64) (bool, error)
 }
 
 func (a voiceAccess) Channel(ctx context.Context, userID, channelID int64) (voice.ChannelAccess, error) {
@@ -24,7 +26,16 @@ func (a voiceAccess) Channel(ctx context.Context, userID, channelID int64) (voic
 	if err != nil {
 		return voice.ChannelAccess{}, err
 	}
-	if ch.GuildID == nil { // DM: basta participar; as quatro origens
+	if ch.GuildID == nil { // DM: basta participar (e não haver bloqueio no 1:1); as quatro origens
+		if ch.Type == channel.TypeDM && a.dmBlocked != nil {
+			blocked, err := a.dmBlocked(ctx, channelID)
+			if err != nil {
+				return voice.ChannelAccess{}, err
+			}
+			if blocked {
+				return voice.ChannelAccess{Type: int(ch.Type), CanConnect: false}, nil
+			}
+		}
 		return voice.ChannelAccess{Type: int(ch.Type), CanConnect: true, CanSpeak: true, CanVideo: true}, nil
 	}
 	muted, err := a.guilds.VoiceMuted(ctx, *ch.GuildID, userID)
