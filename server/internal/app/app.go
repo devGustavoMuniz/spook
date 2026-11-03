@@ -188,7 +188,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 
 	authLimiter := d.AuthLimiter
 	if authLimiter == nil {
-		authLimiter = ratelimit.New(10.0/60, 10) // 10 tentativas por minuto por IP em /api/auth/*
+		perMin := 10 // 10 tentativas por minuto por IP em /api/auth/*
+		if d.Cfg.AuthRatePerMin > 0 {
+			perMin = d.Cfg.AuthRatePerMin
+		}
+		authLimiter = ratelimit.New(float64(perMin)/60, perMin)
 	}
 	apiLimiter := d.APILimiter
 	if apiLimiter == nil {

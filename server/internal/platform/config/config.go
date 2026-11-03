@@ -75,6 +75,9 @@ type Config struct {
 	// (SPOOK_PRESENCE_OFFLINE_GRACE, duration do Go; zero = padrão de 15 s). Existe para o E2E usar
 	// um valor curto; em produção deixe sem definir.
 	PresenceOfflineGrace time.Duration
+	// AuthRatePerMin é o limite de requisições por minuto, por IP, em /api/auth/* (SPOOK_AUTH_RATE_PER_MIN;
+	// zero = padrão de 10). Existe para o E2E, onde todas as contas saem do mesmo IP; em produção deixe sem definir.
+	AuthRatePerMin int
 	// AdminUsernames (ADMIN_USERNAMES, separados por vírgula) são promovidos a administradores do painel
 	// /admin no boot, de forma idempotente. Nunca rebaixa ninguém.
 	AdminUsernames []string
@@ -144,6 +147,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("SPOOK_PRESENCE_OFFLINE_GRACE inválido: %q", v)
 		}
 		c.PresenceOfflineGrace = d
+	}
+	if v := os.Getenv("SPOOK_AUTH_RATE_PER_MIN"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return Config{}, fmt.Errorf("SPOOK_AUTH_RATE_PER_MIN inválido: %q", v)
+		}
+		c.AuthRatePerMin = n
 	}
 	if c.S3.Enabled() && (c.S3.AccessKeyID == "" || c.S3.SecretAccessKey == "") {
 		return Config{}, errors.New("S3_ENDPOINT definido sem S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY")

@@ -18,7 +18,7 @@ Fora do CI e do `pnpm e2e` (Playwright próprio em `design/`; docs em `docs/desi
 
 ## E2E (Playwright, RNF06)
 
-O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. A Fase 4 (`e2e/dms.spec.ts`) cobre DMs 1:1 e em grupo com 3 contas, presença (online, ausente com relógio falso e offline) e "digitando…"; ela precisa do backend com `SPOOK_PRESENCE_OFFLINE_GRACE=2s` (offline em 2 s em vez de 15 s; é só para o E2E, produção usa o padrão). A Fase 6 (`e2e/attachments-notifications.spec.ts`) cobre anexos com thumbnail, não lidas, menções, avisos in-app e a inscrição de push com `serviceWorker`/`PushManager` simulados (push real não dá para receber no Playwright: fica em `VALIDACAO-MANUAL.md`). Cada execução registra 10 contas; o cadastro tem limite por IP, então espere cerca de um minuto entre execuções seguidas.
+O E2E roda contra o **build de produção** do front servido pelo próprio backend (`SPOOK_WEB_DIR`), com Postgres real. O fluxo crítico (`e2e/critical-flow.spec.ts`): cadastro, criar servidor, ver `geral`/`Geral`, enviar mensagem, recarregar, criar convite e uma segunda conta (outro contexto de navegador) entrar pelo convite. O tempo real (`e2e/gateway.spec.ts`, Fase 3): duas contas, mensagem sem recarregar, resume depois de ficar offline e perda de VIEW_CHANNEL no meio da sessão. A Fase 4 (`e2e/dms.spec.ts`) cobre DMs 1:1 e em grupo com 3 contas, presença (online, ausente com relógio falso e offline) e "digitando…"; ela precisa do backend com `SPOOK_PRESENCE_OFFLINE_GRACE=2s` (offline em 2 s em vez de 15 s; é só para o E2E, produção usa o padrão). A Fase 6 (`e2e/attachments-notifications.spec.ts`) cobre anexos com thumbnail, não lidas, menções, avisos in-app e a inscrição de push com `serviceWorker`/`PushManager` simulados (push real não dá para receber no Playwright: fica em `VALIDACAO-MANUAL.md`). Cada execução registra mais de 10 contas e o limite padrão de `/api/auth/*` é de 10 por minuto por IP; por isso o backend do E2E sobe com `SPOOK_AUTH_RATE_PER_MIN=1000` (só para o E2E; produção usa o padrão) e, sem essa variável, convém esperar cerca de um minuto entre execuções seguidas.
 
 Contas e perfil (`e2e/account.spec.ts`): cadastro, troca de senha (a outra sessão cai), troca de e-mail com o diálogo "Confirme sua senha", login com a senha nova e exclusão da conta; não precisa de serviços extras.
 
@@ -40,6 +40,7 @@ Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
        environment:
          SPOOK_WEB_DIR: /web
          SPOOK_PRESENCE_OFFLINE_GRACE: 2s
+         SPOOK_AUTH_RATE_PER_MIN: "1000"
    YML
    docker compose --env-file .env -f deploy/docker-compose.yml -f /tmp/spook-e2e.yml up -d --build server
    ```
@@ -85,6 +86,7 @@ O navegador do container precisa alcançar o LiveKit e o backend pela rede do Co
        environment:
          SPOOK_WEB_DIR: /web
          SPOOK_PRESENCE_OFFLINE_GRACE: 2s
+         SPOOK_AUTH_RATE_PER_MIN: "1000"
          LIVEKIT_URL: ws://livekit:7880
    YML
    docker compose --env-file .env -f deploy/docker-compose.yml -f /tmp/spook-e2e-voice.yml up -d --build server
