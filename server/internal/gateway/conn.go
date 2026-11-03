@@ -282,7 +282,7 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 		for i, d := range dmList {
 			dmIDs[i] = d.ID
 		}
-		if v := h.voice.Snapshot(visible, dmIDs); v != nil {
+		if v := h.voice.Snapshot(c.userID, visible, dmIDs); v != nil {
 			// Só os canais que a pessoa vê: quem está num canal privado não aparece para quem não o vê.
 			for _, st := range v {
 				if st.GuildID != nil && st.ChannelID != nil {

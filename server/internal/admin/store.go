@@ -232,3 +232,81 @@ func isUndefinedTable(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }
+
+// ---- histórico e atividade ----
+
+func (s *PGStore) InsertSample(ctx context.Context, m Sample) error {
+	err := s.q.AdminInsertSample(ctx, dbgen.AdminInsertSampleParams{
+		Ts: ts(m.TS), Media: m.Media, Rooms: m.Rooms, Participants: m.Participants,
+		TracksPublished: m.TracksPublished, TracksSubscribed: m.TracksSubs,
+		BytesIn: m.BytesIn, BytesOut: m.BytesOut, PacketsIn: m.PacketsIn, PacketsOut: m.PacketsOut,
+		LossPct: m.LossPct, JitterMs: m.JitterMs, RttMs: m.RTTMs, OnlineUsers: m.OnlineUsers, Connections: m.Connections,
+	})
+	if err != nil {
+		return fmt.Errorf("gravar amostra: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) PurgeSamples(ctx context.Context, cutoff time.Time, batch int) (int64, error) {
+	n, err := s.q.AdminPurgeSamples(ctx, dbgen.AdminPurgeSamplesParams{Cutoff: ts(cutoff), Batch: int32(batch)})
+	if err != nil {
+		return 0, fmt.Errorf("apagar amostras antigas: %w", err)
+	}
+	return n, nil
+}
+
+func (s *PGStore) SampleSeries(ctx context.Context, since time.Time, bucketSecs int) ([]SampleBucket, error) {
+	rows, err := s.q.AdminSampleSeries(ctx, dbgen.AdminSampleSeriesParams{Since: ts(since), BucketSecs: int32(bucketSecs)})
+	if err != nil {
+		return nil, fmt.Errorf("série do LiveKit: %w", err)
+	}
+	out := make([]SampleBucket, len(rows))
+	for i, r := range rows {
+		out[i] = SampleBucket{
+			Bucket: r.Bucket.Time, MediaSamples: int(r.MediaSamples), Samples: int(r.Samples),
+			Rooms: int(r.RoomsMax), Participants: int(r.ParticipantsMax),
+			TracksPublished: int(r.TracksPublishedMax), TracksSubscribed: int(r.TracksSubscribedMax),
+			BytesOut: r.BytesOut, BytesIn: r.BytesIn, Packets: r.Packets, PeakOutBps: r.BytesOutPerSecPeak,
+			LossPct: r.LossPctMax, JitterMs: r.JitterMsAvg, RTTMs: r.RttMsAvg,
+			OnlineUsers: int(r.OnlineUsersMax), Connections: int(r.ConnectionsMax),
+		}
+	}
+	return out, nil
+}
+
+func (s *PGStore) SampleTraffic(ctx context.Context, since time.Time) (Traffic, error) {
+	r, err := s.q.AdminSampleTraffic(ctx, ts(since))
+	if err != nil {
+		return Traffic{}, fmt.Errorf("tráfego do LiveKit: %w", err)
+	}
+	return Traffic{BytesOut: r.BytesOut, BytesIn: r.BytesIn, PeakOutBps: r.PeakOutPerSec, Samples: r.Samples}, nil
+}
+
+// MessageHeatmap devolve as mensagens por dia da semana (0 = domingo) e hora UTC desde since.
+func (s *PGStore) MessageHeatmap(ctx context.Context, since time.Time) ([7][24]int64, error) {
+	var m [7][24]int64
+	rows, err := s.q.AdminMessageHeatmap(ctx, snowflake.MinID(since))
+	if err != nil {
+		return m, fmt.Errorf("mapa de calor de mensagens: %w", err)
+	}
+	for _, r := range rows {
+		d := int(r.Dow) % 7 // ISO 7 (domingo) → 0
+		if h := int(r.Hour); h >= 0 && h < 24 {
+			m[d][h] += r.N
+		}
+	}
+	return m, nil
+}
+
+func (s *PGStore) TopGuilds(ctx context.Context, since time.Time, limit int) ([]TopGuild, error) {
+	rows, err := s.q.AdminTopGuilds(ctx, dbgen.AdminTopGuildsParams{MinID: snowflake.MinID(since), MaxRows: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("maiores servidores: %w", err)
+	}
+	out := make([]TopGuild, len(rows))
+	for i, r := range rows {
+		out[i] = TopGuild{ID: r.ID, Name: r.Name, Messages: r.Messages, Members: r.Members}
+	}
+	return out, nil
+}

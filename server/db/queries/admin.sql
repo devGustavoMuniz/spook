@@ -146,3 +146,102 @@ WHERE c.id = ANY(sqlc.arg(ids)::bigint[]);
 
 -- name: AdminUsernames :many
 SELECT id, username::text AS username, display_name FROM users WHERE id = ANY(sqlc.arg(ids)::bigint[]);
+
+-- Histórico do LiveKit e do gateway (tabela livekit_samples, uma linha por minuto).
+-- name: AdminInsertSample :exec
+INSERT INTO livekit_samples (ts, media, rooms, participants, tracks_published, tracks_subscribed,
+                             bytes_in, bytes_out, packets_in, packets_out, loss_pct, jitter_ms, rtt_ms,
+                             online_users, connections)
+VALUES (sqlc.arg(ts), sqlc.arg(media), sqlc.narg(rooms), sqlc.narg(participants), sqlc.narg(tracks_published),
+        sqlc.narg(tracks_subscribed), sqlc.narg(bytes_in), sqlc.narg(bytes_out), sqlc.narg(packets_in),
+        sqlc.narg(packets_out), sqlc.narg(loss_pct), sqlc.narg(jitter_ms), sqlc.narg(rtt_ms),
+        sqlc.narg(online_users), sqlc.narg(connections))
+ON CONFLICT (ts) DO NOTHING;
+
+-- Apaga em lote as amostras mais antigas que o corte (devolve quantas saíram, para o job repetir).
+-- name: AdminPurgeSamples :execrows
+DELETE FROM livekit_samples WHERE ts IN (
+    SELECT s.ts FROM livekit_samples s WHERE s.ts < sqlc.arg(cutoff)::timestamptz ORDER BY s.ts LIMIT sqlc.arg(batch)::int
+);
+
+-- Série reduzida: agrupa em baldes de bucket_secs (date_bin). Tráfego e pacotes = soma dos deltas entre amostras
+-- consecutivas; a queda do contador (LiveKit reiniciado) conta o valor novo inteiro. Picos/médias por balde.
+-- name: AdminSampleSeries :many
+WITH d AS (
+    SELECT ts, media, rooms, participants, tracks_published, tracks_subscribed, loss_pct, jitter_ms, rtt_ms,
+           online_users, connections,
+           CASE WHEN lag(bytes_out) OVER w IS NULL OR bytes_out IS NULL THEN 0
+                WHEN bytes_out >= lag(bytes_out) OVER w THEN bytes_out - lag(bytes_out) OVER w ELSE bytes_out END AS d_out,
+           CASE WHEN lag(bytes_in) OVER w IS NULL OR bytes_in IS NULL THEN 0
+                WHEN bytes_in >= lag(bytes_in) OVER w THEN bytes_in - lag(bytes_in) OVER w ELSE bytes_in END AS d_in,
+           CASE WHEN lag(packets_out) OVER w IS NULL OR packets_out IS NULL THEN 0
+                WHEN packets_out >= lag(packets_out) OVER w THEN packets_out - lag(packets_out) OVER w ELSE packets_out END AS d_pk_out,
+           CASE WHEN lag(packets_in) OVER w IS NULL OR packets_in IS NULL THEN 0
+                WHEN packets_in >= lag(packets_in) OVER w THEN packets_in - lag(packets_in) OVER w ELSE packets_in END AS d_pk_in,
+           GREATEST(EXTRACT(EPOCH FROM (ts - lag(ts) OVER w)), 1)::double precision AS dt
+    FROM livekit_samples
+    WHERE ts >= sqlc.arg(since)::timestamptz
+    WINDOW w AS (ORDER BY ts)
+)
+SELECT date_bin(make_interval(secs => sqlc.arg(bucket_secs)::int), ts, TIMESTAMPTZ '2000-01-01 00:00:00+00')::timestamptz AS bucket,
+       (count(*) FILTER (WHERE media))::int AS media_samples,
+       count(*)::int AS samples,
+       COALESCE(max(rooms), 0)::int AS rooms_max,
+       COALESCE(max(participants), 0)::int AS participants_max,
+       COALESCE(max(tracks_published), 0)::int AS tracks_published_max,
+       COALESCE(max(tracks_subscribed), 0)::int AS tracks_subscribed_max,
+       COALESCE(sum(d_out), 0)::double precision AS bytes_out,
+       COALESCE(sum(d_in), 0)::double precision AS bytes_in,
+       COALESCE(sum(d_pk_out + d_pk_in), 0)::double precision AS packets,
+       COALESCE(max(d_out / dt), 0)::double precision AS bytes_out_per_sec_peak,
+       COALESCE(max(loss_pct), -1)::double precision AS loss_pct_max,
+       COALESCE(avg(jitter_ms), -1)::double precision AS jitter_ms_avg,
+       COALESCE(avg(rtt_ms), -1)::double precision AS rtt_ms_avg,
+       COALESCE(max(online_users), 0)::int AS online_users_max,
+       COALESCE(max(connections), 0)::int AS connections_max
+FROM d
+GROUP BY 1
+ORDER BY 1;
+
+-- Tráfego de saída num intervalo (soma dos deltas com tratamento de reinício) e o maior ritmo (bytes/s) entre
+-- duas amostras consecutivas: alimentam "tráfego do mês" e "pico de saída em 24 h".
+-- name: AdminSampleTraffic :one
+WITH d AS (
+    SELECT bytes_out, bytes_in,
+           CASE WHEN lag(bytes_out) OVER w IS NULL OR bytes_out IS NULL THEN 0
+                WHEN bytes_out >= lag(bytes_out) OVER w THEN bytes_out - lag(bytes_out) OVER w ELSE bytes_out END AS d_out,
+           CASE WHEN lag(bytes_in) OVER w IS NULL OR bytes_in IS NULL THEN 0
+                WHEN bytes_in >= lag(bytes_in) OVER w THEN bytes_in - lag(bytes_in) OVER w ELSE bytes_in END AS d_in,
+           GREATEST(EXTRACT(EPOCH FROM (ts - lag(ts) OVER w)), 1)::double precision AS dt,
+           ts
+    FROM livekit_samples
+    WHERE ts >= sqlc.arg(since)::timestamptz AND media
+    WINDOW w AS (ORDER BY ts)
+)
+SELECT COALESCE(sum(d_out), 0)::double precision AS bytes_out,
+       COALESCE(sum(d_in), 0)::double precision AS bytes_in,
+       COALESCE(max(d_out / dt), 0)::double precision AS peak_out_per_sec,
+       count(*)::bigint AS samples
+FROM d;
+
+-- Mensagens por hora do dia x dia da semana (ISO: 1 = segunda … 7 = domingo), UTC, desde o ID mínimo.
+-- name: AdminMessageHeatmap :many
+SELECT EXTRACT(ISODOW FROM t.ts)::int AS dow, EXTRACT(HOUR FROM t.ts)::int AS hour, count(*)::bigint AS n
+FROM (
+    SELECT to_timestamp(((id >> 22) + 1767225600000) / 1000.0) AT TIME ZONE 'UTC' AS ts
+    FROM messages WHERE id >= sqlc.arg(min_id)::bigint AND deleted_at IS NULL
+) t
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+-- Servidores com mais mensagens desde o ID mínimo (DMs ficam de fora).
+-- name: AdminTopGuilds :many
+SELECT g.id, g.name, count(*)::bigint AS messages,
+       (SELECT count(*) FROM guild_members gm WHERE gm.guild_id = g.id)::bigint AS members
+FROM messages m
+JOIN channels c ON c.id = m.channel_id
+JOIN guilds g ON g.id = c.guild_id
+WHERE m.id >= sqlc.arg(min_id)::bigint AND m.deleted_at IS NULL
+GROUP BY g.id, g.name
+ORDER BY messages DESC, g.id
+LIMIT sqlc.arg(max_rows)::int;

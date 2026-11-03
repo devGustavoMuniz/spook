@@ -316,6 +316,7 @@ export function VoiceStage({
       onWatch={setScreenWatching}
       onSwapSource={() => void swapScreenSource()}
       channelId={channelId}
+      lookup={lookup}
     />
   );
 

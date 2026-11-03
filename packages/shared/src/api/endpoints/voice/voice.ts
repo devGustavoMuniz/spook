@@ -361,6 +361,174 @@ export function useGetScreenPreview<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getDeleteScreenWatchUrl = (channelId: string, userId: string) => {
+  return `/api/channels/${channelId}/voice/screen-watch/${userId}`;
+};
+
+/**
+ * @summary Avisa que você parou de assistir à tela de quem transmite; idempotente
+ */
+export const deleteScreenWatch = async (
+  channelId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getDeleteScreenWatchUrl(channelId, userId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteScreenWatchMutationKey = () => ["deleteScreenWatch"] as const;
+
+export const getDeleteScreenWatchMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteScreenWatch>>,
+    TError,
+    DeleteScreenWatchMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteScreenWatch>>,
+  TError,
+  DeleteScreenWatchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeleteScreenWatchMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteScreenWatch>>,
+    DeleteScreenWatchMutationVariables
+  > = (props) => {
+    const { channelId, userId } = props ?? {};
+
+    return deleteScreenWatch(channelId, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteScreenWatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteScreenWatch>>
+>;
+
+export type DeleteScreenWatchMutationError = ErrorModel;
+export type DeleteScreenWatchMutationVariables = { channelId: string; userId: string };
+
+/**
+ * @summary Avisa que você parou de assistir à tela de quem transmite; idempotente
+ */
+export const useDeleteScreenWatch = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteScreenWatch>>,
+      TError,
+      DeleteScreenWatchMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteScreenWatch>>,
+  TError,
+  DeleteScreenWatchMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeleteScreenWatchMutationOptions(options), queryClient);
+};
+export const getPutScreenWatchUrl = (channelId: string, userId: string) => {
+  return `/api/channels/${channelId}/voice/screen-watch/${userId}`;
+};
+
+/**
+ * @summary Avisa que você assiste à tela de quem transmite (precisa estar na chamada do canal; a transmissão precisa existir). Vale 45 s: renove a cada ~20 s. Idempotente. O transmissor passa a ver você em `viewers` e todos veem `viewer_count`
+ */
+export const putScreenWatch = async (
+  channelId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getPutScreenWatchUrl(channelId, userId), {
+    ...options,
+    method: "PUT",
+  });
+};
+
+export const getPutScreenWatchMutationKey = () => ["putScreenWatch"] as const;
+
+export const getPutScreenWatchMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putScreenWatch>>,
+    TError,
+    PutScreenWatchMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putScreenWatch>>,
+  TError,
+  PutScreenWatchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPutScreenWatchMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putScreenWatch>>,
+    PutScreenWatchMutationVariables
+  > = (props) => {
+    const { channelId, userId } = props ?? {};
+
+    return putScreenWatch(channelId, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutScreenWatchMutationResult = NonNullable<Awaited<ReturnType<typeof putScreenWatch>>>;
+
+export type PutScreenWatchMutationError = ErrorModel;
+export type PutScreenWatchMutationVariables = { channelId: string; userId: string };
+
+/**
+ * @summary Avisa que você assiste à tela de quem transmite (precisa estar na chamada do canal; a transmissão precisa existir). Vale 45 s: renove a cada ~20 s. Idempotente. O transmissor passa a ver você em `viewers` e todos veem `viewer_count`
+ */
+export const usePutScreenWatch = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof putScreenWatch>>,
+      TError,
+      PutScreenWatchMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof putScreenWatch>>,
+  TError,
+  PutScreenWatchMutationVariables,
+  TContext
+> => {
+  return useMutation(getPutScreenWatchMutationOptions(options), queryClient);
+};
 export const getCreateVoiceTokenUrl = (channelId: string) => {
   return `/api/channels/${channelId}/voice/token`;
 };

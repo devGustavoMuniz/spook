@@ -7,6 +7,19 @@
 import * as zod from "zod";
 
 /**
+ * @summary Mensagens por dia da semana e hora (UTC) nos últimos 28 dias (cache de 10 min)
+ */
+export const AdminActivityHeatmapResponse = zod.object({
+  cells: zod
+    .array(zod.array(zod.int()).nullable())
+    .nullable()
+    .describe("Mensagens por dia da semana (0 = domingo … 6 = sábado, UTC) e hora (0 a 23, UTC)"),
+  days: zod.int().describe("Janela em dias (28)"),
+  generated_at: zod.iso.datetime({ offset: true }),
+  total: zod.int(),
+});
+
+/**
  * @summary Salas de voz ativas lidas do LiveKit (cache de 5 s)
  */
 export const adminCallsQueryQMax = 100;
@@ -47,6 +60,27 @@ export const AdminCallsResponse = zod.object({
 });
 
 /**
+ * @summary Usuários online e conexões do gateway nas últimas 24 h, em baldes de 5 min (cache de 1 min)
+ */
+export const adminGatewayHistoryResponsePointsMax = 300;
+
+export const AdminGatewayHistoryResponse = zod.object({
+  bucket_seconds: zod.int(),
+  collecting: zod.boolean(),
+  generated_at: zod.iso.datetime({ offset: true }),
+  points: zod
+    .array(
+      zod.object({
+        connections: zod.int().describe("Máximo do balde"),
+        online_users: zod.int().describe("Máximo do balde"),
+        ts: zod.iso.datetime({ offset: true }),
+      }),
+    )
+    .max(adminGatewayHistoryResponsePointsMax)
+    .nullable(),
+});
+
+/**
  * @summary Chamadas ao vivo e uso do LiveKit (cache de 5 s)
  */
 export const AdminLiveResponse = zod.object({
@@ -78,6 +112,77 @@ export const AdminLiveResponse = zod.object({
     tracks_published: zod.number(),
     tracks_subscribed: zod.number(),
   }),
+});
+
+/**
+ * @summary Histórico do LiveKit: salas, participantes, faixas, tráfego, perda, jitter e RTT em até 300 pontos (24h: 5 min; 7d: 1 h; 30d: 1 dia; cache de 1 min)
+ */
+export const adminLiveKitHistoryQueryRangeDefault = `24h`;
+
+export const AdminLiveKitHistoryQueryParams = zod.object({
+  range: zod
+    .enum(["24h", "7d", "30d"])
+    .default(adminLiveKitHistoryQueryRangeDefault)
+    .describe("Janela da série"),
+});
+
+export const adminLiveKitHistoryResponsePointsMax = 300;
+
+export const AdminLiveKitHistoryResponse = zod.object({
+  bucket_seconds: zod.int(),
+  collecting: zod
+    .boolean()
+    .describe("Verdadeiro enquanto há menos de 2 amostras: o histórico ainda está acumulando"),
+  generated_at: zod.iso.datetime({ offset: true }),
+  points: zod
+    .array(
+      zod.object({
+        bytes_in: zod.number().describe("Tráfego de entrada no balde"),
+        bytes_out: zod.number().describe("Tráfego de saída no balde"),
+        bytes_out_per_sec: zod.number().describe("Média do balde"),
+        has_media: zod
+          .boolean()
+          .describe("Falso se o Prometheus do LiveKit não respondeu em nenhuma amostra do balde"),
+        jitter_ms: zod.number().nullable().describe("Média do balde"),
+        packet_loss_pct: zod.number().nullable().describe("Pior perda do balde"),
+        packets_per_sec: zod.number(),
+        participants: zod.int().describe("Participantes (máximo do balde)"),
+        peak_out_per_sec: zod
+          .number()
+          .describe("Maior ritmo de saída entre duas amostras do balde"),
+        rooms: zod.int().describe("Salas (máximo do balde)"),
+        rtt_ms: zod.number().nullable().describe("Média do balde"),
+        tracks_published: zod.int(),
+        tracks_subscribed: zod.int(),
+        ts: zod.iso.datetime({ offset: true }).describe("Início do balde (UTC)"),
+      }),
+    )
+    .max(adminLiveKitHistoryResponsePointsMax)
+    .nullable(),
+  range: zod.enum(["24h", "7d", "30d"]),
+});
+
+/**
+ * @summary Pico de tráfego de saída em 24 h e tráfego do mês corrente contra o limite do plano (cache de 1 min)
+ */
+export const AdminLiveKitUsageResponse = zod.object({
+  collecting: zod.boolean().describe("Ainda sem amostras suficientes"),
+  generated_at: zod.iso.datetime({ offset: true }),
+  month_bytes_in: zod.number(),
+  month_bytes_out: zod
+    .number()
+    .describe("Tráfego de saída do mês corrente (soma de deltas, tolera reinício do contador)"),
+  month_pct: zod.number().nullable().describe("Percentual do limite já usado (tráfego de saída)"),
+  month_start: zod.iso
+    .datetime({ offset: true })
+    .describe("Primeiro instante do mês corrente (UTC)"),
+  monthly_limit_bytes: zod
+    .int()
+    .nullable()
+    .describe("Limite do plano (LIVEKIT_MONTHLY_TRAFFIC_GB); nulo se não configurado"),
+  peak_out_24h_per_sec: zod
+    .number()
+    .describe("Maior ritmo de saída (bytes/s) entre duas amostras nas últimas 24 h"),
 });
 
 /**
@@ -202,11 +307,38 @@ export const AdminServersResponse = zod.object({
 });
 
 /**
+ * @summary Os 10 servidores com mais mensagens nos últimos 7 dias (cache de 10 min)
+ */
+export const adminTopServersResponseItemsMax = 10;
+
+export const AdminTopServersResponse = zod.object({
+  days: zod.int(),
+  generated_at: zod.iso.datetime({ offset: true }),
+  items: zod
+    .array(
+      zod.object({
+        id: zod.string().describe("ID Snowflake (string)"),
+        members: zod.int(),
+        messages: zod.int().describe("Mensagens nos últimos 7 dias"),
+        name: zod.string(),
+      }),
+    )
+    .max(adminTopServersResponseItemsMax)
+    .nullable(),
+});
+
+/**
  * @summary Aplicação, banco, armazenamento, fila de jobs e gateway (cache de 5 s)
  */
 export const adminSystemResponseAppHeapBytesMin = 0;
 
 export const adminSystemResponseAppSysBytesMin = 0;
+
+export const adminSystemResponseDiskFreeBytesMin = 0;
+
+export const adminSystemResponseDiskTotalBytesMin = 0;
+
+export const adminSystemResponseDiskUsedBytesMin = 0;
 
 export const AdminSystemResponse = zod.object({
   app: zod.object({
@@ -246,6 +378,18 @@ export const AdminSystemResponse = zod.object({
       )
       .nullable(),
   }),
+  disk: zod
+    .object({
+      free_bytes: zod
+        .int()
+        .min(adminSystemResponseDiskFreeBytesMin)
+        .describe("Disponível para quem não é root"),
+      path: zod.string(),
+      total_bytes: zod.int().min(adminSystemResponseDiskTotalBytesMin),
+      used_bytes: zod.int().min(adminSystemResponseDiskUsedBytesMin),
+      used_pct: zod.number(),
+    })
+    .optional(),
   gateway: zod.object({
     available: zod.boolean(),
     connections: zod.int().describe("Conexões WebSocket abertas"),
@@ -272,6 +416,16 @@ export const AdminSystemResponse = zod.object({
     guild_icons: zod
       .int()
       .describe("Quantidade de ícones de servidor (o tamanho em bytes não é gravado)"),
+    objects: zod
+      .object({
+        avatars_bytes: zod.int().nullable(),
+        banners_bytes: zod.int().nullable(),
+        icons_bytes: zod.int().nullable(),
+        truncated: zod
+          .boolean()
+          .describe("Algum prefixo passou do teto de objetos lidos: o valor é parcial"),
+      })
+      .optional(),
   }),
 });
 

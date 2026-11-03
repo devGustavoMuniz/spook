@@ -144,4 +144,47 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			}
 			return &CallsOutput{Body: c}, nil
 		})
+
+	huma.Register(api, op("adminLiveKitHistory", "/api/admin/livekit/history", "Histórico do LiveKit: salas, participantes, faixas, tráfego, perda, jitter e RTT em até 300 pontos (24h: 5 min; 7d: 1 h; 30d: 1 dia; cache de 1 min)"),
+		func(ctx context.Context, in *struct {
+			Range string `query:"range" enum:"24h,7d,30d" default:"24h" doc:"Janela da série"`
+		}) (*struct{ Body LiveKitHistory }, error) {
+			v, err := h.svc.LiveKitHistory(ctx, in.Range)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body LiveKitHistory }{Body: v}, nil
+		})
+	huma.Register(api, op("adminLiveKitUsage", "/api/admin/livekit/usage", "Pico de tráfego de saída em 24 h e tráfego do mês corrente contra o limite do plano (cache de 1 min)"),
+		func(ctx context.Context, _ *struct{}) (*struct{ Body LiveKitPlan }, error) {
+			v, err := h.svc.LiveKitPlanUsage(ctx)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body LiveKitPlan }{Body: v}, nil
+		})
+	huma.Register(api, op("adminGatewayHistory", "/api/admin/gateway/history", "Usuários online e conexões do gateway nas últimas 24 h, em baldes de 5 min (cache de 1 min)"),
+		func(ctx context.Context, _ *struct{}) (*struct{ Body GatewayHistory }, error) {
+			v, err := h.svc.GatewayHistory(ctx)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body GatewayHistory }{Body: v}, nil
+		})
+	huma.Register(api, op("adminActivityHeatmap", "/api/admin/activity/heatmap", "Mensagens por dia da semana e hora (UTC) nos últimos 28 dias (cache de 10 min)"),
+		func(ctx context.Context, _ *struct{}) (*struct{ Body ActivityHeatmap }, error) {
+			v, err := h.svc.ActivityHeatmap(ctx)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body ActivityHeatmap }{Body: v}, nil
+		})
+	huma.Register(api, op("adminTopServers", "/api/admin/servers/top", "Os 10 servidores com mais mensagens nos últimos 7 dias (cache de 10 min)"),
+		func(ctx context.Context, _ *struct{}) (*struct{ Body TopServers }, error) {
+			v, err := h.svc.TopServers(ctx)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body TopServers }{Body: v}, nil
+		})
 }

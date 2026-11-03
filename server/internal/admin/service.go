@@ -38,6 +38,11 @@ type Deps struct {
 	Gateway GatewayStats // nulo = sem dados do gateway
 	Pool    PoolStats
 	Media   MediaMetrics // nulo = Prometheus do LiveKit não configurado
+	Objects ObjectSizer  // nulo = sem tamanhos do storage S3
+	// DiskPath é o diretório cujo volume o painel mede (ADMIN_DISK_PATH; vazio = "/").
+	DiskPath string
+	// MonthlyTrafficLimitBytes é o tráfego de saída mensal do plano do LiveKit (LIVEKIT_MONTHLY_TRAFFIC_GB); 0 = sem limite.
+	MonthlyTrafficLimitBytes int64
 	// Env, Version e Commit aparecem no bloco "Aplicação". Version/Commit vazios usam o build info do Go.
 	Env, Version, Commit string
 	Now                  func() time.Time // relógio (testes)
@@ -56,6 +61,13 @@ type Service struct {
 	livekit  cell[LiveKitUsage]
 	system   cell[System]
 	overview cell[Overview]
+
+	histCells map[string]*cell[histData]
+	planCell  cell[LiveKitPlan]
+	heatCell  cell[ActivityHeatmap]
+	topCell   cell[TopServers]
+	objCell   cell[ObjectBytes]
+	hm        *histMetrics
 
 	mu     sync.Mutex // amostras anteriores (taxas por segundo)
 	prevGW *gwPoint
@@ -83,6 +95,13 @@ func NewService(d Deps) *Service {
 	s.dbInfo.ttl = dbTTL
 	s.rooms.ttl, s.livekit.ttl, s.system.ttl = liveTTL, liveTTL, liveTTL
 	s.overview.ttl = heavyTTL
+	s.histCells = map[string]*cell[histData]{}
+	for k := range Ranges {
+		s.histCells[k] = &cell[histData]{ttl: historyTTL}
+	}
+	s.planCell.ttl = historyTTL
+	s.heatCell.ttl, s.topCell.ttl, s.objCell.ttl = activityTTL, activityTTL, storageTTL
+	s.hm = newHistMetrics()
 	return s
 }
 
@@ -535,7 +554,11 @@ type System struct {
 		AttachmentBytes int64 `json:"attachment_bytes"`
 		Avatars         int64 `json:"avatars" doc:"Quantidade de avatares (o tamanho em bytes não é gravado)"`
 		GuildIcons      int64 `json:"guild_icons" doc:"Quantidade de ícones de servidor (o tamanho em bytes não é gravado)"`
+		// Objects são os bytes por tipo lidos do S3 (cache de 10 min); ausente se o storage não está disponível.
+		Objects *ObjectBytes `json:"objects,omitempty"`
 	} `json:"storage"`
+	// Disk é o volume de dados da aplicação (ADMIN_DISK_PATH); ausente onde o sistema não informa (ex.: Windows).
+	Disk *DiskInfo `json:"disk,omitempty"`
 	Jobs struct {
 		Available bool  `json:"available" doc:"Falso se a fila (River) não está rodando neste servidor"`
 		Pending   int64 `json:"pending" doc:"Disponíveis para execução"`
@@ -612,6 +635,8 @@ func (s *Service) loadSystem(ctx context.Context) (System, error) {
 	}
 	sy.Storage.AttachmentCount, sy.Storage.AttachmentBytes = c.Attachments, c.AttachmentBytes
 	sy.Storage.Avatars, sy.Storage.GuildIcons = c.Avatars, c.GuildIcons
+	sy.Disk = s.diskInfo()
+	sy.Storage.Objects = s.objectBytes(ctx)
 
 	jc, ok, err := s.d.Store.JobCounts(ctx)
 	if err != nil {

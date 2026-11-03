@@ -138,6 +138,24 @@ type Invite struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type LivekitSample struct {
+	Ts               pgtype.Timestamptz
+	Media            bool
+	Rooms            *int32
+	Participants     *int32
+	TracksPublished  *int32
+	TracksSubscribed *int32
+	BytesIn          *float64
+	BytesOut         *float64
+	PacketsIn        *float64
+	PacketsOut       *float64
+	LossPct          *float64
+	JitterMs         *float64
+	RttMs            *float64
+	OnlineUsers      *int32
+	Connections      *int32
+}
+
 type MemberRole struct {
 	GuildID int64
 	UserID  int64

@@ -521,8 +521,13 @@
         "self_mute": true,
         "self_deaf": false,
         "self_video": true,
-        "self_screen": false,
-        "screen_preview": false
+        "self_screen": true,
+        "screen_preview": false,
+        "viewer_count": 2,
+        "viewers": [
+          "12",
+          "13"
+        ]
       }
     }
   },

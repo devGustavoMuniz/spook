@@ -1,6 +1,6 @@
 import type { VoiceStatePayload } from "@spook/shared";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "@/lib/query";
@@ -197,5 +197,24 @@ describe("cartão da transmissão: assistir", () => {
     );
     await user.click(btn);
     expect(watch.onWatch).not.toHaveBeenCalled();
+  });
+});
+
+describe("cartão da transmissão: espectadores", () => {
+  it("mostra 'Assistindo: N' (só a contagem para quem não transmite)", async () => {
+    mount([st("7", { self_screen: true, viewer_count: 3 })]);
+    await ready();
+    await userEvent.click(trigger());
+    const dialog = await screen.findByRole("dialog", { name: "Transmissão de Bia" });
+    expect(dialog).toHaveTextContent("Assistindo: 3");
+    expect(within(dialog).queryByRole("list", { name: "Quem está assistindo" })).toBeNull();
+  });
+
+  it("sem espectadores o cartão não mostra o selo", async () => {
+    mount([st("7", { self_screen: true })]);
+    await ready();
+    await userEvent.click(trigger());
+    const dialog = await screen.findByRole("dialog", { name: "Transmissão de Bia" });
+    expect(dialog).not.toHaveTextContent("Assistindo");
   });
 });

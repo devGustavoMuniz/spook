@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -54,12 +55,17 @@ type Service struct {
 	lastPut map[int64]time.Time // último envio de prévia por usuário (limite de frequência)
 	seen    *dedupe
 	met     *metrics
+
+	// Espectadores das transmissões (watch.go). watchMu ordena as mudanças + publicações; é uma trava folha
+	// (nada que a segura pega a trava de um usuário).
+	watch   *watchers
+	watchMu sync.Mutex
 }
 
 func NewService(d Deps) *Service {
 	s := &Service{
 		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, audit: d.Audit, now: d.Now,
-		seen: newDedupe(2048), lastPut: map[int64]time.Time{},
+		seen: newDedupe(2048), lastPut: map[int64]time.Time{}, watch: newWatchers(),
 	}
 	if s.now == nil {
 		s.now = time.Now
@@ -67,7 +73,7 @@ func NewService(d Deps) *Service {
 	if s.pub == nil {
 		s.pub = events.Discard{}
 	}
-	s.met = newMetrics(s.store, s.previews)
+	s.met = newMetrics(s.store, s.previews, s.watch)
 	return s
 }
 
@@ -90,7 +96,7 @@ func denied(err error) bool {
 }
 
 func (s *Service) publish(st State, left bool) {
-	p := st.Payload()
+	p := s.statePayload(st)
 	if left {
 		p = leftPayload(st)
 	}
@@ -124,6 +130,13 @@ func (s *Service) dropLocked(ctx context.Context, st State, kick bool) {
 		s.previews.Delete(st.UserID)
 	}
 	s.publish(st, true)
+	// Quem sai deixa de assistir (e de ser assistido): os transmissores afetados recebem a contagem nova.
+	s.watchMu.Lock()
+	s.watch.dropStreamer(st.UserID)
+	for _, streamer := range s.watch.dropViewer(st.UserID) {
+		s.republishStreamer(streamer)
+	}
+	s.watchMu.Unlock()
 }
 
 // ---- token ----
@@ -275,25 +288,18 @@ func (s *Service) GuildStates(ctx context.Context, userID, guildID int64) ([]Sta
 			out = append(out, st)
 		}
 	}
-	return payloads(out), nil
+	return s.payloadsFor(userID, out), nil
 }
 
 // Occupants diz quantas pessoas estão na sala do canal agora (DM ou canal de voz).
 func (s *Service) Occupants(channelID int64) int { return len(s.store.ByChannel(channelID)) }
 
 // Snapshot devolve os estados de voz dos servidores e DMs informados (READY). Só memória; o
-// chamador (gateway) já sabe quais servidores o usuário vê. Nunca devolve nil.
-func (s *Service) Snapshot(guildIDs, dmChannelIDs []int64) []StatePayload {
-	out := payloads(s.store.ByGuilds(guildIDs))
-	return append(out, payloads(s.store.ByChannels(dmChannelIDs))...)
-}
-
-func payloads(sts []State) []StatePayload {
-	out := make([]StatePayload, 0, len(sts))
-	for _, st := range sts {
-		out = append(out, st.Payload())
-	}
-	return out
+// chamador (gateway) já sabe quais servidores o usuário vê; a lista de espectadores só vai ao próprio transmissor
+// (userID). Nunca devolve nil.
+func (s *Service) Snapshot(userID int64, guildIDs, dmChannelIDs []int64) []StatePayload {
+	out := s.payloadsFor(userID, s.store.ByGuilds(guildIDs))
+	return append(out, s.payloadsFor(userID, s.store.ByChannels(dmChannelIDs))...)
 }
 
 // ---- webhook ----
@@ -378,9 +384,14 @@ func (s *Service) apply(ctx context.Context, ev RoomEvent) error {
 			next.Video = on
 		case SourceScreenShare:
 			next.Screen = on
-			if !on && s.previews != nil { // parou de transmitir: a prévia some junto
-				s.previews.Delete(userID)
+			if !on { // parou de transmitir: a prévia e os espectadores somem junto
+				if s.previews != nil {
+					s.previews.Delete(userID)
+				}
 				next.Preview = false
+				s.watchMu.Lock()
+				s.watch.dropStreamer(userID)
+				s.watchMu.Unlock()
 			}
 		}
 		if next != st {
@@ -514,6 +525,9 @@ func (s *Service) Reevaluate(ctx context.Context, userID int64) {
 	st.CanSpeak, st.CanVideo, st.ServerMuted = speak, video, muted
 	if !video { // sem VIDEO o LiveKit encerra câmera e tela
 		st.Video, st.Screen = false, false
+		s.watchMu.Lock()
+		s.watch.dropStreamer(userID)
+		s.watchMu.Unlock()
 		if s.previews != nil {
 			s.previews.Delete(userID)
 		}
@@ -527,13 +541,19 @@ func (s *Service) Reevaluate(ctx context.Context, userID int64) {
 
 // ---- reconciliação ----
 
-// Run roda o reconciliador a cada interval até ctx terminar.
-func (s *Service) Run(ctx context.Context, interval time.Duration) {
+// Run varre as prévias e os espectadores vencidos (todo previewSweepEvery) e, se reconcileEvery > 0, roda o
+// reconciliador a cada intervalo até ctx terminar. Em produção o reconciliador roda como job periódico do River
+// (`voice_reconcile`, ver jobs.go) e reconcileEvery fica em 0; sem a fila (sem pool do pgx) ou nos testes, é este laço.
+func (s *Service) Run(ctx context.Context, reconcileEvery time.Duration) {
 	if !s.Enabled() {
 		return
 	}
-	t := time.NewTicker(interval)
-	defer t.Stop()
+	var tick <-chan time.Time
+	if reconcileEvery > 0 {
+		t := time.NewTicker(reconcileEvery)
+		defer t.Stop()
+		tick = t.C
+	}
 	sweep := time.NewTicker(previewSweepEvery)
 	defer sweep.Stop()
 	for {
@@ -542,7 +562,8 @@ func (s *Service) Run(ctx context.Context, interval time.Duration) {
 			return
 		case <-sweep.C:
 			s.SweepPreviews(ctx)
-		case <-t.C:
+			s.SweepWatchers()
+		case <-tick:
 			if err := s.Reconcile(ctx); err != nil {
 				slog.Warn("voice: reconciliação falhou", "err", err)
 			}
@@ -550,22 +571,61 @@ func (s *Service) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// Reconcile compara o estado em memória com o LiveKit: remove estados órfãos (LiveKit reiniciou,
-// webhook perdido) e registra participantes que o backend não conhecia (backend reiniciou).
-// Falha ao consultar uma sala nunca remove estados dela.
+// ReconcileReport resume uma rodada do reconciliador (testes e logs).
+type ReconcileReport struct {
+	Rooms       int // salas consultadas
+	Joined      int // participantes do LiveKit que o backend não conhecia
+	Orphans     int // estados removidos (a pessoa não está mais no LiveKit)
+	FlagsFixed  int // indicadores de câmera/tela/prévia corrigidos
+	MuteApplied int // mutes do servidor reaplicados no LiveKit
+}
+
+// Reconcile compara o estado em memória com o LiveKit e corrige as divergências, sem nunca derrubar quem está
+// conectado por engano:
+//   - estado órfão (LiveKit reiniciado, webhook perdido) é removido, mas só se a sala foi lida com sucesso e a
+//     entrada é anterior à consulta;
+//   - participante que o backend não conhecia (backend reiniciou) é registrado;
+//   - câmera/tela desligadas no LiveKit sem webhook limpam o indicador, a prévia e os espectadores;
+//   - prévia marcada sem prévia guardada limpa o indicador;
+//   - quem está mutado pelo servidor e mesmo assim publica microfone tem as permissões reaplicadas;
+//   - as permissões de cada participante são reavaliadas (rede de segurança de eventos de permissão perdidos).
+//
+// LiveKit fora do ar: devolve o erro (é registrado) e não toca em nada. É idempotente.
 func (s *Service) Reconcile(ctx context.Context) error {
+	_, err := s.ReconcileOnce(ctx)
+	return err
+}
+
+// ReconcileOnce é o Reconcile devolvendo o relatório.
+func (s *Service) ReconcileOnce(ctx context.Context) (rep ReconcileReport, err error) {
 	if !s.Enabled() {
-		return nil
+		return rep, nil
 	}
 	ctx, span := tracer.Start(ctx, "voice.Reconcile")
 	defer span.End()
 	start := s.now()
+	defer func() {
+		result := "ok"
+		if err != nil {
+			result = "unreachable"
+			span.SetStatus(codes.Error, err.Error())
+		}
+		s.met.reconcileRuns.Add(ctx, 1, metric.WithAttributes(attribute.String("result", result)))
+		s.met.reconcileTime.Record(ctx, time.Since(start).Seconds())
+		s.met.reconcileFix.Add(ctx, int64(rep.Joined), metric.WithAttributes(attribute.String("kind", "joined")))
+		s.met.reconcileFix.Add(ctx, int64(rep.FlagsFixed), metric.WithAttributes(attribute.String("kind", "flags")))
+		s.met.reconcileFix.Add(ctx, int64(rep.MuteApplied), metric.WithAttributes(attribute.String("kind", "mute")))
+		span.SetAttributes(attribute.Int("rooms", rep.Rooms), attribute.Int("removed", rep.Orphans))
+		if rep.Orphans > 0 {
+			s.met.orphans.Add(ctx, int64(rep.Orphans))
+			slog.Info("voice: estados órfãos removidos", "count", rep.Orphans)
+		}
+	}()
 	rctx, cancel := remote(ctx)
 	rooms, err := s.prov.ListRooms(rctx)
 	cancel()
 	if err != nil {
-		span.SetStatus(codes.Error, err.Error())
-		return err
+		return rep, fmt.Errorf("listar as salas do LiveKit: %w", err)
 	}
 	set := map[int64]struct{}{}
 	for _, r := range rooms {
@@ -576,15 +636,15 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	for _, ch := range s.store.Channels() {
 		set[ch] = struct{}{}
 	}
-	removed := 0
 	for ch := range set {
 		rctx, cancel := remote(ctx)
 		parts, err := s.prov.ListParticipants(rctx, roomName(ch))
 		cancel()
 		if err != nil {
 			slog.Warn("voice: não foi possível listar a sala", "channel", ch, "err", err)
-			continue
+			continue // sala não lida: nada dela é removido
 		}
+		rep.Rooms++
 		live := map[int64]struct{}{}
 		for _, p := range parts {
 			uid, ok := parseID(p.Identity)
@@ -592,8 +652,25 @@ func (s *Service) Reconcile(ctx context.Context) error {
 				continue
 			}
 			live[uid] = struct{}{}
+			before, known := s.store.Get(uid)
+			if known {
+				s.Reevaluate(ctx, uid) // antes do join: ele atualiza o estado e esconderia a diferença das permissões
+			}
 			if err := s.join(ctx, uid, ch, p.SID, p.Sources); err != nil {
 				slog.Warn("voice: não foi possível registrar o participante", "user", uid, "channel", ch, "err", err)
+				continue
+			}
+			if cur, ok := s.store.Get(uid); ok && cur.ChannelID == ch {
+				if !known {
+					rep.Joined++
+				}
+				if known && (before.Video != cur.Video || before.Screen != cur.Screen) {
+					rep.FlagsFixed++ // webhook de câmera/tela perdido: o join alinhou ao que o LiveKit publica
+				}
+				rep.FlagsFixed += s.syncPreview(uid, ch)
+				if s.reapplyServerMute(ctx, uid, ch, p) {
+					rep.MuteApplied++
+				}
 			}
 		}
 		for _, st := range s.store.ByChannel(ch) {
@@ -604,17 +681,70 @@ func (s *Service) Reconcile(ctx context.Context) error {
 				defer s.lock(st.UserID)()
 				if cur, ok := s.store.Get(st.UserID); ok && cur.ChannelID == ch && cur.JoinedAt.Equal(st.JoinedAt) {
 					s.dropLocked(ctx, cur, false)
-					removed++
+					rep.Orphans++
 				}
 			}()
 		}
 	}
-	span.SetAttributes(attribute.Int("removed", removed))
-	if removed > 0 {
-		s.met.orphans.Add(ctx, int64(removed))
-		slog.Info("voice: estados órfãos removidos", "count", removed)
+	s.SweepWatchers()
+	return rep, nil
+}
+
+// syncPreview limpa a prévia e os espectadores de quem não transmite mais (o join já alinhou câmera e tela às
+// mídias publicadas no LiveKit, mas não mexe nisso) e o indicador de prévia sem prévia guardada. Devolve quantos
+// indicadores corrigiu.
+func (s *Service) syncPreview(userID, channelID int64) int {
+	defer s.lock(userID)()
+	st, ok := s.store.Get(userID)
+	if !ok || st.ChannelID != channelID {
+		return 0
 	}
-	return nil
+	next, fixed := st, 0
+	if !next.Screen {
+		if s.previews != nil {
+			s.previews.Delete(userID)
+		}
+		if next.Preview {
+			next.Preview, fixed = false, fixed+1
+		}
+		s.watchMu.Lock()
+		s.watch.dropStreamer(userID)
+		s.watchMu.Unlock()
+	} else if next.Preview && s.previews != nil {
+		if _, ok := s.previews.Get(userID, channelID, s.now()); !ok { // indicador sem prévia guardada
+			next.Preview, fixed = false, fixed+1
+		}
+	}
+	if next != st {
+		s.store.Put(next)
+		s.publish(next, false)
+	}
+	return fixed
+}
+
+// reapplyServerMute reaplica o mute do servidor quando o LiveKit ainda mostra o microfone do participante
+// publicado (as permissões do token não foram respeitadas ou se perderam).
+func (s *Service) reapplyServerMute(ctx context.Context, userID, channelID int64, p Participant) bool {
+	st, ok := s.store.Get(userID)
+	if !ok || st.ChannelID != channelID || !st.ServerMuted || st.GuildID == 0 {
+		return false
+	}
+	mic := false
+	for _, src := range p.Sources {
+		if src == SourceMicrophone {
+			mic = true
+		}
+	}
+	if !mic {
+		return false
+	}
+	rctx, cancel := remote(ctx)
+	defer cancel()
+	if err := s.prov.UpdatePermissions(rctx, roomName(channelID), identity(userID), GrantsFor(false, st.CanVideo)); err != nil {
+		slog.Warn("voice: não foi possível reaplicar o mute do servidor", "user", userID, "err", err)
+		return false
+	}
+	return true
 }
 
 // ---- deduplicação de webhooks ----

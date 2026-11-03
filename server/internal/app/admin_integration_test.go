@@ -28,6 +28,8 @@ func (e *testEnv) makeAdmin(t *testing.T, a *actor) {
 var adminRoutes = []string{
 	"/api/admin/overview", "/api/admin/live", "/api/admin/system",
 	"/api/admin/users", "/api/admin/servers", "/api/admin/calls",
+	"/api/admin/livekit/history", "/api/admin/livekit/usage", "/api/admin/gateway/history",
+	"/api/admin/activity/heatmap", "/api/admin/servers/top",
 }
 
 func TestAdminRoutesRequireAdmin(t *testing.T) {

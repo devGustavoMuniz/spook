@@ -21,6 +21,7 @@ import {
   formatNumber,
   shortDay,
 } from "@/features/admin/format";
+import { ActivitySection, HistorySection, PlanUsage } from "@/features/admin/history";
 import {
   ErrorNote,
   Facts,
@@ -42,6 +43,7 @@ const dash = (v: number | null | undefined, f: (n: number) => string) =>
   v === null || v === undefined ? "—" : f(v);
 
 const pct = (n: number) => `${formatDecimal(n)}%`;
+const bytesOrDash = (n: number | null | undefined) => (n == null ? "—" : formatBytes(n));
 
 /** Título de grupo da página (hierarquia: grupo → bloco → número). */
 function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
@@ -116,14 +118,20 @@ export function AdminDashboardPage() {
           label: "Avatares",
           value: sy.storage.avatars,
           display: formatNumber(sy.storage.avatars),
-          detail: "tamanho não medido",
+          detail:
+            sy.storage.objects?.avatars_bytes != null
+              ? formatBytes(sy.storage.objects.avatars_bytes)
+              : "tamanho não medido",
         },
         {
           key: "icons",
           label: "Ícones de servidor",
           value: sy.storage.guild_icons,
           display: formatNumber(sy.storage.guild_icons),
-          detail: "tamanho não medido",
+          detail:
+            sy.storage.objects?.icons_bytes != null
+              ? formatBytes(sy.storage.objects.icons_bytes)
+              : "tamanho não medido",
         },
       ]
     : [];
@@ -299,10 +307,20 @@ export function AdminDashboardPage() {
             </Section>
           </div>
         ) : null}
-        <p className="mt-3 text-xs text-muted-foreground">
-          Mensagens por hora e dia da semana (mapa de calor) e o histórico do LiveKit chegam quando
-          o backend passar a guardar essas séries.
-        </p>
+      </Group>
+
+      <Group
+        title="Atividade"
+        hint="Quando o app é mais usado e onde estão as conversas (mensagens em servidores)"
+      >
+        <ActivitySection />
+      </Group>
+
+      <Group
+        title="Histórico"
+        hint="Uma amostra por minuto do LiveKit e do gateway, guardada no banco (35 dias por padrão)"
+      >
+        <HistorySection />
       </Group>
 
       {o ? (
@@ -317,9 +335,6 @@ export function AdminDashboardPage() {
                   ["Novos em 24 h", formatNumber(o.users.new_24h)],
                 ]}
               />
-              <p className="mt-2 text-xs text-muted-foreground">
-                O Spook não tem verificação de e-mail nem login social.
-              </p>
             </Section>
             <Section title="Servidores e canais">
               <Facts
@@ -355,9 +370,6 @@ export function AdminDashboardPage() {
                   ["Grupos", formatNumber(o.conversations.groups)],
                 ]}
               />
-              <p className="mt-2 text-xs text-muted-foreground">
-                O Spook não tem amizades, pedidos nem bloqueios.
-              </p>
             </Section>
           </div>
         </Group>
@@ -469,9 +481,27 @@ export function AdminDashboardPage() {
                   }
                 />
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Uso de disco do servidor ainda não é medido pelo backend.
-              </p>
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <Gauge
+                  label="Disco do volume de dados"
+                  value={sy.disk ? sy.disk.used_pct : null}
+                  max={100}
+                  warnAt={80}
+                  badAt={90}
+                  format={pct}
+                  hint={
+                    sy.disk
+                      ? `${formatBytes(sy.disk.used_bytes)} de ${formatBytes(sy.disk.total_bytes)} em ${sy.disk.path}`
+                      : "disco não medido neste sistema"
+                  }
+                />
+              </div>
+            </Section>
+            <Section
+              title="Plano do LiveKit"
+              hint="Tráfego de saída do mês corrente contra o limite do plano e o pico das últimas 24 h"
+            >
+              <PlanUsage />
             </Section>
             <Section title="Aplicação" hint="Atualiza a cada 5 s">
               <Facts
@@ -558,7 +588,7 @@ export function AdminDashboardPage() {
             </Section>
             <Section
               title="Armazenamento"
-              hint="Anexos têm tamanho no banco; avatares e ícones só a contagem"
+              hint="Anexos têm o tamanho no banco; avatares, ícones e banners são medidos no S3 (cache de 10 min)"
             >
               <Facts
                 items={[
@@ -566,6 +596,13 @@ export function AdminDashboardPage() {
                   ["Tamanho dos anexos", formatBytes(sy.storage.attachment_bytes)],
                   ["Avatares", formatNumber(sy.storage.avatars)],
                   ["Ícones de servidor", formatNumber(sy.storage.guild_icons)],
+                  ...(sy.storage.objects
+                    ? ([
+                        ["Avatares (bytes)", bytesOrDash(sy.storage.objects.avatars_bytes)],
+                        ["Ícones (bytes)", bytesOrDash(sy.storage.objects.icons_bytes)],
+                        ["Banners (bytes)", bytesOrDash(sy.storage.objects.banners_bytes)],
+                      ] as [string, string][])
+                    : []),
                 ]}
               />
               <h3 className="mt-4 mb-1 text-sm font-medium">Itens por tipo</h3>

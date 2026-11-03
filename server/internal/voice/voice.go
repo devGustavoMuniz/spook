@@ -140,15 +140,17 @@ func (s State) Payload() StatePayload {
 
 // StatePayload é o dado do VOICE_STATE_UPDATE e dos snapshots. channel_id nulo = saiu da voz.
 type StatePayload struct {
-	GuildID       *string `json:"guild_id" doc:"Nulo em DM"`
-	ChannelID     *string `json:"channel_id" doc:"Nulo quando o usuário saiu da voz"`
-	UserID        string  `json:"user_id"`
-	SelfMute      bool    `json:"self_mute"`
-	SelfDeaf      bool    `json:"self_deaf"`
-	SelfVideo     bool    `json:"self_video" doc:"Câmera ligada"`
-	SelfScreen    bool    `json:"self_screen" doc:"Compartilhando a tela"`
-	ServerMuted   bool    `json:"server_muted,omitempty" doc:"Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar"`
-	ScreenPreview bool    `json:"screen_preview" doc:"Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id}"`
+	GuildID       *string  `json:"guild_id" doc:"Nulo em DM"`
+	ChannelID     *string  `json:"channel_id" doc:"Nulo quando o usuário saiu da voz"`
+	UserID        string   `json:"user_id"`
+	SelfMute      bool     `json:"self_mute"`
+	SelfDeaf      bool     `json:"self_deaf"`
+	SelfVideo     bool     `json:"self_video" doc:"Câmera ligada"`
+	SelfScreen    bool     `json:"self_screen" doc:"Compartilhando a tela"`
+	ServerMuted   bool     `json:"server_muted,omitempty" doc:"Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar"`
+	ScreenPreview bool     `json:"screen_preview" doc:"Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id}"`
+	ViewerCount   int      `json:"viewer_count,omitempty" doc:"Quantas pessoas estão assistindo a tela (ausente = 0, ou não transmite). Visível a quem vê o canal"`
+	Viewers       []string `json:"viewers,omitempty" maxItems:"50" doc:"IDs de quem assiste a tela (até 50, os mais antigos primeiro). Só o próprio transmissor recebe a lista (o gateway e os snapshots a retiram dos demais); os outros veem só viewer_count"`
 }
 
 // leftPayload é o evento de saída do estado s.
@@ -156,6 +158,7 @@ func leftPayload(s State) StatePayload {
 	p := s.Payload()
 	p.ChannelID = nil
 	p.SelfVideo, p.SelfScreen, p.ScreenPreview = false, false, false
+	p.ViewerCount, p.Viewers = 0, nil
 	return p
 }
 

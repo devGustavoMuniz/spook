@@ -35,7 +35,13 @@ type LiveKit struct {
 	// MetricsURL é o endpoint Prometheus do LiveKit (rede interna), lido pelo painel /admin. Padrão: a
 	// mesma máquina de InternalURL na porta 6789, /metrics. Vazio desliga a leitura.
 	MetricsURL string
+	// MonthlyTrafficGB é o tráfego de saída mensal do plano (LIVEKIT_MONTHLY_TRAFFIC_GB, opcional; 0 = sem limite):
+	// o painel mostra o uso do mês contra ele.
+	MonthlyTrafficGB float64
 }
+
+// MonthlyTrafficBytes converte MonthlyTrafficGB em bytes (1 GB = 10^9 bytes, como os planos de nuvem).
+func (l LiveKit) MonthlyTrafficBytes() int64 { return int64(l.MonthlyTrafficGB * 1e9) }
 
 func (l LiveKit) Enabled() bool { return l.URL != "" && l.APIKey != "" && l.APISecret != "" }
 
@@ -127,6 +133,14 @@ type Config struct {
 	// SecretKey (SPOOK_SECRET_KEY) assina o estado OAuth e cifra os tokens em jobs. Vazio = chave aleatória por
 	// processo (fluxos em andamento e e-mails na fila não sobrevivem a um reinício).
 	SecretKey string
+	// LiveKitSamplesRetentionDays é por quantos dias o histórico por minuto do LiveKit/gateway é guardado
+	// (LIVEKIT_SAMPLES_RETENTION_DAYS; padrão 35, de 2 a 365).
+	LiveKitSamplesRetentionDays int
+	// AdminDiskPath é o diretório cujo volume o painel mede (ADMIN_DISK_PATH; padrão "/").
+	AdminDiskPath string
+	// RateLimitPerMin guarda as substituições RATELIMIT_<NOME>_PER_MIN dos limites nomeados por ação, indexadas
+	// pelo nome estável (ex.: "servers.create"); só valem nomes conhecidos (ver app/ratelimits.go).
+	RateLimitPerMin map[string]int
 	// Version identifica o build no painel (SPOOK_VERSION; em produção, a imagem). Vazio = "dev".
 	Version string
 	// Commit é opcional (SPOOK_COMMIT); sem ele o painel usa o vcs.revision do build, se houver.
@@ -213,6 +227,9 @@ func Load() (Config, error) {
 		c.AuditRetentionDays = n
 	}
 	if err := loadLimits(&c); err != nil {
+		return Config{}, err
+	}
+	if err := loadAdmin(&c); err != nil {
 		return Config{}, err
 	}
 	if c.S3.Enabled() && (c.S3.AccessKeyID == "" || c.S3.SecretAccessKey == "") {
@@ -333,4 +350,47 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// loadAdmin lê as variáveis do histórico do painel e os limites nomeados por ação (RATELIMIT_*_PER_MIN).
+func loadAdmin(c *Config) error {
+	c.LiveKitSamplesRetentionDays = 35
+	if v := os.Getenv("LIVEKIT_SAMPLES_RETENTION_DAYS"); v != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 2 || n > 365 {
+			return fmt.Errorf("LIVEKIT_SAMPLES_RETENTION_DAYS inválido (2 a 365): %q", v)
+		}
+		c.LiveKitSamplesRetentionDays = n
+	}
+	if v := os.Getenv("LIVEKIT_MONTHLY_TRAFFIC_GB"); v != "" {
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil || f <= 0 || f > 1e7 {
+			return fmt.Errorf("LIVEKIT_MONTHLY_TRAFFIC_GB inválido (maior que 0): %q", v)
+		}
+		c.LiveKit.MonthlyTrafficGB = f
+	}
+	c.AdminDiskPath = strings.TrimSpace(os.Getenv("ADMIN_DISK_PATH"))
+	if c.AdminDiskPath == "" {
+		c.AdminDiskPath = "/"
+	}
+	for _, kv := range os.Environ() {
+		key, val, _ := strings.Cut(kv, "=")
+		name, ok := strings.CutPrefix(key, "RATELIMIT_")
+		if !ok {
+			continue
+		}
+		name, ok = strings.CutSuffix(name, "_PER_MIN")
+		if !ok || name == "" || strings.TrimSpace(val) == "" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(val))
+		if err != nil || n < 1 || n > 100000 {
+			return fmt.Errorf("%s inválido (1 a 100000 por minuto): %q", key, val)
+		}
+		if c.RateLimitPerMin == nil {
+			c.RateLimitPerMin = map[string]int{}
+		}
+		c.RateLimitPerMin[strings.ToLower(name)] = n
+	}
+	return nil
 }

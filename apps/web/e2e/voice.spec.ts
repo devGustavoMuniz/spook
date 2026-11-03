@@ -181,6 +181,19 @@ test("tela compartilhada de A chega a B em destaque; parar remove o painel", asy
   await expect(tile).toHaveCount(1, { timeout: 20_000 });
   await expect(b.page.getByRole("img", { name: "Compartilhando a tela" }).first()).toBeVisible();
 
+  // Espectadores: B avisa o backend (heartbeat) e A vê "Assistindo: 1" no tile da própria tela, com o nome de B.
+  await expect(a.page.getByTestId("viewers").first()).toContainText("Assistindo: 1", {
+    timeout: 20_000,
+  });
+  await expect(a.page.getByTestId("viewers").first()).toContainText(b.username);
+  // B para de assistir: a contagem some para A.
+  await b.page.getByRole("button", { name: /^Parar de assistir a tela de / }).click();
+  await expect(a.page.getByTestId("viewers")).toHaveCount(0, { timeout: 20_000 });
+  await b.page.getByRole("button", { name: /^Assistir tela de / }).click({ timeout: 20_000 });
+  await expect(a.page.getByTestId("viewers").first()).toContainText("Assistindo: 1", {
+    timeout: 20_000,
+  });
+
   await dock(a.page).getByRole("button", { name: "Parar de compartilhar a tela" }).click();
   await expect(tile).toHaveCount(0, { timeout: 20_000 });
   await expect(b.page.getByRole("img", { name: "Compartilhando a tela" })).toHaveCount(0);

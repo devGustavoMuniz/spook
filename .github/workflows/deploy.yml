@@ -135,6 +135,9 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
           ADMIN_USERNAMES: ${{ vars.ADMIN_USERNAMES }}
+          # Painel /admin, capacidade (opcionais): limite mensal de tráfego do plano do LiveKit (GB), retenção do histórico (dias).
+          LIVEKIT_MONTHLY_TRAFFIC_GB: ${{ vars.LIVEKIT_MONTHLY_TRAFFIC_GB }}
+          LIVEKIT_SAMPLES_RETENTION_DAYS: ${{ vars.LIVEKIT_SAMPLES_RETENTION_DAYS }}
           # E-mail e login social: todos opcionais (sem SMTP_HOST o app sobe em modo degradado).
           SPOOK_SECRET_KEY: ${{ secrets.SPOOK_SECRET_KEY }}
           SMTP_HOST: ${{ vars.SMTP_HOST }}
@@ -166,6 +169,7 @@ jobs:
             printf 'VAPID_PUBLIC_KEY=%s\nVAPID_PRIVATE_KEY=%s\nVAPID_SUBJECT=%s\n' "$VAPID_PUBLIC_KEY" "$VAPID_PRIVATE_KEY" "$VAPID_SUBJECT"
             # Painel /admin: usernames promovidos a administrador no boot (Variable, não é segredo); vazio = ninguém.
             printf 'ADMIN_USERNAMES=%s\n' "$ADMIN_USERNAMES"
+            printf 'LIVEKIT_MONTHLY_TRAFFIC_GB=%s\nLIVEKIT_SAMPLES_RETENTION_DAYS=%s\n' "$LIVEKIT_MONTHLY_TRAFFIC_GB" "$LIVEKIT_SAMPLES_RETENTION_DAYS"
             # E-mail e login social (opcionais; vazio = desligado)
             printf 'PUBLIC_URL=%s\nSPOOK_SECRET_KEY=%s\n' "$PUBLIC_URL" "$SPOOK_SECRET_KEY"
             printf 'SMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nSMTP_FROM=%s\n' "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USER" "$SMTP_PASSWORD" "$SMTP_FROM"

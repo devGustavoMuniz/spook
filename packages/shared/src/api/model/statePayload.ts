@@ -27,4 +27,12 @@ export interface StatePayload {
   /** Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar */
   server_muted?: boolean;
   user_id: string;
+  /** Quantas pessoas estão assistindo a tela (ausente = 0, ou não transmite). Visível a quem vê o canal */
+  viewer_count?: number;
+  /**
+   * IDs de quem assiste a tela (até 50, os mais antigos primeiro). Só o próprio transmissor recebe a lista (o gateway e os snapshots a retiram dos demais); os outros veem só viewer_count
+   * @maxItems 50
+   * @nullable
+   */
+  viewers?: string[] | null;
 }

@@ -45,6 +45,30 @@ test("admin acessa o dashboard e a lista de usuários", async ({ browser }) => {
   await expect(page.getByText(/Atualizado em \d\d:\d\d:\d\d/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ao vivo agora" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Aplicação e armazenamento" })).toBeVisible();
+  // Histórico e atividade (RF28): mapa de calor, ranking, seletor de janela e disco; sem os avisos antigos.
+  await expect(page.getByRole("heading", { name: "Atividade" })).toBeVisible();
+  await expect(
+    page
+      .getByRole("grid", { name: "Mensagens por hora e dia da semana" })
+      .or(page.getByText("Sem atividade registrada.")),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Histórico", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "7 dias" }).click();
+  await expect(page.getByRole("tab", { name: "7 dias" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("meter", { name: "Disco do volume de dados" })).toBeVisible();
+  await expect(page.getByText(/chegam quando o backend/)).toHaveCount(0);
+  if (process.env.E2E_SHOT) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.screenshot({ path: `${process.env.E2E_SHOT}/admin-1440.png`, fullPage: true });
+  }
+  // 390 px: sem rolagem horizontal.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
+    .toBe(true);
+  if (process.env.E2E_SHOT)
+    await page.screenshot({ path: `${process.env.E2E_SHOT}/admin-390.png`, fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.getByRole("link", { name: "Usuários" }).click();
   await expect(page).toHaveURL(/\/admin\/users$/);

@@ -127,6 +127,54 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 		return nil, httpx.Err(h.svc.Disconnect(ctx, h.userID(ctx), cid, uid))
 	})
 
+	watchPath := "/api/channels/{channel_id}/voice/screen-watch/{user_id}"
+	watchIn := func(in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz ou da DM"`
+		UserID    string `path:"user_id" doc:"ID de quem transmite"`
+	}) (cid, uid int64, err error) {
+		cid, ok := httpx.ParseID(in.ChannelID)
+		if !ok {
+			return 0, 0, httpx.BadID("canal")
+		}
+		uid, ok = httpx.ParseID(in.UserID)
+		if !ok {
+			return 0, 0, httpx.BadID("usuário")
+		}
+		return cid, uid, nil
+	}
+	huma.Register(api, huma.Operation{
+		OperationID: "putScreenWatch", Method: http.MethodPut, Path: watchPath,
+		Summary: "Avisa que você assiste à tela de quem transmite (precisa estar na chamada do canal; a transmissão precisa existir). Vale 45 s: renove a cada ~20 s. Idempotente. O transmissor passa a ver você em `viewers` e todos veem `viewer_count`",
+		Tags:    []string{"voice"}, Security: security, Middlewares: mw, DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity,
+			http.StatusTooManyRequests, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz ou da DM"`
+		UserID    string `path:"user_id" doc:"ID de quem transmite"`
+	}) (*struct{}, error) {
+		cid, uid, err := watchIn(in)
+		if err != nil {
+			return nil, err
+		}
+		return nil, httpx.Err(h.svc.SetScreenWatch(ctx, h.userID(ctx), cid, uid, true))
+	})
+	huma.Register(api, huma.Operation{
+		OperationID: "deleteScreenWatch", Method: http.MethodDelete, Path: watchPath,
+		Summary: "Avisa que você parou de assistir à tela de quem transmite; idempotente",
+		Tags:    []string{"voice"}, Security: security, Middlewares: mw, DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity,
+			http.StatusTooManyRequests, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz ou da DM"`
+		UserID    string `path:"user_id" doc:"ID de quem transmite"`
+	}) (*struct{}, error) {
+		cid, uid, err := watchIn(in)
+		if err != nil {
+			return nil, err
+		}
+		return nil, httpx.Err(h.svc.SetScreenWatch(ctx, h.userID(ctx), cid, uid, false))
+	})
+
 	previewDoc := "Prévia (miniatura) da tela de quem transmite"
 	huma.Register(api, huma.Operation{
 		OperationID: "putScreenPreview", Method: http.MethodPut, Path: "/api/channels/{channel_id}/voice/screen-preview",

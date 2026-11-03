@@ -152,6 +152,57 @@ func (q *Queries) AdminDatabaseSize(ctx context.Context) (int64, error) {
 	return bytes, err
 }
 
+const adminInsertSample = `-- name: AdminInsertSample :exec
+INSERT INTO livekit_samples (ts, media, rooms, participants, tracks_published, tracks_subscribed,
+                             bytes_in, bytes_out, packets_in, packets_out, loss_pct, jitter_ms, rtt_ms,
+                             online_users, connections)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $7, $8, $9,
+        $10, $11, $12, $13,
+        $14, $15)
+ON CONFLICT (ts) DO NOTHING
+`
+
+type AdminInsertSampleParams struct {
+	Ts               pgtype.Timestamptz
+	Media            bool
+	Rooms            *int32
+	Participants     *int32
+	TracksPublished  *int32
+	TracksSubscribed *int32
+	BytesIn          *float64
+	BytesOut         *float64
+	PacketsIn        *float64
+	PacketsOut       *float64
+	LossPct          *float64
+	JitterMs         *float64
+	RttMs            *float64
+	OnlineUsers      *int32
+	Connections      *int32
+}
+
+// Histórico do LiveKit e do gateway (tabela livekit_samples, uma linha por minuto).
+func (q *Queries) AdminInsertSample(ctx context.Context, arg AdminInsertSampleParams) error {
+	_, err := q.db.Exec(ctx, adminInsertSample,
+		arg.Ts,
+		arg.Media,
+		arg.Rooms,
+		arg.Participants,
+		arg.TracksPublished,
+		arg.TracksSubscribed,
+		arg.BytesIn,
+		arg.BytesOut,
+		arg.PacketsIn,
+		arg.PacketsOut,
+		arg.LossPct,
+		arg.JitterMs,
+		arg.RttMs,
+		arg.OnlineUsers,
+		arg.Connections,
+	)
+	return err
+}
+
 const adminIsAdmin = `-- name: AdminIsAdmin :one
 
 SELECT is_admin FROM users WHERE id = $1
@@ -400,6 +451,43 @@ func (q *Queries) AdminListUsers(ctx context.Context, arg AdminListUsersParams) 
 	return items, nil
 }
 
+const adminMessageHeatmap = `-- name: AdminMessageHeatmap :many
+SELECT EXTRACT(ISODOW FROM t.ts)::int AS dow, EXTRACT(HOUR FROM t.ts)::int AS hour, count(*)::bigint AS n
+FROM (
+    SELECT to_timestamp(((id >> 22) + 1767225600000) / 1000.0) AT TIME ZONE 'UTC' AS ts
+    FROM messages WHERE id >= $1::bigint AND deleted_at IS NULL
+) t
+GROUP BY 1, 2
+ORDER BY 1, 2
+`
+
+type AdminMessageHeatmapRow struct {
+	Dow  int32
+	Hour int32
+	N    int64
+}
+
+// Mensagens por hora do dia x dia da semana (ISO: 1 = segunda … 7 = domingo), UTC, desde o ID mínimo.
+func (q *Queries) AdminMessageHeatmap(ctx context.Context, minID int64) ([]AdminMessageHeatmapRow, error) {
+	rows, err := q.db.Query(ctx, adminMessageHeatmap, minID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminMessageHeatmapRow
+	for rows.Next() {
+		var i AdminMessageHeatmapRow
+		if err := rows.Scan(&i.Dow, &i.Hour, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const adminMessageTotals = `-- name: AdminMessageTotals :one
 SELECT
     count(*)::bigint AS total,
@@ -483,6 +571,168 @@ func (q *Queries) AdminPromoteUsernames(ctx context.Context, usernames []string)
 	return items, nil
 }
 
+const adminPurgeSamples = `-- name: AdminPurgeSamples :execrows
+DELETE FROM livekit_samples WHERE ts IN (
+    SELECT s.ts FROM livekit_samples s WHERE s.ts < $1::timestamptz ORDER BY s.ts LIMIT $2::int
+)
+`
+
+type AdminPurgeSamplesParams struct {
+	Cutoff pgtype.Timestamptz
+	Batch  int32
+}
+
+// Apaga em lote as amostras mais antigas que o corte (devolve quantas saíram, para o job repetir).
+func (q *Queries) AdminPurgeSamples(ctx context.Context, arg AdminPurgeSamplesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, adminPurgeSamples, arg.Cutoff, arg.Batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const adminSampleSeries = `-- name: AdminSampleSeries :many
+WITH d AS (
+    SELECT ts, media, rooms, participants, tracks_published, tracks_subscribed, loss_pct, jitter_ms, rtt_ms,
+           online_users, connections,
+           CASE WHEN lag(bytes_out) OVER w IS NULL OR bytes_out IS NULL THEN 0
+                WHEN bytes_out >= lag(bytes_out) OVER w THEN bytes_out - lag(bytes_out) OVER w ELSE bytes_out END AS d_out,
+           CASE WHEN lag(bytes_in) OVER w IS NULL OR bytes_in IS NULL THEN 0
+                WHEN bytes_in >= lag(bytes_in) OVER w THEN bytes_in - lag(bytes_in) OVER w ELSE bytes_in END AS d_in,
+           CASE WHEN lag(packets_out) OVER w IS NULL OR packets_out IS NULL THEN 0
+                WHEN packets_out >= lag(packets_out) OVER w THEN packets_out - lag(packets_out) OVER w ELSE packets_out END AS d_pk_out,
+           CASE WHEN lag(packets_in) OVER w IS NULL OR packets_in IS NULL THEN 0
+                WHEN packets_in >= lag(packets_in) OVER w THEN packets_in - lag(packets_in) OVER w ELSE packets_in END AS d_pk_in,
+           GREATEST(EXTRACT(EPOCH FROM (ts - lag(ts) OVER w)), 1)::double precision AS dt
+    FROM livekit_samples
+    WHERE ts >= $2::timestamptz
+    WINDOW w AS (ORDER BY ts)
+)
+SELECT date_bin(make_interval(secs => $1::int), ts, TIMESTAMPTZ '2000-01-01 00:00:00+00')::timestamptz AS bucket,
+       (count(*) FILTER (WHERE media))::int AS media_samples,
+       count(*)::int AS samples,
+       COALESCE(max(rooms), 0)::int AS rooms_max,
+       COALESCE(max(participants), 0)::int AS participants_max,
+       COALESCE(max(tracks_published), 0)::int AS tracks_published_max,
+       COALESCE(max(tracks_subscribed), 0)::int AS tracks_subscribed_max,
+       COALESCE(sum(d_out), 0)::double precision AS bytes_out,
+       COALESCE(sum(d_in), 0)::double precision AS bytes_in,
+       COALESCE(sum(d_pk_out + d_pk_in), 0)::double precision AS packets,
+       COALESCE(max(d_out / dt), 0)::double precision AS bytes_out_per_sec_peak,
+       COALESCE(max(loss_pct), -1)::double precision AS loss_pct_max,
+       COALESCE(avg(jitter_ms), -1)::double precision AS jitter_ms_avg,
+       COALESCE(avg(rtt_ms), -1)::double precision AS rtt_ms_avg,
+       COALESCE(max(online_users), 0)::int AS online_users_max,
+       COALESCE(max(connections), 0)::int AS connections_max
+FROM d
+GROUP BY 1
+ORDER BY 1
+`
+
+type AdminSampleSeriesParams struct {
+	BucketSecs int32
+	Since      pgtype.Timestamptz
+}
+
+type AdminSampleSeriesRow struct {
+	Bucket              pgtype.Timestamptz
+	MediaSamples        int32
+	Samples             int32
+	RoomsMax            int32
+	ParticipantsMax     int32
+	TracksPublishedMax  int32
+	TracksSubscribedMax int32
+	BytesOut            float64
+	BytesIn             float64
+	Packets             float64
+	BytesOutPerSecPeak  float64
+	LossPctMax          float64
+	JitterMsAvg         float64
+	RttMsAvg            float64
+	OnlineUsersMax      int32
+	ConnectionsMax      int32
+}
+
+// Série reduzida: agrupa em baldes de bucket_secs (date_bin). Tráfego e pacotes = soma dos deltas entre amostras
+// consecutivas; a queda do contador (LiveKit reiniciado) conta o valor novo inteiro. Picos/médias por balde.
+func (q *Queries) AdminSampleSeries(ctx context.Context, arg AdminSampleSeriesParams) ([]AdminSampleSeriesRow, error) {
+	rows, err := q.db.Query(ctx, adminSampleSeries, arg.BucketSecs, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminSampleSeriesRow
+	for rows.Next() {
+		var i AdminSampleSeriesRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.MediaSamples,
+			&i.Samples,
+			&i.RoomsMax,
+			&i.ParticipantsMax,
+			&i.TracksPublishedMax,
+			&i.TracksSubscribedMax,
+			&i.BytesOut,
+			&i.BytesIn,
+			&i.Packets,
+			&i.BytesOutPerSecPeak,
+			&i.LossPctMax,
+			&i.JitterMsAvg,
+			&i.RttMsAvg,
+			&i.OnlineUsersMax,
+			&i.ConnectionsMax,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const adminSampleTraffic = `-- name: AdminSampleTraffic :one
+WITH d AS (
+    SELECT bytes_out, bytes_in,
+           CASE WHEN lag(bytes_out) OVER w IS NULL OR bytes_out IS NULL THEN 0
+                WHEN bytes_out >= lag(bytes_out) OVER w THEN bytes_out - lag(bytes_out) OVER w ELSE bytes_out END AS d_out,
+           CASE WHEN lag(bytes_in) OVER w IS NULL OR bytes_in IS NULL THEN 0
+                WHEN bytes_in >= lag(bytes_in) OVER w THEN bytes_in - lag(bytes_in) OVER w ELSE bytes_in END AS d_in,
+           GREATEST(EXTRACT(EPOCH FROM (ts - lag(ts) OVER w)), 1)::double precision AS dt,
+           ts
+    FROM livekit_samples
+    WHERE ts >= $1::timestamptz AND media
+    WINDOW w AS (ORDER BY ts)
+)
+SELECT COALESCE(sum(d_out), 0)::double precision AS bytes_out,
+       COALESCE(sum(d_in), 0)::double precision AS bytes_in,
+       COALESCE(max(d_out / dt), 0)::double precision AS peak_out_per_sec,
+       count(*)::bigint AS samples
+FROM d
+`
+
+type AdminSampleTrafficRow struct {
+	BytesOut      float64
+	BytesIn       float64
+	PeakOutPerSec float64
+	Samples       int64
+}
+
+// Tráfego de saída num intervalo (soma dos deltas com tratamento de reinício) e o maior ritmo (bytes/s) entre
+// duas amostras consecutivas: alimentam "tráfego do mês" e "pico de saída em 24 h".
+func (q *Queries) AdminSampleTraffic(ctx context.Context, since pgtype.Timestamptz) (AdminSampleTrafficRow, error) {
+	row := q.db.QueryRow(ctx, adminSampleTraffic, since)
+	var i AdminSampleTrafficRow
+	err := row.Scan(
+		&i.BytesOut,
+		&i.BytesIn,
+		&i.PeakOutPerSec,
+		&i.Samples,
+	)
+	return i, err
+}
+
 const adminSetAdmin = `-- name: AdminSetAdmin :one
 UPDATE users SET is_admin = $1::boolean
 WHERE username = $2::text::citext
@@ -500,6 +750,56 @@ func (q *Queries) AdminSetAdmin(ctx context.Context, arg AdminSetAdminParams) (s
 	var username string
 	err := row.Scan(&username)
 	return username, err
+}
+
+const adminTopGuilds = `-- name: AdminTopGuilds :many
+SELECT g.id, g.name, count(*)::bigint AS messages,
+       (SELECT count(*) FROM guild_members gm WHERE gm.guild_id = g.id)::bigint AS members
+FROM messages m
+JOIN channels c ON c.id = m.channel_id
+JOIN guilds g ON g.id = c.guild_id
+WHERE m.id >= $1::bigint AND m.deleted_at IS NULL
+GROUP BY g.id, g.name
+ORDER BY messages DESC, g.id
+LIMIT $2::int
+`
+
+type AdminTopGuildsParams struct {
+	MinID   int64
+	MaxRows int32
+}
+
+type AdminTopGuildsRow struct {
+	ID       int64
+	Name     string
+	Messages int64
+	Members  int64
+}
+
+// Servidores com mais mensagens desde o ID mínimo (DMs ficam de fora).
+func (q *Queries) AdminTopGuilds(ctx context.Context, arg AdminTopGuildsParams) ([]AdminTopGuildsRow, error) {
+	rows, err := q.db.Query(ctx, adminTopGuilds, arg.MinID, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminTopGuildsRow
+	for rows.Next() {
+		var i AdminTopGuildsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Messages,
+			&i.Members,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const adminUsernames = `-- name: AdminUsernames :many

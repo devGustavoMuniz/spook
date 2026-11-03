@@ -1,7 +1,7 @@
 # Pendências do dono
 
 ## Admin (gráficos)
-- [ ] Decidir/implementar no backend (lote seguinte) os dados que os gráficos já sabem receber: contagem de mensagens por hora (alimenta o `Heatmap`), histórico do LiveKit (item 7.2) e uso de disco no `/admin/system`. Até lá a tela mostra o que existe e avisa.
+- [x] ~~Decidir/implementar no backend os dados que os gráficos já sabem receber (mensagens por hora, histórico do LiveKit, uso de disco)~~: implementado (ver "Voz no backend, histórico do admin e rate limits").
 - [ ] Conferir os limiares dos medidores (memória/pool 70% e 90%; perda 1% e 3%; jitter 20 ms e 50 ms) em produção com tráfego real e ajustar se preciso.
 
 ## Desktop (distribuição e atualização)
@@ -13,7 +13,7 @@
 
 ## Voz e mensagens (lote 2)
 - [ ] Ouvir e aprovar os sons de chamada sintetizados (Configurações > Voz e vídeo); se quiser outro timbre, é só ajustar as receitas em `features/voice/call-sounds.ts`.
-- [ ] Decidir/implementar no backend (lote seguinte): menção a cargo e `@everyone` (o autocompletar já aceita `kind: "role" | "everyone"`) e lista de espectadores por tela.
+- [x] ~~Menção a cargo e `@everyone`~~ (feito em "Menções, mensagem de entrada e limites") e ~~lista de espectadores por tela~~ (feito em "Voz no backend, histórico do admin e rate limits").
 - [ ] Desktop (Rust): expor assinatura por faixa, troca de fonte da tela e estatísticas de rede para ligar "Assistir", "Trocar janela/tela" e o indicador completo no app.
 
 ## Contas e perfil
@@ -49,3 +49,11 @@
 - [ ] **LiveKit real para validar o toque**: o backend de testes e o E2E usam LiveKit falso/desligado; a chamada de ponta a ponta com áudio só se confirma com o LiveKit de produção ou de desenvolvimento.
 - [ ] (Decisões minhas, ajuste se quiser outras) limites de 1000 amigos, 200 pedidos enviados pendentes e 500 bloqueados; pedidos de amizade a 20 por hora; toque de 45 s; chamar de novo logo após cancelar limitado a 5 de rajada e 1 a cada 5 s. Estão em `server/internal/relationship/relationship.go` e `app/app.go`.
 - [ ] (Opcional) E2E da chamada no CI: o spec `e2e/social.spec.ts` pula o teste de chamada quando o backend não tem `LIVEKIT_*`. Para rodá-lo no job `e2e` seria preciso passar valores de desenvolvimento de `LIVEKIT_URL/API_KEY/API_SECRET` ao backend, o que faria o `voice-off.spec.ts` pular (ele só roda sem LiveKit); escolha qual cobertura prefere no CI.
+
+## Voz no backend, histórico do admin e rate limits
+- [ ] (Opcional) Definir a Variable `LIVEKIT_MONTHLY_TRAFFIC_GB` (`gh variable set LIVEKIT_MONTHLY_TRAFFIC_GB --body 1000`, em GB de saída por mês do plano da VPS) para o painel mostrar o uso do mês contra o limite; sem ela só aparece o tráfego do mês. Já está ligada no workflow de deploy e no compose de produção.
+- [ ] (Opcional) `LIVEKIT_SAMPLES_RETENTION_DAYS` (padrão 35): é a retenção do histórico por minuto (aprox. 50 mil linhas por mês). Mesmo caminho (Variable do GitHub).
+- [ ] **`ADMIN_DISK_PATH` e `RATELIMIT_<NOME>_PER_MIN` não estão ligados ao deploy** (valem no ambiente do backend). Para usá-los em produção, acrescente a linha em `environment:` do serviço `spook` em `deploy/docker-compose.prod.yml` (e a Variable no `deploy.yml`). O disco medido por padrão é o `/` do container (disco do Docker na VPS); se o Garage usar outro disco, monte-o e aponte o caminho.
+- [ ] **Validar com LiveKit real** os espectadores (inclusive o desktop, que assina todas as telas), a reconciliação (derrubar o LiveKit por um minuto) e o histórico depois de algumas horas (`VALIDACAO-MANUAL.md`, RF28). O E2E de espectadores (`e2e/voice.spec.ts`) só roda com `E2E_VOICE=1` e LiveKit local.
+- [ ] (Decisões minhas, ajuste se quiser outras) padrões dos limites novos em `server/internal/app/ratelimits.go` (servidor 5 de rajada e 2/min, canal e cargo 30, convite 20, token de voz 10 de rajada e 30/min, perfil 10 e 20/min, fixar 15 e 30/min, avisar espectador 60 e 180/min); retenção de 35 dias; janelas do histórico (24 h em 5 min, 7 dias em 1 h, 30 dias em 1 dia).
+- [ ] **Uma única instância do backend:** o estado de voz, os espectadores e o `voice_reconcile` assumem um só processo (como a produção atual). Se um dia houver réplicas, esse estado precisa ir para um armazenamento compartilhado.

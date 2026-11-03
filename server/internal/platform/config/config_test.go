@@ -266,3 +266,36 @@ func TestLoadLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAdminHistoryAndRateLimitOverrides(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LiveKitSamplesRetentionDays != 35 || c.AdminDiskPath != "/" || c.LiveKit.MonthlyTrafficGB != 0 || len(c.RateLimitPerMin) != 0 {
+		t.Fatalf("padrões = %+v", c)
+	}
+	t.Setenv("LIVEKIT_SAMPLES_RETENTION_DAYS", "10")
+	t.Setenv("LIVEKIT_MONTHLY_TRAFFIC_GB", "250.5")
+	t.Setenv("ADMIN_DISK_PATH", "/data")
+	t.Setenv("RATELIMIT_SERVERS_CREATE_PER_MIN", "3")
+	t.Setenv("RATELIMIT_VOICE_TOKEN_PER_MIN", "7")
+	c, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LiveKitSamplesRetentionDays != 10 || c.AdminDiskPath != "/data" || c.LiveKit.MonthlyTrafficBytes() != 250_500_000_000 ||
+		c.RateLimitPerMin["servers_create"] != 3 || c.RateLimitPerMin["voice_token"] != 7 {
+		t.Fatalf("lidos = %+v", c)
+	}
+	for k, v := range map[string]string{
+		"LIVEKIT_SAMPLES_RETENTION_DAYS": "1", "LIVEKIT_MONTHLY_TRAFFIC_GB": "-3", "RATELIMIT_X_PER_MIN": "0",
+	} {
+		t.Setenv(k, v)
+		if _, err := Load(); err == nil {
+			t.Fatalf("%s=%s deveria ser recusado", k, v)
+		}
+		t.Setenv(k, "")
+	}
+}

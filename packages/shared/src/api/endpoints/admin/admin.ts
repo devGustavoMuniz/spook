@@ -19,15 +19,21 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { http } from "../../../http";
 import type {
+  ActivityHeatmap,
   AdminCallsParams,
+  AdminLiveKitHistoryParams,
   AdminServersParams,
   AdminUsersParams,
   Calls,
   ErrorModel,
+  GatewayHistory,
   Live,
+  LiveKitHistory,
+  LiveKitPlan,
   Overview,
   ServersBody,
   System,
+  TopServers,
   UsersBody,
 } from "../../model";
 
@@ -47,6 +53,129 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getAdminActivityHeatmapUrl = () => {
+  return `/api/admin/activity/heatmap`;
+};
+
+/**
+ * @summary Mensagens por dia da semana e hora (UTC) nos últimos 28 dias (cache de 10 min)
+ */
+export const adminActivityHeatmap = async (
+  options?: Parameters<typeof http>[1],
+): Promise<ActivityHeatmap> => {
+  return http<ActivityHeatmap>(getAdminActivityHeatmapUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminActivityHeatmapQueryKey = () => {
+  return [`/api/admin/activity/heatmap`] as const;
+};
+
+export const getAdminActivityHeatmapQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminActivityHeatmap>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminActivityHeatmap>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminActivityHeatmapQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminActivityHeatmap>>> = ({ signal }) =>
+    adminActivityHeatmap({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminActivityHeatmap>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminActivityHeatmapQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminActivityHeatmap>>
+>;
+export type AdminActivityHeatmapQueryError = ErrorModel;
+
+export function useAdminActivityHeatmap<
+  TData = Awaited<ReturnType<typeof adminActivityHeatmap>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminActivityHeatmap>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminActivityHeatmap>>,
+          TError,
+          Awaited<ReturnType<typeof adminActivityHeatmap>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminActivityHeatmap<
+  TData = Awaited<ReturnType<typeof adminActivityHeatmap>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminActivityHeatmap>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminActivityHeatmap>>,
+          TError,
+          Awaited<ReturnType<typeof adminActivityHeatmap>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminActivityHeatmap<
+  TData = Awaited<ReturnType<typeof adminActivityHeatmap>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminActivityHeatmap>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Mensagens por dia da semana e hora (UTC) nos últimos 28 dias (cache de 10 min)
+ */
+
+export function useAdminActivityHeatmap<
+  TData = Awaited<ReturnType<typeof adminActivityHeatmap>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminActivityHeatmap>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminActivityHeatmapQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getAdminCallsUrl = (params?: AdminCallsParams) => {
   const normalizedParams = new URLSearchParams();
@@ -169,6 +298,129 @@ export function useAdminCalls<TData = Awaited<ReturnType<typeof adminCalls>>, TE
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getAdminGatewayHistoryUrl = () => {
+  return `/api/admin/gateway/history`;
+};
+
+/**
+ * @summary Usuários online e conexões do gateway nas últimas 24 h, em baldes de 5 min (cache de 1 min)
+ */
+export const adminGatewayHistory = async (
+  options?: Parameters<typeof http>[1],
+): Promise<GatewayHistory> => {
+  return http<GatewayHistory>(getAdminGatewayHistoryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminGatewayHistoryQueryKey = () => {
+  return [`/api/admin/gateway/history`] as const;
+};
+
+export const getAdminGatewayHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminGatewayHistory>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminGatewayHistory>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminGatewayHistoryQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGatewayHistory>>> = ({ signal }) =>
+    adminGatewayHistory({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminGatewayHistory>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminGatewayHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminGatewayHistory>>
+>;
+export type AdminGatewayHistoryQueryError = ErrorModel;
+
+export function useAdminGatewayHistory<
+  TData = Awaited<ReturnType<typeof adminGatewayHistory>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminGatewayHistory>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminGatewayHistory>>,
+          TError,
+          Awaited<ReturnType<typeof adminGatewayHistory>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminGatewayHistory<
+  TData = Awaited<ReturnType<typeof adminGatewayHistory>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminGatewayHistory>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminGatewayHistory>>,
+          TError,
+          Awaited<ReturnType<typeof adminGatewayHistory>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminGatewayHistory<
+  TData = Awaited<ReturnType<typeof adminGatewayHistory>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminGatewayHistory>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Usuários online e conexões do gateway nas últimas 24 h, em baldes de 5 min (cache de 1 min)
+ */
+
+export function useAdminGatewayHistory<
+  TData = Awaited<ReturnType<typeof adminGatewayHistory>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminGatewayHistory>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminGatewayHistoryQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 export const getAdminLiveUrl = () => {
   return `/api/admin/live`;
 };
@@ -260,6 +512,266 @@ export function useAdminLive<TData = Awaited<ReturnType<typeof adminLive>>, TErr
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getAdminLiveQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAdminLiveKitHistoryUrl = (params?: AdminLiveKitHistoryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/livekit/history?${stringifiedParams}`
+    : `/api/admin/livekit/history`;
+};
+
+/**
+ * @summary Histórico do LiveKit: salas, participantes, faixas, tráfego, perda, jitter e RTT em até 300 pontos (24h: 5 min; 7d: 1 h; 30d: 1 dia; cache de 1 min)
+ */
+export const adminLiveKitHistory = async (
+  params?: AdminLiveKitHistoryParams,
+  options?: Parameters<typeof http>[1],
+): Promise<LiveKitHistory> => {
+  return http<LiveKitHistory>(getAdminLiveKitHistoryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminLiveKitHistoryQueryKey = (params?: AdminLiveKitHistoryParams) => {
+  return [`/api/admin/livekit/history`, ...(params ? [params] : [])] as const;
+};
+
+export const getAdminLiveKitHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminLiveKitHistory>>,
+  TError = ErrorModel,
+>(
+  params?: AdminLiveKitHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitHistory>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminLiveKitHistoryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminLiveKitHistory>>> = ({ signal }) =>
+    adminLiveKitHistory(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminLiveKitHistory>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminLiveKitHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminLiveKitHistory>>
+>;
+export type AdminLiveKitHistoryQueryError = ErrorModel;
+
+export function useAdminLiveKitHistory<
+  TData = Awaited<ReturnType<typeof adminLiveKitHistory>>,
+  TError = ErrorModel,
+>(
+  params: undefined | AdminLiveKitHistoryParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitHistory>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminLiveKitHistory>>,
+          TError,
+          Awaited<ReturnType<typeof adminLiveKitHistory>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminLiveKitHistory<
+  TData = Awaited<ReturnType<typeof adminLiveKitHistory>>,
+  TError = ErrorModel,
+>(
+  params?: AdminLiveKitHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitHistory>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminLiveKitHistory>>,
+          TError,
+          Awaited<ReturnType<typeof adminLiveKitHistory>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminLiveKitHistory<
+  TData = Awaited<ReturnType<typeof adminLiveKitHistory>>,
+  TError = ErrorModel,
+>(
+  params?: AdminLiveKitHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitHistory>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Histórico do LiveKit: salas, participantes, faixas, tráfego, perda, jitter e RTT em até 300 pontos (24h: 5 min; 7d: 1 h; 30d: 1 dia; cache de 1 min)
+ */
+
+export function useAdminLiveKitHistory<
+  TData = Awaited<ReturnType<typeof adminLiveKitHistory>>,
+  TError = ErrorModel,
+>(
+  params?: AdminLiveKitHistoryParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitHistory>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminLiveKitHistoryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAdminLiveKitUsageUrl = () => {
+  return `/api/admin/livekit/usage`;
+};
+
+/**
+ * @summary Pico de tráfego de saída em 24 h e tráfego do mês corrente contra o limite do plano (cache de 1 min)
+ */
+export const adminLiveKitUsage = async (
+  options?: Parameters<typeof http>[1],
+): Promise<LiveKitPlan> => {
+  return http<LiveKitPlan>(getAdminLiveKitUsageUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminLiveKitUsageQueryKey = () => {
+  return [`/api/admin/livekit/usage`] as const;
+};
+
+export const getAdminLiveKitUsageQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminLiveKitUsage>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitUsage>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminLiveKitUsageQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminLiveKitUsage>>> = ({ signal }) =>
+    adminLiveKitUsage({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminLiveKitUsage>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminLiveKitUsageQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminLiveKitUsage>>
+>;
+export type AdminLiveKitUsageQueryError = ErrorModel;
+
+export function useAdminLiveKitUsage<
+  TData = Awaited<ReturnType<typeof adminLiveKitUsage>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitUsage>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminLiveKitUsage>>,
+          TError,
+          Awaited<ReturnType<typeof adminLiveKitUsage>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminLiveKitUsage<
+  TData = Awaited<ReturnType<typeof adminLiveKitUsage>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitUsage>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminLiveKitUsage>>,
+          TError,
+          Awaited<ReturnType<typeof adminLiveKitUsage>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminLiveKitUsage<
+  TData = Awaited<ReturnType<typeof adminLiveKitUsage>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitUsage>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Pico de tráfego de saída em 24 h e tráfego do mês corrente contra o limite do plano (cache de 1 min)
+ */
+
+export function useAdminLiveKitUsage<
+  TData = Awaited<ReturnType<typeof adminLiveKitUsage>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminLiveKitUsage>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminLiveKitUsageQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -504,6 +1016,119 @@ export function useAdminServers<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getAdminServersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAdminTopServersUrl = () => {
+  return `/api/admin/servers/top`;
+};
+
+/**
+ * @summary Os 10 servidores com mais mensagens nos últimos 7 dias (cache de 10 min)
+ */
+export const adminTopServers = async (
+  options?: Parameters<typeof http>[1],
+): Promise<TopServers> => {
+  return http<TopServers>(getAdminTopServersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminTopServersQueryKey = () => {
+  return [`/api/admin/servers/top`] as const;
+};
+
+export const getAdminTopServersQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminTopServers>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminTopServers>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminTopServersQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminTopServers>>> = ({ signal }) =>
+    adminTopServers({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminTopServers>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminTopServersQueryResult = NonNullable<Awaited<ReturnType<typeof adminTopServers>>>;
+export type AdminTopServersQueryError = ErrorModel;
+
+export function useAdminTopServers<
+  TData = Awaited<ReturnType<typeof adminTopServers>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminTopServers>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminTopServers>>,
+          TError,
+          Awaited<ReturnType<typeof adminTopServers>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminTopServers<
+  TData = Awaited<ReturnType<typeof adminTopServers>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminTopServers>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminTopServers>>,
+          TError,
+          Awaited<ReturnType<typeof adminTopServers>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminTopServers<
+  TData = Awaited<ReturnType<typeof adminTopServers>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminTopServers>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Os 10 servidores com mais mensagens nos últimos 7 dias (cache de 10 min)
+ */
+
+export function useAdminTopServers<
+  TData = Awaited<ReturnType<typeof adminTopServers>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof adminTopServers>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminTopServersQueryOptions(options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;

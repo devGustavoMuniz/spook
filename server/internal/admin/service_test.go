@@ -17,6 +17,21 @@ type fakeStore struct {
 	rooms       map[int64]ChannelInfo
 	names       map[int64]string
 	lastQuery   ListQuery
+
+	mu          sync.Mutex
+	samples     []Sample
+	insertErr   error
+	purgeLeft   int64
+	purgeCalls  int
+	series      []SampleBucket
+	seriesCalls int
+	lastBucket  int
+	lastSince   time.Time
+	month, day  Traffic
+	heat        [7][24]int64
+	heatCalls   int
+	top         []TopGuild
+	topLimit    int
 }
 
 func (f *fakeStore) IsAdmin(_ context.Context, id int64) (bool, error) { return f.admins[id], nil }
@@ -57,6 +72,56 @@ func (f *fakeStore) Usernames(context.Context, []int64) (map[int64]string, error
 }
 func (f *fakeStore) JobCounts(context.Context) (JobCounts, bool, error) {
 	return JobCounts{Available: 2, Discarded: 1}, true, nil
+}
+
+// ---- histórico (livekit_samples) ----
+
+func (f *fakeStore) InsertSample(_ context.Context, m Sample) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.insertErr != nil {
+		return f.insertErr
+	}
+	f.samples = append(f.samples, m)
+	return nil
+}
+func (f *fakeStore) PurgeSamples(_ context.Context, _ time.Time, batch int) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.purgeCalls++
+	n := f.purgeLeft
+	if n > int64(batch) {
+		n = int64(batch)
+	}
+	f.purgeLeft -= n
+	return n, nil
+}
+func (f *fakeStore) SampleSeries(_ context.Context, since time.Time, bucket int) ([]SampleBucket, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seriesCalls++
+	f.lastBucket, f.lastSince = bucket, since
+	return f.series, nil
+}
+func (f *fakeStore) SampleTraffic(_ context.Context, since time.Time) (Traffic, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if since.Day() == 1 && since.Hour() == 0 { // consulta do mês corrente
+		return f.month, nil
+	}
+	return f.day, nil
+}
+func (f *fakeStore) MessageHeatmap(context.Context, time.Time) ([7][24]int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.heatCalls++
+	return f.heat, nil
+}
+func (f *fakeStore) TopGuilds(_ context.Context, _ time.Time, limit int) ([]TopGuild, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.topLimit = limit
+	return f.top, nil
 }
 
 type fakeCalls struct {

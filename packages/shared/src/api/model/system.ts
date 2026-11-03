@@ -4,6 +4,7 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { DiskInfo } from "./diskInfo";
 import type { SystemAppStruct } from "./systemAppStruct";
 import type { SystemDatabaseStruct } from "./systemDatabaseStruct";
 import type { SystemGatewayStruct } from "./systemGatewayStruct";
@@ -13,6 +14,7 @@ import type { SystemStorageStruct } from "./systemStorageStruct";
 export interface System {
   app: SystemAppStruct;
   database: SystemDatabaseStruct;
+  disk?: DiskInfo;
   gateway: SystemGatewayStruct;
   generated_at: string;
   jobs: SystemJobsStruct;

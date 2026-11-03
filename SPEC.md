@@ -238,6 +238,15 @@ Seção 2 do `PLANO-ADICIONAIS-2.md`; migration `00014_social`. Decisões em 5.5
 - RF27.6 Cartão de perfil com ações por relacionamento (adicionar, aceitar, recusar, cancelar, remover, bloquear, desbloquear, enviar mensagem, ligar, convidar); tela "Amigos" (Online, Todos, Pendentes, Bloqueados, Adicionar amigo) com selo de pedidos no Início; Configurações > Bloqueados.
 - Teste: `relationship`, `dmcall` (relógio falso), `dm/relations_test.go`, `message` (bloqueio em DM 1:1), `notification/calls_test.go` (bloqueio, DND, silêncio, push com sender falso), `presence`, `invite` (Share), `gateway` (fixtures), `app/social_integration_test.go` (matriz, limites, eventos só aos envolvidos, presença, convite, ligações); Vitest `social.test.tsx` e `features/social/store.test.ts`; E2E `e2e/social.spec.ts`.
 
+### RF28 — Voz no backend, histórico do admin e rate limits (adicional)
+Seções 4 (4.6 e 4.13), 7 (7.2 e 7.4) e 3 (3.2/3.3 em parte) do `PLANO-ADICIONAIS-2.md`; migration `00015_voice_admin_history`. Decisões em 5.5 ("Adicional: voz no backend, histórico do admin e rate limits") e regras em 7.14.
+- RF28.1 Espectadores da transmissão: `PUT|DELETE /api/channels/{id}/voice/screen-watch/{user_id}` (heartbeat de ~20 s, validade de 45 s); o voice state de quem transmite ganha `viewer_count` (todos que veem o canal) e `viewers` (até 50 IDs, **só o próprio transmissor**); web: "Assistindo: N" com avatares e nomes no tile e no cartão da transmissão.
+- RF28.2 Reconciliação da voz: job River `voice_reconcile` a cada 60 s compara o LiveKit com a memória e corrige participantes desconhecidos, órfãos, câmera/tela/prévia/espectadores fantasma e mute do servidor não respeitado, com métricas `spook.voice.reconcile.*`; tolera o LiveKit fora do ar e nunca desconecta por engano.
+- RF28.3 Rate limits nomeados por ação (tabela em 7.14): `servers.create`, `channels.create`, `invites.create`, `roles.manage`, `voice.token`, `voice.watch`, `profile.update`, `messages.pin` e os já existentes, todos com nome estável, 429 + `Retry-After`, métrica `spook.ratelimit.blocked{name}` e `RATELIMIT_<NOME>_PER_MIN` opcional.
+- RF28.4 Admin, histórico persistido: amostra por minuto do LiveKit e do gateway (`livekit_samples`, retenção `LIVEKIT_SAMPLES_RETENTION_DAYS`, padrão 35); `GET /api/admin/livekit/history?range=24h|7d|30d` (até 300 pontos), `GET /api/admin/livekit/usage` (pico de saída 24 h, tráfego do mês, limite do plano `LIVEKIT_MONTHLY_TRAFFIC_GB`), `GET /api/admin/gateway/history` (24 h).
+- RF28.5 Admin, atividade e capacidade: `GET /api/admin/activity/heatmap` (mensagens por hora x dia da semana, 28 dias, UTC), `GET /api/admin/servers/top` (10 servidores por mensagens em 7 dias), disco do volume (`ADMIN_DISK_PATH`) e bytes de avatares/ícones/banners no S3 em `GET /api/admin/system`; web com `Heatmap`, `TimeSeriesChart`, `BarList` e medidores, "Coletando dados…" enquanto o histórico acumula.
+- Teste: `voice/watch_test.go`, `voice` (reconciliação com LiveKit falso e relógio falso), `voice/jobs_test.go`, `gateway/voice_test.go`, `admin/history_test.go`, `admin/jobs_test.go`, `platform/config`, `app/limits_test.go`, `app/voice_admin_history_integration_test.go`; Vitest `admin.test.tsx`, `screen-watch.test.ts`, `viewers.test.tsx`, `stream-card.test.tsx`; E2E de voz (`e2e/voice.spec.ts`, só com LiveKit).
+
 ## 4. Requisitos não funcionais
 
 ### RNF01 — Performance (metas iniciais; recalibrar após o baseline do Laravel)
@@ -692,7 +701,7 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Comparação com o período anterior.** O endpoint entrega 14 dias; a linha tracejada é a mesma série deslocada 7 dias (os 7 primeiros pontos ficam sem base). A comparação "6 dias completos x 6 anteriores" do backend continua no subtítulo e vira seta + percentual nos cartões.
 - **Sparklines no cliente.** Uma amostra por leitura nova (`dataUpdatedAt`), janela de 5 min, só em memória (recarregar zera). Cartões: pessoas em chamadas, conexões do gateway, pessoas online, goroutines e memória (heap). A 1ª leitura não desenha linha (precisa de 2 amostras).
 - **Medidores.** Memória da aplicação (heap / sys: bom < 70%, atenção < 90%), pool do Postgres (em uso / máximo, mesmos limiares), perda de pacotes (bom < 1%, ruim >= 3%) e jitter (bom < 20 ms, ruim >= 50 ms). Limiares são decisão de interface, não padrão de mercado validado.
-- **Dados que dependem do backend (lote seguinte).** Uso de disco (o `/admin/system` não mede), histórico/picos/tráfego do mês do LiveKit (item 7.2 do plano) e mensagens por hora (heatmap pronto em `Heatmap`, sem uso). Também não há "top servidores por mensagens" fora da lista paginada de servidores.
+- **Dados que dependiam do backend (resolvido).** (Entregue no bloco "Adicional: voz no backend, histórico do admin e rate limits": disco, histórico do LiveKit, mensagens por hora e ranking de servidores. O texto original segue.) Uso de disco (o `/admin/system` não mede), histórico/picos/tráfego do mês do LiveKit (item 7.2 do plano) e mensagens por hora (heatmap pronto em `Heatmap`, sem uso). Também não há "top servidores por mensagens" fora da lista paginada de servidores.
 - **Armazenamento por tipo** é por contagem (anexos, avatares, ícones); só anexos têm bytes, mostrados no detalhe.
 - **Estrutura da página.** `/admin` em grupos (Resumo, Ao vivo agora, Crescimento, Conteúdo, Mídia, Aplicação e armazenamento); as tabelas de fatos continuam como detalhe. `/admin/calls` ganhou barras de pessoas por sala e de duração acima da tabela.
 - **Testes.** `components/charts/scales.test.ts` e `charts.test.tsx` (geometria, escalas, tabelas, vazio/carregando, teclado e hover) e `admin.test.tsx` (grupos, medidores, barras, sparkline acumulando, calls).
@@ -818,6 +827,22 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Web.** `features/social`: store de amizades (READY + eventos; contagem de pedidos recebidos e `blocked`), store de chamadas (`incoming`/`outgoing`), tela `/channels/@me/friends` (abas com `Tabs`, lista completa por REST em páginas de 200, selo, estados vazios com ilustração, menu por linha com confirmação de remover/bloquear, convidar), `PersonActions` no cartão de perfil (um GET de relacionamento), `IncomingCalls` (cartão fixo no topo, `role="alertdialog"`, foco em Atender, Esc recusa, `startRing/stopRing`, some no vencimento e em `CALL_END/UPDATE`), `placeCall/answerCall/declineCall/cancelCall` sobre o `VoiceEngine` existente (o token de "Atender" é reaproveitado por `joinVoice(target, prefetched)`; contratos do engine intactos), "Chamando…"/"Em chamada" no cabeçalho da DM, aviso do navegador/SO com a aba oculta, mensagens de bloqueados recolhidas (`MessageRow`), Configurações > Bloqueados, selo de pedidos no Início e em "Amigos". Falhas de rede no toque não impedem entrar na sala; 409/503 também não; qualquer outro erro do servidor (ex.: você bloqueou a pessoa) avisa e não entra.
 - **Limitações.** Estado de chamada e presença são só memória (um reinício derruba toques); o push de chamada não tem "Atender" na própria notificação; o selo de pedidos na web usa a contagem do servidor no READY e os eventos (a lista completa sempre vem do REST); mensagens de bloqueados também são recolhidas na DM 1:1 antiga (decisão de uniformidade); `@everyone` de bloqueados em servidor continua notificando quem não bloqueou.
 
+**Adicional: voz no backend, histórico do admin e rate limits** (backend + web; `PLANO-ADICIONAIS-2.md` itens 4.6, 4.13 e 7.1 a 7.4; migration `00015_voice_admin_history`)
+- **Espectadores: o cliente avisa.** O LiveKit não entrega por webhook quem assina uma faixa, e consultar `ListParticipants` a cada poucos segundos custaria uma ida ao LiveKit por sala. Como o cliente já escolhe o que assistir (`setScreenWatching`), ele também avisa o backend: `PUT /api/channels/{channel_id}/voice/screen-watch/{user_id}` registra e renova (heartbeat de ~20 s; validade `voice.WatchTTL` = 45 s) e `DELETE` remove (idempotente). Autorização no backend: 404 para quem não vê o canal; 403 para quem não está na chamada daquele canal; 422 para a própria tela; 404 se a pessoa não está transmitindo. Sem desktop seletivo (o engine nativo assina tudo) o cliente avisa todas as telas do canal.
+- **Registro em memória, sem goroutine.** `voice/watch.go`: `transmissor -> espectador -> {desde, validade}` com trava própria (`watchMu`, uma trava folha: nada que a segura pega a trava de um usuário). A varredura de vencidos roda no `Run` (a cada 15 s, junto da das prévias) e no `Reconcile`; sair da chamada, parar a tela, perder VIDEO ou o transmissor sair limpam as entradas. Cada mudança republica o `VOICE_STATE_UPDATE` do transmissor (heartbeat que só renova não publica). Métrica `spook.voice.screen_watchers`.
+- **Quem vê o quê (decisão).** `viewer_count` vai a todos que veem o canal (já veem quem está na chamada e quem transmite); a lista `viewers` (até 50 IDs, os mais antigos primeiro; a contagem é sempre o total) vai **só ao próprio transmissor**. Imposto no backend: o gateway entrega ao dono o payload com a lista e aos demais o mesmo payload sem ela (`gateway/hub.go`), e `GET /api/guilds/{id}/voice-states` e o READY (`Snapshot(userID, ...)`) só incluem a lista para o transmissor. Aditivo: campos novos no `VOICE_STATE_UPDATE`, nada removido (schemas e fixtures atualizados).
+- **Web.** `features/voice/screen-watch.ts` mantém um laço de heartbeat por tela assistida (iniciado em `afterConnect`, parado ao sair; 404/422 param, 403/429/rede tentam de novo em 3 s e depois a cada 20 s). `viewers.tsx` (`ViewersBadge`): "Assistindo: N", até 4 avatares com tooltip dos nomes e "+N"; aparece no cartão da transmissão (barra lateral) e no rótulo do tile da tela. Sem N+1: os nomes vêm do `PersonLookup` já carregado.
+- **Webhooks do LiveKit confirmados.** `participant_joined/left`, `track_published/unpublished` e `room_finished` já mantêm o estado (deduplicados por ID de evento, conexão antiga ignorada pelo SID). O que faltava era a rede de segurança para webhook perdido.
+- **Reconciliação (`voice_reconcile`).** Job periódico do River, a cada 60 s, `MaxAttempts: 1` (cada rodada é uma fotografia; o worker nunca devolve erro e a falha fica no log e em `spook.voice.reconcile.runs{result=unreachable}`). Em testes (`VoiceReconcileEvery > 0`) e sem fila (sem pool do pgx) o laço local faz o mesmo. Por rodada: `ListRooms` + `ListParticipants` por sala (sala que falha é pulada e nada dela é removido); participante vivo desconhecido é registrado; quem é conhecido tem as permissões reavaliadas (`Reevaluate`, antes do `join`, que atualizaria o estado e esconderia a diferença) e, se está mutado pelo servidor mas ainda publica microfone, as permissões são reaplicadas (`UpdatePermissions`); câmera/tela são alinhadas às mídias publicadas; sem tela, prévia e espectadores somem; indicador de prévia sem prévia guardada é limpo; órfão (não está no LiveKit e entrou antes da consulta) é removido **sem** chamar o LiveKit. Idempotente: a 2ª rodada sem mudanças não publica nada. Falha transitória do banco ao reavaliar não derruba ninguém. Métricas: `spook.voice.reconcile.runs{result}`, `.duration`, `.orphans` e `.fixed{kind=joined|flags|mute}`. **Limite assumido:** o estado de voz é por processo, então o job só faz sentido com uma instância (a de produção); com várias, o estado precisaria ir para um armazenamento compartilhado.
+- **Rate limits nomeados.** `ratelimit.Limiter.Named(nome)` dá o nome estável e a métrica `spook.ratelimit.blocked{name}` conta cada recusa. Os limites por ação são aplicados por um middleware huma (`app/ratelimits.go`, `actionLimits`) que roda **depois** da autenticação, por usuário, em toda operação com regra (por `operationId`; um teste liga cada regra ao OpenAPI e falha se o nome da operação não existe); responde 429 com `Retry-After` e o OpenAPI documenta o 429 nelas. Os limitadores que já viviam dentro dos services ganharam nome sem mudar o comportamento. `RATELIMIT_<NOME>_PER_MIN` (nome em maiúsculas com `.` virando `_`, ex.: `RATELIMIT_SERVERS_CREATE_PER_MIN=10`) troca a taxa sustentada e limita a rajada a ela; vale para os limites por usuário (não para os de IP); nome desconhecido gera um aviso no boot. Tabela completa e padrões em 7.14. Os testes de integração folgam os limites por ação (`relaxedActionLimiters`), e `TestEveryRateLimiterAnswers429NotServiceUnavailable` continua cobrindo os de IP, com `TestActionRateLimitersAnswer429WithRetryAfter` cobrindo os novos.
+- **Histórico do LiveKit e do gateway (`livekit_samples`).** Job River `livekit_sample` (1 min, `RunOnStart`, sem retentativa) lê o Prometheus do LiveKit e o gateway e grava uma linha por minuto (`ts` é a chave: idempotente). Prometheus fora do ar grava só as colunas do gateway (`media = false`), então o gráfico de pessoas online continua. Os contadores (bytes e pacotes) são **acumulados** como o Prometheus os entrega; a leitura soma deltas entre amostras consecutivas e trata a queda do valor como reinício do contador (conta o valor novo inteiro). Agregação na leitura com `date_bin` (24 h: 5 min = 288 pontos; 7 dias: 1 h = 168; 30 dias: 1 dia = 30; nunca passa de 300) e cache de 1 min por janela. Retenção `LIVEKIT_SAMPLES_RETENTION_DAYS` (padrão 35, de 2 a 365): job diário `livekit_samples_purge` apaga em lotes de 5000. Uma linha por minuto dá ~50 mil por mês, sem partição.
+- **Tráfego do mês e pico.** `GET /api/admin/livekit/usage`: soma de deltas de saída/entrada desde o 1º dia do mês (UTC) e o maior ritmo de saída (bytes/s) entre duas amostras nas últimas 24 h; `LIVEKIT_MONTHLY_TRAFFIC_GB` (opcional, 1 GB = 10^9 bytes) dá o limite e o percentual. Só conta amostras com mídia (o intervalo sem Prometheus não entra). O primeiro dia do mês parte de uma amostra sem delta (a 1ª não tem anterior), o que perde no máximo um minuto.
+- **Atividade.** `GET /api/admin/activity/heatmap`: mensagens (não apagadas) dos últimos 28 dias por dia da semana (0 = domingo) e hora, ambos UTC, extraídos do ID Snowflake (`id >= MinID(t)` pela chave primária, sem índice novo); `GET /api/admin/servers/top`: 10 servidores com mais mensagens em 7 dias (DMs de fora; só id, nome, mensagens e membros). Cache de 10 min nos dois (singleflight do `cell`).
+- **Disco e storage.** `/api/admin/system` ganha `disk` (statfs do `ADMIN_DISK_PATH`, padrão `/`; Linux e macOS, ausente no Windows) e `storage.objects` (bytes de `avatars/`, `guild-icons/` e `banners/` por `ListObjectsV2` paginado, teto de 20.000 objetos por prefixo com `truncated`, cache de 10 min). Qualquer falha deixa o campo ausente/nulo e nunca vira erro.
+- **Gateway no tempo.** `GET /api/admin/gateway/history`: usuários online e conexões em 24 h, persistidos junto da amostra por minuto (sobrevive a reinício, ao contrário de uma série em memória); mesma série de 5 min do LiveKit.
+- **Web (admin).** Grupos "Atividade" (`Heatmap` e `BarList` dos servidores mais ativos) e "Histórico" (seletor 24 h / 7 dias / 30 dias; participantes, tráfego de saída, pessoas online e conexões) em `features/admin/history.tsx`; "Capacidade" ganhou o disco e o "Plano do LiveKit" (medidor do mês contra o limite, pico de saída em 24 h, tráfego de entrada); armazenamento mostra bytes por tipo. "Coletando dados…" enquanto há menos de 2 amostras; os avisos "dados virão do backend" e as notas obsoletas ("O Spook não tem...") saíram. Polling de 60 s (histórico) e 10 min (atividade).
+- **Fora de escopo/limitações.** Espectadores são o que os clientes declaram (um cliente modificado poderia mentir sobre si mesmo, mas só afeta a contagem da tela de quem ele realmente vê no canal); o desktop (Rust) assina todas as telas, então avisa todas. O E2E de voz com mídia real precisa de LiveKit local (ver `apps/web/README.md`).
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
@@ -928,6 +953,18 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | created_at | timestamptz | |
 
 A view `user_relationships(user_id, other_id, kind, since)` expõe cada amizade para os dois lados (`friend|incoming|outgoing`) e cada bloqueio para quem bloqueou (`blocked`). Chamadas em DM e presença não têm tabela (só memória).
+
+### livekit_samples (adicional "Histórico do admin", migration 00015)
+| Coluna | Tipo | Notas |
+| --- | --- | --- |
+| ts | timestamptz PK | minuto da amostra (UTC); a chave torna o job idempotente |
+| media | boolean | falso quando o Prometheus do LiveKit não respondeu (as colunas do LiveKit ficam nulas) |
+| rooms, participants, tracks_published, tracks_subscribed | integer NULL | gauges do LiveKit |
+| bytes_in, bytes_out, packets_in, packets_out | double precision NULL | contadores ACUMULADOS desde o boot do LiveKit (a leitura soma deltas e trata a queda como reinício) |
+| loss_pct, jitter_ms, rtt_ms | double precision NULL | perda, jitter e RTT médios do LiveKit |
+| online_users, connections | integer NULL | gateway (usuários distintos e conexões abertas) |
+
+Retenção `LIVEKIT_SAMPLES_RETENTION_DAYS` (padrão 35), limpeza em lotes pelo job `livekit_samples_purge`. Sem índice além da chave: as leituras são por intervalo de `ts`.
 
 ### messages
 | Coluna | Tipo | Notas |
@@ -1056,11 +1093,13 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | 00012_moderation | tabelas `guild_bans`, `channel_overwrites`, `audit_logs`; `guild_members.voice_muted`; `CHANGE_NICKNAME` no `@everyone` dos servidores existentes (adicional) |
 | 00013_mentions_topic_system | `roles.mentionable`; `messages.kind`, `mention_everyone`, `mention_here`, `mention_role_ids`; `guilds.system_channel_id`, `system_join_enabled`; `channels.topic`; `notification_settings.suppress_everyone` (adicional) |
 | 00014_social | tabelas `friendships` e `blocks` e a view `user_relationships` (adicional "Social") |
+| 00015_voice_admin_history | tabela `livekit_samples` (histórico por minuto do LiveKit e do gateway; adicional "Voz no backend, histórico do admin e rate limits") |
 
 ### Estado só em memória (não persistido)
 - Presença e sessões do gateway
 - Indicadores de "digitando"
-- Voice states (reconstruídos a partir dos webhooks do LiveKit)
+- Voice states (reconstruídos a partir dos webhooks do LiveKit e do reconciliador)
+- Espectadores das transmissões (heartbeat do cliente, validade de 45 s)
 
 ---
 
@@ -1134,6 +1173,7 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 - Tokens do LiveKit valem 10 minutos e só para a sala do canal.
 - Entrar exige CONNECT; falar exige SPEAK; câmera e tela exigem VIDEO.
 - Prévia da transmissão (adicional): só envia quem está na chamada do canal e tem VIDEO; só lê quem vê o canal; vale 45 s (ver 7.9 e o bloco "Adicional: compartilhar tela simples..." em 5.5).
+- Espectadores (adicional): só registra quem está na chamada do canal e só de quem transmite lá (404/403/422 fora disso); vale 45 s sem renovação; todos que veem o canal recebem `viewer_count`, só o transmissor recebe `viewers` (ver 7.14).
 
 ### 7.8 Notificações
 - Não lidas = mensagens com ID maior que `last_read_message_id`.
@@ -1193,6 +1233,46 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | Excluir servidor / transferir posse | 403 `password_confirmation_required` sem senha confirmada nos últimos 10 min |
 
 Variáveis: `LIMIT_GUILDS_PER_USER`, `LIMIT_CHANNELS_PER_GUILD`, `LIMIT_MEMBERS_PER_GUILD`, `LIMIT_ROLES_PER_GUILD`, `LIMIT_INVITES_PER_GUILD`, `LIMIT_ATTACHMENT_MB`, `EVERYONE_PUSH_MAX` (padrões em 5.5). Documentadas em `.env.example` e `deploy/README.md`.
+
+### 7.14 Rate limits nomeados por ação e espectadores (adicional)
+
+Todo limitador tem um nome estável (a métrica `spook.ratelimit.blocked{name}` e `RATELIMIT_<NOME>_PER_MIN` usam o mesmo). Estourar = **429** com `Retry-After` (nunca 503). "Chave" é o que separa os contadores. `RATELIMIT_<NOME>_PER_MIN`: nome em maiúsculas com `.` virando `_`; troca a taxa sustentada e limita a rajada a ela. Os de IP não aceitam troca (exceto `auth.ip` por `SPOOK_AUTH_RATE_PER_MIN`).
+
+| Nome | O que limita | Chave | Rajada | Taxa sustentada | Troca por env |
+| --- | --- | --- | --- | --- | --- |
+| `auth.ip` | `/api/auth/*` | IP | 10 | 10/min | `SPOOK_AUTH_RATE_PER_MIN` |
+| `api.ip` | demais rotas `/api/*` | IP | 90 | 30/s | não |
+| `gateway.handshake` | `/api/gateway` | IP | 200 | 50/s | não |
+| `servers.create` | criar servidor | usuário | 5 | 2/min | sim |
+| `channels.create` | criar canal ou categoria | usuário | 30 | 30/min | sim |
+| `invites.create` | gerar convite | usuário | 20 | 20/min | sim |
+| `roles.manage` | criar, editar, excluir cargo; dar e tirar cargo | usuário | 30 | 30/min | sim |
+| `voice.token` | token do LiveKit | usuário | 10 | 30/min | sim |
+| `voice.watch` | avisar espectador (PUT/DELETE screen-watch) | usuário | 60 | 180/min | sim |
+| `profile.update` | `PATCH /api/users/me` | usuário | 10 | 20/min | sim |
+| `messages.pin` | fixar e desafixar | usuário | 15 | 30/min | sim |
+| `messages.send` | enviar mensagem (SPEC 7.3) | usuário + canal | 5 | 60/min | sim |
+| `messages.everyone` | `@everyone`/`@here` (7.13) | usuário + canal | 1 | 2/min | sim |
+| `dms.open` | abrir DM (7.4) | usuário | 10 | 10/min | sim |
+| `typing` | `TYPING_START` | usuário + canal | 1 | 1 a cada 3 s | não |
+| `uploads.request` | pedir upload (7.9) | usuário | 30 | 30/min | sim |
+| `push` | endpoints de push | usuário | 30 | 30/min | sim |
+| `moderation` | banir, desbanir, expulsar, mutar, apelido alheio, overwrites, desconectar da voz (7.12) | usuário | 20 | 60/min | sim |
+| `friends.request` | pedido de amizade (7.4) | usuário | 10 | 20/hora | sim |
+| `social.actions` | aceitar/desfazer amizade, bloquear, convidar amigo | usuário | 30 | 60/min | sim |
+| `call.ring` | tocar chamada em DM | usuário | 5 | 12/min | sim |
+| `account.password` | trocar/confirmar senha, login do desktop | usuário | 5 | 2/min | sim |
+| `account.email` | trocar e-mail | usuário | 5 | 5/hora | sim |
+| `account.delete` | excluir conta | usuário | 3 | 1/min | sim |
+| `auth.forgot` | esqueci/redefinir senha | IP | 5 | 0,5/min | sim |
+| `auth.resend` | reenviar verificação | usuário | 3 | 1/min | sim |
+| `mail.recipient` | e-mails por destinatário | e-mail | 3 | 0,5/min | sim |
+
+Fora da tabela, por serem de outra natureza: o envio da prévia da tela (1 a cada 5 s por usuário, `voice.PreviewMinInterval`, 429) e os tetos globais de prévias (503).
+
+**Espectadores:** `PUT|DELETE /api/channels/{id}/voice/screen-watch/{user_id}`: 404 sem acesso ao canal ou sem transmissão; 403 fora da chamada do canal; 422 na própria tela; 204 idempotente. Vale `voice.WatchTTL` = 45 s; até `voice.MaxViewersListed` = 50 IDs em `viewers`.
+
+**Histórico do admin:** retenção 2 a 365 dias (`LIVEKIT_SAMPLES_RETENTION_DAYS`, padrão 35); janelas `24h`, `7d`, `30d` (qualquer outra: 422); no máximo 300 pontos; cache 1 min (séries) e 10 min (mapa de calor, ranking, tamanho do storage).
 
 ### 7.10 Contas e perfil (adicional)
 
@@ -1326,6 +1406,7 @@ Cada item abaixo é aceito pelos critérios do RF correspondente (seção 3) e p
 - [x] E-mail e login social: verificação, troca de e-mail confirmada no endereço novo, recuperação de senha (e `spook admin reset-password`), Google/Discord (entrar, vincular, desvincular, último método) e login do desktop por navegador (backend e páginas) (RF24); [ ] SMTP real, apps OAuth reais, deep link `spook://` no Rust e conferência visual (ver `VALIDACAO-MANUAL.md` e `PENDENCIAS-DONO.md`).
 - [x] Moderação: banir/desbanir, permissões por canal e canal privado, apelido, mutar/desconectar na voz e registro de auditoria (RF25); [ ] conferência visual e com LiveKit real (`VALIDACAO-MANUAL.md`).
 - [x] Social: amizades (pedir, aceitar, recusar, cancelar, desfazer), bloqueio com a matriz de DM/chamada/menção, presença de amigos, convidar amigo pela DM e chamada em DM com toque (RF27); [ ] conferência com LiveKit real, push em produção e visual em 390 px (`VALIDACAO-MANUAL.md`).
+- [x] Voz no backend, histórico do admin e rate limits (RF28): espectadores da transmissão, reconciliação por job, limites nomeados por ação, histórico do LiveKit/gateway, mapa de calor, ranking, disco e plano; [ ] conferência com LiveKit real e com tráfego de produção (`VALIDACAO-MANUAL.md`).
 - [x] Painel `/admin` e `spook admin` verificados por testes; [ ] conferência dos números e da mídia do LiveKit contra a produção (RF21).
 
 ---

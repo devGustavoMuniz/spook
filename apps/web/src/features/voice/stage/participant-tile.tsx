@@ -36,6 +36,9 @@ import { useVoiceModeration, VoiceModerationItems } from "../moderation";
 import { PersonVolumePanel } from "../person-volume";
 import { togglePictureInPicture, usePictureInPictureId } from "../pip";
 import { useStreamPreview } from "../screen-preview";
+import { useVoiceStatesStore } from "../store";
+import type { PersonLookup } from "../use-person-lookup";
+import { ViewersBadge } from "../viewers";
 import { useTileColor } from "./dominant-color";
 import { useStageHold } from "./use-auto-hide";
 
@@ -121,6 +124,7 @@ export function ParticipantTile({
   onWatch,
   onSwapSource,
   channelId = null,
+  lookup,
   className,
 }: {
   tile: TileModel;
@@ -141,8 +145,13 @@ export function ParticipantTile({
   onSwapSource?: () => void;
   /** Canal da chamada: de onde vem a miniatura da prévia do tile sem assinatura. */
   channelId?: string | null;
+  /** Nomes e avatares de quem assiste a esta tela (a lista só chega ao próprio transmissor). */
+  lookup?: PersonLookup;
   className?: string;
 }) {
+  const streamerState = useVoiceStatesStore((s) =>
+    tile.kind === "screen" ? s.byUser[tile.userId] : undefined,
+  );
   const color = useTileColor(tile.avatarUrl, tile.userId);
   const host = useRef<HTMLDivElement>(null);
   const track = tile.video;
@@ -316,6 +325,14 @@ export function ParticipantTile({
           <Flags tile={tile} />
           <span className="truncate">{caption}</span>
           {speaking ? <span className="sr-only"> (falando)</span> : null}
+          {isScreen ? (
+            <ViewersBadge
+              state={streamerState}
+              lookup={lookup}
+              tone="onVideo"
+              className="shrink-0"
+            />
+          ) : null}
         </div>
       </div>
       {interactive ? (

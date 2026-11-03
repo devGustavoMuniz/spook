@@ -41,6 +41,20 @@ type Store interface {
 	Usernames(ctx context.Context, ids []int64) (map[int64]string, error)
 	// JobCounts conta os jobs do River por estado; ok=false se a fila não existe (tabela ausente).
 	JobCounts(ctx context.Context) (jobs JobCounts, ok bool, err error)
+
+	// Histórico (livekit_samples) e agregados de atividade.
+	InsertSample(ctx context.Context, s Sample) error
+	PurgeSamples(ctx context.Context, cutoff time.Time, batch int) (int64, error)
+	SampleSeries(ctx context.Context, since time.Time, bucketSecs int) ([]SampleBucket, error)
+	SampleTraffic(ctx context.Context, since time.Time) (Traffic, error)
+	MessageHeatmap(ctx context.Context, since time.Time) ([7][24]int64, error)
+	TopGuilds(ctx context.Context, since time.Time, limit int) ([]TopGuild, error)
+}
+
+// ObjectSizer mede o espaço ocupado por prefixo no storage S3 (opcional; ausente = tamanhos nulos).
+type ObjectSizer interface {
+	// PrefixSize soma os bytes dos objetos do prefixo, lendo no máximo maxObjects; truncated diz que passou do teto.
+	PrefixSize(ctx context.Context, prefix string, maxObjects int) (bytes, count int64, truncated bool, err error)
 }
 
 // CallSource lista as salas de voz ativas lidas do LiveKit (implementado em app com voice.Service).

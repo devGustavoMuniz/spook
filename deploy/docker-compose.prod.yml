@@ -70,6 +70,10 @@ services:
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
       # Painel /admin: usernames (separados por vírgula) promovidos a administrador no boot. Opcional.
       ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
+      # Capacidade no painel /admin (opcionais; vazio = sem limite de plano / retenção de 35 dias). O disco medido é o do
+      # volume onde o container escreve (ADMIN_DISK_PATH, padrão "/").
+      LIVEKIT_MONTHLY_TRAFFIC_GB: ${LIVEKIT_MONTHLY_TRAFFIC_GB:-}
+      LIVEKIT_SAMPLES_RETENTION_DAYS: ${LIVEKIT_SAMPLES_RETENTION_DAYS:-}
       # Identifica o build no painel (a imagem, com o tag). O Prometheus do LiveKit é lido de http://livekit:6789/metrics.
       SPOOK_VERSION: ${SPOOK_IMAGE:-}
       GOMEMLIMIT: 400MiB # o GC trabalha mais antes de o cgroup (512M) matar o processo

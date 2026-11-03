@@ -4,6 +4,7 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { ObjectBytes } from "./objectBytes";
 
 export interface SystemStorageStruct {
   attachment_bytes: number;
@@ -12,4 +13,5 @@ export interface SystemStorageStruct {
   avatars: number;
   /** Quantidade de ícones de servidor (o tamanho em bytes não é gravado) */
   guild_icons: number;
+  objects?: ObjectBytes;
 }

@@ -2,14 +2,28 @@
 package ratelimit
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/time/rate"
 )
+
+// blocked conta os pedidos recusados por limitador nomeado: spook.ratelimit.blocked{name}.
+var blocked, _ = otel.Meter("spook/ratelimit").Int64Counter("spook.ratelimit.blocked",
+	metric.WithDescription("Pedidos recusados (429) pelo limitador nomeado"))
+
+func recordBlocked(name string) {
+	if name != "" {
+		blocked.Add(context.Background(), 1, metric.WithAttributes(attribute.String("name", name)))
+	}
+}
 
 type entry struct {
 	lim  *rate.Limiter
@@ -22,14 +36,22 @@ type Limiter struct {
 	rate    rate.Limit
 	burst   int
 	now     func() time.Time
+	name    string
 }
+
+// Named dá ao limitador o nome estável usado na métrica spook.ratelimit.blocked (ex.: "servers.create") e
+// devolve o próprio limitador.
+func (l *Limiter) Named(name string) *Limiter { l.name = name; return l }
+
+// Name devolve o nome estável ("" se não tem).
+func (l *Limiter) Name() string { return l.name }
 
 // New permite `burst` requisições de uma vez e repõe `perSecond` por segundo.
 func New(perSecond float64, burst int) *Limiter {
 	return &Limiter{clients: map[string]*entry{}, rate: rate.Limit(perSecond), burst: burst, now: time.Now}
 }
 
-func (l *Limiter) Allow(key string) bool {
+func (l *Limiter) Allow(key string) (ok bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -39,7 +61,11 @@ func (l *Limiter) Allow(key string) bool {
 		l.clients[key] = e
 	}
 	e.seen = now
-	return e.lim.AllowN(now, 1)
+	ok = e.lim.AllowN(now, 1)
+	if !ok {
+		recordBlocked(l.name)
+	}
+	return ok
 }
 
 // Take consome uma permissão da chave (que pode ser composta, ex.: "msg:<usuário>:<canal>").
@@ -56,10 +82,12 @@ func (l *Limiter) Take(key string) (ok bool, retryAfter time.Duration) {
 	e.seen = now
 	r := e.lim.ReserveN(now, 1)
 	if !r.OK() {
+		recordBlocked(l.name)
 		return false, time.Second
 	}
 	if d := r.DelayFrom(now); d > 0 {
 		r.CancelAt(now) // não consome a vaga de quem foi recusado
+		recordBlocked(l.name)
 		return false, d
 	}
 	return true, 0

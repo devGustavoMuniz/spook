@@ -194,3 +194,23 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+// PrefixSize soma os bytes dos objetos cujo nome começa com prefix (ListObjectsV2 paginado, sem baixar nada).
+// Lê no máximo maxObjects objetos: passando disso devolve o parcial com truncated = true.
+func (s *Store) PrefixSize(ctx context.Context, prefix string, maxObjects int) (bytes, count int64, truncated bool, err error) {
+	p := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{Bucket: aws.String(s.bucket), Prefix: aws.String(prefix)})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return 0, 0, false, fmt.Errorf("listar %q: %w", prefix, err)
+		}
+		for _, o := range page.Contents {
+			if count >= int64(maxObjects) {
+				return bytes, count, true, nil
+			}
+			bytes += aws.ToInt64(o.Size)
+			count++
+		}
+	}
+	return bytes, count, false, nil
+}

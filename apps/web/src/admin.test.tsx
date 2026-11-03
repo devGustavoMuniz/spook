@@ -89,6 +89,68 @@ const system = {
   },
 };
 
+const isoAt = (i: number) => new Date(Date.UTC(2026, 9, 31, 0, i * 5)).toISOString();
+const historyPoints = Array.from({ length: 6 }, (_, i) => ({
+  ts: isoAt(i),
+  rooms: 1,
+  participants: i,
+  tracks_published: 2,
+  tracks_subscribed: 3,
+  bytes_out: 3000 * i,
+  bytes_in: 1000,
+  bytes_out_per_sec: 10 * i,
+  peak_out_per_sec: 20 * i,
+  packets_per_sec: 5,
+  packet_loss_pct: null,
+  jitter_ms: null,
+  rtt_ms: null,
+  has_media: true,
+}));
+const livekitHistory = (range: string, over: object = {}) => ({
+  generated_at: "2026-10-31T15:30:00Z",
+  range,
+  bucket_seconds: range === "24h" ? 300 : range === "7d" ? 3600 : 86400,
+  collecting: false,
+  points: historyPoints,
+  ...over,
+});
+const gatewayHistory = {
+  generated_at: "2026-10-31T15:30:00Z",
+  bucket_seconds: 300,
+  collecting: false,
+  points: Array.from({ length: 4 }, (_, i) => ({
+    ts: isoAt(i),
+    online_users: 2 + i,
+    connections: 3 + i,
+  })),
+};
+const heatmap = {
+  generated_at: "2026-10-31T15:30:00Z",
+  days: 28,
+  total: 130,
+  cells: Array.from({ length: 7 }, (_, d) =>
+    Array.from({ length: 24 }, (_, h) => (d === 2 && h === 14 ? 50 : (d + h) % 5)),
+  ),
+};
+const topServers = {
+  generated_at: "2026-10-31T15:30:00Z",
+  days: 7,
+  items: [
+    { id: "1", name: "Casa", messages: 900, members: 12 },
+    { id: "2", name: "Clube", messages: 300, members: 1 },
+  ],
+};
+const plan = {
+  generated_at: "2026-10-31T15:30:00Z",
+  collecting: false,
+  peak_out_24h_per_sec: 250_000,
+  month_start: "2026-10-01T00:00:00Z",
+  month_bytes_out: 40_000_000_000,
+  month_bytes_in: 5_000_000_000,
+  monthly_limit_bytes: 100_000_000_000,
+  month_pct: 40,
+};
+
 const userRow = (n: number) => ({
   id: String(n),
   username: `user${n}`,
@@ -103,7 +165,19 @@ const userRow = (n: number) => ({
 type Hit = { path: string; search: URLSearchParams };
 
 /** Registra as rotas /api/admin/* e guarda cada requisição (para checar sort, busca e polling). */
-function adminApi(over: { overview?: unknown; live?: unknown; calls?: unknown } = {}) {
+function adminApi(
+  over: {
+    overview?: unknown;
+    live?: unknown;
+    calls?: unknown;
+    system?: unknown;
+    history?: (range: string) => object;
+    gateway?: unknown;
+    heatmap?: unknown;
+    top?: unknown;
+    plan?: unknown;
+  } = {},
+) {
   const hits: Hit[] = [];
   const rec = (request: Request) => {
     const u = new URL(request.url);
@@ -121,7 +195,28 @@ function adminApi(over: { overview?: unknown; live?: unknown; calls?: unknown } 
     }),
     http.get("*/api/admin/system", ({ request }) => {
       rec(request);
-      return HttpResponse.json(system);
+      return HttpResponse.json(over.system ?? system);
+    }),
+    http.get("*/api/admin/livekit/history", ({ request }) => {
+      const q = rec(request);
+      const range = q.get("range") ?? "24h";
+      return HttpResponse.json(over.history ? over.history(range) : livekitHistory(range));
+    }),
+    http.get("*/api/admin/gateway/history", ({ request }) => {
+      rec(request);
+      return HttpResponse.json(over.gateway ?? gatewayHistory);
+    }),
+    http.get("*/api/admin/activity/heatmap", ({ request }) => {
+      rec(request);
+      return HttpResponse.json(over.heatmap ?? heatmap);
+    }),
+    http.get("*/api/admin/servers/top", ({ request }) => {
+      rec(request);
+      return HttpResponse.json(over.top ?? topServers);
+    }),
+    http.get("*/api/admin/livekit/usage", ({ request }) => {
+      rec(request);
+      return HttpResponse.json(over.plan ?? plan);
     }),
     http.get("*/api/admin/users", ({ request }) => {
       const q = rec(request);
@@ -273,7 +368,15 @@ describe("dashboard", () => {
     adminApi();
     await renderApp("/admin", asAdmin(true));
     await screen.findByText("go1.26.0");
-    for (const g of ["Resumo", "Crescimento", "Conteúdo", "Mídia", "Aplicação e armazenamento"]) {
+    for (const g of [
+      "Resumo",
+      "Crescimento",
+      "Atividade",
+      "Histórico",
+      "Conteúdo",
+      "Mídia",
+      "Aplicação e armazenamento",
+    ]) {
       expect(screen.getByRole("heading", { level: 2, name: g })).toBeInTheDocument();
     }
     // Séries com a linha de comparação (7 dias antes) e o rótulo na legenda.
@@ -367,6 +470,105 @@ describe("dashboard", () => {
     );
     await renderApp("/admin", asAdmin(true));
     expect(await screen.findByText(/Alguma leitura falhou/)).toBeInTheDocument();
+  });
+});
+
+describe("dashboard: histórico, atividade e capacidade", () => {
+  it("liga o mapa de calor, o ranking de servidores e os gráficos do histórico, sem os avisos de 'dados virão do backend'", async () => {
+    adminApi();
+    await renderApp("/admin", asAdmin(true));
+    await screen.findByText("go1.26.0");
+
+    // Mapa de calor (hora x dia da semana) com a tabela acessível por baixo.
+    expect(
+      await screen.findByRole("grid", { name: "Mensagens por hora e dia da semana" }),
+    ).toBeInTheDocument();
+    // Ranking de servidores: barras com tabela.
+    const rank = await screen.findByRole("table", {
+      name: "Servidores com mais mensagens em 7 dias",
+    });
+    expect(within(rank).getByText("Casa")).toBeInTheDocument();
+    expect(within(rank).getByText("Clube")).toBeInTheDocument();
+    // Histórico: participantes, tráfego de saída e gateway (24 h).
+    expect(
+      await screen.findByRole("img", { name: /Participantes em chamadas/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Tráfego de saída do LiveKit/ })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Pessoas online no gateway/ })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Conexões WebSocket/ })).toBeInTheDocument();
+    // Os avisos antigos sumiram.
+    expect(screen.queryByText(/chegam quando o backend/)).toBeNull();
+    expect(screen.queryByText(/ainda não é medido pelo backend/)).toBeNull();
+    expect(screen.queryByText(/O Spook não tem/)).toBeNull();
+  });
+
+  it("o seletor troca a janela do histórico (24 h, 7 dias, 30 dias) e pede à API com o intervalo certo", async () => {
+    const hits = adminApi();
+    await renderApp("/admin", asAdmin(true));
+    await screen.findByRole("img", { name: /Participantes em chamadas/ });
+    const hist = () => hits.filter((h) => h.path === "/api/admin/livekit/history");
+    expect(hist().at(-1)?.search.get("range")).toBe("24h");
+    await userEvent.click(screen.getByRole("tab", { name: "7 dias" }));
+    await waitFor(() => expect(hist().at(-1)?.search.get("range")).toBe("7d"));
+    expect((await screen.findAllByText(/Pontos de 1 hora/, { selector: "p" })).length).toBe(2);
+    await userEvent.click(screen.getByRole("tab", { name: "30 dias" }));
+    await waitFor(() => expect(hist().at(-1)?.search.get("range")).toBe("30d"));
+    expect(screen.getByRole("tab", { name: "30 dias" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("enquanto o histórico acumula mostra 'Coletando dados…' em vez de gráficos vazios", async () => {
+    adminApi({
+      history: (range) => livekitHistory(range, { collecting: true, points: [] }),
+      gateway: { ...gatewayHistory, collecting: true, points: [] },
+      plan: { ...plan, collecting: true, month_bytes_out: 0, month_pct: 0 },
+    });
+    await renderApp("/admin", asAdmin(true));
+    expect((await screen.findAllByText(/Coletando dados…/)).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("capacidade: disco, plano do LiveKit (mês contra o limite) e pico de saída em 24 h", async () => {
+    adminApi({
+      system: {
+        ...system,
+        disk: {
+          path: "/data",
+          total_bytes: 100_000_000_000,
+          free_bytes: 15_000_000_000,
+          used_bytes: 85_000_000_000,
+          used_pct: 85,
+        },
+        storage: {
+          ...system.storage,
+          objects: {
+            avatars_bytes: 2_097_152,
+            icons_bytes: 1_048_576,
+            banners_bytes: null,
+            truncated: false,
+          },
+        },
+      },
+    });
+    await renderApp("/admin", asAdmin(true));
+    const disk = await screen.findByRole("meter", { name: "Disco do volume de dados" });
+    expect(disk).toHaveAttribute("aria-valuetext", "85%, Atenção");
+    const month = await screen.findByRole("meter", { name: "Tráfego do mês (plano do LiveKit)" });
+    expect(month).toHaveAttribute("aria-valuetext", "40%, Bom");
+    expect(
+      screen.getByText(/de 93,1 GB de saída|de 100 GB de saída|de .* de saída/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Pico de saída em 24 h")).toBeInTheDocument();
+    expect(screen.getByText("2 Mbps")).toBeInTheDocument(); // 250 kB/s = 2 Mbps
+    expect(screen.getByText("Avatares (bytes)")).toBeInTheDocument();
+    expect(screen.getByText("Banners (bytes)")).toBeInTheDocument();
+  });
+
+  it("sem disco medido nem limite do plano explica em vez de inventar números", async () => {
+    adminApi({ plan: { ...plan, monthly_limit_bytes: null, month_pct: null } });
+    await renderApp("/admin", asAdmin(true));
+    expect(await screen.findByText("disco não medido neste sistema")).toBeInTheDocument();
+    expect(await screen.findByText("não configurado")).toBeInTheDocument();
+    expect(screen.getByText(/LIVEKIT_MONTHLY_TRAFFIC_GB/)).toBeInTheDocument();
+    expect(screen.queryByRole("meter", { name: "Tráfego do mês (plano do LiveKit)" })).toBeNull();
   });
 });
 

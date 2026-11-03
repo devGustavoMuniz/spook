@@ -63,7 +63,7 @@ func newEnvWith(t *testing.T, tweak func(*Deps)) *testEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deps := Deps{Cfg: config.Config{Env: "development"}, Pool: pool, Storage: st}
+	deps := Deps{Cfg: config.Config{Env: "development"}, Pool: pool, Storage: st, ActionLimiters: relaxedActionLimiters()}
 	if tweak != nil {
 		tweak(&deps)
 	}
@@ -413,4 +413,14 @@ func TestCORSForDesktopOrigin(t *testing.T) {
 	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("origem não permitida recebeu CORS: %v", resp.Header)
 	}
+}
+
+// relaxedActionLimiters folga os limites por ação (ratelimits.go): os testes criam muitos servidores, canais e
+// tokens por usuário. Os testes dos próprios limites trocam Deps.ActionLimiters (nil = os padrões).
+func relaxedActionLimiters() map[string]*ratelimit.Limiter {
+	m := map[string]*ratelimit.Limiter{}
+	for _, r := range actionRules {
+		m[r.Name] = ratelimit.New(100000, 100000)
+	}
+	return m
 }

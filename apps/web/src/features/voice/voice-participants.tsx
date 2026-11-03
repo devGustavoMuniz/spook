@@ -125,7 +125,7 @@ export function VoiceParticipants({
                 ) : null}
               </span>
               {streaming && watch ? (
-                <StreamCard state={p} name={person.name} watch={watch}>
+                <StreamCard state={p} name={person.name} watch={watch} lookup={lookup}>
                   {nameEl}
                 </StreamCard>
               ) : (

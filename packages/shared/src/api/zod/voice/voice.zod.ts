@@ -35,6 +35,26 @@ export const GetScreenPreviewParams = zod.object({
 export const GetScreenPreviewResponse = zod.unknown();
 
 /**
+ * @summary Avisa que você parou de assistir à tela de quem transmite; idempotente
+ */
+export const DeleteScreenWatchParams = zod.object({
+  channel_id: zod.string().describe("ID do canal de voz ou da DM"),
+  user_id: zod.string().describe("ID de quem transmite"),
+});
+
+export const DeleteScreenWatchResponse = zod.void();
+
+/**
+ * @summary Avisa que você assiste à tela de quem transmite (precisa estar na chamada do canal; a transmissão precisa existir). Vale 45 s: renove a cada ~20 s. Idempotente. O transmissor passa a ver você em `viewers` e todos veem `viewer_count`
+ */
+export const PutScreenWatchParams = zod.object({
+  channel_id: zod.string().describe("ID do canal de voz ou da DM"),
+  user_id: zod.string().describe("ID de quem transmite"),
+});
+
+export const PutScreenWatchResponse = zod.void();
+
+/**
  * @summary Emite o token do LiveKit para entrar na voz do canal (servidor ou DM). Vale 10 min e só para a sala do canal; entrar em outro canal tira o usuário do anterior
  */
 export const CreateVoiceTokenParams = zod.object({
@@ -64,6 +84,8 @@ export const ListGuildVoiceStatesParams = zod.object({
   guild_id: zod.string().describe("ID do servidor"),
 });
 
+export const listGuildVoiceStatesResponseViewersMax = 50;
+
 export const ListGuildVoiceStatesResponseItem = zod.object({
   channel_id: zod.string().nullable().describe("Nulo quando o usuário saiu da voz"),
   guild_id: zod.string().nullable().describe("Nulo em DM"),
@@ -83,6 +105,19 @@ export const ListGuildVoiceStatesResponseItem = zod.object({
       "Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar",
     ),
   user_id: zod.string(),
+  viewer_count: zod
+    .int()
+    .optional()
+    .describe(
+      "Quantas pessoas estão assistindo a tela (ausente = 0, ou não transmite). Visível a quem vê o canal",
+    ),
+  viewers: zod
+    .array(zod.string())
+    .max(listGuildVoiceStatesResponseViewersMax)
+    .nullish()
+    .describe(
+      "IDs de quem assiste a tela (até 50, os mais antigos primeiro). Só o próprio transmissor recebe a lista (o gateway e os snapshots a retiram dos demais); os outros veem só viewer_count",
+    ),
 });
 export const ListGuildVoiceStatesResponse = zod.array(ListGuildVoiceStatesResponseItem);
 
@@ -98,6 +133,8 @@ export const UpdateVoiceStateBody = zod.object({
   self_deaf: zod.boolean(),
   self_mute: zod.boolean(),
 });
+
+export const updateVoiceStateResponseViewersMax = 50;
 
 export const UpdateVoiceStateResponse = zod.object({
   channel_id: zod.string().nullable().describe("Nulo quando o usuário saiu da voz"),
@@ -118,4 +155,17 @@ export const UpdateVoiceStateResponse = zod.object({
       "Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar",
     ),
   user_id: zod.string(),
+  viewer_count: zod
+    .int()
+    .optional()
+    .describe(
+      "Quantas pessoas estão assistindo a tela (ausente = 0, ou não transmite). Visível a quem vê o canal",
+    ),
+  viewers: zod
+    .array(zod.string())
+    .max(updateVoiceStateResponseViewersMax)
+    .nullish()
+    .describe(
+      "IDs de quem assiste a tela (até 50, os mais antigos primeiro). Só o próprio transmissor recebe a lista (o gateway e os snapshots a retiram dos demais); os outros veem só viewer_count",
+    ),
 });

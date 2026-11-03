@@ -348,6 +348,14 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
 
 Variáveis do backend (Variables do GitHub / ambiente do compose), todas opcionais; os padrões são os do SPEC (7.1, 7.3 e `SPEC.md` 5.5, "menções, mensagem de sistema, tópico e limites"): `LIMIT_GUILDS_PER_USER` (100), `LIMIT_CHANNELS_PER_GUILD` (500), `LIMIT_MEMBERS_PER_GUILD` (10000), `LIMIT_ROLES_PER_GUILD` (250), `LIMIT_INVITES_PER_GUILD` (1000), `LIMIT_ATTACHMENT_MB` (25, até 100; confira também o limite do túnel/bucket) e `EVERYONE_PUSH_MAX` (200). Valor fora da faixa faz o backend recusar o boot (veja o log). Baixar um limite não remove o que já existe: só bloqueia novos.
 
+### 7.2 Painel: histórico do LiveKit, capacidade e rate limits (opcional)
+
+- `LIVEKIT_SAMPLES_RETENTION_DAYS` (padrão 35, de 2 a 365): por quantos dias o histórico por minuto do LiveKit e do gateway (`livekit_samples`) é guardado; o job `livekit_samples_purge` apaga em lotes uma vez por dia.
+- `LIVEKIT_MONTHLY_TRAFFIC_GB` (sem padrão): tráfego de saída mensal do plano da VPS/LiveKit, em GB (10^9 bytes). Com ele o painel mostra o uso do mês contra o limite; sem ele mostra só o tráfego do mês.
+- `ADMIN_DISK_PATH` (padrão `/`): o painel mede o disco do volume que contém esse diretório (statfs). Dentro do container o `/` é o sistema de arquivos do Docker, que na VPS é o mesmo disco dos volumes; se o Garage ficar em outro disco, monte-o no container e aponte para ele.
+- As duas primeiras são Variables do GitHub (`gh variable set`) repassadas pelo `write-env` e pelo `docker-compose.prod.yml`. O `ADMIN_DISK_PATH` e as `RATELIMIT_<NOME>_PER_MIN` (SPEC 7.14) valem no ambiente do backend, mas **não** estão ligadas ao workflow: para usá-las em produção, acrescente a linha no `environment:` do `spook` em `docker-compose.prod.yml` (e a Variable correspondente).
+- O histórico começa vazio: os gráficos mostram "Coletando dados…" até haver 2 amostras (alguns minutos) e só ficam úteis depois de horas. O job de amostragem e o `voice_reconcile` rodam no River do próprio backend (sem serviço novo); o estado de voz é por processo, então mantenha **uma** instância do backend.
+
 ## 8. Pendências conhecidas
 - **Observabilidade em produção** (RNF02): `SPOOK_OTLP_ENDPOINT` está vazio, ou seja, sem traces em prod. Plano e critério
   na Fase B do SPEC (Benchmarks e observabilidade): Grafana Cloud (plano gratuito) com só um coletor OpenTelemetry leve no VPS (e, então,

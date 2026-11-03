@@ -12,34 +12,38 @@ export function ChartTable({
   columns: string[];
   rows: (string | number)[][];
 }) {
+  // O wrapper recorta (overflow:hidden de .sr-only não vale numa <table>): uma tabela larga, como a das 24 horas do
+  // mapa de calor, fora dele alargava a rolagem da página em 390 px.
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          {columns.map((c) => (
-            <th key={c} scope="col">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={String(row[0])}>
-            {row.map((cell, i) =>
-              i === 0 ? (
-                <th key={`${row[0]}-${columns[i]}`} scope="row">
-                  {cell}
-                </th>
-              ) : (
-                <td key={`${row[0]}-${columns[i]}`}>{cell}</td>
-              ),
-            )}
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c} scope="col">
+                {c}
+              </th>
+            ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={String(row[0])}>
+              {row.map((cell, i) =>
+                i === 0 ? (
+                  <th key={`${row[0]}-${columns[i]}`} scope="row">
+                    {cell}
+                  </th>
+                ) : (
+                  <td key={`${row[0]}-${columns[i]}`}>{cell}</td>
+                ),
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

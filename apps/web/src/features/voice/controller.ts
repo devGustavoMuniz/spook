@@ -36,6 +36,7 @@ import { mediaMessage } from "./media-errors";
 import { effectiveVolume, personVolumeOf, useParticipantVolumeStore } from "./participant-volume";
 import { startScreenPreview } from "./screen-preview";
 import { loadScreenQuality, saveScreenQuality } from "./screen-quality";
+import { startScreenWatchNotifier } from "./screen-watch";
 import {
   useAudioStatusStore,
   useInputLevelStore,
@@ -203,8 +204,21 @@ async function connectWithToken(
   return false;
 }
 
+let knownMyId: string | null = null;
+let stopWatchNotifier: (() => void) | null = null;
+
+/** Liga (uma vez) o aviso ao backend de quais telas estou assistindo: ele alimenta "Assistindo: N" de quem transmite. */
+function ensureWatchNotifier() {
+  if (stopWatchNotifier) return;
+  stopWatchNotifier = startScreenWatchNotifier({
+    myId: () => knownMyId,
+    selective: () => screenWatchSupported(),
+  });
+}
+
 async function afterConnect(eng: VoiceEngine, target: JoinTarget, gen: number) {
   session().patch({ status: "connected" });
+  ensureWatchNotifier();
   // Reaplica as telas que o usuário escolheu assistir (a engine começa sem assinar nenhuma).
   for (const id of session().watching) eng.setScreenWatching?.(id, true);
   const prefs = loadDevicePrefs();
@@ -656,6 +670,7 @@ function forcedOut(message: string) {
  * canal ANTERIOR numa troca também chega assim e deve ser ignorada.
  */
 export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) {
+  if (myId) knownMyId = myId;
   const before = useVoiceStatesStore.getState().byUser[u.user_id];
   useVoiceStatesStore.getState().apply(u);
   playPeerSounds(myId, before, u);
@@ -707,6 +722,7 @@ function playPeerSounds(
 
 /** READY: o snapshot substitui o mapa e confere se a sala local ainda é a que o servidor conhece. */
 export function reconcileVoiceSnapshot(myId: string | null, states: readonly GatewayVoiceState[]) {
+  if (myId) knownMyId = myId;
   useVoiceStatesStore.getState().replaceAll(states);
   if (!myId) return;
   const s = session();

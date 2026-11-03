@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { loadViewStreamPreviews } from "./devices";
 import { useStreamPreview } from "./screen-preview";
+import type { PersonLookup } from "./use-person-lookup";
+import { ViewersBadge } from "./viewers";
 
 /** Atraso para abrir ao passar o mouse (evita abrir ao atravessar a lista) e para fechar ao sair. */
 export const CARD_OPEN_DELAY_MS = 250;
@@ -34,12 +36,15 @@ export function StreamCard({
   state,
   name,
   watch,
+  lookup,
   children,
   className,
 }: {
   state: VoiceStatePayload;
   name: string;
   watch: WatchAction;
+  /** Nomes e avatares de quem assiste (a lista só existe para o próprio transmissor). */
+  lookup?: PersonLookup;
   /** O nome (e o resto da linha que também abre o cartão). */
   children: React.ReactNode;
   className?: string;
@@ -172,6 +177,7 @@ export function StreamCard({
                 state={state}
                 name={name}
                 watch={watch}
+                lookup={lookup}
                 watchRef={watchBtn}
                 onWatched={() => close()}
               />
@@ -187,12 +193,14 @@ function StreamCardBody({
   state,
   name,
   watch,
+  lookup,
   watchRef,
   onWatched,
 }: {
   state: VoiceStatePayload;
   name: string;
   watch: WatchAction;
+  lookup?: PersonLookup;
   watchRef: React.RefObject<HTMLButtonElement | null>;
   onWatched: () => void;
 }) {
@@ -225,6 +233,7 @@ function StreamCardBody({
           Ao vivo
         </Badge>
       </div>
+      <ViewersBadge state={state} lookup={lookup} />
       <Button
         ref={watchRef}
         size="sm"

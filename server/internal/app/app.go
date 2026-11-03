@@ -112,6 +112,9 @@ type Deps struct {
 	// HTTPClient substitui o cliente do envio (para confiar no certificado do servidor de teste).
 	Push PushOptions
 
+	// ActionLimiters substitui por nome ("servers.create"...) os limitadores por ação (testes).
+	ActionLimiters map[string]*ratelimit.Limiter
+
 	// Voz (testes): substitui o adaptador do LiveKit (nulo = o da configuração, ou voz desligada
 	// sem LIVEKIT_*) e muda o intervalo do reconciliador (padrão 60 s).
 	VoiceProvider       voice.Provider
@@ -179,6 +182,10 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 
 	pool := db.Timed(d.Pool) // soma o tempo de banco na métrica `db` do Server-Timing
 
+	// Limitadores nomeados (SPEC 7.x, inventário de rate limits): cada um tem um nome estável (métrica
+	// spook.ratelimit.blocked{name}) e, onde faz sentido, a taxa pode ser trocada por RATELIMIT_<NOME>_PER_MIN.
+	named := namedLimiters{overrides: d.Cfg.RateLimitPerMin}
+
 	var avatarStorage user.AvatarStorage
 	var guildStorage guild.Storage
 	var objects attachment.Objects
@@ -229,18 +236,9 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	mailStore := mailflow.NewStore(pool)
 	mailJobs := &mailflow.Enqueuer{} // ligado ao client do River logo abaixo
 	deliverer := &mailflow.Deliverer{Sender: sender, Box: box, State: mailStore, PublicURL: d.Cfg.PublicURL}
-	recipientLimiter := d.RecipientLimiter
-	if recipientLimiter == nil {
-		recipientLimiter = ratelimit.New(1.0/120, 3)
-	}
-	forgotLimiter := d.ForgotLimiter
-	if forgotLimiter == nil {
-		forgotLimiter = ratelimit.New(1.0/120, 5)
-	}
-	resendLimiter := d.ResendLimiter
-	if resendLimiter == nil {
-		resendLimiter = ratelimit.New(1.0/60, 3)
-	}
+	recipientLimiter := named.get("mail.recipient", d.RecipientLimiter, 0.5, 3)
+	forgotLimiter := named.get("auth.forgot", d.ForgotLimiter, 0.5, 5)
+	resendLimiter := named.get("auth.resend", d.ResendLimiter, 1, 3)
 	forgotDelay := d.ForgotDelay
 	switch {
 	case forgotDelay == 0:
@@ -290,18 +288,9 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		}
 	}()
 
-	passwordLimiter := d.PasswordLimiter
-	if passwordLimiter == nil {
-		passwordLimiter = ratelimit.New(1.0/30, 5)
-	}
-	emailLimiter := d.EmailLimiter
-	if emailLimiter == nil {
-		emailLimiter = ratelimit.New(5.0/3600, 5)
-	}
-	deleteLimiter := d.DeleteLimiter
-	if deleteLimiter == nil {
-		deleteLimiter = ratelimit.New(1.0/60, 3)
-	}
+	passwordLimiter := named.get("account.password", d.PasswordLimiter, 2, 5)
+	emailLimiter := named.get("account.email", d.EmailLimiter, 5.0/60, 5)
+	deleteLimiter := named.get("account.delete", d.DeleteLimiter, 1, 3)
 	userH := user.NewHandler(userSvc, auth.UserID).WithLimiter(emailLimiter)
 	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View).WithLimiter(passwordLimiter)
 	mailH := mailflow.NewHandler(mailSvc, auth.UserID).WithLimiters(forgotLimiter, resendLimiter).RequireVerified(d.Cfg.Mail.RequireVerification)
@@ -315,23 +304,20 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		}
 		authLimiter = ratelimit.New(float64(perMin)/60, perMin)
 	}
+	authLimiter.Named("auth.ip")
 	apiLimiter := d.APILimiter
 	if apiLimiter == nil {
 		apiLimiter = ratelimit.New(30, 90)
 	}
-	msgLimiter := d.MsgLimiter
-	if msgLimiter == nil {
-		msgLimiter = ratelimit.New(1, 5) // 5 mensagens a cada 5 s (SPEC 7.3)
-	}
+	apiLimiter.Named("api.ip")
+	msgLimiter := named.get("messages.send", d.MsgLimiter, 60, 5) // 5 mensagens a cada 5 s (SPEC 7.3)
 
-	dmLimiter := d.DMLimiter
-	if dmLimiter == nil {
-		dmLimiter = ratelimit.New(10.0/60, 10) // 10 criações por minuto (SPEC 7.4)
-	}
+	dmLimiter := named.get("dms.open", d.DMLimiter, 10, 10) // 10 criações por minuto (SPEC 7.4)
 	typingLimiter := d.TypingLimiter
 	if typingLimiter == nil {
 		typingLimiter = ratelimit.New(1/typing.Throttle.Seconds(), 1)
 	}
+	typingLimiter.Named("typing")
 
 	// Ligação entre as features: guild expõe as permissões; channel, message e invite as consomem.
 	// channel não conhece guild (só a interface Access), então guild recebe channel por interface e
@@ -343,55 +329,34 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	guildSvc := guild.NewService(guild.NewStore(pool).WithLimits(lim), channelSvc, guildStorage, userSvc, ids, bus)
 	guildSvc.SetLimits(lim)
 	access.svc = guildSvc
-	modLimiter := d.ModLimiter
-	if modLimiter == nil {
-		modLimiter = ratelimit.New(1, 20) // banir, expulsar, mutar, apelidos alheios, permissões de canal
-	}
+	modLimiter := named.get("moderation", d.ModLimiter, 60, 20) // banir, expulsar, mutar, apelidos alheios, permissões de canal
 	auditSvc := audit.NewService(audit.NewStore(pool), guildSvc, userSvc, ids)
 	guildSvc.SetAudit(auditSvc)
 	guildSvc.SetLimiter(modLimiter)
 	channelSvc.SetAudit(auditSvc)
 	channelSvc.SetLimiter(modLimiter)
-	friendReqLimiter := d.FriendRequestLimiter
-	if friendReqLimiter == nil {
-		friendReqLimiter = ratelimit.New(20.0/3600, 10)
-	}
-	socialLimiter := d.SocialLimiter
-	if socialLimiter == nil {
-		socialLimiter = ratelimit.New(1, 30)
-	}
-	callLimiter := d.CallLimiter
-	if callLimiter == nil {
-		callLimiter = ratelimit.New(0.2, 5)
-	}
+	friendReqLimiter := named.get("friends.request", d.FriendRequestLimiter, 20.0/60, 10)
+	socialLimiter := named.get("social.actions", d.SocialLimiter, 60, 30)
+	callLimiter := named.get("call.ring", d.CallLimiter, 12, 5)
 	relSvc := relationship.NewService(relationship.NewStore(pool), bus, userSvc, friendReqLimiter, socialLimiter)
 	dmSvc := dm.NewService(dm.NewStore(pool), ids, bus, userSvc, dmLimiter)
 	dmSvc.SetRelations(relSvc)
 	channelSvc.SetDMs(dmSvc)
 	typingSvc := typing.NewService(channelSvc, typingLimiter, bus)
 	presenceSvc := presence.NewService(ctx, d.Presence, presence.NewStore(pool), bus, bus)
-	uploadLimiter := d.UploadLimiter
-	if uploadLimiter == nil {
-		uploadLimiter = ratelimit.New(0.5, 30) // 30 pedidos por minuto
-	}
+	uploadLimiter := named.get("uploads.request", d.UploadLimiter, 30, 30) // 30 pedidos por minuto
 	attachmentSvc := attachment.NewService(attachment.NewStore(pool), objects, channelSvc, uploadLimiter, ids)
 	attachmentSvc.SetMaxFileSize(lim.AttachmentBytes)
 	thumbJobs := &attachment.Enqueuer{} // ligado ao client do River logo abaixo
 	messageSvc := message.NewService(message.NewStore(pool, thumbJobs), channelSvc, msgLimiter, userSvc, attachmentSvc, ids, bus)
 	messageSvc.SetSystemChannels(guildSvc)
 	messageSvc.SetDMGate(relSvc)
-	everyoneLimiter := d.EveryoneLimiter
-	if everyoneLimiter == nil {
-		everyoneLimiter = ratelimit.New(1.0/30, 1) // @everyone/@here: 1 a cada 30 s por usuário e canal
-	}
+	everyoneLimiter := named.get("messages.everyone", d.EveryoneLimiter, 2, 1) // @everyone/@here: 1 a cada 30 s por usuário e canal
 	messageSvc.SetEveryoneLimiter(everyoneLimiter)
 
 	// Notificações (Fase 6b): não lidas, menções e Web Push. Assina MESSAGE_CREATE; message só conhece a
 	// interface de menções.
-	pushLimiter := d.PushLimiter
-	if pushLimiter == nil {
-		pushLimiter = ratelimit.New(0.5, 30) // 30 requisições por minuto
-	}
+	pushLimiter := named.get("push", d.PushLimiter, 30, 30) // 30 requisições por minuto
 	pushCfg := notification.PushConfig{PublicKey: d.Cfg.VAPID.PublicKey, PrivateKey: d.Cfg.VAPID.PrivateKey, Subject: d.Cfg.VAPID.Subject}
 	policy := notification.EndpointPolicy{AllowPrivate: d.Push.AllowPrivate}
 	notifDeps := notification.Deps{
@@ -412,39 +377,6 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	notifySvc.Start(ctx, bus)
 
 	accountJobs := &account.Enqueuer{} // ligado ao client do River logo abaixo
-	// Jobs (River): e-mails, thumbnails, limpeza de anexos órfãos e Web Push. Só existem com o pool do pgx.
-	var jobClient *jobs.Client
-	if rp, ok := d.Pool.(*pgxpool.Pool); ok {
-		workers := river.NewWorkers()
-		mailflow.RegisterWorkers(workers, deliverer)
-		retention := time.Duration(d.Cfg.AuditRetentionDays) * 24 * time.Hour
-		if retention <= 0 {
-			retention = 90 * 24 * time.Hour
-		}
-		audit.RegisterWorkers(workers, auditSvc, retention)
-		periodic := audit.PeriodicJobs()
-		if objects != nil {
-			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
-			periodic = append(periodic, attachment.PeriodicJobs()...)
-			account.RegisterWorkers(workers, objects)
-		}
-		if notifySvc.PushEnabled() {
-			notification.RegisterWorkers(workers, notifySvc)
-		}
-		if jobClient, err = jobs.New(rp, workers, periodic); err != nil {
-			return nil, err
-		}
-		thumbJobs.Set(jobClient)
-		pushJobs.Set(jobClient)
-		accountJobs.Set(jobClient)
-		mailJobs.Set(jobClient)
-		mailQueue.queue = mailJobs
-		// Sem o cancelamento de ctx: o desligamento é explícito (App.Close), para os jobs terminarem.
-		if err := jobClient.Start(context.WithoutCancel(ctx)); err != nil {
-			return nil, err
-		}
-	}
-
 	// Voz (hexagonal): porta do LiveKit, estado em memória e permissões ligadas a guild/dm/perm.
 	var voiceProv voice.Provider
 	switch {
@@ -462,11 +394,6 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	})
 	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam
 	go func() { <-ctx.Done(); cancelVoice() }()
-	reconcileEvery := d.VoiceReconcileEvery
-	if reconcileEvery <= 0 {
-		reconcileEvery = time.Minute
-	}
-	go voiceSvc.Run(ctx, reconcileEvery)
 	voiceH := voice.NewHandler(voiceSvc, auth.UserID)
 
 	// Chamadas em DM com toque: acompanha a sala de voz pelo barramento e responde ao gateway (READY).
@@ -485,8 +412,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	if gwLimiter == nil {
 		gwLimiter = ratelimit.New(50, 200)
 	}
+	gwLimiter.Named("gateway.handshake")
 	authSvc.OnRevoke(hub.RevokeAuth) // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
-	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter, friendReqLimiter, socialLimiter, callLimiter)
+	actionByOp, actionAll := named.actionLimiters(d.ActionLimiters)
+	named.warnUnknown(allLimiterNames())
+	startCleanup(ctx, append(actionAll, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter, friendReqLimiter, socialLimiter, callLimiter)...)
 	inviteSvc := invite.NewService(invite.NewStore(pool).WithLimits(lim), guildSvc, guildSvc, guildSvc)
 	inviteSvc.SetAudit(auditSvc)
 	inviteSvc.SetLimits(lim)
@@ -521,6 +451,10 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	adminDeps := admin.Deps{
 		Store: admin.NewStore(pool), Gateway: adminGateway{hub},
 		Env: d.Cfg.Env, Version: d.Cfg.Version, Commit: d.Cfg.Commit,
+		DiskPath: d.Cfg.AdminDiskPath, MonthlyTrafficLimitBytes: d.Cfg.LiveKit.MonthlyTrafficBytes(),
+	}
+	if sz, ok := d.Storage.(admin.ObjectSizer); ok && d.Storage != nil {
+		adminDeps.Objects = sz
 	}
 	if voiceSvc.Enabled() {
 		adminDeps.Calls = adminCalls{voiceSvc}
@@ -537,6 +471,57 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	adminH := admin.NewHandler(adminSvc, auth.UserID)
 
+	var jobClient *jobs.Client
+	reconcileByJob := false
+	// Jobs (River): e-mails, thumbnails, limpeza de anexos órfãos e Web Push. Só existem com o pool do pgx.
+	if rp, ok := d.Pool.(*pgxpool.Pool); ok {
+		workers := river.NewWorkers()
+		mailflow.RegisterWorkers(workers, deliverer)
+		retention := time.Duration(d.Cfg.AuditRetentionDays) * 24 * time.Hour
+		if retention <= 0 {
+			retention = 90 * 24 * time.Hour
+		}
+		audit.RegisterWorkers(workers, auditSvc, retention)
+		periodic := audit.PeriodicJobs()
+		admin.RegisterWorkers(workers, adminSvc, time.Duration(d.Cfg.LiveKitSamplesRetentionDays)*24*time.Hour)
+		periodic = append(periodic, admin.PeriodicJobs()...)
+		voice.RegisterWorkers(workers, voiceSvc)
+		if voiceSvc.Enabled() && d.VoiceReconcileEvery <= 0 { // nos testes (VoiceReconcileEvery > 0) o laço local reconcilia
+			periodic = append(periodic, voice.PeriodicJobs()...)
+			reconcileByJob = true
+		}
+		if objects != nil {
+			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
+			periodic = append(periodic, attachment.PeriodicJobs()...)
+			account.RegisterWorkers(workers, objects)
+		}
+		if notifySvc.PushEnabled() {
+			notification.RegisterWorkers(workers, notifySvc)
+		}
+		if jobClient, err = jobs.New(rp, workers, periodic); err != nil {
+			return nil, err
+		}
+		thumbJobs.Set(jobClient)
+		pushJobs.Set(jobClient)
+		accountJobs.Set(jobClient)
+		mailJobs.Set(jobClient)
+		mailQueue.queue = mailJobs
+		// Sem o cancelamento de ctx: o desligamento é explícito (App.Close), para os jobs terminarem.
+		if err := jobClient.Start(context.WithoutCancel(ctx)); err != nil {
+			return nil, err
+		}
+	}
+
+	// Reconciliação da voz: pelo job `voice_reconcile` (River) em produção; laço local nos testes e sem a fila.
+	localReconcile := d.VoiceReconcileEvery
+	if localReconcile <= 0 && !reconcileByJob {
+		localReconcile = voice.ReconcileEvery
+	}
+	if reconcileByJob {
+		localReconcile = 0
+	}
+	go voiceSvc.Run(ctx, localReconcile)
+
 	r := chi.NewRouter()
 	r.Use(servertiming.Middleware) // primeiro: mede tudo, inclusive o rate limit
 	r.Use(middleware.RequestID, httpx.LogServerErrors, middleware.Recoverer)
@@ -548,7 +533,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH)
+	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH, actionByOp)
 	socialH.RegisterRoutes(r) // /api/auth/social/{provider}/start|callback: redirecionamentos, fora do OpenAPI
 	if outbox != nil {        // SÓ em desenvolvimento com o driver log: lê o último e-mail (E2E e dev local)
 		r.Get("/api/dev/mail/last", devMailHandler(outbox))
@@ -590,7 +575,13 @@ func buildAPI() huma.API {
 	return registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), mailflow.NewHandler(nil, nil), social.NewHandler(nil, nil, nil, true), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil), audit.NewHandler(nil, nil),
-		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil))
+		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil), docActions())
+}
+
+// docActions é o mapa de limites só para documentar as respostas 429 no OpenAPI (sem estado de uso).
+func docActions() map[string]*ratelimit.Limiter {
+	byOp, _ := (&namedLimiters{}).actionLimiters(nil)
+	return byOp
 }
 
 // lateAccess resolve a dependência circular channel -> guild na montagem.
@@ -611,7 +602,7 @@ func (a *lateAccess) OverwriteTarget(ctx context.Context, guildID int64, t perm.
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Handler, socialH *social.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
 	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler, auditH *audit.Handler,
-	relH *relationship.Handler, callH *dmcall.Handler) huma.API {
+	relH *relationship.Handler, callH *dmcall.Handler, actions map[string]*ratelimit.Limiter) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -625,16 +616,19 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	}
 	api := humachi.New(r, cfg)
 
-	authed := huma.Middlewares{authH.Middleware(api)}
+	// authed: sessão + limite por ação nomeado (ratelimits.go). Todo grupo de middlewares abaixo começa pela sessão
+	// e passa pelo mesmo limite, que só age nas operações com regra.
+	limit := actionLimits(api, actions, auth.UserID)
+	authed := huma.Middlewares{authH.Middleware(api), limit}
 	// sensitive: sessão + confirmação de senha nos últimos 10 min (ver auth.Handler.RequireRecentPassword).
 	// Outras features aplicam o mesmo valor às suas ações sensíveis (ex.: excluir servidor).
-	sensitive := huma.Middlewares{authed[0], authH.RequireRecentPassword(api)}
+	sensitive := huma.Middlewares{authed[0], limit, authH.RequireRecentPassword(api)}
 	authH.Register(api, authed)
 	mailH.Register(api, authed)
 	socialH.Register(api, authed, sensitive)
 	// Criar servidor e convidar exigem e-mail verificado quando REQUIRE_EMAIL_VERIFICATION=true (o gate não faz
 	// nada nos demais casos).
-	gate := huma.Middlewares{authed[0], mailH.Gate(api)}
+	gate := huma.Middlewares{authed[0], limit, mailH.Gate(api)}
 	guildH.WithGate(gate)
 	inviteH.WithGate(gate)
 	userH.WithSensitive(sensitive).Register(api, authed, auth.Security)
@@ -654,6 +648,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	auditH.Register(api, authed, auth.Security)
 	relH.Register(api, authed, auth.Security)
 	callH.Register(api, authed, auth.Security)
+	document429(api, actions)
 	return api
 }
 

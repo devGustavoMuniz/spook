@@ -18,9 +18,13 @@ type metrics struct {
 	previewPuts  metric.Int64Counter
 	previewReads metric.Int64Counter
 	previewBytes metric.Int64Histogram
+
+	reconcileRuns metric.Int64Counter
+	reconcileTime metric.Float64Histogram
+	reconcileFix  metric.Int64Counter
 }
 
-func newMetrics(store StateStore, previews PreviewStore) *metrics {
+func newMetrics(store StateStore, previews PreviewStore, watch *watchers) *metrics {
 	m := otel.Meter("spook/voice")
 	x := &metrics{}
 	x.tokensIssued, _ = m.Int64Counter("spook.voice.tokens.issued", metric.WithDescription("Tokens do LiveKit emitidos"))
@@ -34,6 +38,9 @@ func newMetrics(store StateStore, previews PreviewStore) *metrics {
 	x.previewReads, _ = m.Int64Counter("spook.voice.screen_preview.reads", metric.WithDescription("Leituras de prévia da tela (hit/miss)"))
 	x.previewBytes, _ = m.Int64Histogram("spook.voice.screen_preview.size", metric.WithUnit("By"),
 		metric.WithDescription("Tamanho das prévias aceitas"))
+	x.reconcileRuns, _ = m.Int64Counter("spook.voice.reconcile.runs", metric.WithDescription("Rodadas do reconciliador (ok ou unreachable: LiveKit fora do ar)"))
+	x.reconcileTime, _ = m.Float64Histogram("spook.voice.reconcile.duration", metric.WithUnit("s"), metric.WithDescription("Duração de uma rodada do reconciliador"))
+	x.reconcileFix, _ = m.Int64Counter("spook.voice.reconcile.fixed", metric.WithDescription("Divergências corrigidas pelo reconciliador (joined, flags, mute)"))
 	if previews != nil {
 		_, _ = m.Int64ObservableGauge("spook.voice.screen_preview.stored",
 			metric.WithDescription("Prévias de tela guardadas agora"),
@@ -47,6 +54,15 @@ func newMetrics(store StateStore, previews PreviewStore) *metrics {
 			metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
 				_, b := previews.Stats()
 				o.Observe(int64(b))
+				return nil
+			}))
+	}
+	if watch != nil {
+		_, _ = m.Int64ObservableGauge("spook.voice.screen_watchers",
+			metric.WithDescription("Espectadores de transmissões agora"),
+			metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+				_, v := watch.stats()
+				o.Observe(int64(v))
 				return nil
 			}))
 	}

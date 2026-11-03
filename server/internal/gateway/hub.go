@@ -74,7 +74,9 @@ type NotificationSettings interface {
 // Voice é o que o gateway pede à voz (implementada pelo voice.Service): o snapshot em memória dos
 // estados de voz dos servidores que o usuário vê e das DMs dele, para o READY.
 type Voice interface {
-	Snapshot(guildIDs, dmChannelIDs []int64) []voice.StatePayload
+	// Snapshot devolve os estados de voz visíveis; a lista de espectadores de uma transmissão só vai ao próprio
+	// transmissor (userID).
+	Snapshot(userID int64, guildIDs, dmChannelIDs []int64) []voice.StatePayload
 }
 
 // ReadStates é o que o gateway pede às notificações (implementada por notification.Service): os canais com
@@ -525,12 +527,27 @@ func (h *Hub) handle(ev events.Event) {
 		}
 	}
 
+	// A lista de espectadores de uma transmissão (VOICE_STATE_UPDATE.viewers) é só do transmissor: os demais
+	// recebem o mesmo payload sem ela (viewer_count continua).
+	var owner int64
+	dPublic := d
+	if vp, ok := ev.Data.(voice.StatePayload); ok && len(vp.Viewers) > 0 {
+		owner, _ = strconv.ParseInt(vp.UserID, 10, 64)
+		vp.Viewers = nil
+		if b, err := json.Marshal(vp); err == nil {
+			dPublic = b
+		}
+	}
 	delivered := 0
 	for _, s := range recips {
 		if !allows(s, ev) {
 			continue
 		}
-		s.push(ev.Type, d, ev.At)
+		if owner != 0 && s.userID != owner {
+			s.push(ev.Type, dPublic, ev.At)
+		} else {
+			s.push(ev.Type, d, ev.At)
+		}
 		delivered++
 	}
 

@@ -157,7 +157,7 @@ func buildFixtures(t *testing.T) map[string]any {
 		{EventPresenceUpdate, presence.UpdatePayload{UserID: "12", Status: presence.StatusDND, CustomStatus: &presence.CustomStatus{Text: "em foco", Emoji: "🎧", ExpiresAt: &at}}},
 		{EventPresenceSelfUpdate, presence.SelfPayload{StatusPref: presence.PrefInvisible, CustomStatus: &presence.CustomStatus{Text: "em foco", Emoji: "🎧"}}},
 		{EventNotificationSettingsUpdate, notification.SettingPayload{Scope: "channel", TargetID: "300", Muted: true, MutedUntil: &at, Level: ptr("mentions")}},
-		{EventVoiceStateUpdate, VoiceStateUpdate{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "11", SelfMute: true, SelfVideo: true}},
+		{EventVoiceStateUpdate, VoiceStateUpdate{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "11", SelfMute: true, SelfVideo: true, SelfScreen: true, ViewerCount: 2, Viewers: []string{"12", "13"}}},
 		{EventReadStateUpdate, ReadStateUpdate{ChannelID: "300", LastReadMessageID: "901", MentionCount: 2}},
 		{EventRelationshipAdd, incoming},
 		{EventRelationshipUpdate, friend},

@@ -190,6 +190,12 @@ export const voiceStatePayloadSchema = z.object({
   screen_preview: z.boolean().default(false),
   /** Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar. */
   server_muted: z.boolean().optional(),
+  /** Quantas pessoas assistem à tela (0 se não transmite). Visível a quem vê o canal. */
+  viewer_count: z.number().int().optional(),
+  /**
+   * IDs de quem assiste à tela (até 50). Só o próprio transmissor recebe a lista; os demais veem só `viewer_count`.
+   */
+  viewers: z.array(z.string()).optional(),
 });
 
 /** Voice state de um usuário (READY e VOICE_STATE_UPDATE); `channel_id: null` = saiu da voz. */

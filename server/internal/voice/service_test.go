@@ -338,7 +338,7 @@ func TestTokenErrors(t *testing.T) {
 	if err := off.Leave(ctx, alice); kind(err) != apperr.KindUnavailable {
 		t.Fatalf("leave desligado: %v", err)
 	}
-	if got := off.Snapshot([]int64{guild1}, nil); got == nil || len(got) != 0 {
+	if got := off.Snapshot(0, []int64{guild1}, nil); got == nil || len(got) != 0 {
 		t.Fatalf("snapshot desligado deve ser []: %#v", got)
 	}
 }
@@ -680,11 +680,11 @@ func TestSnapshotsAndGuildStates(t *testing.T) {
 	e.token(t, bob, dm1)
 	e.join(t, bob, dm1, "PA_2")
 
-	got := e.svc.Snapshot([]int64{guild1}, []int64{dm1})
+	got := e.svc.Snapshot(0, []int64{guild1}, []int64{dm1})
 	if len(got) != 2 {
 		t.Fatalf("snapshot = %+v", got)
 	}
-	if got := e.svc.Snapshot([]int64{999}, nil); got == nil || len(got) != 0 {
+	if got := e.svc.Snapshot(0, []int64{999}, nil); got == nil || len(got) != 0 {
 		t.Fatalf("snapshot vazio deve ser []: %#v", got)
 	}
 	states, err := e.svc.GuildStates(context.Background(), bob, guild1)
