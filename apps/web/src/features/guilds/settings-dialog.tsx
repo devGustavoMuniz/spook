@@ -88,7 +88,7 @@ export function GuildSettingsDialog({
             <TabsList
               variant="underline"
               aria-label={t("guilds.settings.sections")}
-              className="shrink-0 px-6"
+              className="shrink-0 overflow-x-auto px-6"
             >
               {tabs.map((x) => (
                 <TabsTrigger key={x.id} value={x.id} variant="underline">

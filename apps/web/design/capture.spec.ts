@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -35,7 +35,7 @@ const PASSWORD = "senha-forte-123";
 const run = Date.now().toString(36).slice(-4);
 const promoteCmd =
   process.env.DESIGN_PROMOTE_CMD ??
-  `docker exec spook-postgres-1 psql -U spook -c "UPDATE users SET is_admin = true WHERE username = '{username}'"`;
+  `docker exec ${process.env.DESIGN_PG_CONTAINER ?? "spook-postgres-1"} psql -U spook -c "UPDATE users SET is_admin = true WHERE username = '{username}'"`;
 
 const VIEWPORTS = [
   { key: "1440", width: 1440, height: 900 },
@@ -43,7 +43,7 @@ const VIEWPORTS = [
 ] as const;
 const THEMES = ["claro", "escuro"] as const;
 
-type Who = "ana" | "bruno" | "carla";
+type Who = "ana" | "bruno" | "carla" | "edu" | "fred" | "gil";
 type Person = { id: string; username: string; ctx: BrowserContext };
 const people = {} as Record<Who, Person>;
 const failures: string[] = [];
@@ -66,7 +66,44 @@ const FIXED_NUMBERS: Record<string, number> = {
   "dm-grupo-conversa": 96,
   "dialogo-participantes": 97,
   "dialogo-convite-copiado": 98,
+  // Telas novas dos adicionais (numeração fixa >= 101: não desloca as telas antigas, que existem em antes/).
+  download: 101,
+  "esqueci-senha": 102,
+  "esqueci-senha-enviado": 103,
+  "redefinir-senha": 104,
+  "verificar-email": 105,
+  "escolher-username": 106,
+  "amigos-online": 107,
+  "amigos-todos": 108,
+  "amigos-pendentes": 109,
+  "amigos-bloqueados": 110,
+  "amigos-adicionar": 111,
+  "chamada-recebida": 112,
+  "config-bloqueados": 113,
+  "config-perfil-seguranca": 114,
+  "dialogo-permissoes-canal": 115,
+  "dialogo-banimentos": 116,
+  "dialogo-auditoria": 117,
+  "avisos-mencoes-topico": 118,
+  "voz-dialogo-compartilhar": 119,
+  "voz-menu-microfone": 120,
+  "voz-menu-layout": 121,
+  "voz-layout-foco": 122,
+  "voz-cartao-transmissao": 123,
+  "en-login": 130,
+  "en-canal-texto": 131,
+  "en-amigos": 132,
+  "en-config-aparencia": 133,
 };
+// A numeração das telas que já existem em antes/ é herdada de lá: se um passo falhar, os números das demais não deslocam.
+try {
+  for (const f of readdirSync(join(here, "../../../docs/design/antes"))) {
+    const m = f.match(/^(\d+)-(.+)-(?:claro|escuro)-(?:1440|390)\.png$/);
+    if (m && FIXED_NUMBERS[m[2]] === undefined) FIXED_NUMBERS[m[2]] = Number(m[1]);
+  }
+} catch {
+  /* sem antes/: numera por ordem de aparição */
+}
 let guildId = "";
 const ids = {
   general: "",
@@ -76,6 +113,8 @@ const ids = {
   voice2: "",
   dm: "",
   roleMod: "",
+  avisos: "",
+  roleDesign: "",
 };
 let inviteCode = "";
 let dmWithBruno = "";
@@ -186,7 +225,10 @@ async function attach(
 
 function sql(q: string) {
   try {
-    execSync(`docker exec spook-postgres-1 psql -U spook -c "${q}"`, { stdio: "pipe" });
+    execSync(
+      `docker exec ${process.env.DESIGN_PG_CONTAINER ?? "spook-postgres-1"} psql -U spook -c "${q}"`,
+      { stdio: "pipe" },
+    );
   } catch (e) {
     failures.push(`sql falhou (${q.slice(0, 40)}…): ${String(e).slice(0, 120)}`);
   }
@@ -227,9 +269,11 @@ async function setup(browser: Browser) {
     ).id;
   ids.dev = await mk("desenvolvimento", 0);
   ids.empty = await mk("vazio", 0);
-  await mk("avisos", 0);
+  ids.avisos = await mk("avisos", 0);
   ids.voice2 = await mk("Sala de estudos", 1);
 
+  // Mensagens de entrada vão para #avisos (e não para o primeiro canal), para não mexer nas telas antigas.
+  await json(await a.patch(`/api/guilds/${guildId}`, { data: { system_channel_id: ids.avisos } }));
   const invite = await json<{ code: string }>(
     await a.post(`/api/guilds/${guildId}/invites`, { data: {} }),
   );
@@ -254,6 +298,7 @@ async function setup(browser: Browser) {
       data: { name: "Design", color: 0xe5a13a, permissions: 0, position: 1 },
     }),
   );
+  ids.roleDesign = des.id;
   await a.put(`/api/guilds/${guildId}/members/${people.bruno.id}/roles/${mod.id}`);
   await a.put(`/api/guilds/${guildId}/members/${people.carla.id}/roles/${des.id}`);
 
@@ -338,6 +383,44 @@ async function setup(browser: Browser) {
     data: { name: "Estudo de Go" },
   });
   await send("bruno", dmGroup, "Bora marcar o próximo encontro do grupo?");
+
+  // ---- dados dos adicionais ----
+  // perfil com bio, pronomes e banner
+  await people.ana.ctx.request.patch("/api/users/me", {
+    data: {
+      bio: "Estudando Go, WebRTC e performance. Café primeiro, deploy depois.",
+      pronouns: "ela/dela",
+      banner_color: 0x7c5cc4,
+    },
+  });
+  // tópico e menções em massa em #avisos
+  await a.patch(`/api/channels/${ids.avisos}`, {
+    data: { topic: "Avisos oficiais do laboratório. Respostas vão para #geral." },
+  });
+  await a.patch(`/api/guilds/${guildId}/roles/${ids.roleMod}`, { data: { mentionable: true } });
+  await send("ana", ids.avisos, "@everyone reunião de planejamento hoje às 14h, sala de estudos.");
+  await send("ana", ids.avisos, "@Moderação revisem os pedidos de entrada antes do fim do dia.");
+  // regra de permissão no canal #desenvolvimento: o cargo Design não envia mensagens
+  await a.put(`/api/channels/${ids.dev}/overwrites/role/${ids.roleDesign}`, {
+    data: { allow: 0, deny: 1 << 7 },
+  });
+  // contas extras: edu (pedido enviado), fred (bloqueado), gil (banido)
+  people.edu = await register(browser, "edu", "Eduardo Dias");
+  people.fred = await register(browser, "fred", "Fred Barros");
+  people.gil = await register(browser, "gil", "Gil Santos");
+  const req = (who: Who, target: Who) =>
+    people[who].ctx.request.post("/api/users/me/friends", {
+      data: { username: people[target].username },
+    });
+  await req("bruno", "ana");
+  await req("ana", "bruno"); // vira amizade na hora
+  await req("carla", "ana"); // pedido recebido pela Ana
+  await req("ana", "edu"); // pedido enviado pela Ana
+  await a.put(`/api/users/me/blocks/${people.fred.id}`);
+  await json(await people.gil.ctx.request.post(`/api/invites/${inviteCode}`));
+  await a.put(`/api/guilds/${guildId}/bans/${people.gil.id}`, {
+    data: { reason: "Spam repetido nos canais" },
+  });
 }
 
 async function newPass(
@@ -368,7 +451,7 @@ async function newPass(
 /** Espera o app estabilizar e salva o PNG como NN-tela-tema-viewport.png. */
 async function shot(page: Page, screen: string, theme: string, vp: string) {
   const fixed = FIXED_NUMBERS[screen];
-  if (fixed === undefined && !numbers.has(screen)) numbers.set(screen, numbers.size + 1);
+  if (fixed === undefined && !numbers.has(screen)) numbers.set(screen, numbers.size + 44);
   if (ONLY && !ONLY.split(",").some((k) => screen.includes(k.trim()))) return;
   const name = `${String(fixed ?? numbers.get(screen)).padStart(2, "0")}-${screen}-${theme}-${vp}.png`;
   await page.waitForLoadState("networkidle").catch(() => undefined);
@@ -391,6 +474,14 @@ async function step(label: string, vp: string, theme: string, fn: () => Promise<
         .slice(0, 260)}`,
     );
   }
+}
+
+/** Troca o idioma da interface (localStorage `spook-locale`) e recarrega. */
+async function setLang(page: Page, lang: "en" | "pt-BR") {
+  if (page.url() === "about:blank") await page.goto("/login");
+  await page.evaluate((l) => localStorage.setItem("spook-locale", l), lang);
+  await page.reload();
+  await page.waitForLoadState("domcontentloaded");
 }
 
 async function open(page: Page, url: string) {
@@ -417,6 +508,7 @@ test("captura de telas", async ({ browser }) => {
   const bCtx = await newPass(browser, VIEWPORTS[0], "escuro", "bruno");
   const cCtx = await newPass(browser, VIEWPORTS[0], "escuro", "carla");
   const bPage = await bCtx.newPage();
+  await bPage.goto("/channels/@me"); // Bruno fica online (presença nas telas de Amigos)
   const cPage = await cCtx.newPage();
 
   for (const theme of THEMES) {
@@ -454,6 +546,39 @@ test("captura de telas", async ({ browser }) => {
         await open(ap, "/rota-que-nao-existe");
         await shot(ap, "404", theme, vk);
       });
+      // Páginas públicas novas (download, recuperação de senha, verificação de e-mail, login social).
+      for (const [route, key] of [
+        ["/download", "download"],
+        ["/forgot-password", "esqueci-senha"],
+        ["/reset-password?token=exemplo-expirado", "redefinir-senha"],
+        ["/verify-email?token=exemplo-expirado", "verificar-email"],
+        ["/auth/choose-username", "escolher-username"],
+      ] as const) {
+        await step(key, vk, theme, async () => {
+          await open(ap, route);
+          await ap.waitForTimeout(key === "download" ? 1500 : 700);
+          await shot(ap, key, theme, vk);
+        });
+      }
+      await step("esqueci-senha-enviado", vk, theme, async () => {
+        await open(ap, "/forgot-password");
+        await ap.getByLabel("E-mail").fill("ana@spook.dev");
+        await ap
+          .getByRole("button", { name: /enviar|link/i })
+          .first()
+          .click();
+        await ap.waitForTimeout(900);
+        await shot(ap, "esqueci-senha-enviado", theme, vk);
+      });
+      if (vk === "1440") {
+        await step("en-login", vk, theme, async () => {
+          await setLang(ap, "en");
+          await open(ap, "/login");
+          await expect(ap.getByLabel("Email")).toBeVisible();
+          await shot(ap, "en-login", theme, vk);
+          await setLang(ap, "pt-BR");
+        });
+      }
       await anon.close();
 
       // ---- Ana (dona/admin) ----
@@ -626,6 +751,8 @@ test("captura de telas", async ({ browser }) => {
       });
       await step("chat-membros-grupos", vk, theme, async () => {
         await open(page, chUrl(ids.general));
+        await page.getByRole("textbox").first().waitFor();
+        await page.waitForTimeout(800);
         const members = page.getByRole("complementary", { name: "Membros" });
         if (
           !(await members
@@ -764,6 +891,8 @@ test("captura de telas", async ({ browser }) => {
       await step("membro-opcoes", vk, theme, async () => {
         // Em 390 px a lista de membros fica numa gaveta: abre antes (como no passo "membros").
         await open(page, chUrl(ids.general));
+        await page.getByRole("textbox").first().waitFor();
+        await page.waitForTimeout(800);
         const members = page.getByRole("complementary", { name: "Membros" });
         if (
           !(await members
@@ -863,6 +992,101 @@ test("captura de telas", async ({ browser }) => {
         await shot(page, "convite-ja-membro", theme, vk);
       });
 
+      // Social: Amigos (abas + adicionar), bloqueados, chamada recebida.
+      await step("amigos", vk, theme, async () => {
+        await open(page, "/channels/@me/friends");
+        await page.waitForTimeout(900);
+        const tabs: [string, string][] = [
+          ["Online", "amigos-online"],
+          ["Todos", "amigos-todos"],
+          ["Pendentes", "amigos-pendentes"],
+          ["Bloqueados", "amigos-bloqueados"],
+        ];
+        for (const [name, key] of tabs) {
+          await page.getByRole("tab", { name: new RegExp(`^${name}`) }).click();
+          await page.waitForTimeout(500);
+          await shot(page, key, theme, vk);
+        }
+        await page.getByRole("tab", { name: /Adicionar amigo/ }).click();
+        await page.getByLabel("Nome de usuário").fill("maria_souza");
+        await page.waitForTimeout(300);
+        await shot(page, "amigos-adicionar", theme, vk);
+      });
+      await step("chamada-recebida", vk, theme, async () => {
+        await open(page, "/channels/@me");
+        await page.waitForTimeout(1200);
+        await people.bruno.ctx.request.post(`/api/channels/${dmWithBruno}/call/ring`);
+        await expect(page.getByRole("alertdialog")).toBeVisible({ timeout: 10_000 });
+        await page.waitForTimeout(500);
+        await shot(page, "chamada-recebida", theme, vk);
+        await people.bruno.ctx.request.post(`/api/channels/${dmWithBruno}/call/cancel`);
+        await page.waitForTimeout(700);
+      });
+      await step("config-bloqueados", vk, theme, async () => {
+        await open(page, "/settings/blocked");
+        await page.waitForTimeout(700);
+        await shot(page, "config-bloqueados", theme, vk);
+      });
+      await step("config-perfil-seguranca", vk, theme, async () => {
+        await open(page, "/settings/profile");
+        await page.waitForTimeout(700);
+        const cur = page.viewportSize();
+        if (cur)
+          await page.setViewportSize({ width: cur.width, height: vk === "390" ? 5200 : 2600 });
+        await page.waitForTimeout(500);
+        await shot(page, "config-perfil-seguranca", theme, vk);
+        if (cur) await page.setViewportSize(cur);
+      });
+      // Canal com tópico e menções em massa; mensagem de entrada (sistema).
+      await step("avisos", vk, theme, async () => {
+        await open(page, chUrl(ids.avisos));
+        await page.waitForTimeout(1000);
+        await shot(page, "avisos-mencoes-topico", theme, vk);
+      });
+      // Permissões do canal, banimentos e auditoria.
+      await step("permissoes-canal", vk, theme, async () => {
+        await open(page, chUrl(ids.general));
+        await openNav(page, vp);
+        await page.getByRole("button", { name: "Opções de desenvolvimento" }).first().click();
+        await page.getByRole("menuitem", { name: /Permissões/ }).click();
+        await page.waitForTimeout(800);
+        await shot(page, "dialogo-permissoes-canal", theme, vk);
+        await page.keyboard.press("Escape");
+      });
+      for (const [tab, key] of [
+        ["Banimentos", "dialogo-banimentos"],
+        ["Auditoria", "dialogo-auditoria"],
+      ] as const) {
+        await step(key, vk, theme, async () => {
+          await open(page, chUrl(ids.general));
+          await openNav(page, vp);
+          await page
+            .getByRole("button", { name: /Menu do servidor/ })
+            .first()
+            .click();
+          await page.getByRole("menuitem", { name: /Configurações do servidor/ }).click();
+          await page.getByRole("tab", { name: tab }).click();
+          await page.waitForTimeout(900);
+          await shot(page, key, theme, vk);
+          await page.keyboard.press("Escape");
+        });
+      }
+      if (vk === "1440") {
+        await step("en-telas", vk, theme, async () => {
+          await setLang(page, "en");
+          await open(page, chUrl(ids.avisos));
+          await page.waitForTimeout(1000);
+          await shot(page, "en-canal-texto", theme, vk);
+          await open(page, "/channels/@me/friends");
+          await page.waitForTimeout(900);
+          await shot(page, "en-amigos", theme, vk);
+          await open(page, "/settings/appearance");
+          await page.waitForTimeout(600);
+          await shot(page, "en-config-aparencia", theme, vk);
+          await setLang(page, "pt-BR");
+        });
+      }
+
       // Admin
       for (const [route, key] of [
         ["/admin", "admin-dashboard"],
@@ -923,6 +1147,31 @@ test("captura de telas", async ({ browser }) => {
         await wake(page);
         await shot(page, "voz-com-outras-pessoas", theme, vk);
       });
+      await step("voz-layout", vk, theme, async () => {
+        await wake(page);
+        await page.getByRole("button", { name: /Layout da chamada/ }).click();
+        await page.waitForTimeout(400);
+        await shot(page, "voz-menu-layout", theme, vk);
+        await page.getByRole("menuitemradio", { name: /Foco/ }).click();
+        await page.waitForTimeout(700);
+        await wake(page);
+        await shot(page, "voz-layout-foco", theme, vk);
+        await page.getByRole("button", { name: /Layout da chamada/ }).click();
+        await page.getByRole("menuitemradio", { name: /Grade/ }).click();
+        await page.waitForTimeout(500);
+      });
+      if (vk === "1440") {
+        await step("voz-menu-microfone", vk, theme, async () => {
+          await wake(page);
+          await page
+            .getByRole("button", { name: "Escolher microfone" })
+            .first()
+            .click({ force: true });
+          await page.waitForTimeout(500);
+          await shot(page, "voz-menu-microfone", theme, vk);
+          await page.keyboard.press("Escape");
+        });
+      }
       await step("voz-camera", vk, theme, async () => {
         await openNav(page, vp);
         const bar = page.getByRole("region", { name: "Controles de voz" });
@@ -939,6 +1188,17 @@ test("captura de telas", async ({ browser }) => {
         await wake(page);
         await shot(page, "voz-com-camera", theme, vk);
       });
+      await step("voz-dialogo-compartilhar", vk, theme, async () => {
+        await openNav(page, vp);
+        await page
+          .getByRole("region", { name: "Controles de voz" })
+          .getByRole("button", { name: "Compartilhar tela" })
+          .click();
+        await page.waitForTimeout(500);
+        await shot(page, "voz-dialogo-compartilhar", theme, vk);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+      });
       await step("voz-tela", vk, theme, async () => {
         await bPage
           .getByRole("region", { name: "Controles de voz" })
@@ -949,8 +1209,27 @@ test("captura de telas", async ({ browser }) => {
         await wake(page);
         await shot(page, "voz-tela-compartilhada", theme, vk);
       });
+      await step("voz-cartao-transmissao", vk, theme, async () => {
+        await openNav(page, vp);
+        const btn = page.getByRole("button", { name: /^Ver a transmissão de/ }).first();
+        if (vp.width >= 768) await btn.hover();
+        else await btn.click();
+        await page.waitForTimeout(900);
+        await shot(page, "voz-cartao-transmissao", theme, vk);
+        await page.keyboard.press("Escape");
+        if (vp.width < 768) {
+          await page.mouse.click(vp.width - 10, 300);
+          await page.waitForTimeout(400);
+        }
+      });
       await step("voz-foco", vk, theme, async () => {
         // destaca a tela do Bruno (tile grande + tira) e abre o menu do tile
+        await page
+          .getByRole("button", { name: /^Assistir tela de/ })
+          .first()
+          .click({ timeout: 3000 })
+          .catch(() => undefined);
+        await page.waitForTimeout(2500);
         await page.getByRole("button", { name: /Destacar tela de/ }).click();
         await page.waitForTimeout(600);
         await wake(page);

@@ -3,7 +3,36 @@
 Tudo aqui foi pedido **depois** do checkpoint `checkpoint-spec-completo` (commit `e39b794`, 31/10/2026). A lista bruta sai de
 `git log checkpoint-spec-completo..HEAD`. Este arquivo é atualizado a cada adicional e vira o relatório final.
 
-## Resumo executivo (01/11/2026)
+## Resumo executivo final (03/11/2026)
+
+Desde o checkpoint `checkpoint-spec-completo` (`e39b794`, 31/10/2026) entraram **41 commits em `main`**: **845 arquivos, +106,7 mil / −4,8 mil linhas** sem contar as capturas de tela de `docs/design` (servidor Go: 226 arquivos, +38,4 mil / −1,7 mil; `apps/web/src`: 375 arquivos, +46,4 mil / −2,8 mil; o resto é documentação, testes E2E, deploy, desktop e `packages`). A API passou de **51 para 116 operações** (+65 endpoints, contra `server/api/openapi.yaml`). Tudo é adicional ao SPEC (RF13 a RF29) e nada estava nas fases 0 a 7.
+
+| Bloco | O que entrou | Commits principais |
+| --- | --- | --- |
+| 1a leva (qualidade de vida) | ruído/eco/ganho, volume por pessoa, teste de microfone, status (DND/Invisível), silenciar, responder/fixar/editar, bandeja e contador no desktop, qualidade da tela e PiP, `/admin` e `spook admin` | `cbc3db1`, `915a713`, `fb060e8`, `6431522`, `9518246`, `44a834d`, `80cbda9`, `48a7fa2`, `cb7ec7f` |
+| Repaginação visual | design system, shell responsivo, chat, configurações em tela cheia, palco de voz, diálogos, DMs e estados | `d3ba496` a `02eff4d`, `17d2f41` |
+| Voz e mensagens | compartilhar tela simples, prévia e "Assistir", menus de dispositivo, sons de evento, layouts, trocar fonte, rede, autocomplete de `@`, cartão de convite | `b2fe103`, `f4b8a91` |
+| Contas e perfil | trocar senha, confirmar senha, excluir conta, usernames reservados, bio, pronomes, banner, avatar animado | `779aa38` |
+| Desktop | auto-update assinado, splash, página `/download`, aviso de nova versão do web | `ad5fb77` |
+| Admin | biblioteca de gráficos (séries, barras, medidores, sparklines, heatmap), histórico do LiveKit, disco e plano | `d42460e`, `38364bb` |
+| E-mail e login social | verificação, troca de e-mail confirmada, recuperação de senha, Google/Discord, login do desktop por navegador (sem o deep link Rust) | `5d7f7ee`, `c21a42e` |
+| Moderação | banir/desbanir, permissões por canal, apelido, mutar/desconectar na voz, registro de auditoria | `66bfd26` |
+| Menções e limites | `@everyone`/`@here`/cargo, mensagem de entrada, tópico, `LIMIT_*`, exclusão de servidor com senha | `e30ee5b` |
+| Social | amizades, bloqueio, presença de amigos, convite pela DM, chamada em DM com toque | `20fed91` |
+| Voz no backend e rate limits | espectadores, reconciliação por job, limites nomeados (`RATELIMIT_*`), histórico do admin | `38364bb` |
+| i18n | interface em pt-BR e inglês, 1660 chaves por idioma, paridade testada | `cb28eb3` |
+
+**Migrations (todas aditivas):** `00007_reply_pins`, `00008_status_notifications`, `00009_admin`, `00010_account_profile`, `00011_email_social`, `00012_moderation`, `00013_mentions_topic_system`, `00014_social`, `00015_voice_admin_history` (não há `00016`).
+
+**Decisões que merecem seu olho:** DM 1:1 segue aberta a quem compartilha servidor e também a amigos (SPEC 7.4 atualizado); bloqueio é silencioso para quem foi bloqueado; mensagens de conta excluída ficam como "Usuário removido"; contas sociais nunca se vinculam por e-mail automaticamente; contas antigas ficam "não verificadas" sem perder acesso; canais não herdam permissões da categoria; banir não revoga convites; padrão 1080p/30 fps no compartilhamento de tela; idioma só no navegador; limites de domínio e de taxa são valores meus (listados em `PENDENCIAS-DONO.md`, seção C2); estado de voz em memória assume uma única instância do backend.
+
+**Limitações:** falta o deep link `spook://` no Rust (login do desktop por navegador) e, no desktop, assinatura por faixa, troca de fonte e estatísticas de rede; Rust do idioma da bandeja não foi compilado localmente; inglês não revisado por nativo; push em pt-BR; `/admin` só em pt-BR; Fase B (benchmarks) e observabilidade em produção não executadas; SMTP, apps OAuth e certificados de assinatura dependem de você.
+
+**Fora por decisão do dono:** soundboard, 2FA, código de cadastro e mobile (Expo); push-to-talk, Ctrl+K e rascunho por canal (1a leva).
+
+**O que só você valida / pendências:** `PENDENCIAS-DONO.md` (passo a passo, por prioridade) e `VALIDACAO-MANUAL.md` (roteiros por fase). Resultado do plano item a item: `PLANO-ADICIONAIS-2.md` (seção "Status da execução"). Revisão visual final e acessibilidade: `docs/design/README.md` e `docs/design/a11y-check.txt`.
+
+## Resumo executivo da primeira leva (01/11/2026)
 
 Desde o checkpoint foram entregues **9 commits em `main`** (267 arquivos, +26,8 mil / −0,6 mil linhas), todos com CI, Deploy e
 Desktop (Windows, macOS arm64/x64, Linux) verdes e em produção. Os pedidos eram de qualidade de vida e nenhum estava no SPEC.

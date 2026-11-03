@@ -23,7 +23,7 @@ const triggerVariants = cva(
       variant: {
         pill: "rounded-md px-3 py-1 data-[state=active]:bg-card data-[state=active]:shadow-sm",
         underline:
-          "relative -mb-px rounded-t-md border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary",
+          "relative -mb-px shrink-0 rounded-t-md border-b-2 border-transparent px-3 py-2 data-[state=active]:border-primary",
       },
     },
     defaultVariants: { variant: "pill" },

@@ -9,6 +9,7 @@ import { expect, type Page, test } from "@playwright/test";
 //   1. foco visível: percorre com Tab as telas de login, canal, configurações e palco de voz e exige
 //      outline ou box-shadow não nulo em cada elemento focado;
 //   2. cursor: pointer computado em botões, links, switches, tabs e itens de menu;
+//   (também percorre Amigos e as seções de configurações)
 //   3. prefers-reduced-motion: reduce sem animação/transição longa nos elementos visíveis.
 // Os achados saem no console e em docs/design/a11y-check.txt quando A11Y_WRITE=1.
 
@@ -174,7 +175,14 @@ for (const theme of ["claro", "escuro"] as const) {
     await motionCheck(page, `canal/${theme}`);
 
     // Configurações.
-    for (const route of ["/settings/profile", "/settings/appearance"]) {
+    for (const route of [
+      "/settings/profile",
+      "/settings/appearance",
+      "/settings/voice",
+      "/settings/notifications",
+      "/settings/blocked",
+      "/channels/@me/friends",
+    ]) {
       await page.goto(route);
       await page.waitForTimeout(500);
       await tabThrough(page, `${route}/${theme}`, 40);

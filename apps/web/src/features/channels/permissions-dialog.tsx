@@ -448,7 +448,7 @@ function PickOne({
 }) {
   return (
     <Select value={ADD_PLACEHOLDER} onValueChange={(v) => v !== ADD_PLACEHOLDER && onPick(v)}>
-      <SelectTrigger aria-label={label} disabled={options.length === 0}>
+      <SelectTrigger aria-label={label} disabled={options.length === 0} className="w-full">
         <SelectValue placeholder={label}>{label}</SelectValue>
       </SelectTrigger>
       <SelectContent>
@@ -478,7 +478,7 @@ function AddTarget({
 }) {
   const { t } = useT();
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 gap-2">
       <PickOne
         label={t("channels.perms.addRole")}
         options={roles.map((r) => ({ value: r.id, label: r.name }))}

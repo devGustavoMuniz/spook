@@ -29,7 +29,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - Notificações in-app e web push; contagem de não lidas
 - Cliente web e cliente desktop (Tauri)
 - Observabilidade e suíte de benchmark comparativa
-- Adicionais de qualidade de vida (entraram depois das fases 0 a 7; requisitos RF13 a RF22): responder com citação, fixar mensagens e editar com ↑; Não perturbar, Invisível e status personalizado; silenciar e nível de notificação; volume por pessoa, ruído em 3 níveis, porta de ruído e teste de microfone; qualidade da tela e Picture-in-Picture; compartilhar tela simples (resolução + fps), prévia da transmissão e "Assistir transmissão"; bandeja, início com o sistema, contador no ícone e clique na notificação no desktop; painel administrativo `/admin`
+- Adicionais de qualidade de vida (entraram depois das fases 0 a 7; requisitos RF13 a RF22): responder com citação, fixar mensagens e editar com ↑; Não perturbar, Invisível e status personalizado; silenciar e nível de notificação; volume por pessoa, ruído em 3 níveis, porta de ruído e teste de microfone; qualidade da tela e Picture-in-Picture; compartilhar tela simples (resolução + fps), prévia da transmissão e "Assistir transmissão"; bandeja, início com o sistema, contador no ícone e clique na notificação no desktop; painel administrativo `/admin`. Segunda leva (requisitos RF23 a RF29): contas e perfil, e-mail e login social, moderação e permissões por canal, menções em massa e limites, social (amizades, bloqueio, chamada em DM), voz no backend com histórico do admin e rate limits nomeados, e interface em pt-BR e inglês
 
 ### 2.2 Fica de fora (por enquanto)
 
@@ -39,9 +39,9 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - Do bloco de adicionais, continuam fora: respostas em thread, evento/aviso de "mensagem fixada" no canal, mais de 50 fixadas, horário agendado de Não perturbar, push para nível "tudo" em servidor, silêncio por categoria, nível padrão global por usuário, emoji picker completo, Picture-in-Picture no desktop, push-to-talk, Ctrl+K e rascunho por canal (descartados pelo dono), DeepFilterNet3, SSE no `/admin` (banimentos, amizades e bloqueios entraram depois como adicionais: RF25 e RF27)
 - Criptografia ponta a ponta
 - Gravação de chamadas
-- Moderação avançada (automod, logs de auditoria); o painel `/admin` (RF21) é só de leitura e não modera
-- Reações, threads, menções com autocomplete, embeds de links (responder com citação e fixar mensagens **entraram**, ver RF13 e RF14)
-- Permissões por canal (overwrites); só há permissões por cargo no servidor
+- Moderação automática (automod); o painel `/admin` (RF21) é só de leitura e não modera (banimentos, permissões por canal e registro de auditoria **entraram** nos servidores, ver RF25)
+- Reações, threads, embeds de links (responder com citação, fixar mensagens e o autocompletar de `@` **entraram**, ver RF13, RF14 e 5.5)
+- Herança de permissões da categoria para os canais (as permissões por canal/overwrites **entraram**, ver RF25)
 - Idiomas além de pt-BR e inglês, tradução do painel `/admin`, do texto dos push (vem do servidor em pt-BR) e dos `detail` de erro do servidor sem tabela (o i18n de pt-BR/inglês da interface **entrou**, ver RF29)
 - 2FA (descartado pelo dono). O login social (Google e Discord) **entrou** como adicional, ver RF24
 

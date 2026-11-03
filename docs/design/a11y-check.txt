@@ -1,33 +1,57 @@
 # a11y-check
-foco login/claro: 5 elementos focáveis conferidos
-cursor login/claro: 4 clicáveis, 0 sem pointer
-movimento reduzido login/claro: 64 elementos, 0 com animação/transição
-foco canal/claro: 30 elementos focáveis conferidos
-cursor canal/claro: 39 clicáveis, 0 sem pointer
-movimento reduzido canal/claro: 255 elementos, 0 com animação/transição
-foco /settings/profile/claro: 9 elementos focáveis conferidos
-cursor /settings/profile/claro: 8 clicáveis, 0 sem pointer
-movimento reduzido /settings/profile/claro: 112 elementos, 0 com animação/transição
-foco /settings/appearance/claro: 7 elementos focáveis conferidos
-cursor /settings/appearance/claro: 6 clicáveis, 0 sem pointer
-movimento reduzido /settings/appearance/claro: 158 elementos, 0 com animação/transição
-foco voz/claro: 20 elementos focáveis conferidos
-cursor voz/claro: 33 clicáveis, 0 sem pointer
-movimento reduzido voz/claro: 262 elementos, 0 com animação/transição
-foco login/escuro: 5 elementos focáveis conferidos
-cursor login/escuro: 4 clicáveis, 0 sem pointer
-movimento reduzido login/escuro: 60 elementos, 0 com animação/transição
-foco canal/escuro: 30 elementos focáveis conferidos
-cursor canal/escuro: 39 clicáveis, 0 sem pointer
-movimento reduzido canal/escuro: 251 elementos, 0 com animação/transição
-foco /settings/profile/escuro: 9 elementos focáveis conferidos
-cursor /settings/profile/escuro: 8 clicáveis, 0 sem pointer
-movimento reduzido /settings/profile/escuro: 112 elementos, 0 com animação/transição
-foco /settings/appearance/escuro: 7 elementos focáveis conferidos
-cursor /settings/appearance/escuro: 6 clicáveis, 0 sem pointer
-movimento reduzido /settings/appearance/escuro: 158 elementos, 0 com animação/transição
-foco voz/escuro: 20 elementos focáveis conferidos
-cursor voz/escuro: 33 clicáveis, 0 sem pointer
-movimento reduzido voz/escuro: 258 elementos, 0 com animação/transição
+foco login/claro: 7 elementos focáveis conferidos
+cursor login/claro: 6 clicáveis, 0 sem pointer
+movimento reduzido login/claro: 67 elementos, 0 com animação/transição
+foco canal/claro: 32 elementos focáveis conferidos
+cursor canal/claro: 41 clicáveis, 0 sem pointer
+movimento reduzido canal/claro: 265 elementos, 0 com animação/transição
+foco /settings/profile/claro: 19 elementos focáveis conferidos
+cursor /settings/profile/claro: 16 clicáveis, 0 sem pointer
+movimento reduzido /settings/profile/claro: 213 elementos, 0 com animação/transição
+foco /settings/appearance/claro: 10 elementos focáveis conferidos
+cursor /settings/appearance/claro: 8 clicáveis, 0 sem pointer
+movimento reduzido /settings/appearance/claro: 182 elementos, 0 com animação/transição
+foco /settings/voice/claro: 18 elementos focáveis conferidos
+cursor /settings/voice/claro: 23 clicáveis, 0 sem pointer
+movimento reduzido /settings/voice/claro: 256 elementos, 0 com animação/transição
+foco /settings/notifications/claro: 9 elementos focáveis conferidos
+cursor /settings/notifications/claro: 9 clicáveis, 0 sem pointer
+movimento reduzido /settings/notifications/claro: 115 elementos, 0 com animação/transição
+foco /settings/blocked/claro: 8 elementos focáveis conferidos
+cursor /settings/blocked/claro: 8 clicáveis, 0 sem pointer
+movimento reduzido /settings/blocked/claro: 80 elementos, 0 com animação/transição
+foco /channels/@me/friends/claro: 19 elementos focáveis conferidos
+cursor /channels/@me/friends/claro: 22 clicáveis, 0 sem pointer
+movimento reduzido /channels/@me/friends/claro: 156 elementos, 0 com animação/transição
+foco voz/claro: 18 elementos focáveis conferidos
+cursor voz/claro: 39 clicáveis, 0 sem pointer
+movimento reduzido voz/claro: 292 elementos, 0 com animação/transição
+foco login/escuro: 7 elementos focáveis conferidos
+cursor login/escuro: 6 clicáveis, 0 sem pointer
+movimento reduzido login/escuro: 63 elementos, 0 com animação/transição
+foco canal/escuro: 32 elementos focáveis conferidos
+cursor canal/escuro: 41 clicáveis, 0 sem pointer
+movimento reduzido canal/escuro: 261 elementos, 0 com animação/transição
+foco /settings/profile/escuro: 19 elementos focáveis conferidos
+cursor /settings/profile/escuro: 16 clicáveis, 0 sem pointer
+movimento reduzido /settings/profile/escuro: 213 elementos, 0 com animação/transição
+foco /settings/appearance/escuro: 10 elementos focáveis conferidos
+cursor /settings/appearance/escuro: 8 clicáveis, 0 sem pointer
+movimento reduzido /settings/appearance/escuro: 182 elementos, 0 com animação/transição
+foco /settings/voice/escuro: 18 elementos focáveis conferidos
+cursor /settings/voice/escuro: 23 clicáveis, 0 sem pointer
+movimento reduzido /settings/voice/escuro: 255 elementos, 0 com animação/transição
+foco /settings/notifications/escuro: 9 elementos focáveis conferidos
+cursor /settings/notifications/escuro: 9 clicáveis, 0 sem pointer
+movimento reduzido /settings/notifications/escuro: 115 elementos, 0 com animação/transição
+foco /settings/blocked/escuro: 8 elementos focáveis conferidos
+cursor /settings/blocked/escuro: 8 clicáveis, 0 sem pointer
+movimento reduzido /settings/blocked/escuro: 80 elementos, 0 com animação/transição
+foco /channels/@me/friends/escuro: 19 elementos focáveis conferidos
+cursor /channels/@me/friends/escuro: 22 clicáveis, 0 sem pointer
+movimento reduzido /channels/@me/friends/escuro: 152 elementos, 0 com animação/transição
+foco voz/escuro: 18 elementos focáveis conferidos
+cursor voz/escuro: 39 clicáveis, 0 sem pointer
+movimento reduzido voz/escuro: 288 elementos, 0 com animação/transição
 
 ## Nenhum problema

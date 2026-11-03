@@ -127,7 +127,7 @@ export function FriendsPage() {
             {t("people.friends.tabBlocked")}
           </TabsTrigger>
           <TabsTrigger variant="underline" value="add" className="ml-auto">
-            <UserPlus /> {t("people.person.addFriend")}
+            <UserPlus /> <span className="max-sm:sr-only">{t("people.person.addFriend")}</span>
           </TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
