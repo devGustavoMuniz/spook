@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { delay, HttpResponse, http } from "msw";
+import { HttpResponse, http } from "msw";
 import { describe, expect, it } from "vitest";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
@@ -70,11 +70,16 @@ describe("telas de entrada", () => {
   it("durante o envio desabilita os campos e não duplica a requisição", async () => {
     const user = userEvent.setup();
     let calls = 0;
+    // A resposta só sai quando o teste libera (um atraso fixo disputava corrida com a máquina carregada).
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     await renderApp("/login");
     server.use(
       http.post("*/api/auth/login", async () => {
         calls++;
-        await delay(150);
+        await gate;
         return HttpResponse.json(
           { title: "401", status: 401, detail: "x", errors: [] },
           { status: 401 },
@@ -89,6 +94,7 @@ describe("telas de entrada", () => {
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText("E-mail")).toBeDisabled();
     await user.click(button);
+    release();
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(calls).toBe(1);
     expect(screen.getByLabelText("E-mail")).toBeEnabled();

@@ -66,7 +66,7 @@ let failed = 0;
 const rows = [];
 for (const [label, fg, bgs, min] of pairs) {
   const out = [];
-  for (const [theme, vars] of [
+  for (const [_theme, vars] of [
     ["claro", light],
     ["escuro", dark],
   ]) {
