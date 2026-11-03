@@ -22,6 +22,18 @@ type Attachment struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type AuditLog struct {
+	ID         int64
+	GuildID    int64
+	ActorID    *int64
+	Action     string
+	TargetType *string
+	TargetID   *int64
+	Reason     *string
+	Changes    []byte
+	CreatedAt  pgtype.Timestamptz
+}
+
 type Channel struct {
 	ID            int64
 	Type          int16
@@ -32,6 +44,14 @@ type Channel struct {
 	OwnerID       *int64
 	LastMessageID *int64
 	CreatedAt     pgtype.Timestamptz
+}
+
+type ChannelOverwrite struct {
+	ChannelID  int64
+	TargetType string
+	TargetID   int64
+	Allow      int64
+	Deny       int64
 }
 
 type ChannelRecipient struct {
@@ -74,11 +94,20 @@ type Guild struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type GuildBan struct {
+	GuildID   int64
+	UserID    int64
+	BannedBy  *int64
+	Reason    *string
+	CreatedAt pgtype.Timestamptz
+}
+
 type GuildMember struct {
-	GuildID  int64
-	UserID   int64
-	Nickname *string
-	JoinedAt pgtype.Timestamptz
+	GuildID    int64
+	UserID     int64
+	Nickname   *string
+	JoinedAt   pgtype.Timestamptz
+	VoiceMuted bool
 }
 
 type Invite struct {

@@ -467,7 +467,7 @@ export const getJoinInviteUrl = (code: string) => {
 };
 
 /**
- * @summary Entra no servidor pelo convite (quem já é membro não consome uso)
+ * @summary Entra no servidor pelo convite (quem já é membro não consome uso); banido recebe 403 com code `banned`
  */
 export const joinInvite = async (
   code: string,
@@ -520,7 +520,7 @@ export type JoinInviteMutationError = ErrorModel;
 export type JoinInviteMutationVariables = { code: string };
 
 /**
- * @summary Entra no servidor pelo convite (quem já é membro não consome uso)
+ * @summary Entra no servidor pelo convite (quem já é membro não consome uso); banido recebe 403 com code `banned`
  */
 export const useJoinInvite = <TError = ErrorModel, TContext = unknown>(
   options?: {

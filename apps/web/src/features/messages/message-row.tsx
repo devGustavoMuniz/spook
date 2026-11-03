@@ -36,6 +36,8 @@ export type MessageRowProps = {
   /** Mostra a linha "Novas mensagens" acima. */
   marker?: boolean;
   color?: string;
+  /** Apelido do autor neste servidor (vence o nome de exibição). */
+  nickname?: string;
   /** Quem está logado: a mensagem que o cita ganha destaque. */
   myId: string;
   myUsername: string;
@@ -77,7 +79,7 @@ async function copyText(text: string, done: string) {
 
 export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   const { message: m } = p;
-  const name = shownName(m.author.display_name, m.author.username);
+  const name = p.nickname || shownName(m.author.display_name, m.author.username);
   const nameColor = useReadableRoleColor(p.color);
   // mention_ids traz quem deve ser NOTIFICADO (o servidor exclui o próprio autor). Só ele destaca a linha;
   // o "@usuário" no texto é destacado sempre que cita você, inclusive numa mensagem sua.

@@ -26,7 +26,7 @@ func TestEffective(t *testing.T) {
 }
 
 func TestDefaultEveryone(t *testing.T) {
-	want := []Perm{ViewChannel, SendMessages, AttachFiles, CreateInvite, Connect, Speak, Video}
+	want := []Perm{ViewChannel, SendMessages, AttachFiles, CreateInvite, Connect, Speak, Video, ChangeNickname}
 	var all Perm
 	for _, p := range want {
 		all |= p
@@ -46,7 +46,7 @@ func TestHasAndValid(t *testing.T) {
 	if (ViewChannel).Has(ViewChannel | SendMessages) {
 		t.Fatal("Has exige todos os bits")
 	}
-	if !All.Valid() || Perm(1<<13).Valid() || Perm(-1).Valid() {
+	if !All.Valid() || Perm(1<<19).Valid() || Perm(-1).Valid() {
 		t.Fatal("Valid incorreto")
 	}
 }

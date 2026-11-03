@@ -38,10 +38,32 @@ export function canManageRole(g: Guild, role: RolePayload): boolean {
   return can(g, Permission.MANAGE_ROLES) && role.position < myTopPosition(g);
 }
 
-export function canKick(g: Guild, target: MemberPayload, myId: string): boolean {
-  if (!can(g, Permission.KICK_MEMBERS)) return false;
+/**
+ * Espelha a hierarquia da moderação do servidor: precisa da permissão, o alvo não pode ser o dono nem eu, e o
+ * cargo mais alto dele tem de ser estritamente menor que o meu (administrador NÃO ignora a hierarquia).
+ */
+export function canModerate(
+  g: Guild,
+  flag: PermissionFlag,
+  target: Pick<MemberPayload, "user_id" | "role_ids">,
+  myId: string,
+): boolean {
+  if (!can(g, flag)) return false;
   if (target.user_id === myId || target.user_id === g.owner_id) return false;
   return topPosition(g, target.role_ids ?? []) < myTopPosition(g);
+}
+
+export const canKick = (g: Guild, target: MemberPayload, myId: string) =>
+  canModerate(g, Permission.KICK_MEMBERS, target, myId);
+
+export const canBan = (g: Guild, target: MemberPayload, myId: string) =>
+  canModerate(g, Permission.BAN_MEMBERS, target, myId);
+
+/** Apelido: o meu com CHANGE_NICKNAME (ou MANAGE_NICKNAMES); o de outro com MANAGE_NICKNAMES + hierarquia. */
+export function canNickname(g: Guild, target: MemberPayload, myId: string): boolean {
+  if (target.user_id === myId)
+    return can(g, Permission.CHANGE_NICKNAME) || can(g, Permission.MANAGE_NICKNAMES);
+  return canModerate(g, Permission.MANAGE_NICKNAMES, target, myId);
 }
 
 /** Cor do cargo mais alto (que tenha cor) do membro, como "#rrggbb". */

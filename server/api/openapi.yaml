@@ -59,6 +59,80 @@ components:
         - size
         - url
       type: object
+    AuditActorPayload:
+      additionalProperties: false
+      properties:
+        avatar_url:
+          type: string
+        display_name:
+          type: string
+        id:
+          type: string
+        username:
+          type: string
+      required:
+        - id
+        - username
+      type: object
+    AuditEntryPayload:
+      additionalProperties: false
+      properties:
+        action:
+          description: "Ver audit.All: channel.create, member.ban, voice.mute..."
+          type: string
+        actor:
+          $ref: "#/components/schemas/AuditActorPayload"
+          description: Nulo quando a conta de quem agiu foi excluída
+        changes:
+          additionalProperties: {}
+          description: "Detalhes (até 4 KB): target_name e o antes/depois dos campos alterados"
+          type: object
+        created_at:
+          format: date-time
+          type: string
+        guild_id:
+          type: string
+        id:
+          type: string
+        reason:
+          type:
+            - string
+            - "null"
+        target_id:
+          type:
+            - string
+            - "null"
+        target_type:
+          description: channel, role, member, invite ou guild
+          type:
+            - string
+            - "null"
+      required:
+        - id
+        - guild_id
+        - actor
+        - action
+        - target_type
+        - target_id
+        - reason
+        - changes
+        - created_at
+      type: object
+    AuditListOutputBody:
+      additionalProperties: false
+      properties:
+        entries:
+          items:
+            $ref: "#/components/schemas/AuditEntryPayload"
+          type:
+            - array
+            - "null"
+        has_more:
+          type: boolean
+      required:
+        - entries
+        - has_more
+      type: object
     AuthorPayload:
       additionalProperties: false
       properties:
@@ -106,6 +180,67 @@ components:
       required:
         - upload_url
         - key
+      type: object
+    BanGuildMemberRequest:
+      additionalProperties: false
+      properties:
+        reason:
+          description: Motivo (opcional)
+          maxLength: 512
+          type: string
+      type: object
+    BanListOutputBody:
+      additionalProperties: false
+      properties:
+        bans:
+          items:
+            $ref: "#/components/schemas/BanPayload"
+          type:
+            - array
+            - "null"
+        has_more:
+          type: boolean
+      required:
+        - bans
+        - has_more
+      type: object
+    BanPayload:
+      additionalProperties: false
+      properties:
+        avatar_url:
+          type: string
+        banned_by:
+          description: Quem baniu; nulo se a conta foi excluída
+          type:
+            - string
+            - "null"
+        banned_by_username:
+          type:
+            - string
+            - "null"
+        created_at:
+          format: date-time
+          type: string
+        display_name:
+          type: string
+        guild_id:
+          type: string
+        reason:
+          type:
+            - string
+            - "null"
+        user_id:
+          type: string
+        username:
+          type: string
+      required:
+        - guild_id
+        - user_id
+        - username
+        - reason
+        - banned_by
+        - banned_by_username
+        - created_at
       type: object
     CallRoom:
       additionalProperties: false
@@ -637,6 +772,16 @@ components:
       required:
         - email
       type: object
+    GetMyChannelPermissionsResponse:
+      additionalProperties: false
+      properties:
+        permissions:
+          description: Bitflags efetivos no canal
+          format: int64
+          type: integer
+      required:
+        - permissions
+      type: object
     GuildPayload:
       additionalProperties: false
       properties:
@@ -882,6 +1027,9 @@ components:
           type: string
         username:
           type: string
+        voice_muted:
+          description: Mutado na voz por um moderador (MUTE_MEMBERS)
+          type: boolean
       required:
         - guild_id
         - user_id
@@ -1184,6 +1332,31 @@ components:
         - new_24h
         - new_7d
         - growth_pct
+      type: object
+    OverwritePayload:
+      additionalProperties: false
+      properties:
+        allow:
+          description: Permissões permitidas (bitflags de canal)
+          format: int64
+          type: integer
+        deny:
+          description: Permissões negadas (bitflags de canal)
+          format: int64
+          type: integer
+        target_id:
+          type: string
+        type:
+          description: role (o @everyone tem o ID do servidor) ou member
+          enum:
+            - role
+            - member
+          type: string
+      required:
+        - type
+        - target_id
+        - allow
+        - deny
       type: object
     PendingOutputBody:
       additionalProperties: false
@@ -1632,6 +1805,35 @@ components:
       required:
         - user
       type: object
+    SetChannelOverwriteRequest:
+      additionalProperties: false
+      properties:
+        allow:
+          description: Bitflags de canal permitidos
+          format: int64
+          minimum: 0
+          type: integer
+        deny:
+          description: Bitflags de canal negados
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+        - allow
+        - deny
+      type: object
+    SetGuildMemberNicknameRequest:
+      additionalProperties: false
+      properties:
+        nick:
+          description: Apelido de 1 a 32 caracteres; nulo ou vazio remove
+          maxLength: 128
+          type:
+            - string
+            - "null"
+      required:
+        - nick
+      type: object
     SetPasswordInputBody:
       additionalProperties: false
       properties:
@@ -1713,6 +1915,9 @@ components:
           type: boolean
         self_video:
           description: Câmera ligada
+          type: boolean
+        server_muted:
+          description: "Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar"
           type: boolean
         user_id:
           type: string
@@ -3664,6 +3869,273 @@ paths:
       summary: Edita a própria mensagem
       tags:
         - messages
+  /api/channels/{channel_id}/my-permissions:
+    get:
+      operationId: getMyChannelPermissions
+      parameters:
+        - description: ID do canal
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID do canal
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetMyChannelPermissionsResponse"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Minhas permissões efetivas neste canal (cargos + overwrites)
+      tags:
+        - channels
+  /api/channels/{channel_id}/overwrites:
+    get:
+      operationId: listChannelOverwrites
+      parameters:
+        - description: ID do canal
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID do canal
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/OverwritePayload"
+                type:
+                  - array
+                  - "null"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Permissões por canal (overwrites); exige MANAGE_CHANNELS
+      tags:
+        - channels
+  /api/channels/{channel_id}/overwrites/{type}/{target_id}:
+    delete:
+      operationId: deleteChannelOverwrite
+      parameters:
+        - description: ID do canal
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID do canal
+            type: string
+        - description: Tipo do alvo
+          in: path
+          name: type
+          required: true
+          schema:
+            description: Tipo do alvo
+            enum:
+              - role
+              - member
+            type: string
+        - description: ID do cargo (o @everyone tem o ID do servidor) ou do membro
+          in: path
+          name: target_id
+          required: true
+          schema:
+            description: ID do cargo (o @everyone tem o ID do servidor) ou do membro
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Remove o overwrite de um alvo (volta a herdar)
+      tags:
+        - channels
+    put:
+      operationId: setChannelOverwrite
+      parameters:
+        - description: ID do canal
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID do canal
+            type: string
+        - description: Tipo do alvo
+          in: path
+          name: type
+          required: true
+          schema:
+            description: Tipo do alvo
+            enum:
+              - role
+              - member
+            type: string
+        - description: ID do cargo (o @everyone tem o ID do servidor) ou do membro
+          in: path
+          name: target_id
+          required: true
+          schema:
+            description: ID do cargo (o @everyone tem o ID do servidor) ou do membro
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetChannelOverwriteRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverwritePayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Define o overwrite de um cargo (o @everyone tem o ID do servidor) ou membro; permitir e negar vazios removem. Canal privado = negar VIEW_CHANNEL ao @everyone e permitir a cargos/membros
+      tags:
+        - channels
   /api/channels/{channel_id}/pins:
     get:
       operationId: listPinnedMessages
@@ -4350,6 +4822,81 @@ paths:
       summary: Emite o token do LiveKit para entrar na voz do canal (servidor ou DM). Vale 10 min e só para a sala do canal; entrar em outro canal tira o usuário do anterior
       tags:
         - voice
+  /api/channels/{channel_id}/voice/{user_id}/disconnect:
+    post:
+      operationId: disconnectVoiceMember
+      parameters:
+        - description: ID do canal de voz
+          in: path
+          name: channel_id
+          required: true
+          schema:
+            description: ID do canal de voz
+            type: string
+        - description: ID de quem será desconectado
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID de quem será desconectado
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Desconecta alguém do canal de voz (DISCONNECT_MEMBERS + hierarquia). A pessoa pode entrar de novo
+      tags:
+        - voice
   /api/gateway/ticket:
     post:
       operationId: createGatewayTicket
@@ -4621,6 +5168,292 @@ paths:
         - cookieAuth: []
         - bearerAuth: []
       summary: Renomeia o servidor e troca o ícone (dono ou MANAGE_GUILD)
+      tags:
+        - guilds
+  /api/guilds/{guild_id}/audit-logs:
+    get:
+      operationId: listAuditLogs
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: "Filtra por ação (ex.: member.ban)"
+          explode: false
+          in: query
+          name: action
+          schema:
+            description: "Filtra por ação (ex.: member.ban)"
+            maxLength: 64
+            type: string
+        - description: Filtra por quem agiu (ID do usuário)
+          explode: false
+          in: query
+          name: actor
+          schema:
+            description: Filtra por quem agiu (ID do usuário)
+            type: string
+        - description: "Cursor: ID da última entrada recebida"
+          explode: false
+          in: query
+          name: before
+          schema:
+            description: "Cursor: ID da última entrada recebida"
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 50
+            format: int64
+            maximum: 100
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditListOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Registro de auditoria do servidor (VIEW_AUDIT_LOG), do mais novo ao mais antigo
+      tags:
+        - audit
+  /api/guilds/{guild_id}/bans:
+    get:
+      operationId: listGuildBans
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: ID do último usuário recebido
+          explode: false
+          in: query
+          name: after
+          schema:
+            description: ID do último usuário recebido
+            type: string
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            default: 100
+            format: int64
+            maximum: 1000
+            minimum: 1
+            type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BanListOutputBody"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Banimentos do servidor, por ID de usuário (cursor `after`); exige BAN_MEMBERS
+      tags:
+        - guilds
+  /api/guilds/{guild_id}/bans/{user_id}:
+    delete:
+      operationId: unbanGuildMember
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: ID do usuário, ou @me
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID do usuário, ou @me
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Desbane um usuário (BAN_MEMBERS)
+      tags:
+        - guilds
+    put:
+      operationId: banGuildMember
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: ID do usuário, ou @me
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID do usuário, ou @me
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BanGuildMemberRequest"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Bane um usuário, membro ou não (BAN_MEMBERS + hierarquia); remove o membro e bloqueia a volta por convite
       tags:
         - guilds
   /api/guilds/{guild_id}/channels:
@@ -5104,6 +5937,79 @@ paths:
       summary: Expulsa um membro (KICK_MEMBERS + hierarquia); `@me` sai do servidor
       tags:
         - guilds
+  /api/guilds/{guild_id}/members/{user_id}/nick:
+    patch:
+      operationId: setGuildMemberNickname
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: ID do usuário, ou @me
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID do usuário, ou @me
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetGuildMemberNicknameRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Muda o apelido no servidor (`@me` = o seu: CHANGE_NICKNAME; de outro: MANAGE_NICKNAMES + hierarquia). Vazio ou nulo remove"
+      tags:
+        - guilds
   /api/guilds/{guild_id}/members/{user_id}/roles/{role_id}:
     delete:
       operationId: removeGuildMemberRole
@@ -5237,6 +6143,139 @@ paths:
         - cookieAuth: []
         - bearerAuth: []
       summary: Atribui um cargo a um membro
+      tags:
+        - guilds
+  /api/guilds/{guild_id}/members/{user_id}/voice-mute:
+    delete:
+      operationId: unmuteGuildMemberVoice
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: ID do usuário, ou @me
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID do usuário, ou @me
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Remove o mute de voz imposto pelo servidor
+      tags:
+        - guilds
+    put:
+      operationId: muteGuildMemberVoice
+      parameters:
+        - description: ID do servidor
+          in: path
+          name: guild_id
+          required: true
+          schema:
+            description: ID do servidor
+            type: string
+        - description: ID do usuário, ou @me
+          in: path
+          name: user_id
+          required: true
+          schema:
+            description: ID do usuário, ou @me
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: Muta o membro na voz pelo servidor (MUTE_MEMBERS + hierarquia); persiste até desmutar
       tags:
         - guilds
   /api/guilds/{guild_id}/roles:
@@ -5723,6 +6762,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Unauthorized
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Forbidden
         "404":
           content:
             application/problem+json:
@@ -5756,7 +6801,7 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
-      summary: Entra no servidor pelo convite (quem já é membro não consome uso)
+      summary: Entra no servidor pelo convite (quem já é membro não consome uso); banido recebe 403 com code `banned`
       tags:
         - invites
   /api/push/subscriptions:

@@ -169,6 +169,10 @@ func (f fakeChannels) Authorize(_ context.Context, _, _ int64, _ perm.Perm) (cha
 	return f.ch, perm.Member{}, f.err
 }
 
+func (f fakeChannels) ViewableIDs(context.Context, int64, int64) ([]int64, error) {
+	return []int64{f.ch.ID}, f.err
+}
+
 type fakePresence map[int64]string
 
 func (f fakePresence) Status(id int64) string {

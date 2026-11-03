@@ -33,6 +33,7 @@ type Deps struct {
 	Access   Access
 	Users    Users
 	Pub      events.Publisher
+	Audit    Auditor          // opcional
 	Now      func() time.Time // opcional (testes)
 }
 
@@ -44,6 +45,7 @@ type Service struct {
 	access   Access
 	users    Users
 	pub      events.Publisher
+	audit    Auditor
 	now      func() time.Time
 
 	locks [lockStripes]sync.Mutex
@@ -56,7 +58,7 @@ type Service struct {
 
 func NewService(d Deps) *Service {
 	s := &Service{
-		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, now: d.Now,
+		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, audit: d.Audit, now: d.Now,
 		seen: newDedupe(2048), lastPut: map[int64]time.Time{},
 	}
 	if s.now == nil {
@@ -195,7 +197,7 @@ func grantsFor(acc ChannelAccess) Grants {
 	if acc.GuildID == 0 {
 		return GrantsFor(true, true) // DM: todos têm as quatro origens
 	}
-	return GrantsFor(acc.CanSpeak, acc.CanVideo)
+	return GrantsFor(acc.CanSpeak && !acc.ServerMuted, acc.CanVideo)
 }
 
 // leaveOtherLocked tira o usuário do canal em que estiver (ou for entrar), se for outro que
@@ -262,10 +264,18 @@ func (s *Service) GuildStates(ctx context.Context, userID, guildID int64) ([]Sta
 	if !s.Enabled() {
 		return nil, ErrDisabled
 	}
-	if err := s.access.Guild(ctx, userID, guildID); err != nil {
+	view, err := s.access.ViewableChannels(ctx, userID, guildID)
+	if err != nil {
 		return nil, err
 	}
-	return payloads(s.store.ByGuild(guildID)), nil
+	// Só os canais que o usuário vê (permissão efetiva): quem não vê um canal privado não vê quem está nele.
+	out := make([]State, 0)
+	for _, st := range s.store.ByGuild(guildID) {
+		if _, ok := view[st.ChannelID]; ok {
+			out = append(out, st)
+		}
+	}
+	return payloads(out), nil
 }
 
 // Snapshot devolve os estados de voz dos servidores e DMs informados (READY). Só memória; o
@@ -407,8 +417,8 @@ func (s *Service) join(ctx context.Context, userID, channelID int64, sid string,
 
 	next := State{
 		UserID: userID, ChannelID: channelID, GuildID: acc.GuildID, SID: sid,
-		CanSpeak: acc.CanSpeak || acc.GuildID == 0, CanVideo: acc.CanVideo || acc.GuildID == 0,
-		JoinedAt: s.now(),
+		CanSpeak: (acc.CanSpeak && !acc.ServerMuted) || acc.GuildID == 0, CanVideo: acc.CanVideo || acc.GuildID == 0,
+		ServerMuted: acc.ServerMuted && acc.GuildID != 0, JoinedAt: s.now(),
 	}
 	if joined {
 		next.SelfMute, next.SelfDeaf, next.JoinedAt = cur.SelfMute, cur.SelfDeaf, cur.JoinedAt
@@ -445,7 +455,7 @@ func (s *Service) OnEvent(ev events.Event) {
 	}
 	switch ev.Type {
 	case events.RoleUpdate, events.RoleDelete, events.GuildMemberUpdate, events.GuildMemberRemove,
-		events.GuildUpdate, events.GuildDelete, events.ChannelUpdate, events.ChannelDelete:
+		events.GuildUpdate, events.GuildDelete, events.ChannelUpdate, events.ChannelDelete, events.ChannelOverwritesUpdate:
 	default:
 		return
 	}
@@ -486,8 +496,9 @@ func (s *Service) Reevaluate(ctx context.Context, userID int64) {
 		return
 	}
 	g := grantsFor(acc)
-	speak, video := acc.CanSpeak || acc.GuildID == 0, acc.CanVideo || acc.GuildID == 0
-	if speak == st.CanSpeak && video == st.CanVideo {
+	speak, video := (acc.CanSpeak && !acc.ServerMuted) || acc.GuildID == 0, acc.CanVideo || acc.GuildID == 0
+	muted := acc.ServerMuted && acc.GuildID != 0
+	if speak == st.CanSpeak && video == st.CanVideo && muted == st.ServerMuted {
 		return
 	}
 	rctx, cancel := remote(ctx)
@@ -496,7 +507,8 @@ func (s *Service) Reevaluate(ctx context.Context, userID int64) {
 		slog.Warn("voice: não foi possível atualizar as permissões no LiveKit", "user", userID, "err", err)
 		return // tenta de novo no próximo evento
 	}
-	st.CanSpeak, st.CanVideo = speak, video
+	mutedChanged := muted != st.ServerMuted
+	st.CanSpeak, st.CanVideo, st.ServerMuted = speak, video, muted
 	if !video { // sem VIDEO o LiveKit encerra câmera e tela
 		st.Video, st.Screen = false, false
 		if s.previews != nil {
@@ -505,7 +517,7 @@ func (s *Service) Reevaluate(ctx context.Context, userID int64) {
 		st.Preview = false
 	}
 	s.store.Put(st)
-	if !video {
+	if !video || mutedChanged {
 		s.publish(st, false)
 	}
 }

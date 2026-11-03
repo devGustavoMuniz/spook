@@ -30,3 +30,9 @@
 - [ ] **Deep link do desktop (`spook://`) no Rust.** O backend e o módulo web `apps/web/src/desktop/browser-login.ts` do "Entrar pelo navegador" estão prontos, mas o app desktop ainda não recebe `spook://auth?code=...`. Falta: adicionar `tauri-plugin-deep-link` (esquema `spook`, também com `tauri-plugin-single-instance` no Windows/Linux para o link chegar ao app já aberto) em `apps/desktop/src-tauri`, a permissão `deep-link:default` em `capabilities/default.json` e o esquema em `tauri.conf.json`; depois ligar `VITE_DESKTOP_BROWSER_LOGIN=true` no build do desktop (capability `browserLogin`, desligada por padrão). Testar nos três SOs.
 - [ ] (Opcional) Remetente com `Reply-To` ou outro nome: os modelos estão em `server/internal/platform/mailer/templates.go` (texto e HTML, pt-br).
 
+## Moderação e permissões
+- [ ] (Opcional) Definir `AUDIT_RETENTION_DAYS` (Variable; padrão 90, de 1 a 3650) se quiser outro prazo para o registro de auditoria.
+- [ ] Conceder as permissões novas (Banir, Mutar, Desconectar, Gerenciar apelidos, Ver o registro de auditoria) aos cargos de moderação dos servidores existentes: a migração `00012` **não** concede nenhuma (só o "mudar o próprio apelido" ao `@everyone`).
+- [ ] Conferir em produção com LiveKit real o mute do servidor e a desconexão (`VALIDACAO-MANUAL.md`, "Moderação e permissões por canal").
+- [ ] Decidir se canais devem herdar as permissões da categoria (hoje não herdam) e se banir deve revogar os convites de quem foi banido (hoje não revoga). Ambos estão registrados em `SPEC.md` 5.5.
+

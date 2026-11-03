@@ -1,4 +1,6 @@
 import type {
+  AuditEntryPayload,
+  BanPayload,
   ChannelPayload,
   DetailPayload,
   MemberPayload,
@@ -138,6 +140,23 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
         size: number;
       }[],
       error: null as null | { status: number; detail: string },
+    },
+    /** Moderação (adicional): banimentos e auditoria por servidor, overwrites por canal e o que o cliente enviou. */
+    moderation: {
+      bans: {} as Record<string, BanPayload[]>,
+      audit: {} as Record<string, AuditEntryPayload[]>,
+      overwrites: {} as Record<
+        string,
+        { type: string; target_id: string; allow: number; deny: number }[]
+      >,
+      banBodies: [] as { userId: string; reason?: string }[],
+      unbans: [] as string[],
+      nicks: [] as { userId: string; nick: string | null }[],
+      voiceMutes: [] as { userId: string; muted: boolean }[],
+      disconnects: [] as { channelId: string; userId: string }[],
+      overwriteError: null as null | { status: number; detail: string },
+      /** Convites cujo POST responde 403 `banned`. */
+      bannedInvites: new Set<string>(),
     },
     /** Voz (Fase 5): erro forçado do token, tokens emitidos e PATCH /voice/state / leave recebidos. */
     voice: {
@@ -695,6 +714,120 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           { status: 201 },
         );
       }),
+      http.get("*/api/guilds/:guildId/bans", ({ params }) =>
+        HttpResponse.json({
+          bans: state.moderation.bans[params.guildId as string] ?? [],
+          has_more: false,
+        }),
+      ),
+      http.put("*/api/guilds/:guildId/bans/:userId", async ({ params, request }) => {
+        const b = (await request.json().catch(() => ({}))) as { reason?: string };
+        track(request, b);
+        const gid = params.guildId as string;
+        const uid = params.userId as string;
+        state.moderation.banBodies.push({ userId: uid, reason: b.reason });
+        const m = state.members[gid]?.find((x) => x.user_id === uid);
+        state.members[gid] = (state.members[gid] ?? []).filter((x) => x.user_id !== uid);
+        const bans = state.moderation.bans[gid] ?? [];
+        state.moderation.bans[gid] = bans;
+        bans.push({
+          guild_id: gid,
+          user_id: uid,
+          username: m?.username ?? `user${uid}`,
+          reason: b.reason ?? null,
+          banned_by: state.user.id,
+          banned_by_username: state.user.username,
+          created_at: "2026-10-30T12:00:00Z",
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.delete("*/api/guilds/:guildId/bans/:userId", ({ params, request }) => {
+        track(request);
+        const gid = params.guildId as string;
+        state.moderation.unbans.push(params.userId as string);
+        state.moderation.bans[gid] = (state.moderation.bans[gid] ?? []).filter(
+          (x) => x.user_id !== params.userId,
+        );
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get("*/api/guilds/:guildId/audit-logs", ({ params, request }) => {
+        track(request);
+        const q = new URL(request.url).searchParams;
+        const limit = Number(q.get("limit") ?? 50);
+        const before = q.get("before");
+        let all = [...(state.moderation.audit[params.guildId as string] ?? [])].sort(
+          (a, z) => Number(z.id) - Number(a.id),
+        );
+        if (q.get("action")) all = all.filter((e) => e.action === q.get("action"));
+        if (q.get("actor")) all = all.filter((e) => e.actor?.id === q.get("actor"));
+        if (before) all = all.filter((e) => Number(e.id) < Number(before));
+        return HttpResponse.json({ entries: all.slice(0, limit), has_more: all.length > limit });
+      }),
+      http.get("*/api/channels/:channelId/overwrites", ({ params }) =>
+        HttpResponse.json(state.moderation.overwrites[params.channelId as string] ?? []),
+      ),
+      http.put(
+        "*/api/channels/:channelId/overwrites/:type/:targetId",
+        async ({ params, request }) => {
+          const b = (await request.json()) as { allow: number; deny: number };
+          track(request, b);
+          if (state.moderation.overwriteError) {
+            const e = state.moderation.overwriteError;
+            return problem(e.status, e.detail);
+          }
+          const cid = params.channelId as string;
+          const list = (state.moderation.overwrites[cid] ?? []).filter(
+            (o) => !(o.type === params.type && o.target_id === params.targetId),
+          );
+          if (b.allow || b.deny)
+            list.push({
+              type: params.type as string,
+              target_id: params.targetId as string,
+              allow: b.allow,
+              deny: b.deny,
+            });
+          state.moderation.overwrites[cid] = list;
+          return HttpResponse.json({
+            type: params.type,
+            target_id: params.targetId,
+            allow: b.allow,
+            deny: b.deny,
+          });
+        },
+      ),
+      http.patch("*/api/guilds/:guildId/members/:userId/nick", async ({ params, request }) => {
+        const b = (await request.json()) as { nick: string | null };
+        track(request, b);
+        const gid = params.guildId as string;
+        const uid = params.userId === "@me" ? state.user.id : (params.userId as string);
+        state.moderation.nicks.push({ userId: uid, nick: b.nick });
+        const m = state.members[gid]?.find((x) => x.user_id === uid);
+        if (!m) return problem(404, "membro não encontrado");
+        m.nickname = b.nick || null;
+        return HttpResponse.json(m);
+      }),
+      http.put("*/api/guilds/:guildId/members/:userId/voice-mute", ({ params, request }) => {
+        track(request);
+        state.moderation.voiceMutes.push({ userId: params.userId as string, muted: true });
+        const m = state.members[params.guildId as string]?.find((x) => x.user_id === params.userId);
+        if (m) m.voice_muted = true;
+        return HttpResponse.json(m ?? {});
+      }),
+      http.delete("*/api/guilds/:guildId/members/:userId/voice-mute", ({ params, request }) => {
+        track(request);
+        state.moderation.voiceMutes.push({ userId: params.userId as string, muted: false });
+        const m = state.members[params.guildId as string]?.find((x) => x.user_id === params.userId);
+        if (m) m.voice_muted = false;
+        return HttpResponse.json(m ?? {});
+      }),
+      http.post("*/api/channels/:channelId/voice/:userId/disconnect", ({ params, request }) => {
+        track(request);
+        state.moderation.disconnects.push({
+          channelId: params.channelId as string,
+          userId: params.userId as string,
+        });
+        return new HttpResponse(null, { status: 204 });
+      }),
       http.get("*/api/invites/:code", ({ params }) => {
         const inv = state.invites[params.code as string];
         if (!inv) return problem(404, "convite não encontrado");
@@ -712,6 +845,10 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       }),
       http.post("*/api/invites/:code", ({ params, request }) => {
         track(request);
+        if (state.moderation.bannedInvites.has(params.code as string))
+          return problem(403, "Você foi banido deste servidor e não pode entrar por convite.", [], {
+            code: "banned",
+          });
         const inv = state.invites[params.code as string];
         if (!inv) return problem(404, "convite não encontrado");
         if (inv.gone) return problem(410, "convite expirado");

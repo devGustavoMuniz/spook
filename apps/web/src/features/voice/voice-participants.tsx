@@ -1,8 +1,15 @@
 import { useGetMe, type VoiceStatePayload } from "@spook/shared";
-import { HeadphoneOff, MicOff, MonitorUp, Video } from "lucide-react";
+import { HeadphoneOff, MicOff, MonitorUp, MoreHorizontal, ShieldOff, Video } from "lucide-react";
 import { useState } from "react";
 import { Avatar } from "@/components/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useVoiceModeration, VoiceModerationItems } from "./moderation";
 import { PersonVolumeButton, PersonVolumePanel } from "./person-volume";
 import { StreamCard, type WatchAction } from "./stream-card";
 import type { PersonLookup } from "./use-person-lookup";
@@ -31,13 +38,20 @@ export function VoiceFlags({
       {state.self_video ? (
         <Video className={cn(icon, "text-primary")} role="img" aria-label="Câmera ligada" />
       ) : null}
+      {state.server_muted ? (
+        <ShieldOff
+          className={cn(icon, "text-destructive-text")}
+          role="img"
+          aria-label="Mutado pelo servidor"
+        />
+      ) : null}
       {state.self_deaf ? (
         <HeadphoneOff
           className={cn(icon, "text-destructive-text")}
           role="img"
           aria-label="Áudio desativado"
         />
-      ) : state.self_mute ? (
+      ) : state.self_mute && !state.server_muted ? (
         <MicOff
           className={cn(icon, "text-destructive-text")}
           role="img"
@@ -118,6 +132,7 @@ export function VoiceParticipants({
                 nameEl
               )}
               <VoiceFlags state={p} hideScreen={streaming} />
+              <ParticipantModeration state={p} name={person.name} />
               {adjustable ? (
                 <PersonVolumeButton
                   userId={p.user_id}
@@ -138,5 +153,28 @@ export function VoiceParticipants({
         );
       })}
     </ul>
+  );
+}
+
+/** Menu "⋯" do participante com as ações de moderação de voz; só existe para quem tem permissão sobre ele. */
+function ParticipantModeration({ state, name }: { state: VoiceStatePayload; name: string }) {
+  const mod = useVoiceModeration(state);
+  if (!mod.any) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-6 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+          aria-label={`Moderar ${name} na voz`}
+        >
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <VoiceModerationItems state={state} name={name} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

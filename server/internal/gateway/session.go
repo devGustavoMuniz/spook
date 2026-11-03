@@ -266,7 +266,7 @@ func (s *Session) dropGuild(gid int64) {
 	s.unsubLocked(guildTopic(gid))
 }
 
-// canView diz se a sessão pode ver os canais do servidor (VIEW_CHANNEL).
+// canView diz se a sessão tem VIEW_CHANNEL no servidor (a base; o que vale por canal é canSee).
 func (s *Session) canView(gid int64) bool {
 	s.stMu.Lock()
 	defer s.stMu.Unlock()
@@ -295,42 +295,47 @@ func (s *Session) channelRemoved(gid, ch int64) {
 	s.unsubLocked(channelTopic(ch))
 }
 
-// setView aplica uma mudança de permissão: perdeu VIEW_CHANNEL → sai de todos os canais;
-// ganhou → busca a lista de canais (fetch) e entra neles.
-func (s *Session) setView(gid int64, view bool, fetch func() ([]int64, error)) error {
-	s.stMu.Lock()
-	st := s.guilds[gid]
-	if st == nil || st.view == view {
-		s.stMu.Unlock()
-		return nil
-	}
-	if !view {
-		st.view = false
-		for ch := range st.channels {
-			s.unsubLocked(channelTopic(ch))
-		}
-		clear(st.channels)
-		s.stMu.Unlock()
-		return nil
-	}
-	s.stMu.Unlock()
-
-	ids, err := fetch()
-	if err != nil {
-		return err
-	}
+// canSee diz se a sessão vê o canal do servidor (está inscrita no tópico dele).
+func (s *Session) canSee(gid, ch int64) bool {
 	s.stMu.Lock()
 	defer s.stMu.Unlock()
-	st = s.guilds[gid]
+	st := s.guilds[gid]
 	if st == nil {
-		return nil
+		return false
 	}
-	st.view = true
-	for _, ch := range ids {
-		st.channels[ch] = struct{}{}
-		s.subLocked(channelTopic(ch))
+	_, ok := st.channels[ch]
+	return ok
+}
+
+// syncChannels aplica a visão recalculada do servidor (permissão base + canais que a pessoa vê): sai dos tópicos
+// dos canais que deixou de ver e entra nos novos. Devolve os IDs adicionados e removidos.
+func (s *Session) syncChannels(gid int64, view bool, visible []int64) (added, removed []int64) {
+	s.stMu.Lock()
+	defer s.stMu.Unlock()
+	st := s.guilds[gid]
+	if st == nil {
+		return nil, nil
 	}
-	return nil
+	st.view = view
+	want := make(map[int64]struct{}, len(visible))
+	for _, ch := range visible {
+		want[ch] = struct{}{}
+	}
+	for ch := range st.channels {
+		if _, ok := want[ch]; !ok {
+			s.unsubLocked(channelTopic(ch))
+			delete(st.channels, ch)
+			removed = append(removed, ch)
+		}
+	}
+	for _, ch := range visible {
+		if _, ok := st.channels[ch]; !ok {
+			st.channels[ch] = struct{}{}
+			s.subLocked(channelTopic(ch))
+			added = append(added, ch)
+		}
+	}
+	return added, removed
 }
 
 // release remove todas as assinaturas da sessão.

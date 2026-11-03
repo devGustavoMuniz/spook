@@ -106,6 +106,27 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 		return &StatesOutput{Body: sts}, nil
 	})
 
+	huma.Register(api, huma.Operation{
+		OperationID: "disconnectVoiceMember", Method: http.MethodPost, Path: "/api/channels/{channel_id}/voice/{user_id}/disconnect",
+		Summary: "Desconecta alguém do canal de voz (DISCONNECT_MEMBERS + hierarquia). A pessoa pode entrar de novo",
+		Tags:    []string{"voice"}, Security: security, Middlewares: mw, DefaultStatus: http.StatusNoContent,
+		Errors: []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict,
+			http.StatusUnprocessableEntity, http.StatusTooManyRequests, http.StatusServiceUnavailable},
+	}, func(ctx context.Context, in *struct {
+		ChannelID string `path:"channel_id" doc:"ID do canal de voz"`
+		UserID    string `path:"user_id" doc:"ID de quem será desconectado"`
+	}) (*struct{}, error) {
+		cid, ok := httpx.ParseID(in.ChannelID)
+		if !ok {
+			return nil, httpx.BadID("canal")
+		}
+		uid, ok := httpx.ParseID(in.UserID)
+		if !ok {
+			return nil, httpx.BadID("usuário")
+		}
+		return nil, httpx.Err(h.svc.Disconnect(ctx, h.userID(ctx), cid, uid))
+	})
+
 	previewDoc := "Prévia (miniatura) da tela de quem transmite"
 	huma.Register(api, huma.Operation{
 		OperationID: "putScreenPreview", Method: http.MethodPut, Path: "/api/channels/{channel_id}/voice/screen-preview",

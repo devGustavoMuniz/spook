@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
 )
@@ -135,6 +136,55 @@ func (s *PGStore) Delete(ctx context.Context, id int64) error {
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// ---- overwrites ----
+
+func toOverwrite(r dbgen.ChannelOverwrite) perm.Overwrite {
+	return perm.Overwrite{Type: perm.TargetType(r.TargetType), TargetID: r.TargetID, Allow: perm.Perm(r.Allow), Deny: perm.Perm(r.Deny)}
+}
+
+func (s *PGStore) Overwrites(ctx context.Context, channelID int64) ([]perm.Overwrite, error) {
+	rows, err := s.q.ListChannelOverwrites(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("listar overwrites: %w", err)
+	}
+	out := make([]perm.Overwrite, len(rows))
+	for i, r := range rows {
+		out[i] = toOverwrite(r)
+	}
+	return out, nil
+}
+
+func (s *PGStore) OverwritesByGuilds(ctx context.Context, guildIDs []int64) (map[int64][]perm.Overwrite, error) {
+	rows, err := s.q.ListOverwritesByGuilds(ctx, guildIDs)
+	if err != nil {
+		return nil, fmt.Errorf("listar overwrites dos servidores: %w", err)
+	}
+	out := map[int64][]perm.Overwrite{}
+	for _, r := range rows {
+		out[r.ChannelID] = append(out[r.ChannelID], toOverwrite(r))
+	}
+	return out, nil
+}
+
+func (s *PGStore) SetOverwrite(ctx context.Context, channelID int64, o perm.Overwrite) error {
+	if o.Allow == 0 && o.Deny == 0 { // vazio = herdar tudo: remove a linha
+		return s.DeleteOverwrite(ctx, channelID, o.Type, o.TargetID)
+	}
+	if _, err := s.q.UpsertChannelOverwrite(ctx, dbgen.UpsertChannelOverwriteParams{
+		ChannelID: channelID, TargetType: string(o.Type), TargetID: o.TargetID, Allow: int64(o.Allow), Deny: int64(o.Deny),
+	}); err != nil {
+		return fmt.Errorf("gravar overwrite: %w", err)
+	}
+	return nil
+}
+
+func (s *PGStore) DeleteOverwrite(ctx context.Context, channelID int64, t perm.TargetType, target int64) error {
+	if _, err := s.q.DeleteChannelOverwrite(ctx, dbgen.DeleteChannelOverwriteParams{ChannelID: channelID, TargetType: string(t), TargetID: target}); err != nil {
+		return fmt.Errorf("remover overwrite: %w", err)
 	}
 	return nil
 }

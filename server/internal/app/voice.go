@@ -27,24 +27,50 @@ func (a voiceAccess) Channel(ctx context.Context, userID, channelID int64) (voic
 	if ch.GuildID == nil { // DM: basta participar; as quatro origens
 		return voice.ChannelAccess{Type: int(ch.Type), CanConnect: true, CanSpeak: true, CanVideo: true}, nil
 	}
+	muted, err := a.guilds.VoiceMuted(ctx, *ch.GuildID, userID)
+	if err != nil {
+		return voice.ChannelAccess{}, err
+	}
+	// m já é a permissão EFETIVA do canal (cargos + overwrites), calculada por channel.Authorize.
 	return voice.ChannelAccess{
 		Type: int(ch.Type), GuildID: *ch.GuildID,
-		CanConnect: m.Has(perm.Connect), CanSpeak: m.Has(perm.Speak), CanVideo: m.Has(perm.Video),
+		CanConnect: m.Has(perm.Connect), CanSpeak: m.Has(perm.Speak), CanVideo: m.Has(perm.Video), ServerMuted: muted,
 	}, nil
 }
 
-func (a voiceAccess) Guild(ctx context.Context, userID, guildID int64) error {
-	m, err := a.guilds.Member(ctx, guildID, userID)
+func (a voiceAccess) ViewableChannels(ctx context.Context, userID, guildID int64) (map[int64]struct{}, error) {
+	ids, err := a.channels.ViewableIDs(ctx, guildID, userID)
 	if errors.Is(err, perm.ErrNotMember) {
-		return apperr.NotFound("servidor não encontrado")
+		return nil, apperr.NotFound("servidor não encontrado")
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if !m.Has(perm.ViewChannel) {
-		return apperr.Forbidden("você não tem permissão para ver este servidor")
+	if len(ids) == 0 {
+		return nil, apperr.Forbidden("você não tem permissão para ver este servidor")
 	}
-	return nil
+	out := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
+func (a voiceAccess) Moderate(ctx context.Context, actorID, channelID, targetID int64) (int64, error) {
+	ch, _, err := a.channels.Authorize(ctx, actorID, channelID, 0) // o moderador precisa ver o canal
+	if err != nil {
+		return 0, err
+	}
+	if ch.GuildID == nil {
+		return 0, apperr.Invalid("chamadas de DM não têm moderação")
+	}
+	if ch.Type != channel.TypeVoice {
+		return 0, voice.ErrNotVoiceChannel
+	}
+	if err := a.guilds.CanModerateVoice(ctx, actorID, *ch.GuildID, targetID, perm.DisconnectMembers); err != nil {
+		return 0, err
+	}
+	return *ch.GuildID, nil
 }
 
 // voiceUsers entrega o username (nome do participante no LiveKit).

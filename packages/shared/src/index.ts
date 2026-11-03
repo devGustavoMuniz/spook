@@ -2,6 +2,7 @@
 // O cliente e os schemas do gateway (Fase 3) ficam em ./gateway.
 
 export * from "./api/endpoints/admin/admin";
+export * from "./api/endpoints/audit/audit";
 export * from "./api/endpoints/auth/auth";
 export * from "./api/endpoints/channels/channels";
 export * from "./api/endpoints/dms/dms";

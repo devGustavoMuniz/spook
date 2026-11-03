@@ -22,6 +22,15 @@ var (
 	ErrTooManyGuilds     = apperr.Conflict("limite de 100 servidores por usuário atingido")
 	ErrOwnerCannotLeave  = apperr.Conflict("o dono não pode sair do servidor: transfira a posse antes (ou exclua o servidor)")
 	ErrEveryoneImmutable = apperr.Invalid("o cargo @everyone não pode ser excluído, renomeado nem mudar de posição")
+	ErrBanned            = apperr.Forbidden("você foi banido deste servidor")
+	ErrBanNotFound       = apperr.NotFound("esta pessoa não está banida")
+	ErrSelfModeration    = apperr.Invalid("você não pode fazer isso consigo mesmo")
+)
+
+// Limites da moderação (SPEC 7.x).
+const (
+	MaxBanReasonRunes = 512
+	MaxNickRunes      = 32
 )
 
 type Guild struct {
@@ -59,6 +68,7 @@ type Member struct {
 	BannerURL   string
 	BannerColor *int32
 	RoleIDs     []int64 // sem o @everyone, que todos têm
+	VoiceMuted  bool    // mutado na voz por um moderador (persistente)
 }
 
 // Access são os dados brutos de permissão de um membro, como o banco os entrega.
@@ -66,6 +76,45 @@ type Access struct {
 	OwnerID int64
 	Perms   perm.Perm // OR do @everyone e dos cargos do membro
 	Highest int       // posição do cargo mais alto
+	RoleIDs []int64   // cargos do membro, sem o @everyone
+}
+
+// Ban é um banimento.
+type Ban struct {
+	GuildID          int64
+	UserID           int64
+	BannedBy         *int64
+	BannedByUsername *string
+	Reason           *string
+	CreatedAt        time.Time
+	Username         string
+	DisplayName      *string
+	AvatarKey        *string
+	AvatarURL        string
+}
+
+// BanPayload é um banimento na API.
+type BanPayload struct {
+	GuildID          string    `json:"guild_id"`
+	UserID           string    `json:"user_id"`
+	Username         string    `json:"username"`
+	DisplayName      string    `json:"display_name,omitempty"`
+	AvatarURL        string    `json:"avatar_url,omitempty"`
+	Reason           *string   `json:"reason"`
+	BannedBy         *string   `json:"banned_by" doc:"Quem baniu; nulo se a conta foi excluída"`
+	BannedByUsername *string   `json:"banned_by_username"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+func (b Ban) Payload() BanPayload {
+	p := BanPayload{
+		GuildID: httpx.ID(b.GuildID), UserID: httpx.ID(b.UserID), Username: b.Username, AvatarURL: b.AvatarURL,
+		Reason: b.Reason, BannedBy: httpx.IDPtr(b.BannedBy), BannedByUsername: b.BannedByUsername, CreatedAt: b.CreatedAt,
+	}
+	if b.DisplayName != nil {
+		p.DisplayName = *b.DisplayName
+	}
+	return p
 }
 
 // Detail é o servidor completo para montar a tela do cliente.
@@ -112,6 +161,7 @@ type MemberPayload struct {
 	BannerURL   string    `json:"banner_url,omitempty" doc:"URL temporária de leitura do banner"`
 	BannerColor *int32    `json:"banner_color,omitempty" doc:"Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"`
 	RoleIDs     []string  `json:"role_ids" doc:"Cargos do membro, sem o @everyone"`
+	VoiceMuted  bool      `json:"voice_muted,omitempty" doc:"Mutado na voz por um moderador (MUTE_MEMBERS)"`
 }
 
 // DetailPayload é o servidor completo; também é o dado do evento GUILD_CREATE.
@@ -157,7 +207,7 @@ func RolePayloads(rs []Role) []RolePayload {
 func (m Member) Payload() MemberPayload {
 	p := MemberPayload{
 		GuildID: httpx.ID(m.GuildID), UserID: httpx.ID(m.UserID), Nickname: m.Nickname, JoinedAt: m.JoinedAt,
-		Username: m.Username, AvatarURL: m.AvatarURL, RoleIDs: httpx.IDs(m.RoleIDs),
+		Username: m.Username, AvatarURL: m.AvatarURL, RoleIDs: httpx.IDs(m.RoleIDs), VoiceMuted: m.VoiceMuted,
 	}
 	if m.DisplayName != nil {
 		p.DisplayName = *m.DisplayName

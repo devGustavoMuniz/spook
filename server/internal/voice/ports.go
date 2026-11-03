@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/devGustavoMuniz/spook/server/internal/audit"
 )
 
 // ErrInvalidSignature indica um webhook que não veio do LiveKit (assinatura ausente ou inválida).
@@ -92,8 +94,17 @@ type Access interface {
 	// não é membro/participante) e apperr.Forbidden (membro sem VIEW_CHANNEL). Para canais de
 	// servidor sem CONNECT NÃO devolve erro: CanConnect=false (quem decide é a voz).
 	Channel(ctx context.Context, userID, channelID int64) (ChannelAccess, error)
-	// Guild confirma que o usuário é membro do servidor e vê os canais (apperr.NotFound/Forbidden).
-	Guild(ctx context.Context, userID, guildID int64) error
+	// ViewableChannels devolve os canais do servidor que o usuário vê (permissão efetiva de cada canal);
+	// não-membro: apperr.NotFound; sem ver nenhum canal: apperr.Forbidden.
+	ViewableChannels(ctx context.Context, userID, guildID int64) (map[int64]struct{}, error)
+	// Moderate autoriza o ator a desconectar o alvo da voz do canal (DISCONNECT_MEMBERS + hierarquia) e devolve o
+	// servidor do canal. apperr.NotFound (canal/membro), apperr.Forbidden, apperr.Invalid (DM) e 429.
+	Moderate(ctx context.Context, actorID, channelID, targetID int64) (guildID int64, err error)
+}
+
+// Auditor grava o registro de auditoria (audit.Service; opcional).
+type Auditor interface {
+	Record(ctx context.Context, e audit.Entry)
 }
 
 // Users resolve o nome de exibição do participante.

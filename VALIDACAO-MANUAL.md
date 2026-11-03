@@ -289,6 +289,15 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 - [ ] **Login do desktop pelo navegador (depois do deep link no Rust):** com `VITE_DESKTOP_BROWSER_LOGIN=true`, "Entrar pelo navegador" abre `/desktop-login`; confirme com e sem sessão no navegador; o app deve abrir logado. Teste com o app fechado (o SO abre o app), aberto e minimizado, nos três SOs. Antes do deep link, a página mostra o botão "Abrir o app", que não fará nada.
 - [ ] **`REQUIRE_EMAIL_VERIFICATION=true`:** com uma conta não verificada, criar servidor e criar convite devem recusar com a mensagem; depois de verificar, funcionam.
 
+### Moderação e permissões por canal (RF25)
+
+- [ ] **Banir de verdade:** com duas contas em navegadores diferentes, banir a segunda com motivo pelo cartão de perfil e pela lista de membros; ela deve ser tirada do servidor na hora, ver o aviso "banido" ao reabrir o convite e voltar só depois de desbanida e com convite. Conferir a aba Banimentos (motivo, quem baniu, hora) e o registro de auditoria. Tema claro e escuro, 390 px.
+- [ ] **Canal privado:** em "Permissões" do canal, ligar "Canal privado", liberar um cargo e uma pessoa; conferir ao vivo que quem não foi liberado perde o canal (sem recarregar) e quem foi liberado ganha. Testar também o tri-state (Negar/Herdar/Permitir) por teclado (setas) e leitor de tela.
+- [ ] **Voz com LiveKit real:** mutar alguém pelo servidor (ícone "Mutado pelo servidor" em todos os tiles e na lista; a pessoa não consegue desmutar e vê o aviso), sair e entrar de novo (continua mutada), liberar; desconectar da chamada; tirar CONNECT de um canal de voz com a pessoa dentro (deve cair).
+- [ ] **Apelido:** alterar o próprio e o de outra pessoa; conferir nas mensagens, na lista de membros, na voz e no autocompletar de `@`.
+- [ ] **Hierarquia:** com um administrador (cargo `ADMINISTRATOR`) tentar banir/mutar quem tem cargo igual ou superior (deve recusar) e confirmar que o administrador do painel `/admin` não ganha poder de moderação.
+- [ ] **Retenção:** em produção, conferir que o job `audit_purge` roda (log do River) e que `AUDIT_RETENTION_DAYS` é respeitado.
+
 ## Pendências gerais de configuração
 
 - [ ] **Cache da Cloudflare no `/sw.js` (opcional):** o servidor manda `Cache-Control: no-cache`, mas a Cloudflare reescreve para `max-age=14400` nos arquivos `.js` por causa do *Browser Cache TTL* da zona. Para service workers isso não impede a atualização (os navegadores buscam o script principal ignorando o cache HTTP), então não é urgente. **Não mude a configuração global da zona** (ela vale para outros sites). Se quiser ajustar, crie uma **Cache Rule só para este host**: *Caching > Cache Rules > Create rule*, nome "spook: sem cache em sw e manifest"; condição `(http.host eq "spook.dottadigital.com" and (http.request.uri.path eq "/sw.js" or http.request.uri.path eq "/manifest.webmanifest"))`; ação *Bypass cache*. Conferir depois com `curl -sI https://spook.dottadigital.com/sw.js | grep -i cache-control` (deve vir `no-cache` e `cf-cache-status: DYNAMIC`).

@@ -19,6 +19,11 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       },
       { name: "MANAGE_ROLES", label: "Gerenciar cargos", description: "Cargos abaixo do seu." },
       { name: "CREATE_INVITE", label: "Criar convites", description: "Gerar links de convite." },
+      {
+        name: "CHANGE_NICKNAME",
+        label: "Mudar o próprio apelido",
+        description: "Apelido só neste servidor.",
+      },
     ],
   },
   {
@@ -47,6 +52,31 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
         name: "MANAGE_MESSAGES",
         label: "Gerenciar mensagens",
         description: "Excluir as de outros.",
+      },
+      {
+        name: "BAN_MEMBERS",
+        label: "Banir membros",
+        description: "Banir e desbanir, com motivo.",
+      },
+      {
+        name: "MANAGE_NICKNAMES",
+        label: "Gerenciar apelidos",
+        description: "Mudar o apelido de outros.",
+      },
+      {
+        name: "MUTE_MEMBERS",
+        label: "Mutar membros na voz",
+        description: "Silenciar pelo servidor.",
+      },
+      {
+        name: "DISCONNECT_MEMBERS",
+        label: "Desconectar da voz",
+        description: "Tirar alguém da chamada.",
+      },
+      {
+        name: "VIEW_AUDIT_LOG",
+        label: "Ver o registro de auditoria",
+        description: "Quem fez o quê no servidor.",
       },
     ],
   },

@@ -1,5 +1,8 @@
 import { isApiError } from "@spook/shared";
 
+/** O 403 de quem tenta entrar por convite num servidor em que foi banido (`code: "banned"`). */
+export const BANNED_MESSAGE = "Você foi banido deste servidor e não pode entrar por convite.";
+
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Mensagem em pt-br para erros das telas de servidor/canal/mensagem (403, 404, 409, 410, 422, 429). */
@@ -9,7 +12,7 @@ export function appMessage(err: unknown): string {
     case 401:
       return "Sua sessão expirou. Entre novamente.";
     case 403:
-      return "Você não tem permissão para fazer isso.";
+      return err.code === "banned" ? BANNED_MESSAGE : "Você não tem permissão para fazer isso.";
     case 404:
       return "Não encontramos isso. Pode ter sido removido.";
     case 409:

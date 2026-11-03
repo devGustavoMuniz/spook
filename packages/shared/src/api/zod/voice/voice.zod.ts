@@ -48,6 +48,16 @@ export const CreateVoiceTokenResponse = zod.object({
 });
 
 /**
+ * @summary Desconecta alguém do canal de voz (DISCONNECT_MEMBERS + hierarquia). A pessoa pode entrar de novo
+ */
+export const DisconnectVoiceMemberParams = zod.object({
+  channel_id: zod.string().describe("ID do canal de voz"),
+  user_id: zod.string().describe("ID de quem será desconectado"),
+});
+
+export const DisconnectVoiceMemberResponse = zod.void();
+
+/**
  * @summary Quem está em cada canal de voz do servidor agora (snapshot; os updates vêm em VOICE_STATE_UPDATE)
  */
 export const ListGuildVoiceStatesParams = zod.object({
@@ -66,6 +76,12 @@ export const ListGuildVoiceStatesResponseItem = zod.object({
   self_mute: zod.boolean(),
   self_screen: zod.boolean().describe("Compartilhando a tela"),
   self_video: zod.boolean().describe("Câmera ligada"),
+  server_muted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar",
+    ),
   user_id: zod.string(),
 });
 export const ListGuildVoiceStatesResponse = zod.array(ListGuildVoiceStatesResponseItem);
@@ -95,5 +111,11 @@ export const UpdateVoiceStateResponse = zod.object({
   self_mute: zod.boolean(),
   self_screen: zod.boolean().describe("Compartilhando a tela"),
   self_video: zod.boolean().describe("Câmera ligada"),
+  server_muted: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar",
+    ),
   user_id: zod.string(),
 });

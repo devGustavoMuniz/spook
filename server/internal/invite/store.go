@@ -121,6 +121,14 @@ func (s *PGStore) Redeem(ctx context.Context, code string, userID int64) (Redeem
 	if _, err := q.LockUser(ctx, userID); err != nil {
 		return RedeemResult{}, fmt.Errorf("travar usuário: %w", err)
 	}
+	// Banido não entra por convite nenhum (checado dentro da transação, sem corrida com um banimento).
+	banned, err := q.IsBanned(ctx, dbgen.IsBannedParams{GuildID: inv.GuildID, UserID: userID})
+	if err != nil {
+		return RedeemResult{}, fmt.Errorf("checar banimento: %w", err)
+	}
+	if banned {
+		return RedeemResult{}, guild.ErrBanned
+	}
 	member, err := q.IsMember(ctx, dbgen.IsMemberParams{GuildID: inv.GuildID, UserID: userID})
 	if err != nil {
 		return RedeemResult{}, fmt.Errorf("checar membro: %w", err)

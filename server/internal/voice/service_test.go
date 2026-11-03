@@ -75,6 +75,8 @@ func (p *fakeProvider) VerifyWebhook(string, []byte) (voice.RoomEvent, bool, err
 func (p *fakeProvider) lastToken() voice.TokenRequest { return p.tokens[len(p.tokens)-1] }
 
 type fakeAccess struct {
+	mod      error
+	modGuild int64
 	mu       sync.Mutex
 	channels map[[2]int64]voice.ChannelAccess
 	errs     map[[2]int64]error
@@ -111,8 +113,26 @@ func (a *fakeAccess) Channel(_ context.Context, user, ch int64) (voice.ChannelAc
 	return acc, nil
 }
 
-func (a *fakeAccess) Guild(_ context.Context, user, guild int64) error {
-	return a.guilds[[2]int64{user, guild}]
+func (a *fakeAccess) ViewableChannels(_ context.Context, user, guild int64) (map[int64]struct{}, error) {
+	if err := a.guilds[[2]int64{user, guild}]; err != nil {
+		return nil, err
+	}
+	out := map[int64]struct{}{}
+	for k := range a.channels { // todos os canais configurados para o usuário
+		if k[0] == user {
+			out[k[1]] = struct{}{}
+		}
+	}
+	return out, nil
+}
+
+func (a *fakeAccess) Moderate(_ context.Context, actor, ch, target int64) (int64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.mod; err != nil {
+		return 0, err
+	}
+	return a.modGuild, nil
 }
 
 type fakeUsers struct{}

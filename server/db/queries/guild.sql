@@ -41,7 +41,7 @@ SELECT EXISTS (SELECT 1 FROM guild_members WHERE guild_id = $1 AND user_id = $2)
 SELECT count(*) FROM guild_members WHERE guild_id = $1;
 
 -- name: ListMembers :many
-SELECT m.guild_id, m.user_id, m.nickname, m.joined_at,
+SELECT m.guild_id, m.user_id, m.nickname, m.joined_at, m.voice_muted,
        u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
@@ -53,7 +53,7 @@ ORDER BY m.user_id
 LIMIT $3;
 
 -- name: GetMember :one
-SELECT m.guild_id, m.user_id, m.nickname, m.joined_at,
+SELECT m.guild_id, m.user_id, m.nickname, m.joined_at, m.voice_muted,
        u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
@@ -66,13 +66,14 @@ GROUP BY m.guild_id, m.user_id, u.id;
 -- name: GetMemberAccess :one
 SELECT g.owner_id,
        COALESCE(bit_or(r.permissions), 0)::bigint AS permissions,
-       COALESCE(max(r.position), 0)::int AS highest_position
+       COALESCE(max(r.position), 0)::int AS highest_position,
+       COALESCE((SELECT array_agg(mr.role_id) FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = $2), '{}')::bigint[] AS role_ids
 FROM guilds g
 JOIN guild_members m ON m.guild_id = g.id AND m.user_id = $2
 LEFT JOIN roles r ON r.guild_id = g.id
      AND (r.id = g.id OR r.id IN (SELECT mr.role_id FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = $2))
 WHERE g.id = $1
-GROUP BY g.owner_id;
+GROUP BY g.id, g.owner_id;
 
 -- name: ListAccessByUser :many
 SELECT g.id AS guild_id, g.owner_id,

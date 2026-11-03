@@ -29,6 +29,9 @@ const (
 	PresenceUpdate    = "PRESENCE_UPDATE"
 	VoiceStateUpdate  = "VOICE_STATE_UPDATE"
 	ReadStateUpdate   = "READ_STATE_UPDATE"
+	// ChannelOverwritesUpdate é INTERNO (nunca vai ao cliente): os overwrites de um canal mudaram e o gateway
+	// e a voz reavaliam quem vê o canal. Data = o canal (ChannelPayload).
+	ChannelOverwritesUpdate = "CHANNEL_OVERWRITES_UPDATE"
 	// PresenceSelfUpdate: a preferência de status/status personalizado do próprio usuário mudou (user:<id>).
 	PresenceSelfUpdate = "PRESENCE_SELF_UPDATE"
 	// NotificationSettingsUpdate: silenciar/nível de notificação mudou (user:<id>, sincroniza sessões).

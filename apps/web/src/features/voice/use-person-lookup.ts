@@ -20,9 +20,9 @@ export function usePersonLookup(
   return useMemo(() => {
     const map = new Map<string, PersonInfo>();
     if (me) map.set(me.id, { name: me.display_name || me.username, avatarUrl: me.avatar_url });
+    // Inclusive eu: o apelido do servidor vence o nome de exibição.
     for (const m of members.data?.members ?? [])
-      if (!map.has(m.user_id) || m.user_id !== me?.id)
-        map.set(m.user_id, { name: memberName(m), avatarUrl: m.avatar_url });
+      map.set(m.user_id, { name: memberName(m), avatarUrl: m.avatar_url });
     const dm = scope.dmId ? dms.list.find((c) => c.id === scope.dmId) : undefined;
     for (const r of dm?.recipients ?? [])
       if (r.id !== me?.id)

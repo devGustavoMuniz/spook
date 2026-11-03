@@ -2,11 +2,14 @@ import {
   isApiError,
   type MemberPayload,
   useAddGuildMemberRole,
+  useBanGuildMember,
   useRemoveGuildMember,
   useRemoveGuildMemberRole,
+  useSetGuildMemberNickname,
 } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Lock, Shield } from "lucide-react";
+import { Lock, Pencil, Shield } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -26,7 +29,10 @@ import {
   DialogContent,
   DialogHead,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import { canManageRole, type Guild, rolesOf } from "@/lib/guild";
@@ -69,6 +75,164 @@ export function KickDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+export const NICK_MAX = 32;
+export const BAN_REASON_MAX = 512;
+
+/**
+ * Banir com motivo opcional. Banir remove a pessoa e impede a volta por convite até desbanir (a lista fica em
+ * Configurações do servidor > Banimentos). Serve também para quem já saiu: basta o ID.
+ */
+export function BanDialog({
+  guild,
+  member,
+  onClose,
+}: {
+  guild: Guild;
+  member: MemberPayload | null;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const ban = useBanGuildMember();
+  const [reason, setReason] = useState("");
+  const [lastId, setLastId] = useState<string>();
+  // Cada alvo começa com o motivo em branco.
+  if (member && member.user_id !== lastId) {
+    setLastId(member.user_id);
+    setReason("");
+  }
+  async function confirm() {
+    if (!member) return;
+    try {
+      await ban.mutateAsync({
+        guildId: guild.id,
+        userId: member.user_id,
+        data: reason.trim() ? { reason: reason.trim() } : {},
+      });
+      await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
+      toast.success(`${memberName(member)} foi banido.`);
+    } catch (e) {
+      toast.error(appMessage(e));
+    } finally {
+      onClose();
+    }
+  }
+  return (
+    <AlertDialog open={!!member} onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogTitle>Banir {member ? memberName(member) : ""}?</AlertDialogTitle>
+        <AlertDialogDescription>
+          A pessoa perde o acesso e não consegue voltar por convite enquanto estiver banida. Você
+          pode desbanir em Configurações do servidor.
+        </AlertDialogDescription>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ban-reason">Motivo (opcional)</Label>
+          <Textarea
+            id="ban-reason"
+            value={reason}
+            maxLength={BAN_REASON_MAX}
+            rows={3}
+            placeholder="Fica no registro de auditoria e na lista de banidos"
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground tabular">
+            {reason.length}/{BAN_REASON_MAX}
+          </p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => void confirm()}
+          >
+            Banir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Alterar o apelido neste servidor (o próprio ou, com MANAGE_NICKNAMES, o de outro). Vazio remove. */
+export function NicknameDialog({
+  guild,
+  member,
+  self,
+  onClose,
+}: {
+  guild: Guild;
+  member: MemberPayload | null;
+  self: boolean;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const set = useSetGuildMemberNickname();
+  const [nick, setNick] = useState("");
+  const [lastId, setLastId] = useState<string>();
+  if (member && member.user_id !== lastId) {
+    setLastId(member.user_id);
+    setNick(member.nickname ?? "");
+  }
+  const tooLong = [...nick.trim()].length > NICK_MAX;
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!member || tooLong) return;
+    try {
+      await set.mutateAsync({
+        guildId: guild.id,
+        userId: self ? "@me" : member.user_id,
+        data: { nick: nick.trim() || null },
+      });
+      await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
+      toast.success(nick.trim() ? "Apelido alterado." : "Apelido removido.");
+      onClose();
+    } catch (err) {
+      toast.error(appMessage(err));
+    }
+  }
+  return (
+    <Dialog open={!!member} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent flush size="sm">
+        <DialogHead
+          icon={Pencil}
+          title={self ? "Alterar meu apelido" : `Apelido de ${member ? memberName(member) : ""}`}
+          description={`Vale só em ${guild.name}. Deixe em branco para voltar ao nome de exibição.`}
+        />
+        <form onSubmit={(e) => void save(e)} noValidate className="flex min-h-0 flex-1 flex-col">
+          <DialogBody>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="nick-input">Apelido</Label>
+              <Input
+                id="nick-input"
+                autoFocus
+                value={nick}
+                maxLength={NICK_MAX * 4}
+                aria-invalid={tooLong}
+                aria-describedby="nick-hint"
+                placeholder={member?.display_name || member?.username}
+                onChange={(e) => setNick(e.target.value)}
+              />
+              <p
+                id="nick-hint"
+                className={`text-xs tabular ${tooLong ? "text-destructive-text" : "text-muted-foreground"}`}
+              >
+                {[...nick.trim()].length}/{NICK_MAX} caracteres
+              </p>
+            </div>
+          </DialogBody>
+          <DialogActions>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button type="submit" loading={set.isPending} disabled={tooLong}>
+              Salvar
+            </Button>
+          </DialogActions>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

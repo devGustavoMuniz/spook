@@ -2,6 +2,7 @@ package invite
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 )
+
+// CodeBanned é o code do 403 de quem tenta entrar num servidor em que foi banido.
+const CodeBanned = "banned"
 
 type Handler struct {
 	svc    *Service
@@ -102,12 +106,15 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			}}, nil
 		})
 
-	huma.Register(api, op("joinInvite", http.MethodPost, "/api/invites/{code}", "Entra no servidor pelo convite (quem já é membro não consome uso)", 0, gone, http.StatusConflict),
+	huma.Register(api, op("joinInvite", http.MethodPost, "/api/invites/{code}", "Entra no servidor pelo convite (quem já é membro não consome uso); banido recebe 403 com code `banned`", 0, gone, http.StatusConflict, forbidden),
 		func(ctx context.Context, in *struct{ CodePath }) (*struct{ Body guild.DetailPayload }, error) {
 			if len(in.Code) != CodeLength {
 				return nil, httpx.Err(ErrNotFound)
 			}
 			d, err := h.svc.Join(ctx, h.userID(ctx), in.Code)
+			if errors.Is(err, guild.ErrBanned) {
+				return nil, &httpx.ProblemError{Status: http.StatusForbidden, Code: CodeBanned, Detail: "Você foi banido deste servidor e não pode entrar por convite."}
+			}
 			if err != nil {
 				return nil, httpx.Err(err)
 			}

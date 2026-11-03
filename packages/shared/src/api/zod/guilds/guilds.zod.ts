@@ -226,6 +226,66 @@ export const UpdateGuildResponse = zod.object({
 });
 
 /**
+ * @summary Banimentos do servidor, por ID de usuário (cursor `after`); exige BAN_MEMBERS
+ */
+export const ListGuildBansParams = zod.object({
+  guild_id: zod.string().describe("ID do servidor"),
+});
+
+export const listGuildBansQueryLimitDefault = 100;
+export const listGuildBansQueryLimitMax = 1000;
+
+export const ListGuildBansQueryParams = zod.object({
+  after: zod.string().optional().describe("ID do último usuário recebido"),
+  limit: zod.int().min(1).max(listGuildBansQueryLimitMax).default(listGuildBansQueryLimitDefault),
+});
+
+export const ListGuildBansResponse = zod.object({
+  bans: zod
+    .array(
+      zod.object({
+        avatar_url: zod.string().optional(),
+        banned_by: zod.string().nullable().describe("Quem baniu; nulo se a conta foi excluída"),
+        banned_by_username: zod.string().nullable(),
+        created_at: zod.iso.datetime({ offset: true }),
+        display_name: zod.string().optional(),
+        guild_id: zod.string(),
+        reason: zod.string().nullable(),
+        user_id: zod.string(),
+        username: zod.string(),
+      }),
+    )
+    .nullable(),
+  has_more: zod.boolean(),
+});
+
+/**
+ * @summary Desbane um usuário (BAN_MEMBERS)
+ */
+export const UnbanGuildMemberParams = zod.object({
+  guild_id: zod.string().describe("ID do servidor"),
+  user_id: zod.string().describe("ID do usuário, ou @me"),
+});
+
+export const UnbanGuildMemberResponse = zod.void();
+
+/**
+ * @summary Bane um usuário, membro ou não (BAN_MEMBERS + hierarquia); remove o membro e bloqueia a volta por convite
+ */
+export const BanGuildMemberParams = zod.object({
+  guild_id: zod.string().describe("ID do servidor"),
+  user_id: zod.string().describe("ID do usuário, ou @me"),
+});
+
+export const banGuildMemberBodyReasonMax = 512;
+
+export const BanGuildMemberBody = zod.object({
+  reason: zod.string().max(banGuildMemberBodyReasonMax).optional().describe("Motivo (opcional)"),
+});
+
+export const BanGuildMemberResponse = zod.void();
+
+/**
  * @summary Gera URL pré-assinada para enviar o ícone do servidor
  */
 export const RequestGuildIconUploadParams = zod.object({
@@ -289,6 +349,10 @@ export const ListGuildMembersResponse = zod.object({
         role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
         user_id: zod.string(),
         username: zod.string(),
+        voice_muted: zod
+          .boolean()
+          .optional()
+          .describe("Mutado na voz por um moderador (MUTE_MEMBERS)"),
       }),
     )
     .nullable(),
@@ -303,6 +367,43 @@ export const RemoveGuildMemberParams = zod.object({
 });
 
 export const RemoveGuildMemberResponse = zod.void();
+
+/**
+ * @summary Muda o apelido no servidor (`@me` = o seu: CHANGE_NICKNAME; de outro: MANAGE_NICKNAMES + hierarquia). Vazio ou nulo remove
+ */
+export const SetGuildMemberNicknameParams = zod.object({
+  guild_id: zod.string().describe("ID do servidor"),
+  user_id: zod.string().describe("ID do usuário, ou @me"),
+});
+
+export const setGuildMemberNicknameBodyNickMax = 128;
+
+export const SetGuildMemberNicknameBody = zod.object({
+  nick: zod
+    .string()
+    .max(setGuildMemberNicknameBodyNickMax)
+    .nullable()
+    .describe("Apelido de 1 a 32 caracteres; nulo ou vazio remove"),
+});
+
+export const SetGuildMemberNicknameResponse = zod.object({
+  avatar_url: zod.string().optional(),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
+  display_name: zod.string().optional(),
+  guild_id: zod.string(),
+  joined_at: zod.iso.datetime({ offset: true }),
+  nickname: zod.string().nullable(),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
+  role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
+  user_id: zod.string(),
+  username: zod.string(),
+  voice_muted: zod.boolean().optional().describe("Mutado na voz por um moderador (MUTE_MEMBERS)"),
+});
 
 /**
  * @summary Remove um cargo de um membro
@@ -329,6 +430,7 @@ export const RemoveGuildMemberRoleResponse = zod.object({
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
   username: zod.string(),
+  voice_muted: zod.boolean().optional().describe("Mutado na voz por um moderador (MUTE_MEMBERS)"),
 });
 
 /**
@@ -356,6 +458,61 @@ export const AddGuildMemberRoleResponse = zod.object({
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
   username: zod.string(),
+  voice_muted: zod.boolean().optional().describe("Mutado na voz por um moderador (MUTE_MEMBERS)"),
+});
+
+/**
+ * @summary Remove o mute de voz imposto pelo servidor
+ */
+export const UnmuteGuildMemberVoiceParams = zod.object({
+  guild_id: zod.string().describe("ID do servidor"),
+  user_id: zod.string().describe("ID do usuário, ou @me"),
+});
+
+export const UnmuteGuildMemberVoiceResponse = zod.object({
+  avatar_url: zod.string().optional(),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
+  display_name: zod.string().optional(),
+  guild_id: zod.string(),
+  joined_at: zod.iso.datetime({ offset: true }),
+  nickname: zod.string().nullable(),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
+  role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
+  user_id: zod.string(),
+  username: zod.string(),
+  voice_muted: zod.boolean().optional().describe("Mutado na voz por um moderador (MUTE_MEMBERS)"),
+});
+
+/**
+ * @summary Muta o membro na voz pelo servidor (MUTE_MEMBERS + hierarquia); persiste até desmutar
+ */
+export const MuteGuildMemberVoiceParams = zod.object({
+  guild_id: zod.string().describe("ID do servidor"),
+  user_id: zod.string().describe("ID do usuário, ou @me"),
+});
+
+export const MuteGuildMemberVoiceResponse = zod.object({
+  avatar_url: zod.string().optional(),
+  banner_color: zod
+    .int()
+    .optional()
+    .describe("Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"),
+  banner_url: zod.string().optional().describe("URL temporária de leitura do banner"),
+  bio: zod.string().optional().describe("Sobre mim (até 190 caracteres)"),
+  display_name: zod.string().optional(),
+  guild_id: zod.string(),
+  joined_at: zod.iso.datetime({ offset: true }),
+  nickname: zod.string().nullable(),
+  pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
+  role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
+  user_id: zod.string(),
+  username: zod.string(),
+  voice_muted: zod.boolean().optional().describe("Mutado na voz por um moderador (MUTE_MEMBERS)"),
 });
 
 /**

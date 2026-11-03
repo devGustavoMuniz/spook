@@ -139,6 +139,13 @@ describe("fixtures do gateway", () => {
     // Campo faltando (ex.: self_screen) é violação de contrato.
     const { self_screen: _s, ...broken } = frame.d;
     expect(eventSchemas.VOICE_STATE_UPDATE.safeParse(broken).success).toBe(false);
+    // server_muted (moderação) só vem quando verdadeiro; ausente vale "não mutado".
+    expect(frame.d.server_muted).toBeUndefined();
+    expect(eventSchemas.VOICE_STATE_UPDATE.parse({ ...frame.d, server_muted: true })).toMatchObject(
+      {
+        server_muted: true,
+      },
+    );
     // screen_preview é adicional: um servidor anterior que não o manda segue válido (padrão: sem prévia).
     const { screen_preview: _p, ...old } = frame.d;
     expect(eventSchemas.VOICE_STATE_UPDATE.parse(old)).toMatchObject({ screen_preview: false });

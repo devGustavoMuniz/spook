@@ -43,6 +43,7 @@ export function InvitePage() {
   const guilds = useListGuilds();
   const join = useJoinInvite();
   const [joined, setJoined] = useState(false);
+  const [joinError, setJoinError] = useState<string>();
 
   async function accept() {
     try {
@@ -51,6 +52,8 @@ export function InvitePage() {
       appendGuild(qc, guild);
       await navigate({ to: "/channels/$guildId", params: { guildId: guild.id } });
     } catch (e) {
+      // O banimento fica na página (o aviso passageiro some); os demais erros seguem só em toast.
+      if (isApiError(e) && e.code === "banned") setJoinError(appMessage(e));
       toast.error(appMessage(e));
     }
   }
@@ -144,7 +147,16 @@ export function InvitePage() {
                 {p.expires_at ? ` · expira em ${formatDateTime(p.expires_at)}` : ""}
               </CardDescription>
             </CardHeader>
-            <CardFooter>
+            <CardFooter className="flex-col gap-3">
+              {joinError ? (
+                <p
+                  role="alert"
+                  data-testid="join-error"
+                  className="w-full text-center text-sm text-destructive-text"
+                >
+                  {joinError}
+                </p>
+              ) : null}
               <Button
                 className="w-full"
                 size="lg"

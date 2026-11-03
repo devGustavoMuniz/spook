@@ -1,7 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import type { MemberPayload } from "@spook/shared";
 import { useGetMe } from "@spook/shared";
-import { Copy, MessageCircle, ShieldCheck, UserMinus } from "lucide-react";
+import { Copy, Gavel, MessageCircle, Pencil, ShieldCheck, UserMinus } from "lucide-react";
 import { type CSSProperties, useMemo } from "react";
 import { toast } from "sonner";
 import { statusLabel } from "@/components/presence-dot";
@@ -15,7 +15,7 @@ import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
 import { colorToHex } from "@/lib/colors";
 import { formatDay } from "@/lib/format";
-import { canKick, canManageRole, type Guild, rolesOf } from "@/lib/guild";
+import { canBan, canKick, canManageRole, canNickname, type Guild, rolesOf } from "@/lib/guild";
 import { useReadableRoleColor } from "@/lib/role-color";
 import { memberName } from "./use-members";
 
@@ -59,6 +59,8 @@ export function ProfileCard({
   onClose,
   onRoles,
   onKick,
+  onBan,
+  onNick,
 }: {
   person: ProfilePerson;
   anchor: HTMLElement | null;
@@ -67,6 +69,8 @@ export function ProfileCard({
   onClose: () => void;
   onRoles: (m: MemberPayload) => void;
   onKick: (m: MemberPayload) => void;
+  onBan: (m: MemberPayload) => void;
+  onNick: (m: MemberPayload, self: boolean) => void;
 }) {
   const narrow = useMediaQuery(NARROW_QUERY);
   const { data: me } = useGetMe();
@@ -90,6 +94,8 @@ export function ProfileCard({
   }, [guild, member]);
 
   const mayKick = !!(guild && member && me && canKick(guild, member, me.id));
+  const mayBan = !!(guild && member && me && canBan(guild, member, me.id));
+  const mayNick = !!(guild && member && me && canNickname(guild, member, me.id));
   const mayRoles =
     !!(guild && member && !isMe && member.user_id !== guild.owner_id) &&
     rolesOf(guild).some((r) => !r.is_everyone && canManageRole(guild, r));
@@ -231,6 +237,18 @@ export function ProfileCard({
                     <ShieldCheck /> Gerenciar cargos
                   </Button>
                 ) : null}
+                {mayNick && member ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      onClose();
+                      onNick(member, isMe);
+                    }}
+                  >
+                    <Pencil /> {isMe ? "Alterar apelido" : "Mudar apelido"}
+                  </Button>
+                ) : null}
                 {mayKick && member ? (
                   <Button
                     variant="ghost"
@@ -242,6 +260,19 @@ export function ProfileCard({
                     }}
                   >
                     <UserMinus /> Expulsar
+                  </Button>
+                ) : null}
+                {mayBan && member ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive-text hover:bg-danger-soft"
+                    onClick={() => {
+                      onClose();
+                      onBan(member);
+                    }}
+                  >
+                    <Gavel /> Banir
                   </Button>
                 ) : null}
               </div>

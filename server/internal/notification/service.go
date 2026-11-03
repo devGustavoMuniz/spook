@@ -25,6 +25,8 @@ import (
 // Channels é o que a feature precisa de channel: autorização de acesso (servidor e DM).
 type Channels interface {
 	Authorize(ctx context.Context, userID, channelID int64, need perm.Perm) (channel.Channel, perm.Member, error)
+	// ViewableIDs são os canais do servidor que o usuário vê (permissão efetiva de cada canal).
+	ViewableIDs(ctx context.Context, guildID, userID int64) ([]int64, error)
 }
 
 // Presence diz se o usuário tem sessão de gateway ativa (implementada por presence.Service). Status
@@ -143,8 +145,42 @@ func (s *Service) ReadStates(ctx context.Context, userID int64) ([]ReadState, er
 	if err != nil {
 		return nil, err
 	}
+	// Canais privados: o store filtra por servidor; aqui sai o que o usuário não vê por permissão de canal.
+	states, err = s.onlyViewable(ctx, userID, states)
+	if err != nil {
+		return nil, err
+	}
 	span.SetAttributes(attribute.Int("channels", len(states)))
 	return states, nil
+}
+
+// onlyViewable descarta os estados de canais de servidor que o usuário não vê (overwrites).
+func (s *Service) onlyViewable(ctx context.Context, userID int64, states []ReadState) ([]ReadState, error) {
+	view := map[int64]map[int64]struct{}{}
+	out := states[:0:0]
+	for _, st := range states {
+		if st.GuildID == nil {
+			out = append(out, st)
+			continue
+		}
+		gid := *st.GuildID
+		set, ok := view[gid]
+		if !ok {
+			ids, err := s.Channels.ViewableIDs(ctx, gid, userID)
+			if err != nil && !errors.Is(err, perm.ErrNotMember) {
+				return nil, err
+			}
+			set = make(map[int64]struct{}, len(ids))
+			for _, id := range ids {
+				set[id] = struct{}{}
+			}
+			view[gid] = set
+		}
+		if _, ok := set[st.ChannelID]; ok {
+			out = append(out, st)
+		}
+	}
+	return out, nil
 }
 
 // ReadyStates são os read_states do READY: só canais com não lidas ou menções (o resto vale zero).
@@ -182,6 +218,18 @@ func (s *Service) Resolve(ctx context.Context, ch channel.Channel, authorID int6
 	ids = slices.Compact(ids)
 	if len(ids) > MaxMentions {
 		ids = ids[:MaxMentions]
+	}
+	if ch.GuildID != nil {
+		// Menção só vale para quem vê ESTE canal (o store só conhece a permissão do servidor).
+		kept := ids[:0:0]
+		for _, id := range ids {
+			if _, _, err := s.Channels.Authorize(ctx, id, ch.ID, 0); err == nil {
+				kept = append(kept, id)
+			} else if !apperr.IsKind(err, apperr.KindNotFound) && !apperr.IsKind(err, apperr.KindForbidden) {
+				return nil, err
+			}
+		}
+		ids = kept
 	}
 	if len(ids) > 0 {
 		s.m.mentions.Add(ctx, int64(len(ids)))

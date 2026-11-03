@@ -1,7 +1,16 @@
 import { Permission } from "@spook/shared";
 import { describe, expect, it } from "vitest";
 import { channel, guild, role } from "@/test/fixtures";
-import { canKick, canManageRole, groupChannels, moveChannel, myTopPosition } from "./guild";
+import {
+  canBan,
+  canKick,
+  canManageRole,
+  canModerate,
+  canNickname,
+  groupChannels,
+  moveChannel,
+  myTopPosition,
+} from "./guild";
 
 describe("hierarquia", () => {
   const g = guild("g1", "Teste", {
@@ -40,6 +49,55 @@ describe("hierarquia", () => {
     expect(canKick(g, m("x", ["adm"]), "me")).toBe(false);
     expect(canKick(g, m("me", []), "me")).toBe(false);
     expect(canKick(g, m("999", []), "me")).toBe(false); // dono (owner_id = 999)
+  });
+});
+
+describe("moderação (ban, apelido, voz)", () => {
+  const roles = [
+    role("adm", "Admin", 5),
+    role("mod", "Moderador", 3),
+    role("vip", "VIP", 1),
+    role("g1", "@everyone", 0, { is_everyone: true }),
+  ];
+  const m = (id: string, ids: string[] = []) => ({
+    user_id: id,
+    role_ids: ids,
+  });
+  const as = (permissions: number, mine = ["mod"]) =>
+    guild("g1", "Teste", { my_role_ids: mine, roles, permissions });
+
+  it("banir exige a permissão e respeita a hierarquia (administrador também)", () => {
+    const withBan = as(Permission.BAN_MEMBERS);
+    expect(canBan(withBan, m("x", ["vip"]) as never, "me")).toBe(true);
+    expect(canBan(withBan, m("x", ["mod"]) as never, "me")).toBe(false); // cargo igual
+    expect(canBan(withBan, m("x", ["adm"]) as never, "me")).toBe(false);
+    expect(canBan(withBan, m("999") as never, "me")).toBe(false); // dono
+    expect(canBan(as(0), m("x") as never, "me")).toBe(false);
+    // ADMINISTRATOR concede a permissão, mas não passa por cima de cargo igual ou superior
+    const admin = as(Permission.ADMINISTRATOR);
+    expect(canBan(admin, m("x", ["adm"]) as never, "me")).toBe(false);
+    expect(canBan(admin, m("x", ["vip"]) as never, "me")).toBe(true);
+    // o dono pode tudo, menos nele mesmo
+    const owner = { ...as(0), is_owner: true, owner_id: "me" };
+    expect(canBan(owner, m("x", ["adm"]) as never, "me")).toBe(true);
+    expect(canBan(owner, m("me") as never, "me")).toBe(false);
+  });
+
+  it("apelido: o meu com CHANGE_NICKNAME; o de outro com MANAGE_NICKNAMES e hierarquia", () => {
+    expect(canNickname(as(Permission.CHANGE_NICKNAME), m("me") as never, "me")).toBe(true);
+    expect(canNickname(as(0), m("me") as never, "me")).toBe(false);
+    expect(canNickname(as(Permission.MANAGE_NICKNAMES), m("me") as never, "me")).toBe(true);
+    expect(canNickname(as(Permission.CHANGE_NICKNAME), m("x") as never, "me")).toBe(false);
+    expect(canNickname(as(Permission.MANAGE_NICKNAMES), m("x", ["vip"]) as never, "me")).toBe(true);
+    expect(canNickname(as(Permission.MANAGE_NICKNAMES), m("x", ["adm"]) as never, "me")).toBe(
+      false,
+    );
+  });
+
+  it("canModerate serve a qualquer permissão (mutar, desconectar)", () => {
+    const g = as(Permission.MUTE_MEMBERS);
+    expect(canModerate(g, Permission.MUTE_MEMBERS, m("x", ["vip"]), "me")).toBe(true);
+    expect(canModerate(g, Permission.DISCONNECT_MEMBERS, m("x", ["vip"]), "me")).toBe(false);
   });
 });
 

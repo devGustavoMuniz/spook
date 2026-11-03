@@ -31,3 +31,16 @@ export function formatDateTime(iso: string): string {
 export function formatFullDate(iso: string): string {
   return format(new Date(iso), "EEEE, d 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR });
 }
+
+/** "agora", "há 5 min", "há 3 h", "há 2 dias" ou a data, para listas em que a hora exata fica numa dica. */
+export function formatRelative(iso: string, now: Date = new Date()): string {
+  const secs = Math.round((now.getTime() - new Date(iso).getTime()) / 1000);
+  if (secs < 45) return "agora";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `há ${mins} min`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `há ${hours} h`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `há ${days} ${days === 1 ? "dia" : "dias"}`;
+  return format(new Date(iso), "dd/MM/yyyy", { locale: ptBR });
+}

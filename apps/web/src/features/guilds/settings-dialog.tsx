@@ -1,5 +1,5 @@
 import { Permission } from "@spook/shared";
-import { Link2, Settings, Shield } from "lucide-react";
+import { Gavel, Link2, ScrollText, Settings, Shield } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -13,12 +13,14 @@ import {
 import { Dialog, DialogContent, DialogHead } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { can, type Guild } from "@/lib/guild";
+import { AuditTab } from "./audit-tab";
+import { BansTab } from "./bans-tab";
 import { DirtyContext } from "./dirty";
 import { GeneralTab } from "./general-tab";
 import { InvitesTab } from "./invites-tab";
 import { RolesTab } from "./roles-tab";
 
-export type SettingsTab = "general" | "roles" | "invites";
+export type SettingsTab = "general" | "roles" | "invites" | "bans" | "audit";
 
 const HEAD = {
   general: {
@@ -35,6 +37,16 @@ const HEAD = {
     icon: Link2,
     title: "Convidar pessoas",
     description: (g: Guild) => `Links de convite de ${g.name}.`,
+  },
+  bans: {
+    icon: Gavel,
+    title: "Banimentos",
+    description: (g: Guild) => `Quem está banido de ${g.name}.`,
+  },
+  audit: {
+    icon: ScrollText,
+    title: "Registro de auditoria",
+    description: (g: Guild) => `Quem fez o quê em ${g.name}.`,
   },
 } as const;
 
@@ -53,6 +65,8 @@ export function GuildSettingsDialog({
     tabs.push({ id: "general", label: "Geral" });
   if (can(guild, Permission.MANAGE_ROLES)) tabs.push({ id: "roles", label: "Cargos" });
   if (can(guild, Permission.CREATE_INVITE)) tabs.push({ id: "invites", label: "Convites" });
+  if (can(guild, Permission.BAN_MEMBERS)) tabs.push({ id: "bans", label: "Banimentos" });
+  if (can(guild, Permission.VIEW_AUDIT_LOG)) tabs.push({ id: "audit", label: "Auditoria" });
   const start = tabs.some((t) => t.id === initialTab) ? initialTab : tabs[0]?.id;
   const [tab, setTab] = useState<SettingsTab | undefined>(start);
   const dirty = useRef(new Set<string>());
@@ -96,6 +110,12 @@ export function GuildSettingsDialog({
             </TabsContent>
             <TabsContent value="invites" className="min-h-0 flex-1 gap-0">
               <InvitesTab guild={guild} />
+            </TabsContent>
+            <TabsContent value="bans" className="min-h-0 flex-1 gap-0">
+              <BansTab guild={guild} />
+            </TabsContent>
+            <TabsContent value="audit" className="min-h-0 flex-1 gap-0">
+              <AuditTab guild={guild} />
             </TabsContent>
           </Tabs>
         </DirtyContext.Provider>

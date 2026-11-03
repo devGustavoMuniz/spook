@@ -25,6 +25,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/account"
 	"github.com/devGustavoMuniz/spook/server/internal/admin"
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
+	"github.com/devGustavoMuniz/spook/server/internal/audit"
 	"github.com/devGustavoMuniz/spook/server/internal/auth"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/dm"
@@ -83,6 +84,7 @@ type Deps struct {
 	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
 	UploadLimiter  *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
 	PushLimiter    *ratelimit.Limiter // padrão: 30 requisições por minuto por usuário nos endpoints de push
+	ModLimiter     *ratelimit.Limiter // padrão: rajada de 20 e 1 por segundo por usuário nas ações de moderação
 
 	// Limitadores por usuário das ações de conta (SPEC 7.x): senha (trocar/confirmar), e-mail e exclusão.
 	PasswordLimiter *ratelimit.Limiter // padrão: rajada de 5 e 1 a cada 30 s
@@ -331,6 +333,15 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	channelSvc := channel.NewService(channel.NewStore(pool), access, ids, bus)
 	guildSvc := guild.NewService(guild.NewStore(pool), channelSvc, guildStorage, userSvc, ids, bus)
 	access.svc = guildSvc
+	modLimiter := d.ModLimiter
+	if modLimiter == nil {
+		modLimiter = ratelimit.New(1, 20) // banir, expulsar, mutar, apelidos alheios, permissões de canal
+	}
+	auditSvc := audit.NewService(audit.NewStore(pool), guildSvc, userSvc, ids)
+	guildSvc.SetAudit(auditSvc)
+	guildSvc.SetLimiter(modLimiter)
+	channelSvc.SetAudit(auditSvc)
+	channelSvc.SetLimiter(modLimiter)
 	dmSvc := dm.NewService(dm.NewStore(pool), ids, bus, userSvc, dmLimiter)
 	channelSvc.SetDMs(dmSvc)
 	typingSvc := typing.NewService(channelSvc, typingLimiter, bus)
@@ -373,10 +384,15 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	if rp, ok := d.Pool.(*pgxpool.Pool); ok {
 		workers := river.NewWorkers()
 		mailflow.RegisterWorkers(workers, deliverer)
-		var periodic []*river.PeriodicJob
+		retention := time.Duration(d.Cfg.AuditRetentionDays) * 24 * time.Hour
+		if retention <= 0 {
+			retention = 90 * 24 * time.Hour
+		}
+		audit.RegisterWorkers(workers, auditSvc, retention)
+		periodic := audit.PeriodicJobs()
 		if objects != nil {
 			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
-			periodic = attachment.PeriodicJobs()
+			periodic = append(periodic, attachment.PeriodicJobs()...)
 			account.RegisterWorkers(workers, objects)
 		}
 		if notifySvc.PushEnabled() {
@@ -409,7 +425,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	voiceSvc := voice.NewService(voice.Deps{
 		Provider: voiceProv, Store: voicememory.New(), Previews: voicememory.NewPreviews(), Pub: bus,
-		Access: voiceAccess{channels: channelSvc, guilds: guildSvc}, Users: voiceUsers{users: userSvc},
+		Access: voiceAccess{channels: channelSvc, guilds: guildSvc}, Users: voiceUsers{users: userSvc}, Audit: auditSvc,
 	})
 	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam
 	go func() { <-ctx.Done(); cancelVoice() }()
@@ -432,8 +448,9 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		gwLimiter = ratelimit.New(50, 200)
 	}
 	authSvc.OnRevoke(hub.RevokeAuth) // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
-	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter)
+	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter)
 	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
+	inviteSvc.SetAudit(auditSvc)
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
 	channelH := channel.NewHandler(channelSvc, auth.UserID)
@@ -454,6 +471,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	dmH := dm.NewHandler(dmSvc, auth.UserID)
 	typingH := typing.NewHandler(typingSvc, auth.UserID)
 	notifyH := notification.NewHandler(notifySvc, auth.UserID)
+	auditH := audit.NewHandler(auditSvc, auth.UserID)
 	presenceH := presence.NewHandler(presenceSvc, auth.UserID)
 
 	// Painel administrativo (/admin): leituras agregadas; voz, gateway, pool e Prometheus entram por interfaces.
@@ -487,7 +505,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH)
+	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH)
 	socialH.RegisterRoutes(r) // /api/auth/social/{provider}/start|callback: redirecionamentos, fora do OpenAPI
 	if outbox != nil {        // SÓ em desenvolvimento com o driver log: lê o último e-mail (E2E e dev local)
 		r.Get("/api/dev/mail/last", devMailHandler(outbox))
@@ -528,7 +546,7 @@ func buildOpenAPI() *huma.OpenAPI { return buildAPI().OpenAPI() }
 func buildAPI() huma.API {
 	return registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), mailflow.NewHandler(nil, nil), social.NewHandler(nil, nil, nil, true), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
-		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil))
+		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil), audit.NewHandler(nil, nil))
 }
 
 // lateAccess resolve a dependência circular channel -> guild na montagem.
@@ -538,9 +556,13 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 	return a.svc.Member(ctx, guildID, userID)
 }
 
+func (a *lateAccess) OverwriteTarget(ctx context.Context, guildID int64, t perm.TargetType, id int64) (channel.Target, error) {
+	return a.svc.OverwriteTarget(ctx, guildID, t, id)
+}
+
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Handler, socialH *social.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
-	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler) huma.API {
+	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler, auditH *audit.Handler) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -580,6 +602,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	presenceH.Register(api, authed, auth.Security)
 	gatewayH.Register(api, authed, auth.Security)
 	adminH.Register(api, authed, auth.Security)
+	auditH.Register(api, authed, auth.Security)
 	return api
 }
 

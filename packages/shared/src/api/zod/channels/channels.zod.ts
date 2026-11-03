@@ -55,6 +55,68 @@ export const UpdateChannelResponse = zod.object({
 });
 
 /**
+ * @summary Minhas permissões efetivas neste canal (cargos + overwrites)
+ */
+export const GetMyChannelPermissionsParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+});
+
+export const GetMyChannelPermissionsResponse = zod.object({
+  permissions: zod.int().describe("Bitflags efetivos no canal"),
+});
+
+/**
+ * @summary Permissões por canal (overwrites); exige MANAGE_CHANNELS
+ */
+export const ListChannelOverwritesParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+});
+
+export const ListChannelOverwritesResponseItem = zod.object({
+  allow: zod.int().describe("Permissões permitidas (bitflags de canal)"),
+  deny: zod.int().describe("Permissões negadas (bitflags de canal)"),
+  target_id: zod.string(),
+  type: zod.enum(["role", "member"]).describe("role (o @everyone tem o ID do servidor) ou member"),
+});
+export const ListChannelOverwritesResponse = zod.array(ListChannelOverwritesResponseItem);
+
+/**
+ * @summary Remove o overwrite de um alvo (volta a herdar)
+ */
+export const DeleteChannelOverwriteParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+  type: zod.enum(["role", "member"]).describe("Tipo do alvo"),
+  target_id: zod.string().describe("ID do cargo (o @everyone tem o ID do servidor) ou do membro"),
+});
+
+export const DeleteChannelOverwriteResponse = zod.void();
+
+/**
+ * @summary Define o overwrite de um cargo (o @everyone tem o ID do servidor) ou membro; permitir e negar vazios removem. Canal privado = negar VIEW_CHANNEL ao @everyone e permitir a cargos/membros
+ */
+export const SetChannelOverwriteParams = zod.object({
+  channel_id: zod.string().describe("ID do canal"),
+  type: zod.enum(["role", "member"]).describe("Tipo do alvo"),
+  target_id: zod.string().describe("ID do cargo (o @everyone tem o ID do servidor) ou do membro"),
+});
+
+export const setChannelOverwriteBodyAllowMin = 0;
+
+export const setChannelOverwriteBodyDenyMin = 0;
+
+export const SetChannelOverwriteBody = zod.object({
+  allow: zod.int().min(setChannelOverwriteBodyAllowMin).describe("Bitflags de canal permitidos"),
+  deny: zod.int().min(setChannelOverwriteBodyDenyMin).describe("Bitflags de canal negados"),
+});
+
+export const SetChannelOverwriteResponse = zod.object({
+  allow: zod.int().describe("Permissões permitidas (bitflags de canal)"),
+  deny: zod.int().describe("Permissões negadas (bitflags de canal)"),
+  target_id: zod.string(),
+  type: zod.enum(["role", "member"]).describe("role (o @everyone tem o ID do servidor) ou member"),
+});
+
+/**
  * @summary Canais do servidor, ordenados
  */
 export const ListGuildChannelsParams = zod.object({

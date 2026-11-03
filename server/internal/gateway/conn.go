@@ -267,9 +267,13 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 	voiceStates := []voice.StatePayload{}
 	if h.voice != nil {
 		visible := make([]int64, 0, len(details))
+		seen := map[string]struct{}{}
 		for _, g := range details {
-			if g.Member.Has(perm.ViewChannel) {
+			if len(g.Channels) > 0 {
 				visible = append(visible, g.Guild.ID)
+			}
+			for _, ch := range g.Channels {
+				seen[strconv.FormatInt(ch.ID, 10)] = struct{}{}
 			}
 		}
 		dmIDs := make([]int64, len(dmList))
@@ -277,7 +281,15 @@ func (c *conn) identify(ctx context.Context, d json.RawMessage) (ok bool) {
 			dmIDs[i] = d.ID
 		}
 		if v := h.voice.Snapshot(visible, dmIDs); v != nil {
-			voiceStates = v
+			// Só os canais que a pessoa vê: quem está num canal privado não aparece para quem não o vê.
+			for _, st := range v {
+				if st.GuildID != nil && st.ChannelID != nil {
+					if _, ok := seen[*st.ChannelID]; !ok {
+						continue
+					}
+				}
+				voiceStates = append(voiceStates, st)
+			}
 		}
 	}
 

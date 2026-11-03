@@ -21,6 +21,8 @@ describe("hasPermission", () => {
     expect(Permission.ADMINISTRATOR).toBe(1);
     expect(Permission.VIEW_CHANNEL).toBe(64);
     expect(Permission.VIDEO).toBe(4096);
-    expect(ALL_PERMISSIONS).toBe(8191);
+    expect(Permission.BAN_MEMBERS).toBe(8192);
+    expect(Permission.VIEW_AUDIT_LOG).toBe(262144);
+    expect(ALL_PERMISSIONS).toBe(524287);
   });
 });

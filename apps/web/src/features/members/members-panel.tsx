@@ -1,6 +1,15 @@
 import { type MemberPayload, useGetMe } from "@spook/shared";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Copy, Crown, MoreHorizontal, ShieldCheck, UserMinus, UserRound } from "lucide-react";
+import {
+  Copy,
+  Crown,
+  Gavel,
+  MoreHorizontal,
+  Pencil,
+  ShieldCheck,
+  UserMinus,
+  UserRound,
+} from "lucide-react";
 import { useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { statusLabel } from "@/components/presence-dot";
@@ -19,7 +28,15 @@ import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { displayStatus, usePresenceStore } from "@/features/presence/store";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
-import { canKick, canManageRole, type Guild, memberColor, rolesOf } from "@/lib/guild";
+import {
+  canBan,
+  canKick,
+  canManageRole,
+  canNickname,
+  type Guild,
+  memberColor,
+  rolesOf,
+} from "@/lib/guild";
 import { useReadableRoleColor } from "@/lib/role-color";
 import { groupMembers, type MemberGroup } from "./groups";
 import { useMemberUi } from "./member-ui";
@@ -217,6 +234,8 @@ function MemberItem({
   const readable = useReadableRoleColor(raw);
   const status = usePresenceStore((s) => displayStatus(s, m.user_id));
   const mayKick = !!meId && canKick(guild, m, meId);
+  const mayBan = !!meId && canBan(guild, m, meId);
+  const mayNick = !!meId && canNickname(guild, m, meId);
   const mayRoles =
     rolesOf(guild).some((r) => !r.is_everyone && canManageRole(guild, r)) &&
     m.user_id !== guild.owner_id;
@@ -302,9 +321,19 @@ function MemberItem({
                 <ShieldCheck /> Gerenciar cargos
               </DropdownMenuItem>
             ) : null}
+            {mayNick ? (
+              <DropdownMenuItem onSelect={() => ui?.openNick(m, false)}>
+                <Pencil /> Mudar apelido
+              </DropdownMenuItem>
+            ) : null}
             {mayKick ? (
               <DropdownMenuItem destructive onSelect={() => ui?.openKick(m)}>
                 <UserMinus /> Expulsar
+              </DropdownMenuItem>
+            ) : null}
+            {mayBan ? (
+              <DropdownMenuItem destructive onSelect={() => ui?.openBan(m)}>
+                <Gavel /> Banir
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>

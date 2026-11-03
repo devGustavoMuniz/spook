@@ -9,9 +9,11 @@ import (
 
 	"go.opentelemetry.io/otel"
 
+	"github.com/devGustavoMuniz/spook/server/internal/audit"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 )
 
 var tracer = otel.Tracer("spook/invite")
@@ -62,6 +64,21 @@ type Service struct {
 	guilds Guilds
 	icons  Icons
 	now    func() time.Time
+	audit  Auditor
+}
+
+// Auditor grava o registro de auditoria (audit.Service; pode ser nil).
+type Auditor interface {
+	Record(ctx context.Context, e audit.Entry)
+}
+
+// SetAudit liga o registro de auditoria.
+func (s *Service) SetAudit(a Auditor) { s.audit = a }
+
+func (s *Service) record(ctx context.Context, e audit.Entry) {
+	if s.audit != nil {
+		s.audit.Record(ctx, e)
+	}
 }
 
 func NewService(store Store, access Access, guilds Guilds, icons Icons) *Service {
@@ -127,6 +144,16 @@ func (s *Service) Create(ctx context.Context, userID, guildID int64, in CreatePa
 		if errors.Is(err, ErrCodeTaken) {
 			continue
 		}
+		if err == nil {
+			ch := map[string]any{"target_name": created.Code}
+			if created.MaxUses != nil {
+				ch["max_uses"] = *created.MaxUses
+			}
+			if created.ExpiresAt != nil {
+				ch["expires_at"] = created.ExpiresAt
+			}
+			s.record(ctx, audit.Entry{GuildID: guildID, ActorID: userID, Action: audit.InviteCreate, TargetType: audit.TargetInvite, Changes: ch})
+		}
 		return created, err
 	}
 	return Invite{}, errors.New("não foi possível gerar um código único")
@@ -187,5 +214,12 @@ func (s *Service) Revoke(ctx context.Context, userID int64, code string) error {
 	if inv.CreatorID != userID && !m.Has(perm.ManageGuild) {
 		return ErrForbidden
 	}
-	return s.store.Delete(ctx, code)
+	if err := s.store.Delete(ctx, code); err != nil {
+		return err
+	}
+	s.record(ctx, audit.Entry{
+		GuildID: inv.GuildID, ActorID: userID, Action: audit.InviteRevoke, TargetType: audit.TargetInvite,
+		Changes: map[string]any{"target_name": code, "creator_id": httpx.ID(inv.CreatorID)},
+	})
+	return nil
 }

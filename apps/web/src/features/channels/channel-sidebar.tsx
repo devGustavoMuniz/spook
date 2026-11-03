@@ -10,6 +10,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  ShieldCheck,
   Trash2,
   Volume2,
 } from "lucide-react";
@@ -48,6 +49,7 @@ import {
 import { refreshGuilds } from "@/lib/guild-cache";
 import { cn } from "@/lib/utils";
 import { CreateChannelDialog, DeleteChannelDialog, RenameChannelDialog } from "./channel-dialogs";
+import { ChannelPermissionsDialog } from "./permissions-dialog";
 
 const collapsedKey = (guildId: string) => `spook:collapsed-categories:${guildId}`;
 
@@ -125,6 +127,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [renaming, setRenaming] = useState<ChannelPayload | null>(null);
   const [deleting, setDeleting] = useState<ChannelPayload | null>(null);
+  const [permsFor, setPermsFor] = useState<ChannelPayload | null>(null);
 
   async function move(channel: ChannelPayload, dir: -1 | 1) {
     const channels = moveChannel(guild, channel.id, dir);
@@ -169,6 +172,9 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
               {notifiable ? <DropdownMenuSeparator /> : null}
               <DropdownMenuItem onSelect={() => setRenaming(c)}>
                 <Pencil /> Renomear
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setPermsFor(c)}>
+                <ShieldCheck /> Permissões
               </DropdownMenuItem>
               <DropdownMenuItem disabled={!canUp} onSelect={() => void move(c, -1)}>
                 <ChevronUp /> Mover para cima
@@ -375,6 +381,13 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
           />
         ) : null}
         <RenameChannelDialog channel={renaming} onClose={() => setRenaming(null)} />
+        {canManage ? (
+          <ChannelPermissionsDialog
+            guild={guild}
+            channel={permsFor}
+            onClose={() => setPermsFor(null)}
+          />
+        ) : null}
         <DeleteChannelDialog
           guild={guild}
           channel={deleting}

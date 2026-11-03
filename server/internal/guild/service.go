@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 
+	"github.com/devGustavoMuniz/spook/server/internal/audit"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
@@ -46,6 +47,16 @@ type Store interface {
 	Member(ctx context.Context, guildID, userID int64) (Member, error) // ErrMemberNotFound
 	RemoveMember(ctx context.Context, guildID, userID int64) error
 
+	// Moderação. Ban grava o banimento e remove o membro (se for) numa transação.
+	Ban(ctx context.Context, guildID, userID, by int64, reason *string) (wasMember bool, err error)
+	Unban(ctx context.Context, guildID, userID int64) error // ErrBanNotFound
+	IsBanned(ctx context.Context, guildID, userID int64) (bool, error)
+	Bans(ctx context.Context, guildID, afterUserID int64, limit int) ([]Ban, error)
+	UserExists(ctx context.Context, userID int64) (bool, error)
+	SetNickname(ctx context.Context, guildID, userID int64, nick *string) error
+	SetVoiceMuted(ctx context.Context, guildID, userID int64, muted bool) error
+	VoiceMuted(ctx context.Context, guildID, userID int64) (bool, error)
+
 	Roles(ctx context.Context, guildID int64) ([]Role, error)
 	RolesByGuilds(ctx context.Context, guildIDs []int64) (map[int64][]Role, error)
 	Role(ctx context.Context, guildID, roleID int64) (Role, error) // ErrRoleNotFound
@@ -58,8 +69,19 @@ type Store interface {
 
 // Channels é o que guild precisa de channel para montar o servidor completo.
 type Channels interface {
-	ListByGuild(ctx context.Context, guildID int64) ([]channel.Channel, error)
-	ListByGuilds(ctx context.Context, guildIDs []int64) (map[int64][]channel.Channel, error)
+	// ListVisible e ListVisibleByGuilds devolvem só os canais que o membro vê (permissão efetiva do canal).
+	ListVisible(ctx context.Context, guildID int64, m perm.Member) ([]channel.Channel, error)
+	ListVisibleByGuilds(ctx context.Context, members map[int64]perm.Member) (map[int64][]channel.Channel, error)
+}
+
+// Auditor grava o registro de auditoria (audit.Service; pode ser nil).
+type Auditor interface {
+	Record(ctx context.Context, e audit.Entry)
+}
+
+// Limiter limita as ações de moderação por usuário (ratelimit.Limiter; pode ser nil).
+type Limiter interface {
+	Take(key string) (bool, time.Duration)
 }
 
 // Storage é o que guild precisa do storage S3 para ícones (pode ser nil: ícones desligados).
@@ -91,6 +113,28 @@ type Service struct {
 	avatars  Avatars
 	ids      IDGenerator
 	pub      events.Publisher
+	audit    Auditor
+	limit    Limiter
+}
+
+// SetAudit liga o registro de auditoria; SetLimiter, o rate limit das ações de moderação.
+func (s *Service) SetAudit(a Auditor)   { s.audit = a }
+func (s *Service) SetLimiter(l Limiter) { s.limit = l }
+
+func (s *Service) record(ctx context.Context, e audit.Entry) {
+	if s.audit != nil {
+		s.audit.Record(ctx, e)
+	}
+}
+
+func (s *Service) take(userID int64) error {
+	if s.limit == nil {
+		return nil
+	}
+	if ok, wait := s.limit.Take("mod:" + httpx.ID(userID)); !ok {
+		return apperr.RateLimited("muitas ações de moderação seguidas; aguarde um pouco", wait)
+	}
+	return nil
 }
 
 func NewService(store Store, channels Channels, storage Storage, avatars Avatars, ids IDGenerator, pub events.Publisher) *Service {
@@ -106,7 +150,13 @@ func (s *Service) Member(ctx context.Context, guildID, userID int64) (perm.Membe
 	if err != nil {
 		return perm.Member{}, err
 	}
-	return perm.NewMember(userID, a.OwnerID == userID, a.Perms, a.Highest), nil
+	return newMember(guildID, userID, a), nil
+}
+
+func newMember(guildID, userID int64, a Access) perm.Member {
+	m := perm.NewMember(userID, a.OwnerID == userID, a.Perms, a.Highest)
+	m.GuildID, m.RoleIDs = guildID, a.RoleIDs
+	return m
 }
 
 // member é Member com a tradução para "servidor inexistente" usada pelas operações do próprio pacote.
@@ -180,11 +230,9 @@ func (s *Service) detail(ctx context.Context, g Guild, userID int64) (Detail, er
 	if err != nil {
 		return Detail{}, err
 	}
-	var chans []channel.Channel
-	if m.Has(perm.ViewChannel) {
-		if chans, err = s.channels.ListByGuild(ctx, g.ID); err != nil {
-			return Detail{}, err
-		}
+	chans, err := s.channels.ListVisible(ctx, g.ID, m)
+	if err != nil {
+		return Detail{}, err
 	}
 	mem, err := s.store.Member(ctx, g.ID, userID)
 	if err != nil {
@@ -246,19 +294,20 @@ func (s *Service) List(ctx context.Context, userID int64) ([]Detail, error) {
 	if err != nil {
 		return nil, err
 	}
-	chans, err := s.channels.ListByGuilds(ctx, ids)
+	members := make(map[int64]perm.Member, len(gs))
+	for _, g := range gs {
+		members[g.ID] = newMember(g.ID, userID, access[g.ID])
+	}
+	chans, err := s.channels.ListVisibleByGuilds(ctx, members)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Detail, 0, len(gs))
 	for _, g := range gs {
-		a := access[g.ID]
-		m := perm.NewMember(userID, a.OwnerID == userID, a.Perms, a.Highest)
-		d := Detail{Guild: g, IconURL: s.iconURL(ctx, g), Roles: roles[g.ID], Member: m, MyRoleIDs: myRoles[g.ID]}
-		if m.Has(perm.ViewChannel) {
-			d.Channels = chans[g.ID]
-		}
-		out = append(out, d)
+		out = append(out, Detail{
+			Guild: g, IconURL: s.iconURL(ctx, g), Roles: roles[g.ID], Member: members[g.ID], MyRoleIDs: myRoles[g.ID],
+			Channels: chans[g.ID],
+		})
 	}
 	return out, nil
 }
@@ -301,6 +350,16 @@ func (s *Service) Update(ctx context.Context, userID, guildID int64, in UpdatePa
 		return Guild{}, err
 	}
 	s.publish(events.GuildUpdate, guildID, g.Payload(s.iconURL(ctx, g)))
+	ch := map[string]any{"target_name": g.Name}
+	if g.Name != cur.Name {
+		ch["name"] = map[string]any{"from": cur.Name, "to": g.Name}
+	}
+	if (g.IconKey == nil) != (cur.IconKey == nil) || (g.IconKey != nil && cur.IconKey != nil && *g.IconKey != *cur.IconKey) {
+		ch["icon_changed"] = true
+	}
+	if len(ch) > 1 {
+		s.record(ctx, audit.Entry{GuildID: guildID, ActorID: userID, Action: audit.GuildUpdate, TargetType: audit.TargetGuild, TargetID: guildID, Changes: ch})
+	}
 	return g, nil
 }
 
@@ -373,7 +432,30 @@ func (s *Service) Transfer(ctx context.Context, userID, guildID, newOwner int64)
 		return Guild{}, err
 	}
 	s.publish(events.GuildUpdate, guildID, g.Payload(s.iconURL(ctx, g)))
+	s.record(ctx, audit.Entry{
+		GuildID: guildID, ActorID: userID, Action: audit.GuildTransferOwner, TargetType: audit.TargetMember, TargetID: newOwner,
+		Changes: map[string]any{"target_name": s.memberName(ctx, guildID, newOwner)},
+	})
 	return g, nil
+}
+
+// memberName é o nome legível de um membro para o registro de auditoria (apelido, nome de exibição ou username).
+func (s *Service) memberName(ctx context.Context, guildID, userID int64) string {
+	m, err := s.store.Member(ctx, guildID, userID)
+	if err != nil {
+		return ""
+	}
+	return displayName(m)
+}
+
+func displayName(m Member) string {
+	switch {
+	case m.Nickname != nil && *m.Nickname != "":
+		return *m.Nickname
+	case m.DisplayName != nil && *m.DisplayName != "":
+		return *m.DisplayName
+	}
+	return m.Username
 }
 
 // ---------- membros ----------
@@ -426,7 +508,18 @@ func (s *Service) Kick(ctx context.Context, actorID, guildID, targetID int64) er
 	if !actor.CanKick(target) {
 		return apperr.Forbidden("você não pode expulsar este membro")
 	}
-	return s.remove(ctx, guildID, targetID)
+	if err := s.take(actorID); err != nil {
+		return err
+	}
+	name := s.memberName(ctx, guildID, targetID)
+	if err := s.remove(ctx, guildID, targetID); err != nil {
+		return err
+	}
+	s.record(ctx, audit.Entry{
+		GuildID: guildID, ActorID: actorID, Action: audit.MemberKick, TargetType: audit.TargetMember, TargetID: targetID,
+		Changes: map[string]any{"target_name": name},
+	})
+	return nil
 }
 
 // Leave faz o usuário sair do servidor; o dono precisa transferir a posse antes.
@@ -447,13 +540,18 @@ func (s *Service) remove(ctx context.Context, guildID, userID int64) error {
 	if err := s.store.RemoveMember(ctx, guildID, userID); err != nil {
 		return err
 	}
+	s.publishRemoved(guildID, userID)
+	return nil
+}
+
+// publishRemoved avisa a saída de um membro (expulso, banido ou que saiu).
+func (s *Service) publishRemoved(guildID, userID int64) {
 	s.publish(events.GuildMemberRemove, guildID, MemberRemovePayload{GuildID: httpx.ID(guildID), UserID: httpx.ID(userID)})
 	// O ex-membro deixa de ver o servidor: o gateway o desassina dos tópicos do servidor.
 	s.pub.Publish(events.Event{
 		Type: events.GuildDelete, GuildID: guildID,
 		Topics: []string{userTopic(userID)}, Data: GuildDeletePayload{ID: httpx.ID(guildID)},
 	})
-	return nil
 }
 
 // ---------- cargos ----------
@@ -522,6 +620,10 @@ func (s *Service) CreateRole(ctx context.Context, userID, guildID int64, in Role
 		return Role{}, err
 	}
 	s.publish(events.RoleCreate, guildID, r.Payload())
+	s.record(ctx, audit.Entry{
+		GuildID: guildID, ActorID: userID, Action: audit.RoleCreate, TargetType: audit.TargetRole, TargetID: r.ID,
+		Changes: map[string]any{"target_name": r.Name, "permissions": int64(r.Permissions)},
+	})
 	return r, nil
 }
 
@@ -575,6 +677,19 @@ func (s *Service) UpdateRole(ctx context.Context, userID, guildID, roleID int64,
 		return Role{}, err
 	}
 	s.publish(events.RoleUpdate, guildID, r.Payload())
+	ch := map[string]any{"target_name": r.Name}
+	if cur.Name != r.Name {
+		ch["name"] = map[string]any{"from": cur.Name, "to": r.Name}
+	}
+	if cur.Permissions != r.Permissions {
+		ch["permissions"] = map[string]any{"from": int64(cur.Permissions), "to": int64(r.Permissions)}
+	}
+	if cur.Position != r.Position {
+		ch["position"] = map[string]any{"from": cur.Position, "to": r.Position}
+	}
+	if len(ch) > 1 || !sameColor(cur.Color, r.Color) {
+		s.record(ctx, audit.Entry{GuildID: guildID, ActorID: userID, Action: audit.RoleUpdate, TargetType: audit.TargetRole, TargetID: r.ID, Changes: ch})
+	}
 	return r, nil
 }
 
@@ -599,6 +714,10 @@ func (s *Service) DeleteRole(ctx context.Context, userID, guildID, roleID int64)
 		return err
 	}
 	s.publish(events.RoleDelete, guildID, RoleDeletePayload{GuildID: httpx.ID(guildID), RoleID: httpx.ID(roleID)})
+	s.record(ctx, audit.Entry{
+		GuildID: guildID, ActorID: userID, Action: audit.RoleDelete, TargetType: audit.TargetRole, TargetID: roleID,
+		Changes: map[string]any{"target_name": cur.Name},
+	})
 	return nil
 }
 
@@ -650,7 +769,22 @@ func (s *Service) changeMemberRole(ctx context.Context, userID, guildID, targetI
 	}
 	m.AvatarURL, m.BannerURL = s.avatars.AvatarURLForKey(ctx, m.AvatarKey), s.avatars.AvatarURLForKey(ctx, m.BannerKey)
 	s.publish(events.GuildMemberUpdate, guildID, m.Payload())
+	act := audit.MemberRoleRemove
+	if add {
+		act = audit.MemberRoleAdd
+	}
+	s.record(ctx, audit.Entry{
+		GuildID: guildID, ActorID: userID, Action: act, TargetType: audit.TargetMember, TargetID: targetID,
+		Changes: map[string]any{"target_name": displayName(m), "role_id": httpx.ID(roleID), "role_name": role.Name},
+	})
 	return m, nil
+}
+
+func sameColor(a, b *int32) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // ---------- eventos ----------
@@ -669,15 +803,59 @@ func (s *Service) publishGuildCreate(d Detail, userID int64) {
 	})
 }
 
-// ChannelIDs lista os canais do servidor (usado pelo gateway ao recalcular assinaturas).
-func (s *Service) ChannelIDs(ctx context.Context, guildID int64) ([]int64, error) {
-	cs, err := s.channels.ListByGuild(ctx, guildID)
+// ChannelView é o que um membro vê de um servidor: se tem VIEW_CHANNEL no servidor (a base, que decide se canais
+// novos aparecem para ele) e os canais que vê de fato, já com os overwrites aplicados.
+type ChannelView struct {
+	Base     bool
+	Channels []channel.Channel
+}
+
+// ChannelView calcula a visão do usuário (o gateway recalcula as assinaturas com isto). Não-membro:
+// perm.ErrNotMember.
+func (s *Service) ChannelView(ctx context.Context, guildID, userID int64) (ChannelView, error) {
+	m, err := s.Member(ctx, guildID, userID)
 	if err != nil {
-		return nil, err
+		return ChannelView{}, err
 	}
-	ids := make([]int64, len(cs))
-	for i, c := range cs {
-		ids[i] = c.ID
+	chs, err := s.channels.ListVisible(ctx, guildID, m)
+	if err != nil {
+		return ChannelView{}, err
 	}
-	return ids, nil
+	return ChannelView{Base: m.Has(perm.ViewChannel), Channels: chs}, nil
+}
+
+// IsBanned diz se o usuário está banido do servidor (convites checam antes de entrar).
+func (s *Service) IsBanned(ctx context.Context, guildID, userID int64) (bool, error) {
+	return s.store.IsBanned(ctx, guildID, userID)
+}
+
+// OverwriteTarget resolve o alvo de um overwrite de canal (implementa channel.Access).
+func (s *Service) OverwriteTarget(ctx context.Context, guildID int64, t perm.TargetType, id int64) (channel.Target, error) {
+	switch t {
+	case perm.TargetRole:
+		r, err := s.store.Role(ctx, guildID, id)
+		if err != nil {
+			return channel.Target{}, err
+		}
+		return channel.Target{Name: r.Name, Rank: int(r.Position), Everyone: r.IsEveryone()}, nil
+	case perm.TargetMember:
+		a, err := s.store.Access(ctx, guildID, id)
+		if errors.Is(err, perm.ErrNotMember) {
+			return channel.Target{}, ErrMemberNotFound
+		}
+		if err != nil {
+			return channel.Target{}, err
+		}
+		return channel.Target{Name: s.memberName(ctx, guildID, id), Rank: a.Highest, IsOwner: a.OwnerID == id}, nil
+	}
+	return channel.Target{}, apperr.Invalid("tipo de alvo inválido")
+}
+
+// VoiceMuted diz se o membro está mutado na voz por um moderador (a voz aplica ao emitir o token).
+func (s *Service) VoiceMuted(ctx context.Context, guildID, userID int64) (bool, error) {
+	muted, err := s.store.VoiceMuted(ctx, guildID, userID)
+	if errors.Is(err, ErrMemberNotFound) {
+		return false, nil
+	}
+	return muted, err
 }

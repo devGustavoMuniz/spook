@@ -15,7 +15,25 @@ export const Permission = {
   CONNECT: 1 << 10,
   SPEAK: 1 << 11,
   VIDEO: 1 << 12,
+  // Moderação (adicional).
+  BAN_MEMBERS: 1 << 13,
+  CHANGE_NICKNAME: 1 << 14,
+  MANAGE_NICKNAMES: 1 << 15,
+  MUTE_MEMBERS: 1 << 16,
+  DISCONNECT_MEMBERS: 1 << 17,
+  VIEW_AUDIT_LOG: 1 << 18,
 } as const;
+
+/** Permissões que um canal pode permitir ou negar (overwrites); as demais valem só no servidor inteiro. */
+export const CHANNEL_SCOPED_PERMISSIONS = [
+  "VIEW_CHANNEL",
+  "SEND_MESSAGES",
+  "MANAGE_MESSAGES",
+  "ATTACH_FILES",
+  "CONNECT",
+  "SPEAK",
+  "VIDEO",
+] as const;
 
 export type PermissionName = keyof typeof Permission;
 export type PermissionFlag = (typeof Permission)[PermissionName];

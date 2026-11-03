@@ -27,4 +27,6 @@ export interface MemberPayload {
   role_ids: string[] | null;
   user_id: string;
   username: string;
+  /** Mutado na voz por um moderador (MUTE_MEMBERS) */
+  voice_muted?: boolean;
 }

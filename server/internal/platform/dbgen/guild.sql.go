@@ -115,7 +115,7 @@ func (q *Queries) GetGuild(ctx context.Context, id int64) (Guild, error) {
 }
 
 const getMember = `-- name: GetMember :one
-SELECT m.guild_id, m.user_id, m.nickname, m.joined_at,
+SELECT m.guild_id, m.user_id, m.nickname, m.joined_at, m.voice_muted,
        u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
@@ -135,6 +135,7 @@ type GetMemberRow struct {
 	UserID      int64
 	Nickname    *string
 	JoinedAt    pgtype.Timestamptz
+	VoiceMuted  bool
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -153,6 +154,7 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (GetMember
 		&i.UserID,
 		&i.Nickname,
 		&i.JoinedAt,
+		&i.VoiceMuted,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -168,13 +170,14 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (GetMember
 const getMemberAccess = `-- name: GetMemberAccess :one
 SELECT g.owner_id,
        COALESCE(bit_or(r.permissions), 0)::bigint AS permissions,
-       COALESCE(max(r.position), 0)::int AS highest_position
+       COALESCE(max(r.position), 0)::int AS highest_position,
+       COALESCE((SELECT array_agg(mr.role_id) FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = $2), '{}')::bigint[] AS role_ids
 FROM guilds g
 JOIN guild_members m ON m.guild_id = g.id AND m.user_id = $2
 LEFT JOIN roles r ON r.guild_id = g.id
      AND (r.id = g.id OR r.id IN (SELECT mr.role_id FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = $2))
 WHERE g.id = $1
-GROUP BY g.owner_id
+GROUP BY g.id, g.owner_id
 `
 
 type GetMemberAccessParams struct {
@@ -186,13 +189,19 @@ type GetMemberAccessRow struct {
 	OwnerID         int64
 	Permissions     int64
 	HighestPosition int32
+	RoleIds         []int64
 }
 
 // Permissão efetiva do membro em uma consulta: OR do @everyone (id = guild_id) e dos cargos dele.
 func (q *Queries) GetMemberAccess(ctx context.Context, arg GetMemberAccessParams) (GetMemberAccessRow, error) {
 	row := q.db.QueryRow(ctx, getMemberAccess, arg.ID, arg.UserID)
 	var i GetMemberAccessRow
-	err := row.Scan(&i.OwnerID, &i.Permissions, &i.HighestPosition)
+	err := row.Scan(
+		&i.OwnerID,
+		&i.Permissions,
+		&i.HighestPosition,
+		&i.RoleIds,
+	)
 	return i, err
 }
 
@@ -438,7 +447,7 @@ func (q *Queries) ListMemberRolesByUser(ctx context.Context, userID int64) ([]Li
 }
 
 const listMembers = `-- name: ListMembers :many
-SELECT m.guild_id, m.user_id, m.nickname, m.joined_at,
+SELECT m.guild_id, m.user_id, m.nickname, m.joined_at, m.voice_muted,
        u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
@@ -461,6 +470,7 @@ type ListMembersRow struct {
 	UserID      int64
 	Nickname    *string
 	JoinedAt    pgtype.Timestamptz
+	VoiceMuted  bool
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
@@ -485,6 +495,7 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 			&i.UserID,
 			&i.Nickname,
 			&i.JoinedAt,
+			&i.VoiceMuted,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,

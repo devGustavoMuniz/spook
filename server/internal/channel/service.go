@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"go.opentelemetry.io/otel"
 
+	"github.com/devGustavoMuniz/spook/server/internal/audit"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
@@ -26,12 +28,38 @@ type Store interface {
 	Update(ctx context.Context, id int64, name string, position int32) (Channel, error)
 	UpdatePlacements(ctx context.Context, guildID int64, ps []Placement) error
 	Delete(ctx context.Context, id int64) error
+
+	Overwrites(ctx context.Context, channelID int64) ([]perm.Overwrite, error)
+	OverwritesByGuilds(ctx context.Context, guildIDs []int64) (map[int64][]perm.Overwrite, error)
+	SetOverwrite(ctx context.Context, channelID int64, o perm.Overwrite) error // allow=deny=0 remove
+	DeleteOverwrite(ctx context.Context, channelID int64, t perm.TargetType, targetID int64) error
+}
+
+// Target descreve o alvo de um overwrite: nome legível e posição na hierarquia (cargo: a posição; membro: a
+// do cargo mais alto). Everyone diz que é o cargo @everyone (sem hierarquia).
+type Target struct {
+	Name     string
+	Rank     int
+	Everyone bool
+	IsOwner  bool
+}
+
+// Auditor grava o registro de auditoria (implementado pelo audit.Service; pode ser nil).
+type Auditor interface {
+	Record(ctx context.Context, e audit.Entry)
+}
+
+// Limiter limita ações sensíveis por usuário (ratelimit.Limiter; pode ser nil).
+type Limiter interface {
+	Take(key string) (bool, time.Duration)
 }
 
 // Access é o que channel precisa do servidor: o membro com as permissões efetivas.
 // Devolve perm.ErrNotMember se o usuário não pertence ao servidor.
 type Access interface {
 	Member(ctx context.Context, guildID, userID int64) (perm.Member, error)
+	// OverwriteTarget resolve o alvo de um overwrite (cargo ou membro do servidor); inexistente = NotFound.
+	OverwriteTarget(ctx context.Context, guildID int64, t perm.TargetType, id int64) (Target, error)
 }
 
 // DMs é o que channel precisa das DMs (implementada pelo dm.Service): quem participa de uma DM
@@ -49,6 +77,28 @@ type Service struct {
 	ids    IDGenerator
 	pub    events.Publisher
 	dms    DMs
+	audit  Auditor
+	limit  Limiter
+}
+
+// SetAudit liga o registro de auditoria; SetLimiter, o rate limit das ações de moderação.
+func (s *Service) SetAudit(a Auditor)   { s.audit = a }
+func (s *Service) SetLimiter(l Limiter) { s.limit = l }
+
+func (s *Service) record(ctx context.Context, e audit.Entry) {
+	if s.audit != nil {
+		s.audit.Record(ctx, e)
+	}
+}
+
+func (s *Service) take(userID int64) error {
+	if s.limit == nil {
+		return nil
+	}
+	if ok, wait := s.limit.Take("mod:" + httpx.ID(userID)); !ok {
+		return apperr.RateLimited("muitas ações de moderação seguidas; aguarde um pouco", wait)
+	}
+	return nil
 }
 
 // SetDMs liga o suporte a DMs (feito na montagem; sem isso, DMs são "canais inexistentes").
@@ -67,7 +117,8 @@ func (s *Service) ListByGuilds(ctx context.Context, guildIDs []int64) (map[int64
 	return s.store.ListByGuilds(ctx, guildIDs)
 }
 
-// List devolve os canais do servidor, ordenados, para quem é membro e pode ver canais.
+// List devolve os canais do servidor, ordenados, que o usuário pode ver (permissão efetiva do canal).
+// Sem VIEW_CHANNEL em lugar nenhum: ErrForbidden.
 func (s *Service) List(ctx context.Context, userID, guildID int64) ([]Channel, error) {
 	m, err := s.access.Member(ctx, guildID, userID)
 	if errors.Is(err, perm.ErrNotMember) {
@@ -76,10 +127,92 @@ func (s *Service) List(ctx context.Context, userID, guildID int64) ([]Channel, e
 	if err != nil {
 		return nil, err
 	}
-	if !m.Has(perm.ViewChannel) {
+	out, err := s.ListVisible(ctx, guildID, m)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 && !m.Has(perm.ViewChannel) {
 		return nil, ErrForbidden
 	}
-	return s.store.ListByGuild(ctx, guildID)
+	return out, nil
+}
+
+// ListVisible filtra os canais do servidor pelo que o membro m pode ver. Uso interno: m já é membro.
+func (s *Service) ListVisible(ctx context.Context, guildID int64, m perm.Member) ([]Channel, error) {
+	chs, err := s.store.ListByGuild(ctx, guildID)
+	if err != nil {
+		return nil, err
+	}
+	if m.IsOwner || m.Perms&perm.Administrator != 0 {
+		return chs, nil
+	}
+	ows, err := s.store.OverwritesByGuilds(ctx, []int64{guildID})
+	if err != nil {
+		return nil, err
+	}
+	return Visible(chs, m, ows), nil
+}
+
+// ListVisibleByGuilds é ListVisible em lote (um membro por servidor).
+func (s *Service) ListVisibleByGuilds(ctx context.Context, members map[int64]perm.Member) (map[int64][]Channel, error) {
+	ids := make([]int64, 0, len(members))
+	for id := range members {
+		ids = append(ids, id)
+	}
+	chs, err := s.store.ListByGuilds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	ows, err := s.store.OverwritesByGuilds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64][]Channel, len(chs))
+	for gid, list := range chs {
+		out[gid] = Visible(list, members[gid], ows)
+	}
+	return out, nil
+}
+
+// ViewableIDs são os IDs dos canais do servidor que o usuário vê (gateway e notificações). Não-membro:
+// perm.ErrNotMember.
+func (s *Service) ViewableIDs(ctx context.Context, guildID, userID int64) ([]int64, error) {
+	m, err := s.access.Member(ctx, guildID, userID)
+	if err != nil {
+		return nil, err
+	}
+	chs, err := s.ListVisible(ctx, guildID, m)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, len(chs))
+	for i, c := range chs {
+		ids[i] = c.ID
+	}
+	return ids, nil
+}
+
+// Visible filtra chs pelo VIEW_CHANNEL efetivo de m em cada canal (ows indexado por canal).
+func Visible(chs []Channel, m perm.Member, ows map[int64][]perm.Overwrite) []Channel {
+	if m.IsOwner || m.Perms&perm.Administrator != 0 {
+		return chs
+	}
+	out := make([]Channel, 0, len(chs))
+	for _, c := range chs {
+		if m.InChannel(ows[c.ID]).Has(perm.ViewChannel) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// effective calcula a permissão efetiva do membro no canal de servidor.
+func (s *Service) effective(ctx context.Context, channelID int64, m perm.Member) (perm.Member, error) {
+	ows, err := s.store.Overwrites(ctx, channelID)
+	if err != nil {
+		return perm.Member{}, err
+	}
+	return m.InChannel(ows), nil
 }
 
 // Authorize devolve o canal se o usuário pode acessá-lo. Canal de servidor: membro com as
@@ -110,6 +243,10 @@ func (s *Service) Authorize(ctx context.Context, userID, channelID int64, need p
 		return Channel{}, perm.Member{}, ErrNotFound
 	}
 	if err != nil {
+		return Channel{}, perm.Member{}, err
+	}
+	// Permissão EFETIVA do canal (cargos + overwrites), nunca só a do servidor.
+	if m, err = s.effective(ctx, channelID, m); err != nil {
 		return Channel{}, perm.Member{}, err
 	}
 	if !m.Has(perm.ViewChannel | need) {
@@ -187,6 +324,10 @@ func (s *Service) Create(ctx context.Context, userID, guildID int64, in CreatePa
 		return Channel{}, err
 	}
 	s.publish(events.ChannelCreate, c)
+	s.record(ctx, audit.Entry{
+		GuildID: guildID, ActorID: userID, Action: audit.ChannelCreate, TargetType: audit.TargetChannel, TargetID: c.ID,
+		Changes: map[string]any{"target_name": c.Name, "type": int(c.Type)},
+	})
 	return c, nil
 }
 
@@ -237,6 +378,16 @@ func (s *Service) Update(ctx context.Context, userID, channelID int64, in Update
 		return Channel{}, err
 	}
 	s.publish(events.ChannelUpdate, c)
+	if c.GuildID != nil && (cur.Name != c.Name || cur.Position != c.Position) {
+		ch := map[string]any{"target_name": c.Name}
+		if cur.Name != c.Name {
+			ch["name"] = map[string]any{"from": cur.Name, "to": c.Name}
+		}
+		if cur.Position != c.Position {
+			ch["position"] = map[string]any{"from": cur.Position, "to": c.Position}
+		}
+		s.record(ctx, audit.Entry{GuildID: *c.GuildID, ActorID: userID, Action: audit.ChannelUpdate, TargetType: audit.TargetChannel, TargetID: c.ID, Changes: ch})
+	}
 	return c, nil
 }
 
@@ -288,6 +439,10 @@ func (s *Service) Delete(ctx context.Context, userID, channelID int64) error {
 		return err
 	}
 	s.publish(events.ChannelDelete, cur)
+	s.record(ctx, audit.Entry{
+		GuildID: *cur.GuildID, ActorID: userID, Action: audit.ChannelDelete, TargetType: audit.TargetChannel, TargetID: cur.ID,
+		Changes: map[string]any{"target_name": cur.Name, "type": int(cur.Type)},
+	})
 	for _, c := range children {
 		s.publish(events.ChannelUpdate, c)
 	}

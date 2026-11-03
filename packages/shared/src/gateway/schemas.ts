@@ -99,6 +99,8 @@ export const memberPayloadSchema = z.object({
   banner_url: z.string().optional(),
   banner_color: z.number().int().optional(),
   role_ids: z.array(z.string()).nullable(),
+  /** Mutado na voz por um moderador (MUTE_MEMBERS). `default` tolera um servidor anterior. */
+  voice_muted: z.boolean().optional(),
 });
 
 export const guildPayloadSchema = z.object({
@@ -171,6 +173,8 @@ export const voiceStatePayloadSchema = z.object({
   self_screen: z.boolean(),
   /** Há uma prévia (miniatura) da tela disponível para quem vê o canal. */
   screen_preview: z.boolean().default(false),
+  /** Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar. */
+  server_muted: z.boolean().optional(),
 });
 
 /** Voice state de um usuário (READY e VOICE_STATE_UPDATE); `channel_id: null` = saiu da voz. */

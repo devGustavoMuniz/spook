@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 )
 
@@ -154,4 +155,96 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			}
 			return nil, httpx.Err(h.svc.Delete(ctx, h.userID(ctx), id))
 		})
+
+	owPath := "/api/channels/{channel_id}/overwrites"
+	huma.Register(api, op("listChannelOverwrites", http.MethodGet, owPath, "Permissões por canal (overwrites); exige MANAGE_CHANNELS", 0, http.StatusForbidden),
+		func(ctx context.Context, in *struct{ ChannelPath }) (*OverwriteListOutput, error) {
+			id, ok := httpx.ParseID(in.ChannelID)
+			if !ok {
+				return nil, httpx.BadID("canal")
+			}
+			ows, err := h.svc.Overwrites(ctx, h.userID(ctx), id)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			out := &OverwriteListOutput{Body: make([]OverwritePayload, len(ows))}
+			for i, o := range ows {
+				out.Body[i] = o.Payload()
+			}
+			return out, nil
+		})
+
+	huma.Register(api, op("setChannelOverwrite", http.MethodPut, owPath+"/{type}/{target_id}",
+		"Define o overwrite de um cargo (o @everyone tem o ID do servidor) ou membro; permitir e negar vazios removem. Canal privado = negar VIEW_CHANNEL ao @everyone e permitir a cargos/membros",
+		0, http.StatusForbidden, http.StatusUnprocessableEntity, http.StatusTooManyRequests),
+		func(ctx context.Context, in *struct {
+			OverwritePath
+			Body struct {
+				Allow int64 `json:"allow" minimum:"0" doc:"Bitflags de canal permitidos"`
+				Deny  int64 `json:"deny" minimum:"0" doc:"Bitflags de canal negados"`
+			}
+		}) (*OverwriteOutput, error) {
+			cid, tid, err := in.ids()
+			if err != nil {
+				return nil, err
+			}
+			o, serr := h.svc.SetOverwrite(ctx, h.userID(ctx), cid, perm.TargetType(in.Type), tid, perm.Perm(in.Body.Allow), perm.Perm(in.Body.Deny))
+			if serr != nil {
+				return nil, httpx.Err(serr)
+			}
+			return &OverwriteOutput{Body: o.Payload()}, nil
+		})
+
+	huma.Register(api, op("deleteChannelOverwrite", http.MethodDelete, owPath+"/{type}/{target_id}", "Remove o overwrite de um alvo (volta a herdar)", http.StatusNoContent, http.StatusForbidden, http.StatusTooManyRequests),
+		func(ctx context.Context, in *struct{ OverwritePath }) (*struct{}, error) {
+			cid, tid, err := in.ids()
+			if err != nil {
+				return nil, err
+			}
+			return nil, httpx.Err(h.svc.DeleteOverwrite(ctx, h.userID(ctx), cid, perm.TargetType(in.Type), tid))
+		})
+
+	huma.Register(api, op("getMyChannelPermissions", http.MethodGet, "/api/channels/{channel_id}/my-permissions", "Minhas permissões efetivas neste canal (cargos + overwrites)", 0, http.StatusForbidden),
+		func(ctx context.Context, in *struct{ ChannelPath }) (*struct {
+			Body struct {
+				Permissions int64 `json:"permissions" doc:"Bitflags efetivos no canal"`
+			}
+		}, error) {
+			id, ok := httpx.ParseID(in.ChannelID)
+			if !ok {
+				return nil, httpx.BadID("canal")
+			}
+			p, err := h.svc.MyPermissions(ctx, h.userID(ctx), id)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			out := &struct {
+				Body struct {
+					Permissions int64 `json:"permissions" doc:"Bitflags efetivos no canal"`
+				}
+			}{}
+			out.Body.Permissions = int64(p)
+			return out, nil
+		})
 }
+
+type OverwritePath struct {
+	ChannelPath
+	Type     string `path:"type" enum:"role,member" doc:"Tipo do alvo"`
+	TargetID string `path:"target_id" doc:"ID do cargo (o @everyone tem o ID do servidor) ou do membro"`
+}
+
+func (p OverwritePath) ids() (int64, int64, error) {
+	cid, ok := httpx.ParseID(p.ChannelID)
+	if !ok {
+		return 0, 0, httpx.BadID("canal")
+	}
+	tid, ok := httpx.ParseID(p.TargetID)
+	if !ok {
+		return 0, 0, httpx.BadID("alvo")
+	}
+	return cid, tid, nil
+}
+
+type OverwriteListOutput struct{ Body []OverwritePayload }
+type OverwriteOutput struct{ Body OverwritePayload }

@@ -88,7 +88,7 @@ export const GetInviteResponse = zod.object({
 });
 
 /**
- * @summary Entra no servidor pelo convite (quem já é membro não consome uso)
+ * @summary Entra no servidor pelo convite (quem já é membro não consome uso); banido recebe 403 com code `banned`
  */
 export const JoinInviteParams = zod.object({
   code: zod.string().describe("Código do convite (8 caracteres)"),

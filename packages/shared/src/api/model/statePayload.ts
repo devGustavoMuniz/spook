@@ -24,5 +24,7 @@ export interface StatePayload {
   self_screen: boolean;
   /** Câmera ligada */
   self_video: boolean;
+  /** Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar */
+  server_muted?: boolean;
   user_id: string;
 }

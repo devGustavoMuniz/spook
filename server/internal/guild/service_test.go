@@ -126,11 +126,20 @@ func (f *fakeStore) Update(_ context.Context, _ int64, name string, icon *string
 
 type fakeChannels struct{}
 
-func (fakeChannels) ListByGuild(context.Context, int64) ([]channel.Channel, error) {
+func (fakeChannels) ListVisible(_ context.Context, _ int64, m perm.Member) ([]channel.Channel, error) {
+	if !m.Has(perm.ViewChannel) {
+		return nil, nil
+	}
 	return []channel.Channel{{ID: 5, Name: "geral"}}, nil
 }
-func (fakeChannels) ListByGuilds(context.Context, []int64) (map[int64][]channel.Channel, error) {
-	return nil, nil
+func (fakeChannels) ListVisibleByGuilds(_ context.Context, ms map[int64]perm.Member) (map[int64][]channel.Channel, error) {
+	out := map[int64][]channel.Channel{}
+	for g, m := range ms {
+		if m.Has(perm.ViewChannel) {
+			out[g] = []channel.Channel{{ID: 5, Name: "geral"}}
+		}
+	}
+	return out, nil
 }
 
 type noAvatars struct{}

@@ -88,6 +88,8 @@ type ChannelAccess struct {
 	CanConnect bool
 	CanSpeak   bool
 	CanVideo   bool
+	// ServerMuted: um moderador mutou a pessoa (MUTE_MEMBERS). O microfone sai dos grants e ela não pode desmutar.
+	ServerMuted bool
 }
 
 // Voiceable diz se o tipo do canal aceita voz.
@@ -116,7 +118,9 @@ type State struct {
 	Preview   bool // há prévia da tela guardada (PreviewStore)
 	CanSpeak  bool // últimas permissões aplicadas no LiveKit
 	CanVideo  bool
-	JoinedAt  time.Time
+	// ServerMuted: mutado por um moderador (flag persistente do membro, reaplicada a cada token).
+	ServerMuted bool
+	JoinedAt    time.Time
 }
 
 // Payload converte o estado no evento/snapshot.
@@ -125,7 +129,7 @@ func (s State) Payload() StatePayload {
 	p := StatePayload{
 		ChannelID: &ch, UserID: httpx.ID(s.UserID),
 		SelfMute: s.SelfMute, SelfDeaf: s.SelfDeaf, SelfVideo: s.Video, SelfScreen: s.Screen,
-		ScreenPreview: s.Preview,
+		ScreenPreview: s.Preview, ServerMuted: s.ServerMuted,
 	}
 	if s.GuildID != 0 {
 		g := httpx.ID(s.GuildID)
@@ -143,6 +147,7 @@ type StatePayload struct {
 	SelfDeaf      bool    `json:"self_deaf"`
 	SelfVideo     bool    `json:"self_video" doc:"Câmera ligada"`
 	SelfScreen    bool    `json:"self_screen" doc:"Compartilhando a tela"`
+	ServerMuted   bool    `json:"server_muted,omitempty" doc:"Mutado por um moderador (MUTE_MEMBERS): não consegue desmutar até o moderador liberar"`
 	ScreenPreview bool    `json:"screen_preview" doc:"Há uma prévia (miniatura) da tela disponível em GET /api/channels/{channel_id}/voice/screen-preview/{user_id}"`
 }
 

@@ -22,17 +22,21 @@ import type {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { http } from "../../../http";
 import type {
+  BanGuildMemberRequest,
+  BanListOutputBody,
   CreateGuildRequest,
   CreateGuildRoleRequest,
   DetailPayload,
   ErrorModel,
   GuildPayload,
+  ListGuildBansParams,
   ListGuildMembersParams,
   MemberListOutputBody,
   MemberPayload,
   RequestGuildIconUploadRequest,
   RequestGuildIconUploadResponse,
   RolePayload,
+  SetGuildMemberNicknameRequest,
   TransferGuildRequest,
   UpdateGuildRequest,
   UpdateGuildRoleRequest,
@@ -548,6 +552,342 @@ export const useUpdateGuild = <TError = ErrorModel, TContext = unknown>(
 > => {
   return useMutation(getUpdateGuildMutationOptions(options), queryClient);
 };
+export const getListGuildBansUrl = (guildId: string, params?: ListGuildBansParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/guilds/${guildId}/bans?${stringifiedParams}`
+    : `/api/guilds/${guildId}/bans`;
+};
+
+/**
+ * @summary Banimentos do servidor, por ID de usuário (cursor `after`); exige BAN_MEMBERS
+ */
+export const listGuildBans = async (
+  guildId: string,
+  params?: ListGuildBansParams,
+  options?: Parameters<typeof http>[1],
+): Promise<BanListOutputBody> => {
+  return http<BanListOutputBody>(getListGuildBansUrl(guildId, params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListGuildBansQueryKey = (guildId: string, params?: ListGuildBansParams) => {
+  return [`/api/guilds/${guildId}/bans`, ...(params ? [params] : [])] as const;
+};
+
+export const getListGuildBansQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGuildBans>>,
+  TError = ErrorModel,
+>(
+  guildId: string,
+  params?: ListGuildBansParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listGuildBans>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListGuildBansQueryKey(guildId, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listGuildBans>>> = ({ signal }) =>
+    listGuildBans(guildId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: guildId !== null && guildId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listGuildBans>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListGuildBansQueryResult = NonNullable<Awaited<ReturnType<typeof listGuildBans>>>;
+export type ListGuildBansQueryError = ErrorModel;
+
+export function useListGuildBans<
+  TData = Awaited<ReturnType<typeof listGuildBans>>,
+  TError = ErrorModel,
+>(
+  guildId: string,
+  params: undefined | ListGuildBansParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listGuildBans>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listGuildBans>>,
+          TError,
+          Awaited<ReturnType<typeof listGuildBans>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListGuildBans<
+  TData = Awaited<ReturnType<typeof listGuildBans>>,
+  TError = ErrorModel,
+>(
+  guildId: string,
+  params?: ListGuildBansParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listGuildBans>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listGuildBans>>,
+          TError,
+          Awaited<ReturnType<typeof listGuildBans>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListGuildBans<
+  TData = Awaited<ReturnType<typeof listGuildBans>>,
+  TError = ErrorModel,
+>(
+  guildId: string,
+  params?: ListGuildBansParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listGuildBans>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Banimentos do servidor, por ID de usuário (cursor `after`); exige BAN_MEMBERS
+ */
+
+export function useListGuildBans<
+  TData = Awaited<ReturnType<typeof listGuildBans>>,
+  TError = ErrorModel,
+>(
+  guildId: string,
+  params?: ListGuildBansParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listGuildBans>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListGuildBansQueryOptions(guildId, params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getUnbanGuildMemberUrl = (guildId: string, userId: string) => {
+  return `/api/guilds/${guildId}/bans/${userId}`;
+};
+
+/**
+ * @summary Desbane um usuário (BAN_MEMBERS)
+ */
+export const unbanGuildMember = async (
+  guildId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getUnbanGuildMemberUrl(guildId, userId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getUnbanGuildMemberMutationKey = () => ["unbanGuildMember"] as const;
+
+export const getUnbanGuildMemberMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unbanGuildMember>>,
+    TError,
+    UnbanGuildMemberMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unbanGuildMember>>,
+  TError,
+  UnbanGuildMemberMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUnbanGuildMemberMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unbanGuildMember>>,
+    UnbanGuildMemberMutationVariables
+  > = (props) => {
+    const { guildId, userId } = props ?? {};
+
+    return unbanGuildMember(guildId, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnbanGuildMemberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unbanGuildMember>>
+>;
+
+export type UnbanGuildMemberMutationError = ErrorModel;
+export type UnbanGuildMemberMutationVariables = { guildId: string; userId: string };
+
+/**
+ * @summary Desbane um usuário (BAN_MEMBERS)
+ */
+export const useUnbanGuildMember = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof unbanGuildMember>>,
+      TError,
+      UnbanGuildMemberMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof unbanGuildMember>>,
+  TError,
+  UnbanGuildMemberMutationVariables,
+  TContext
+> => {
+  return useMutation(getUnbanGuildMemberMutationOptions(options), queryClient);
+};
+export const getBanGuildMemberUrl = (guildId: string, userId: string) => {
+  return `/api/guilds/${guildId}/bans/${userId}`;
+};
+
+/**
+ * @summary Bane um usuário, membro ou não (BAN_MEMBERS + hierarquia); remove o membro e bloqueia a volta por convite
+ */
+export const banGuildMember = async (
+  guildId: string,
+  userId: string,
+  banGuildMemberRequest: BanGuildMemberRequest,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<void>(getBanGuildMemberUrl(guildId, userId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(banGuildMemberRequest),
+  });
+};
+
+export const getBanGuildMemberMutationKey = () => ["banGuildMember"] as const;
+
+export const getBanGuildMemberMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof banGuildMember>>,
+    TError,
+    BanGuildMemberMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof banGuildMember>>,
+  TError,
+  BanGuildMemberMutationVariables,
+  TContext
+> => {
+  const mutationKey = getBanGuildMemberMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof banGuildMember>>,
+    BanGuildMemberMutationVariables
+  > = (props) => {
+    const { guildId, userId, data } = props ?? {};
+
+    return banGuildMember(guildId, userId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BanGuildMemberMutationResult = NonNullable<Awaited<ReturnType<typeof banGuildMember>>>;
+export type BanGuildMemberMutationBody = BanGuildMemberRequest;
+export type BanGuildMemberMutationError = ErrorModel;
+export type BanGuildMemberMutationVariables = {
+  guildId: string;
+  userId: string;
+  data: BanGuildMemberRequest;
+};
+
+/**
+ * @summary Bane um usuário, membro ou não (BAN_MEMBERS + hierarquia); remove o membro e bloqueia a volta por convite
+ */
+export const useBanGuildMember = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof banGuildMember>>,
+      TError,
+      BanGuildMemberMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof banGuildMember>>,
+  TError,
+  BanGuildMemberMutationVariables,
+  TContext
+> => {
+  return useMutation(getBanGuildMemberMutationOptions(options), queryClient);
+};
 export const getRequestGuildIconUploadUrl = (guildId: string) => {
   return `/api/guilds/${guildId}/icon`;
 };
@@ -884,6 +1224,117 @@ export const useRemoveGuildMember = <TError = ErrorModel, TContext = unknown>(
 > => {
   return useMutation(getRemoveGuildMemberMutationOptions(options), queryClient);
 };
+export const getSetGuildMemberNicknameUrl = (guildId: string, userId: string) => {
+  return `/api/guilds/${guildId}/members/${userId}/nick`;
+};
+
+/**
+ * @summary Muda o apelido no servidor (`@me` = o seu: CHANGE_NICKNAME; de outro: MANAGE_NICKNAMES + hierarquia). Vazio ou nulo remove
+ */
+export const setGuildMemberNickname = async (
+  guildId: string,
+  userId: string,
+  setGuildMemberNicknameRequest: SetGuildMemberNicknameRequest,
+  options?: Parameters<typeof http>[1],
+): Promise<MemberPayload> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<MemberPayload>(getSetGuildMemberNicknameUrl(guildId, userId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(setGuildMemberNicknameRequest),
+  });
+};
+
+export const getSetGuildMemberNicknameMutationKey = () => ["setGuildMemberNickname"] as const;
+
+export const getSetGuildMemberNicknameMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setGuildMemberNickname>>,
+    TError,
+    SetGuildMemberNicknameMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setGuildMemberNickname>>,
+  TError,
+  SetGuildMemberNicknameMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSetGuildMemberNicknameMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setGuildMemberNickname>>,
+    SetGuildMemberNicknameMutationVariables
+  > = (props) => {
+    const { guildId, userId, data } = props ?? {};
+
+    return setGuildMemberNickname(guildId, userId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetGuildMemberNicknameMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setGuildMemberNickname>>
+>;
+export type SetGuildMemberNicknameMutationBody = SetGuildMemberNicknameRequest;
+export type SetGuildMemberNicknameMutationError = ErrorModel;
+export type SetGuildMemberNicknameMutationVariables = {
+  guildId: string;
+  userId: string;
+  data: SetGuildMemberNicknameRequest;
+};
+
+/**
+ * @summary Muda o apelido no servidor (`@me` = o seu: CHANGE_NICKNAME; de outro: MANAGE_NICKNAMES + hierarquia). Vazio ou nulo remove
+ */
+export const useSetGuildMemberNickname = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setGuildMemberNickname>>,
+      TError,
+      SetGuildMemberNicknameMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setGuildMemberNickname>>,
+  TError,
+  SetGuildMemberNicknameMutationVariables,
+  TContext
+> => {
+  return useMutation(getSetGuildMemberNicknameMutationOptions(options), queryClient);
+};
 export const getRemoveGuildMemberRoleUrl = (guildId: string, userId: string, roleId: string) => {
   return `/api/guilds/${guildId}/members/${userId}/roles/${roleId}`;
 };
@@ -1063,6 +1514,176 @@ export const useAddGuildMemberRole = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getAddGuildMemberRoleMutationOptions(options), queryClient);
+};
+export const getUnmuteGuildMemberVoiceUrl = (guildId: string, userId: string) => {
+  return `/api/guilds/${guildId}/members/${userId}/voice-mute`;
+};
+
+/**
+ * @summary Remove o mute de voz imposto pelo servidor
+ */
+export const unmuteGuildMemberVoice = async (
+  guildId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<MemberPayload> => {
+  return http<MemberPayload>(getUnmuteGuildMemberVoiceUrl(guildId, userId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getUnmuteGuildMemberVoiceMutationKey = () => ["unmuteGuildMemberVoice"] as const;
+
+export const getUnmuteGuildMemberVoiceMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unmuteGuildMemberVoice>>,
+    TError,
+    UnmuteGuildMemberVoiceMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unmuteGuildMemberVoice>>,
+  TError,
+  UnmuteGuildMemberVoiceMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUnmuteGuildMemberVoiceMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unmuteGuildMemberVoice>>,
+    UnmuteGuildMemberVoiceMutationVariables
+  > = (props) => {
+    const { guildId, userId } = props ?? {};
+
+    return unmuteGuildMemberVoice(guildId, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnmuteGuildMemberVoiceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unmuteGuildMemberVoice>>
+>;
+
+export type UnmuteGuildMemberVoiceMutationError = ErrorModel;
+export type UnmuteGuildMemberVoiceMutationVariables = { guildId: string; userId: string };
+
+/**
+ * @summary Remove o mute de voz imposto pelo servidor
+ */
+export const useUnmuteGuildMemberVoice = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof unmuteGuildMemberVoice>>,
+      TError,
+      UnmuteGuildMemberVoiceMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof unmuteGuildMemberVoice>>,
+  TError,
+  UnmuteGuildMemberVoiceMutationVariables,
+  TContext
+> => {
+  return useMutation(getUnmuteGuildMemberVoiceMutationOptions(options), queryClient);
+};
+export const getMuteGuildMemberVoiceUrl = (guildId: string, userId: string) => {
+  return `/api/guilds/${guildId}/members/${userId}/voice-mute`;
+};
+
+/**
+ * @summary Muta o membro na voz pelo servidor (MUTE_MEMBERS + hierarquia); persiste até desmutar
+ */
+export const muteGuildMemberVoice = async (
+  guildId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<MemberPayload> => {
+  return http<MemberPayload>(getMuteGuildMemberVoiceUrl(guildId, userId), {
+    ...options,
+    method: "PUT",
+  });
+};
+
+export const getMuteGuildMemberVoiceMutationKey = () => ["muteGuildMemberVoice"] as const;
+
+export const getMuteGuildMemberVoiceMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof muteGuildMemberVoice>>,
+    TError,
+    MuteGuildMemberVoiceMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof muteGuildMemberVoice>>,
+  TError,
+  MuteGuildMemberVoiceMutationVariables,
+  TContext
+> => {
+  const mutationKey = getMuteGuildMemberVoiceMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof muteGuildMemberVoice>>,
+    MuteGuildMemberVoiceMutationVariables
+  > = (props) => {
+    const { guildId, userId } = props ?? {};
+
+    return muteGuildMemberVoice(guildId, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MuteGuildMemberVoiceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof muteGuildMemberVoice>>
+>;
+
+export type MuteGuildMemberVoiceMutationError = ErrorModel;
+export type MuteGuildMemberVoiceMutationVariables = { guildId: string; userId: string };
+
+/**
+ * @summary Muta o membro na voz pelo servidor (MUTE_MEMBERS + hierarquia); persiste até desmutar
+ */
+export const useMuteGuildMemberVoice = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof muteGuildMemberVoice>>,
+      TError,
+      MuteGuildMemberVoiceMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof muteGuildMemberVoice>>,
+  TError,
+  MuteGuildMemberVoiceMutationVariables,
+  TContext
+> => {
+  return useMutation(getMuteGuildMemberVoiceMutationOptions(options), queryClient);
 };
 export const getListGuildRolesUrl = (guildId: string) => {
   return `/api/guilds/${guildId}/roles`;

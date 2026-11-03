@@ -1,7 +1,17 @@
-import { Permission, useRemoveGuildMember } from "@spook/shared";
+import { Permission, useGetMe, useRemoveGuildMember } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, LogOut, Plus, Settings, Shield, UserPlus } from "lucide-react";
+import {
+  ChevronDown,
+  Gavel,
+  LogOut,
+  Pencil,
+  Plus,
+  ScrollText,
+  Settings,
+  Shield,
+  UserPlus,
+} from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -22,6 +32,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DownloadAppMenuItem } from "@/features/download/download-link";
+import { useMemberUi } from "@/features/members/member-ui";
+import { useGuildMembers } from "@/features/members/use-members";
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild, initials } from "@/lib/guild";
@@ -55,6 +67,13 @@ export function GuildMenu({
   const canSettings = can(guild, Permission.MANAGE_GUILD);
   const canRoles = can(guild, Permission.MANAGE_ROLES);
   const canChannels = can(guild, Permission.MANAGE_CHANNELS);
+  const canBans = can(guild, Permission.BAN_MEMBERS);
+  const canAudit = can(guild, Permission.VIEW_AUDIT_LOG);
+  const canNick = can(guild, Permission.CHANGE_NICKNAME) || can(guild, Permission.MANAGE_NICKNAMES);
+  const { data: me } = useGetMe();
+  const members = useGuildMembers(guild.id, canNick);
+  const myMember = members.data?.members?.find((m) => m.user_id === me?.id);
+  const ui = useMemberUi();
 
   async function confirmLeave() {
     try {
@@ -118,6 +137,21 @@ export function GuildMenu({
               <Shield /> Cargos
             </DropdownMenuItem>
           ) : null}
+          {canBans ? (
+            <DropdownMenuItem onSelect={() => setTab("bans")}>
+              <Gavel /> Banimentos
+            </DropdownMenuItem>
+          ) : null}
+          {canAudit ? (
+            <DropdownMenuItem onSelect={() => setTab("audit")}>
+              <ScrollText /> Registro de auditoria
+            </DropdownMenuItem>
+          ) : null}
+          {canNick && myMember ? (
+            <DropdownMenuItem onSelect={() => ui?.openNick(myMember, true)}>
+              <Pencil /> Alterar apelido
+            </DropdownMenuItem>
+          ) : null}
           {canChannels ? (
             <DropdownMenuItem onSelect={onCreateChannel}>
               <Plus /> Criar canal
@@ -128,7 +162,9 @@ export function GuildMenu({
             targetId={guild.id}
             what="o servidor"
             isGuildLike
-            withSeparator={canInvite || canSettings || canRoles || canChannels}
+            withSeparator={
+              canInvite || canSettings || canRoles || canChannels || canBans || canAudit || canNick
+            }
           />
           <DownloadAppMenuItem />
           {!guild.is_owner ? (

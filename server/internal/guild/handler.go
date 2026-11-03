@@ -53,6 +53,13 @@ type MemberOutput struct{ Body MemberPayload }
 type RoleOutput struct{ Body RolePayload }
 type RoleListOutput struct{ Body []RolePayload }
 
+type BanListOutput struct {
+	Body struct {
+		Bans    []BanPayload `json:"bans"`
+		HasMore bool         `json:"has_more"`
+	}
+}
+
 type MemberListOutput struct {
 	Body struct {
 		Members []MemberPayload `json:"members"`
@@ -246,6 +253,105 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return nil, httpx.Err(h.svc.Kick(ctx, h.userID(ctx), gid, uid))
 		})
 
+	tooMany := http.StatusTooManyRequests
+	huma.Register(api, op("banGuildMember", http.MethodPut, "/api/guilds/{guild_id}/bans/{user_id}", "Bane um usuário, membro ou não (BAN_MEMBERS + hierarquia); remove o membro e bloqueia a volta por convite", http.StatusNoContent, notFound, forbidden, invalid, tooMany),
+		func(ctx context.Context, in *struct {
+			MemberPath
+			Body struct {
+				Reason string `json:"reason,omitempty" maxLength:"512" doc:"Motivo (opcional)"`
+			}
+		}) (*struct{}, error) {
+			gid, ok := httpx.ParseID(in.GuildID)
+			if !ok {
+				return nil, httpx.BadID("servidor")
+			}
+			uid, ok := httpx.ParseID(in.UserID)
+			if !ok {
+				return nil, httpx.BadID("usuário")
+			}
+			return nil, httpx.Err(h.svc.Ban(ctx, h.userID(ctx), gid, uid, in.Body.Reason))
+		})
+
+	huma.Register(api, op("unbanGuildMember", http.MethodDelete, "/api/guilds/{guild_id}/bans/{user_id}", "Desbane um usuário (BAN_MEMBERS)", http.StatusNoContent, notFound, forbidden, tooMany),
+		func(ctx context.Context, in *struct{ MemberPath }) (*struct{}, error) {
+			gid, ok := httpx.ParseID(in.GuildID)
+			if !ok {
+				return nil, httpx.BadID("servidor")
+			}
+			uid, ok := httpx.ParseID(in.UserID)
+			if !ok {
+				return nil, httpx.BadID("usuário")
+			}
+			return nil, httpx.Err(h.svc.Unban(ctx, h.userID(ctx), gid, uid))
+		})
+
+	huma.Register(api, op("listGuildBans", http.MethodGet, "/api/guilds/{guild_id}/bans", "Banimentos do servidor, por ID de usuário (cursor `after`); exige BAN_MEMBERS", 0, notFound, forbidden),
+		func(ctx context.Context, in *struct {
+			GuildPath
+			After string `query:"after" doc:"ID do último usuário recebido"`
+			Limit int    `query:"limit" minimum:"1" maximum:"1000" default:"100"`
+		}) (*BanListOutput, error) {
+			gid, ok := httpx.ParseID(in.GuildID)
+			if !ok {
+				return nil, httpx.BadID("servidor")
+			}
+			var after int64
+			if in.After != "" {
+				if after, ok = httpx.ParseID(in.After); !ok {
+					return nil, huma.Error422UnprocessableEntity("after inválido")
+				}
+			}
+			bans, err := h.svc.Bans(ctx, h.userID(ctx), gid, after, in.Limit+1)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			out := &BanListOutput{}
+			if len(bans) > in.Limit {
+				bans, out.Body.HasMore = bans[:in.Limit], true
+			}
+			out.Body.Bans = make([]BanPayload, len(bans))
+			for i, b := range bans {
+				out.Body.Bans[i] = b.Payload()
+			}
+			return out, nil
+		})
+
+	huma.Register(api, op("setGuildMemberNickname", http.MethodPatch, "/api/guilds/{guild_id}/members/{user_id}/nick", "Muda o apelido no servidor (`@me` = o seu: CHANGE_NICKNAME; de outro: MANAGE_NICKNAMES + hierarquia). Vazio ou nulo remove", 0, notFound, forbidden, invalid, tooMany),
+		func(ctx context.Context, in *struct {
+			MemberPath
+			Body struct {
+				Nick *string `json:"nick" maxLength:"128" nullable:"true" doc:"Apelido de 1 a 32 caracteres; nulo ou vazio remove"`
+			}
+		}) (*MemberOutput, error) {
+			gid, ok := httpx.ParseID(in.GuildID)
+			if !ok {
+				return nil, httpx.BadID("servidor")
+			}
+			uid, ok := h.parseUser(ctx, in.UserID)
+			if !ok {
+				return nil, httpx.BadID("membro")
+			}
+			nick := ""
+			if in.Body.Nick != nil {
+				nick = *in.Body.Nick
+			}
+			m, err := h.svc.SetNickname(ctx, h.userID(ctx), gid, uid, nick)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &MemberOutput{Body: m.Payload()}, nil
+		})
+
+	huma.Register(api, op("muteGuildMemberVoice", http.MethodPut, "/api/guilds/{guild_id}/members/{user_id}/voice-mute", "Muta o membro na voz pelo servidor (MUTE_MEMBERS + hierarquia); persiste até desmutar", 0, notFound, forbidden, invalid, tooMany),
+		func(ctx context.Context, in *struct{ MemberPath }) (*MemberOutput, error) {
+			return h.voiceMute(ctx, in.GuildID, in.UserID, true)
+		})
+
+	huma.Register(api, op("unmuteGuildMemberVoice", http.MethodDelete, "/api/guilds/{guild_id}/members/{user_id}/voice-mute", "Remove o mute de voz imposto pelo servidor", 0, notFound, forbidden, invalid, tooMany),
+		func(ctx context.Context, in *struct{ MemberPath }) (*MemberOutput, error) {
+			return h.voiceMute(ctx, in.GuildID, in.UserID, false)
+		})
+
 	huma.Register(api, op("listGuildRoles", http.MethodGet, "/api/guilds/{guild_id}/roles", "Cargos do servidor, do mais alto ao mais baixo", 0, notFound),
 		func(ctx context.Context, in *struct{ GuildPath }) (*RoleListOutput, error) {
 			gid, ok := httpx.ParseID(in.GuildID)
@@ -326,6 +432,22 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 		func(ctx context.Context, in *struct{ MemberRolePath }) (*MemberOutput, error) {
 			return h.memberRole(ctx, in.GuildID, in.UserID, in.RoleID, false)
 		})
+}
+
+func (h *Handler) voiceMute(ctx context.Context, guild, user string, muted bool) (*MemberOutput, error) {
+	gid, ok := httpx.ParseID(guild)
+	if !ok {
+		return nil, httpx.BadID("servidor")
+	}
+	uid, ok := httpx.ParseID(user)
+	if !ok {
+		return nil, httpx.BadID("membro")
+	}
+	m, err := h.svc.SetVoiceMuted(ctx, h.userID(ctx), gid, uid, muted)
+	if err != nil {
+		return nil, httpx.Err(err)
+	}
+	return &MemberOutput{Body: m.Payload()}, nil
 }
 
 func (h *Handler) ids(guild, role string) (int64, int64, error) {

@@ -94,6 +94,12 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
   const { data: me } = useGetMe();
   const colors = useMemberColors(guild);
   const guildMembers = useGuildMembers(guild?.id ?? "", !!guild);
+  const nicknames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of guildMembers.data?.members ?? [])
+      if (m.nickname) map.set(m.user_id, m.nickname);
+    return map;
+  }, [guildMembers.data]);
   const nameOf = (userId: string) => {
     if (dm) {
       const r = recipientsOf(dm).find((x) => x.id === userId);
@@ -286,6 +292,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
           loadingMore={query.isFetchingNextPage}
           onLoadMore={() => void query.fetchNextPage({ cancelRefetch: false })}
           colors={colors}
+          nicknames={nicknames}
           mentionable={mentionable}
           onOpenProfile={(userId, trigger) => {
             const a = messages.find((m) => m.author.id === userId)?.author;

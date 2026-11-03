@@ -269,3 +269,12 @@ aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevoke
 - **Pontos de atenção:** `GET /api/users/me` e login/cadastro ganharam `email_verified`, `has_password` e `pending_email`; `PUT /users/me/email` pode responder 202; o River agora sobe sempre (antes só com storage ou push); o teste `TestFullAccountFlow` deixou de proibir a palavra "password" (agora proíbe o campo `"password"`, `password_hash` e `argon2`); sem `SPOOK_SECRET_KEY` em produção, reinícios derrubam fluxos OAuth em andamento.
 - **Verificação:** Go (unitários, `golangci-lint` v2, integração completa), Vitest, E2E `e2e/email-recovery.spec.ts`; ver o SPEC 5.5 e `VALIDACAO-MANUAL.md`.
 
+## Moderação e permissões (03/11/2026)
+
+Itens 3.1 a 3.5 do `PLANO-ADICIONAIS-2.md`: banir e desbanir com motivo, permissões por canal (canal privado), apelido por servidor, mutar e desconectar na voz, e registro de auditoria. Migration `00012_moderation`; requisitos em RF25, regras em 7.12 e decisões em 5.5 do `SPEC.md`.
+
+- **Backend.** Novo pacote `audit`; `perm` com resolução por canal e hierarquia genérica (`CanModerate`); `channel` com overwrites e visibilidade; `guild` com bans, apelido e mute; `voice` com `server_muted` e desconexão; gateway e notificações passam a usar a permissão efetiva do canal.
+- **Web.** Abas Banimentos e Auditoria, diálogos de banir e apelido, editor "Permissões" do canal, moderação de voz e aviso de banido no convite.
+- **Testes.** Unit (`perm`, `channel`, `guild`, `gateway`), integração (`app/moderation_integration_test.go`: matriz, hierarquia, vazamento, gateway, voz com LiveKit falso, auditoria, retenção, rate limit), Vitest e E2E `moderation.spec.ts`.
+- **Pendências.** Ver `PENDENCIAS-DONO.md` ("Moderação e permissões").
+

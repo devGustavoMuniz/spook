@@ -25,7 +25,10 @@ import type {
   ChannelPayload,
   CreateChannelInputBody,
   ErrorModel,
+  GetMyChannelPermissionsResponse,
+  OverwritePayload,
   ReorderChannelsInputBody,
+  SetChannelOverwriteRequest,
   UpdateChannelInputBody,
 } from "../../model";
 
@@ -225,6 +228,490 @@ export const useUpdateChannel = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getUpdateChannelMutationOptions(options), queryClient);
+};
+export const getGetMyChannelPermissionsUrl = (channelId: string) => {
+  return `/api/channels/${channelId}/my-permissions`;
+};
+
+/**
+ * @summary Minhas permissões efetivas neste canal (cargos + overwrites)
+ */
+export const getMyChannelPermissions = async (
+  channelId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<GetMyChannelPermissionsResponse> => {
+  return http<GetMyChannelPermissionsResponse>(getGetMyChannelPermissionsUrl(channelId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyChannelPermissionsQueryKey = (channelId: string) => {
+  return [`/api/channels/${channelId}/my-permissions`] as const;
+};
+
+export const getGetMyChannelPermissionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyChannelPermissions>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMyChannelPermissions>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyChannelPermissionsQueryKey(channelId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyChannelPermissions>>> = ({
+    signal,
+  }) => getMyChannelPermissions(channelId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: channelId !== null && channelId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getMyChannelPermissions>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type GetMyChannelPermissionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyChannelPermissions>>
+>;
+export type GetMyChannelPermissionsQueryError = ErrorModel;
+
+export function useGetMyChannelPermissions<
+  TData = Awaited<ReturnType<typeof getMyChannelPermissions>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMyChannelPermissions>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMyChannelPermissions>>,
+          TError,
+          Awaited<ReturnType<typeof getMyChannelPermissions>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMyChannelPermissions<
+  TData = Awaited<ReturnType<typeof getMyChannelPermissions>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMyChannelPermissions>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMyChannelPermissions>>,
+          TError,
+          Awaited<ReturnType<typeof getMyChannelPermissions>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMyChannelPermissions<
+  TData = Awaited<ReturnType<typeof getMyChannelPermissions>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMyChannelPermissions>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Minhas permissões efetivas neste canal (cargos + overwrites)
+ */
+
+export function useGetMyChannelPermissions<
+  TData = Awaited<ReturnType<typeof getMyChannelPermissions>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMyChannelPermissions>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetMyChannelPermissionsQueryOptions(channelId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getListChannelOverwritesUrl = (channelId: string) => {
+  return `/api/channels/${channelId}/overwrites`;
+};
+
+/**
+ * @summary Permissões por canal (overwrites); exige MANAGE_CHANNELS
+ */
+export const listChannelOverwrites = async (
+  channelId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<OverwritePayload[] | null> => {
+  return http<OverwritePayload[] | null>(getListChannelOverwritesUrl(channelId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListChannelOverwritesQueryKey = (channelId: string) => {
+  return [`/api/channels/${channelId}/overwrites`] as const;
+};
+
+export const getListChannelOverwritesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listChannelOverwrites>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listChannelOverwrites>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListChannelOverwritesQueryKey(channelId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listChannelOverwrites>>> = ({ signal }) =>
+    listChannelOverwrites(channelId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: channelId !== null && channelId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listChannelOverwrites>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListChannelOverwritesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listChannelOverwrites>>
+>;
+export type ListChannelOverwritesQueryError = ErrorModel;
+
+export function useListChannelOverwrites<
+  TData = Awaited<ReturnType<typeof listChannelOverwrites>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listChannelOverwrites>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listChannelOverwrites>>,
+          TError,
+          Awaited<ReturnType<typeof listChannelOverwrites>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListChannelOverwrites<
+  TData = Awaited<ReturnType<typeof listChannelOverwrites>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listChannelOverwrites>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listChannelOverwrites>>,
+          TError,
+          Awaited<ReturnType<typeof listChannelOverwrites>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListChannelOverwrites<
+  TData = Awaited<ReturnType<typeof listChannelOverwrites>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listChannelOverwrites>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Permissões por canal (overwrites); exige MANAGE_CHANNELS
+ */
+
+export function useListChannelOverwrites<
+  TData = Awaited<ReturnType<typeof listChannelOverwrites>>,
+  TError = ErrorModel,
+>(
+  channelId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listChannelOverwrites>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListChannelOverwritesQueryOptions(channelId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getDeleteChannelOverwriteUrl = (
+  channelId: string,
+  type: "role" | "member",
+  targetId: string,
+) => {
+  return `/api/channels/${channelId}/overwrites/${type}/${targetId}`;
+};
+
+/**
+ * @summary Remove o overwrite de um alvo (volta a herdar)
+ */
+export const deleteChannelOverwrite = async (
+  channelId: string,
+  type: "role" | "member",
+  targetId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getDeleteChannelOverwriteUrl(channelId, type, targetId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteChannelOverwriteMutationKey = () => ["deleteChannelOverwrite"] as const;
+
+export const getDeleteChannelOverwriteMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteChannelOverwrite>>,
+    TError,
+    DeleteChannelOverwriteMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteChannelOverwrite>>,
+  TError,
+  DeleteChannelOverwriteMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeleteChannelOverwriteMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteChannelOverwrite>>,
+    DeleteChannelOverwriteMutationVariables
+  > = (props) => {
+    const { channelId, type, targetId } = props ?? {};
+
+    return deleteChannelOverwrite(channelId, type, targetId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteChannelOverwriteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteChannelOverwrite>>
+>;
+
+export type DeleteChannelOverwriteMutationError = ErrorModel;
+export type DeleteChannelOverwriteMutationVariables = {
+  channelId: string;
+  type: "role" | "member";
+  targetId: string;
+};
+
+/**
+ * @summary Remove o overwrite de um alvo (volta a herdar)
+ */
+export const useDeleteChannelOverwrite = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deleteChannelOverwrite>>,
+      TError,
+      DeleteChannelOverwriteMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deleteChannelOverwrite>>,
+  TError,
+  DeleteChannelOverwriteMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeleteChannelOverwriteMutationOptions(options), queryClient);
+};
+export const getSetChannelOverwriteUrl = (
+  channelId: string,
+  type: "role" | "member",
+  targetId: string,
+) => {
+  return `/api/channels/${channelId}/overwrites/${type}/${targetId}`;
+};
+
+/**
+ * @summary Define o overwrite de um cargo (o @everyone tem o ID do servidor) ou membro; permitir e negar vazios removem. Canal privado = negar VIEW_CHANNEL ao @everyone e permitir a cargos/membros
+ */
+export const setChannelOverwrite = async (
+  channelId: string,
+  type: "role" | "member",
+  targetId: string,
+  setChannelOverwriteRequest: SetChannelOverwriteRequest,
+  options?: Parameters<typeof http>[1],
+): Promise<OverwritePayload> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<OverwritePayload>(getSetChannelOverwriteUrl(channelId, type, targetId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(setChannelOverwriteRequest),
+  });
+};
+
+export const getSetChannelOverwriteMutationKey = () => ["setChannelOverwrite"] as const;
+
+export const getSetChannelOverwriteMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setChannelOverwrite>>,
+    TError,
+    SetChannelOverwriteMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setChannelOverwrite>>,
+  TError,
+  SetChannelOverwriteMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSetChannelOverwriteMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setChannelOverwrite>>,
+    SetChannelOverwriteMutationVariables
+  > = (props) => {
+    const { channelId, type, targetId, data } = props ?? {};
+
+    return setChannelOverwrite(channelId, type, targetId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetChannelOverwriteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setChannelOverwrite>>
+>;
+export type SetChannelOverwriteMutationBody = SetChannelOverwriteRequest;
+export type SetChannelOverwriteMutationError = ErrorModel;
+export type SetChannelOverwriteMutationVariables = {
+  channelId: string;
+  type: "role" | "member";
+  targetId: string;
+  data: SetChannelOverwriteRequest;
+};
+
+/**
+ * @summary Define o overwrite de um cargo (o @everyone tem o ID do servidor) ou membro; permitir e negar vazios removem. Canal privado = negar VIEW_CHANNEL ao @everyone e permitir a cargos/membros
+ */
+export const useSetChannelOverwrite = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof setChannelOverwrite>>,
+      TError,
+      SetChannelOverwriteMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof setChannelOverwrite>>,
+  TError,
+  SetChannelOverwriteMutationVariables,
+  TContext
+> => {
+  return useMutation(getSetChannelOverwriteMutationOptions(options), queryClient);
 };
 export const getListGuildChannelsUrl = (guildId: string) => {
   return `/api/guilds/${guildId}/channels`;

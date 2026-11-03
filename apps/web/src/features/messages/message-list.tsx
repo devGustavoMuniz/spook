@@ -22,6 +22,8 @@ export type MessageListProps = {
   loadingMore: boolean;
   onLoadMore: () => void;
   colors: ReadonlyMap<string, string>;
+  /** user_id → apelido no servidor (nome exibido: apelido > nome de exibição > username). */
+  nicknames?: ReadonlyMap<string, string>;
   /** Usernames (minúsculos) de quem está na conversa: viram pílula de menção. */
   mentionable?: ReadonlySet<string>;
   /** Cartão de perfil do autor (clique no nome/avatar). */
@@ -266,6 +268,7 @@ export function MessageList(props: MessageListProps) {
                       myUsername={props.myUsername}
                       mentionable={props.mentionable}
                       color={props.colors.get(row.message.author.id)}
+                      nickname={props.nicknames?.get(row.message.author.id)}
                       canEdit={row.message.author.id === props.myId}
                       canDelete={row.message.author.id === props.myId || props.canManageMessages}
                       canReply={props.canReply}

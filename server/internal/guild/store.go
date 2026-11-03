@@ -138,7 +138,7 @@ func (s *PGStore) Access(ctx context.Context, guildID, userID int64) (Access, er
 	if err != nil {
 		return Access{}, wrap("buscar permissões", err)
 	}
-	return Access{OwnerID: r.OwnerID, Perms: perm.Perm(r.Permissions), Highest: int(r.HighestPosition)}, nil
+	return Access{OwnerID: r.OwnerID, Perms: perm.Perm(r.Permissions), Highest: int(r.HighestPosition), RoleIDs: r.RoleIds}, nil
 }
 
 func (s *PGStore) AccessByUser(ctx context.Context, userID int64) (map[int64]Access, map[int64][]int64, error) {
@@ -158,14 +158,18 @@ func (s *PGStore) AccessByUser(ctx context.Context, userID int64) (map[int64]Acc
 	for _, r := range mr {
 		roles[r.GuildID] = append(roles[r.GuildID], r.RoleID)
 	}
+	for gid, a := range access {
+		a.RoleIDs = roles[gid]
+		access[gid] = a
+	}
 	return access, roles, nil
 }
 
-func toMember(guildID, userID int64, nick *string, joined time.Time, username string, display, avatar, bio, pronouns, bannerKey *string, bannerColor *int32, roleIDs []int64) Member {
+func toMember(guildID, userID int64, nick *string, joined time.Time, voiceMuted bool, username string, display, avatar, bio, pronouns, bannerKey *string, bannerColor *int32, roleIDs []int64) Member {
 	return Member{
 		GuildID: guildID, UserID: userID, Nickname: nick, JoinedAt: joined, Username: username,
 		DisplayName: display, AvatarKey: avatar, Bio: bio, Pronouns: pronouns, BannerKey: bannerKey, BannerColor: bannerColor,
-		RoleIDs: roleIDs,
+		RoleIDs: roleIDs, VoiceMuted: voiceMuted,
 	}
 }
 
@@ -176,7 +180,7 @@ func (s *PGStore) Members(ctx context.Context, guildID, afterUserID int64, limit
 	}
 	out := make([]Member, len(rows))
 	for i, r := range rows {
-		out[i] = toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.RoleIds)
+		out[i] = toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.VoiceMuted, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.RoleIds)
 	}
 	return out, nil
 }
@@ -189,18 +193,137 @@ func (s *PGStore) Member(ctx context.Context, guildID, userID int64) (Member, er
 	if err != nil {
 		return Member{}, wrap("buscar membro", err)
 	}
-	return toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.RoleIds), nil
+	return toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.VoiceMuted, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.RoleIds), nil
 }
 
 func (s *PGStore) RemoveMember(ctx context.Context, guildID, userID int64) error {
-	n, err := s.q.DeleteMember(ctx, dbgen.DeleteMemberParams{GuildID: guildID, UserID: userID})
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return wrap("iniciar transação", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	if err := removeMember(ctx, q, guildID, userID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return wrap("confirmar transação", err)
+	}
+	return nil
+}
+
+// removeMember tira o membro e seus overwrites pessoais (quem volta não recupera acesso a canais privados).
+func removeMember(ctx context.Context, q *dbgen.Queries, guildID, userID int64) error {
+	n, err := q.DeleteMember(ctx, dbgen.DeleteMemberParams{GuildID: guildID, UserID: userID})
 	if err != nil {
 		return wrap("remover membro", err)
 	}
 	if n == 0 {
 		return ErrMemberNotFound
 	}
+	if err := q.DeleteMemberOverwrites(ctx, dbgen.DeleteMemberOverwritesParams{GuildID: &guildID, TargetID: userID}); err != nil {
+		return wrap("limpar overwrites do membro", err)
+	}
 	return nil
+}
+
+// Ban grava o banimento e remove o membro (se for membro), numa transação. wasMember diz se ele estava no servidor.
+func (s *PGStore) Ban(ctx context.Context, guildID, userID, by int64, reason *string) (wasMember bool, err error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return false, wrap("iniciar transação", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	if err := q.UpsertBan(ctx, dbgen.UpsertBanParams{GuildID: guildID, UserID: userID, BannedBy: &by, Reason: reason}); err != nil {
+		return false, wrap("gravar banimento", err)
+	}
+	switch err := removeMember(ctx, q, guildID, userID); {
+	case err == nil:
+		wasMember = true
+	case errors.Is(err, ErrMemberNotFound):
+	default:
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, wrap("confirmar transação", err)
+	}
+	return wasMember, nil
+}
+
+func (s *PGStore) Unban(ctx context.Context, guildID, userID int64) error {
+	n, err := s.q.DeleteBan(ctx, dbgen.DeleteBanParams{GuildID: guildID, UserID: userID})
+	if err != nil {
+		return wrap("desbanir", err)
+	}
+	if n == 0 {
+		return ErrBanNotFound
+	}
+	return nil
+}
+
+func (s *PGStore) IsBanned(ctx context.Context, guildID, userID int64) (bool, error) {
+	b, err := s.q.IsBanned(ctx, dbgen.IsBannedParams{GuildID: guildID, UserID: userID})
+	if err != nil {
+		return false, wrap("checar banimento", err)
+	}
+	return b, nil
+}
+
+func (s *PGStore) Bans(ctx context.Context, guildID, afterUserID int64, limit int) ([]Ban, error) {
+	rows, err := s.q.ListBans(ctx, dbgen.ListBansParams{GuildID: guildID, UserID: afterUserID, Limit: int32(limit)})
+	if err != nil {
+		return nil, wrap("listar banimentos", err)
+	}
+	out := make([]Ban, len(rows))
+	for i, r := range rows {
+		out[i] = Ban{
+			GuildID: r.GuildID, UserID: r.UserID, BannedBy: r.BannedBy, BannedByUsername: r.BannedByUsername, Reason: r.Reason,
+			CreatedAt: r.CreatedAt.Time, Username: r.Username, DisplayName: r.DisplayName, AvatarKey: r.AvatarKey,
+		}
+	}
+	return out, nil
+}
+
+func (s *PGStore) UserExists(ctx context.Context, userID int64) (bool, error) {
+	ok, err := s.q.UserExists(ctx, userID)
+	if err != nil {
+		return false, wrap("buscar usuário", err)
+	}
+	return ok, nil
+}
+
+func (s *PGStore) SetNickname(ctx context.Context, guildID, userID int64, nick *string) error {
+	n, err := s.q.SetMemberNickname(ctx, dbgen.SetMemberNicknameParams{GuildID: guildID, UserID: userID, Nickname: nick})
+	if err != nil {
+		return wrap("alterar apelido", err)
+	}
+	if n == 0 {
+		return ErrMemberNotFound
+	}
+	return nil
+}
+
+func (s *PGStore) SetVoiceMuted(ctx context.Context, guildID, userID int64, muted bool) error {
+	n, err := s.q.SetMemberVoiceMuted(ctx, dbgen.SetMemberVoiceMutedParams{GuildID: guildID, UserID: userID, VoiceMuted: muted})
+	if err != nil {
+		return wrap("mutar na voz", err)
+	}
+	if n == 0 {
+		return ErrMemberNotFound
+	}
+	return nil
+}
+
+func (s *PGStore) VoiceMuted(ctx context.Context, guildID, userID int64) (bool, error) {
+	m, err := s.q.GetMemberVoiceMuted(ctx, dbgen.GetMemberVoiceMutedParams{GuildID: guildID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrMemberNotFound
+	}
+	if err != nil {
+		return false, wrap("ler mute de voz", err)
+	}
+	return m, nil
 }
 
 func (s *PGStore) Roles(ctx context.Context, guildID int64) ([]Role, error) {
@@ -262,12 +385,24 @@ func (s *PGStore) UpdateRole(ctx context.Context, r Role) (Role, error) {
 }
 
 func (s *PGStore) DeleteRole(ctx context.Context, guildID, roleID int64) error {
-	n, err := s.q.DeleteRole(ctx, dbgen.DeleteRoleParams{ID: roleID, GuildID: guildID})
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return wrap("iniciar transação", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	n, err := q.DeleteRole(ctx, dbgen.DeleteRoleParams{ID: roleID, GuildID: guildID})
 	if err != nil {
 		return wrap("excluir cargo", err)
 	}
 	if n == 0 {
 		return ErrRoleNotFound
+	}
+	if err := q.DeleteRoleOverwrites(ctx, dbgen.DeleteRoleOverwritesParams{GuildID: &guildID, TargetID: roleID}); err != nil {
+		return wrap("limpar overwrites do cargo", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return wrap("confirmar transação", err)
 	}
 	return nil
 }

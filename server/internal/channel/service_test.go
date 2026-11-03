@@ -27,7 +27,10 @@ func (r *recorder) types() []string {
 	return out
 }
 
-type fakeStore struct{ chans map[int64]Channel }
+type fakeStore struct {
+	chans map[int64]Channel
+	ows   map[int64][]perm.Overwrite
+}
 
 func (f *fakeStore) Create(_ context.Context, c Channel) (Channel, error) {
 	f.chans[c.ID] = c
@@ -82,6 +85,35 @@ func (f *fakeStore) Delete(_ context.Context, id int64) error {
 	return nil
 }
 
+func (f *fakeStore) Overwrites(_ context.Context, id int64) ([]perm.Overwrite, error) {
+	return f.ows[id], nil
+}
+func (f *fakeStore) OverwritesByGuilds(context.Context, []int64) (map[int64][]perm.Overwrite, error) {
+	return f.ows, nil
+}
+func (f *fakeStore) SetOverwrite(_ context.Context, id int64, o perm.Overwrite) error {
+	if f.ows == nil {
+		f.ows = map[int64][]perm.Overwrite{}
+	}
+	_ = f.DeleteOverwrite(context.Background(), id, o.Type, o.TargetID)
+	if o.Allow != 0 || o.Deny != 0 {
+		f.ows[id] = append(f.ows[id], o)
+	}
+	return nil
+}
+func (f *fakeStore) DeleteOverwrite(_ context.Context, id int64, t perm.TargetType, target int64) error {
+	var keep []perm.Overwrite
+	for _, o := range f.ows[id] {
+		if o.Type != t || o.TargetID != target {
+			keep = append(keep, o)
+		}
+	}
+	if f.ows != nil {
+		f.ows[id] = keep
+	}
+	return nil
+}
+
 type fakeAccess struct {
 	members map[int64]perm.Member // userID -> membro do servidor 1
 }
@@ -92,6 +124,20 @@ func (f fakeAccess) Member(_ context.Context, _, userID int64) (perm.Member, err
 		return perm.Member{}, perm.ErrNotMember
 	}
 	return m, nil
+}
+
+func (f fakeAccess) OverwriteTarget(_ context.Context, g int64, t perm.TargetType, id int64) (Target, error) {
+	if t == perm.TargetRole {
+		if id == g {
+			return Target{Name: "@everyone", Everyone: true}, nil
+		}
+		return Target{Name: "cargo", Rank: int(id % 100)}, nil
+	}
+	m, ok := f.members[id]
+	if !ok {
+		return Target{}, apperr.NotFound("membro não encontrado")
+	}
+	return Target{Name: "m", Rank: m.Highest, IsOwner: m.IsOwner}, nil
 }
 
 type seq struct{ n int64 }

@@ -30,15 +30,22 @@ type fakeDir struct {
 	mu       sync.Mutex
 	perms    map[[2]int64]perm.Perm // (guild, user) -> permissões; ausente = não é membro
 	channels map[int64][]int64      // guild -> canais
+	hidden   map[[3]int64]bool      // (guild, usuário, canal) escondido por overwrite
 }
 
 func newFakeDir() *fakeDir {
-	return &fakeDir{perms: map[[2]int64]perm.Perm{}, channels: map[int64][]int64{}}
+	return &fakeDir{perms: map[[2]int64]perm.Perm{}, channels: map[int64][]int64{}, hidden: map[[3]int64]bool{}}
 }
 
 func (d *fakeDir) setPerm(g, u int64, p perm.Perm) {
 	d.mu.Lock()
 	d.perms[[2]int64{g, u}] = p
+	d.mu.Unlock()
+}
+
+func (d *fakeDir) hide(g, u, c int64, on bool) {
+	d.mu.Lock()
+	d.hidden[[3]int64{g, u, c}] = on
 	d.mu.Unlock()
 }
 
@@ -59,7 +66,9 @@ func (d *fakeDir) List(_ context.Context, u int64) ([]guild.Detail, error) {
 		det := guild.Detail{Guild: guild.Guild{ID: k[0], Name: "g" + strconv.FormatInt(k[0], 10), OwnerID: 1}, Member: perm.NewMember(u, false, p, 0)}
 		if det.Member.Has(perm.ViewChannel) {
 			for _, c := range d.channels[k[0]] {
-				det.Channels = append(det.Channels, channel.Channel{ID: c, GuildID: &k[0]})
+				if !d.hidden[[3]int64{k[0], u, c}] {
+					det.Channels = append(det.Channels, channel.Channel{ID: c, GuildID: &k[0]})
+				}
 			}
 		}
 		out = append(out, det)
@@ -77,10 +86,22 @@ func (d *fakeDir) Member(_ context.Context, g, u int64) (perm.Member, error) {
 	return perm.NewMember(u, false, p, 0), nil
 }
 
-func (d *fakeDir) ChannelIDs(_ context.Context, g int64) ([]int64, error) {
+func (d *fakeDir) ChannelView(_ context.Context, g, u int64) (guild.ChannelView, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return append([]int64(nil), d.channels[g]...), nil
+	p, ok := d.perms[[2]int64{g, u}]
+	if !ok {
+		return guild.ChannelView{}, perm.ErrNotMember
+	}
+	v := guild.ChannelView{Base: perm.NewMember(u, false, p, 0).Has(perm.ViewChannel)}
+	if v.Base {
+		for _, c := range d.channels[g] {
+			if !d.hidden[[3]int64{g, u, c}] {
+				v.Channels = append(v.Channels, channel.Channel{ID: c, GuildID: &g})
+			}
+		}
+	}
+	return v, nil
 }
 
 type fakeAuth map[string]int64
@@ -928,4 +949,71 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("condição não atingida a tempo")
+}
+
+// Overwrites de canal: quem perde a visão sai do tópico e recebe só o CHANNEL_DELETE; quem ganha, o CHANNEL_CREATE.
+// Eventos do canal escondido (mensagens, atualização, digitando) não chegam a quem não o vê.
+func TestChannelOverwritesRefreshSubscriptions(t *testing.T) {
+	cfg := fastCfg()
+	cfg.HeartbeatInterval = time.Minute
+	r := newRig(t, cfg)
+	r.dir.channels[10] = []int64{100, 101}
+	r.dir.setPerm(10, 1, perm.DefaultEveryone)
+	r.dir.setPerm(10, 2, perm.DefaultEveryone)
+	staff, member := r.dial("tok-1"), r.dial("tok-2")
+	staff.identify()
+	_, ready := member.identify()
+	if !strings.Contains(string(ready.D), `"101"`) {
+		t.Fatalf("antes do overwrite o membro vê o canal 101 no READY: %s", ready.D)
+	}
+
+	r.dir.hide(10, 2, 101, true)
+	r.bus.Publish(events.Event{Type: events.ChannelOverwritesUpdate, GuildID: 10, ChannelID: 101, Topics: []string{guildTopic(10)}, Data: map[string]string{"id": "101"}})
+	del := member.expectEvent("CHANNEL_DELETE")
+	if !strings.Contains(string(del.D), `"id":"101"`) {
+		t.Fatalf("CHANNEL_DELETE: %s", del.D)
+	}
+	staff.expectNone(200 * time.Millisecond) // o evento interno nunca vai ao cliente de quem continua vendo
+
+	r.msg(10, 101, "segredo")
+	staff.expectEvent("MESSAGE_CREATE")
+	r.bus.Publish(events.Event{Type: events.ChannelUpdate, GuildID: 10, ChannelID: 101, Topics: []string{guildTopic(10)}, Data: map[string]string{"id": "101"}})
+	staff.expectEvent("CHANNEL_UPDATE")
+	r.bus.Publish(events.Event{Type: events.TypingStart, GuildID: 10, ChannelID: 101, Topics: []string{channelTopic(101)}, Data: map[string]string{"channel_id": "101"}})
+	staff.expectEvent("TYPING_START")
+	r.bus.Publish(events.Event{Type: events.VoiceStateUpdate, GuildID: 10, ChannelID: 101, Topics: []string{guildTopic(10)}, Data: map[string]string{"user_id": "1"}})
+	staff.expectEvent("VOICE_STATE_UPDATE")
+	member.expectNone(400 * time.Millisecond)
+
+	r.msg(10, 100, "público")
+	member.expectEvent("MESSAGE_CREATE")
+
+	// Volta a ver: recebe o canal e as mensagens seguintes.
+	r.dir.hide(10, 2, 101, false)
+	r.bus.Publish(events.Event{Type: events.ChannelOverwritesUpdate, GuildID: 10, ChannelID: 101, Topics: []string{guildTopic(10)}, Data: map[string]string{"id": "101"}})
+	add := member.expectEvent("CHANNEL_CREATE")
+	if !strings.Contains(string(add.D), `"id":"101"`) {
+		t.Fatalf("CHANNEL_CREATE: %s", add.D)
+	}
+	r.msg(10, 101, "agora sim")
+	member.expectEvent("MESSAGE_CREATE")
+}
+
+// Um canal criado depois não aparece para quem não tem VIEW_CHANNEL no servidor, mesmo conectado.
+func TestChannelCreateNeedsBaseView(t *testing.T) {
+	cfg := fastCfg()
+	cfg.HeartbeatInterval = time.Minute
+	r := newRig(t, cfg)
+	r.dir.channels[10] = []int64{100}
+	r.dir.setPerm(10, 1, perm.DefaultEveryone)
+	r.dir.setPerm(10, 2, perm.DefaultEveryone&^perm.ViewChannel)
+	staff, blind := r.dial("tok-1"), r.dial("tok-2")
+	staff.identify()
+	blind.identify()
+	r.bus.Publish(events.Event{Type: events.ChannelCreate, GuildID: 10, ChannelID: 102, Topics: []string{guildTopic(10)}, Data: map[string]string{"id": "102"}})
+	staff.expectEvent("CHANNEL_CREATE")
+	blind.expectNone(300 * time.Millisecond)
+	r.msg(10, 102, "x")
+	staff.expectEvent("MESSAGE_CREATE")
+	blind.expectNone(200 * time.Millisecond)
 }

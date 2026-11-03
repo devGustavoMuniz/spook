@@ -26,6 +26,8 @@ O painel administrativo (`e2e/admin.spec.ts`) confere que quem não é admin é 
 
 E-mail e recuperação de senha (`e2e/email-recovery.spec.ts`): cadastro com faixa "Verifique seu e-mail", link de verificação aberto em outro navegador (uso único) e "Esqueci minha senha" até entrar com a senha nova. Precisa de um backend em **desenvolvimento** com o e-mail ligado (`SPOOK_ENV=development MAILER_DRIVER=log MAIL_FLOWS_ON_LOG=true PUBLIC_URL=<a URL do backend>`): o e-mail sai no log e em `GET /api/dev/mail/last?to=` (rota que **não existe** em produção), de onde o teste lê o link. Sem e-mail ligado o teste pula sozinho. Com a flag ligada, o teste de troca de e-mail do `account.spec.ts` muda de comportamento (a troca passa a pedir confirmação no endereço novo): rode as duas suítes em backends diferentes.
 
+Moderação (`e2e/moderation.spec.ts`): banir e tentar reentrar, canal privado ao vivo, apelido, registro de auditoria e telas em 390 px; não precisa de serviços extras.
+
 Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
 
 ### Local, sem instalar nada global (Docker)

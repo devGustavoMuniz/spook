@@ -210,6 +210,15 @@ Itens 1.1, 1.3, 1.7, 1.8, 5.1, 5.2, 5.3 e (parte de) 1.2 do `PLANO-ADICIONAIS-2.
 
 ---
 
+### RF25 — Moderação e permissões por canal (adicional)
+Itens 3.1 a 3.5 do `PLANO-ADICIONAIS-2.md`; migration `00012_moderation`. Detalhes e decisões em 5.5 ("Adicional: moderação...") e regras em 7.12.
+- RF25.1 Banir e desbanir com motivo (`PUT|DELETE /api/guilds/{id}/bans/{user_id}`, `GET /api/guilds/{id}/bans`), permissão `BAN_MEMBERS`, vale também para quem não é mais membro; bloqueia a volta por convite (403 `code: banned`).
+- RF25.2 Permissões por canal (overwrites) e canal privado (`GET|PUT|DELETE /api/channels/{id}/overwrites[/{type}/{target_id}]`, `GET /api/channels/{id}/my-permissions`); toda checagem de acesso a canal usa a permissão efetiva.
+- RF25.3 Apelido por servidor (`PATCH /api/guilds/{id}/members/{user_id}/nick`, `@me` para o próprio): `CHANGE_NICKNAME` / `MANAGE_NICKNAMES`.
+- RF25.4 Mutar (`PUT|DELETE /api/guilds/{id}/members/{user_id}/voice-mute`, `MUTE_MEMBERS`) e desconectar da voz (`POST /api/channels/{id}/voice/{user_id}/disconnect`, `DISCONNECT_MEMBERS`); `server_muted` no estado de voz.
+- RF25.5 Registro de auditoria (`GET /api/guilds/{id}/audit-logs`, `VIEW_AUDIT_LOG`), retenção `AUDIT_RETENTION_DAYS` (90).
+- Teste: `perm`, `channel/overwrites_test.go`, `guild/moderation_test.go`, `gateway` (overwrites), `app/moderation_integration_test.go`; Vitest `moderation.test.tsx`, `channel-permissions.test.tsx`, `voice-moderation.test.tsx`; E2E `e2e/moderation.spec.ts`.
+
 ## 4. Requisitos não funcionais
 
 ### RNF01 — Performance (metas iniciais; recalibrar após o baseline do Laravel)
@@ -755,6 +764,14 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Web.** Páginas `/forgot-password`, `/reset-password`, `/verify-email`, `/auth/choose-username` e `/desktop-login` (cartões de estado em `auth/status-card.tsx`, no padrão das telas de entrada, 390 px); botões "Continuar com Google/Discord" (`auth/social-buttons.tsx`; ícones SVG próprios; só dos provedores ligados e fora do desktop); faixa `features/account/verify-banner.tsx`; Configurações > Perfil ganhou o estado da verificação, "Contas vinculadas" e "Definir senha".
 - **Testes.** Go: `mailer` (modelos escapados, `log` sem vazar, SMTP contra servidor falso, injeção de cabeçalho), `secret`, `config`, `mailflow` (cifra do token e idempotência do envio), `social` (estado/PKCE/cookie adulterado, `SafeRedirect`, provedores contra `httptest`), `auth/desktop_test.go` (vetor da RFC 7636, uso único, TTL, verificador), `app/email_social_integration_test.go` (verificar, reenviar, expirar, retentativa do envio, troca de e-mail, degradado, exigência de verificação, esqueci/redefinir com sessões encerradas, TTL de 30 min, limites, piso de duração, CLI do admin, cabeçalhos, caixa de saída só em dev, login social novo/existente/cookie adulterado/`state`/e-mail coincidente sem vínculo/vincular/desvincular/último método/reauth/definir senha, handoff do desktop). Web: Vitest e E2E `e2e/email-recovery.spec.ts` (precisa de backend em desenvolvimento com `MAILER_DRIVER=log MAIL_FLOWS_ON_LOG=true`; pula sozinho sem e-mail ligado).
 
+**Adicional: moderação e permissões** (backend + web; `PLANO-ADICIONAIS-2.md` itens 3.1 a 3.5; migration `00012_moderation`)
+- **Bits novos** 13 a 18 (7.2). A migração só concede CHANGE_NICKNAME ao `@everyone` dos servidores existentes (igual aos novos); nenhum cargo ganha as permissões de moderação.
+- **Resolução por canal em `perm`** (`Member.InChannel`, puro) com `RoleIDs`/`GuildID` no `perm.Member`; `channel.Service` carrega os overwrites a cada `Authorize` (uma consulta indexada a mais; sem cache). Visibilidade da lista: `ListVisible`/`ListVisibleByGuilds`; o gateway usa `guild.ChannelView` (base + canais visíveis) e `Session.syncChannels`. O evento interno `CHANNEL_OVERWRITES_UPDATE` nunca vai ao cliente. Voz: `Access.ViewableChannels` e `Access.Moderate`; READY e snapshot filtram por canal.
+- **Decisões.** Sem herança da categoria; categoria sem VIEW não esconde os filhos (a web os mostra soltos); canal sem acesso responde 403 (404 na prévia da tela e ao editar overwrites); banir não revoga convites; permissões novas separadas (`CHANGE_NICKNAME` próprio, `MANAGE_NICKNAMES` alheio, `MUTE_MEMBERS`, `DISCONNECT_MEMBERS`; sem "mover"); bans listados por ID de usuário (cursor `after`).
+- **Auditoria** em `internal/audit` (`Record` sem erro; `changes` truncado a um marcador acima de 4 KB; job `audit_purge` diário em lotes de 1000; `AUDIT_RETENTION_DAYS`, 1 a 3650).
+- **Web.** Abas Banimentos e Auditoria (configurações do servidor), `BanDialog`, `NicknameDialog`, "Permissões" no menu do canal (`channels/permissions-dialog.tsx`: canal privado + tri-state Negar/Herdar/Permitir), moderação de voz (`voice/moderation.tsx`) e bloqueio do microfone para quem foi mutado. Vitest: `moderation.test.tsx`, `channel-permissions.test.tsx`, `voice-moderation.test.tsx`, `lib/overwrites.test.ts`; E2E `e2e/moderation.spec.ts`.
+- **Limitações.** Mutar não persiste para quem não está em voz além da flag (aplicada ao entrar). Lista de banidos mostra até 1000. Sem rastreio de quem baniu após exclusão da conta (fica nulo).
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
@@ -806,8 +823,9 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | --- | --- | --- |
 | guild_id | bigint FK guilds | PK composta |
 | user_id | bigint FK users | PK composta |
-| nickname | text NULL | |
+| nickname | text NULL | 1 a 32 caracteres (adicional) |
 | joined_at | timestamptz | |
+| voice_muted | boolean | mute de voz imposto por moderador, persistente (adicional) |
 
 ### roles
 | Coluna | Tipo | Notas |
@@ -942,6 +960,15 @@ Cadastro social aguardando o username: `token_hash` (PK, SHA-256 do cookie), `pr
 ### desktop_login_codes (adicional)
 `code_hash` (PK), `user_id` FK, `code_challenge` (PKCE S256), `expires_at` (60 s), `used_at`. Uso único.
 
+### guild_bans (adicional)
+`guild_id` FK guilds, `user_id` FK users (PK composta), `banned_by` FK users NULL (SET NULL), `reason` text NULL (até 512), `created_at`. Existe mesmo quando a pessoa não é membro.
+
+### channel_overwrites (adicional)
+`channel_id` FK channels (cascata), `target_type` (`role` | `member`), `target_id` (cargo, com `@everyone` = id do servidor, ou usuário), `allow` e `deny` bigint (sem sobreposição); PK (channel_id, target_type, target_id). Limpos ao excluir o cargo e quando o membro sai, é expulso ou banido.
+
+### audit_logs (adicional)
+`id` snowflake, `guild_id` FK (cascata), `actor_id` FK NULL, `action`, `target_type`, `target_id`, `reason` (até 512), `changes` jsonb (até 4 KB), `created_at`; índice (guild_id, id desc). Retenção por job River diário.
+
 ### Mapa de migrations
 
 Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrations).
@@ -954,6 +981,7 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | 00009_admin | `users.is_admin` e índice `messages (author_id)` (adicional) |
 | 00010_account_profile | `users.bio`, `pronouns`, `banner_key`, `banner_color`, `deleted_at` e `sessions.password_confirmed_at` (adicional) |
 | 00011_email_social | `users.email_verified_at` e `pending_email`; tabelas `email_tokens`, `social_accounts`, `social_signups` e `desktop_login_codes` (adicional) |
+| 00012_moderation | tabelas `guild_bans`, `channel_overwrites`, `audit_logs`; `guild_members.voice_muted`; `CHANGE_NICKNAME` no `@everyone` dos servidores existentes (adicional) |
 
 ### Estado só em memória (não persistido)
 - Presença e sessões do gateway
@@ -987,11 +1015,17 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | 1 << 10 | CONNECT (voz) |
 | 1 << 11 | SPEAK |
 | 1 << 12 | VIDEO (câmera e tela) |
+| 1 << 13 | BAN_MEMBERS (adicional) |
+| 1 << 14 | CHANGE_NICKNAME (adicional) |
+| 1 << 15 | MANAGE_NICKNAMES (adicional) |
+| 1 << 16 | MUTE_MEMBERS (adicional) |
+| 1 << 17 | DISCONNECT_MEMBERS (adicional) |
+| 1 << 18 | VIEW_AUDIT_LOG (adicional) |
 
 - Permissão efetiva = OR das permissões de `@everyone` e de todos os cargos do membro.
-- Permissões padrão do `@everyone`: VIEW_CHANNEL, SEND_MESSAGES, ATTACH_FILES, CREATE_INVITE, CONNECT, SPEAK, VIDEO.
+- Permissões padrão do `@everyone`: VIEW_CHANNEL, SEND_MESSAGES, ATTACH_FILES, CREATE_INVITE, CONNECT, SPEAK, VIDEO e CHANGE_NICKNAME. Em um canal, a permissão efetiva ainda passa pelos overwrites (7.12).
 - Um membro só gerencia cargos com posição menor que o seu cargo mais alto, e só concede permissões que ele mesmo tem.
-- Um membro só expulsa quem tem cargo mais alto menor que o seu. O dono nunca pode ser expulso.
+- Um membro só expulsa quem tem cargo mais alto menor que o seu. O dono nunca pode ser expulso. A mesma hierarquia vale para banir, mutar, desconectar da voz e mudar apelido alheio (7.12); ADMINISTRATOR concede a permissão, mas não passa por cima de cargo igual ou superior.
 
 ### 7.3 Mensagens
 - Conteúdo de 1 a 2.000 caracteres, ou vazio se houver anexo.
@@ -1101,6 +1135,16 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 
 ---
 
+### 7.12 Moderação, permissões por canal e auditoria (adicional)
+- **Hierarquia (`perm.Member.CanModerate`).** Exige a permissão; o alvo não pode ser o dono nem o próprio ator; o cargo mais alto do alvo tem de ser estritamente menor que o do ator. O dono é isento. O administrador do painel `/admin` não é moderador (o painel é só leitura).
+- **Banir.** `BAN_MEMBERS`; motivo opcional de até 512 caracteres; em membro, hierarquia; em quem não é membro basta o usuário existir (o dono nunca). Numa transação grava o ban, remove o membro e limpa os overwrites pessoais. Publica `GUILD_MEMBER_REMOVE` e `GUILD_DELETE` ao banido (o gateway o desassina do servidor), e a voz o derruba. Entrar por convite: 403 `banned`, verificado dentro da transação do convite. Convites criados por quem foi banido **não** são revogados. Desbanir não devolve a pessoa: exige convite novo; sem ban, 404.
+- **Overwrites.** Só bits de canal (VIEW_CHANNEL, SEND_MESSAGES, MANAGE_MESSAGES, ATTACH_FILES, CONNECT, SPEAK, VIDEO); allow e deny não se sobrepõem. Resolução: base por cargos, overwrite do @everyone, overwrites dos cargos do membro (todos os deny e depois todos os allow), overwrite do membro (deny e depois allow). Dono e ADMINISTRATOR ignoram. Sem VIEW_CHANNEL no resultado, as permissões de canal somem. Canal novo nasce sem overwrites (não herda da categoria). Canal privado = deny de VIEW_CHANNEL ao @everyone + allow a cargos/membros.
+- **Editar overwrites.** `MANAGE_CHANNELS` e ver o canal (quem não o vê recebe 404); o alvo precisa estar abaixo do editor (o @everyone não tem hierarquia; o dono não é alvo, 422); o editor só pode **permitir** o que ele mesmo tem no canal (negar é livre dentro da hierarquia). Rate limit de moderação (rajada 20, 1/s).
+- **Acesso.** `channel.Authorize` calcula a permissão efetiva; mensagens, anexos, "digitando", pins, voz (token, prévia), lista de canais, `GET /guilds`, READY, fan-out do gateway, menções e não lidas usam o canal, nunca só o servidor. Mudou overwrite, cargo ou cargos do membro: o gateway reavalia as assinaturas (quem perdeu recebe `CHANNEL_DELETE`, quem ganhou `CHANNEL_CREATE`, só ele) e a voz derruba quem perdeu CONNECT.
+- **Apelido.** 1 a 32 caracteres, sem controle; vazio remove. O próprio: `CHANGE_NICKNAME` (ou `MANAGE_NICKNAMES`); de outro: `MANAGE_NICKNAMES` + hierarquia. Evento `GUILD_MEMBER_UPDATE`. Nome exibido: apelido > nome de exibição > username.
+- **Voz.** Mutar exige `MUTE_MEMBERS` + hierarquia e persiste (`voice_muted`); a voz tira o microfone dos grants e reaplica a cada token; `server_muted` no estado de voz. Desconectar exige `DISCONNECT_MEMBERS` + hierarquia e que o alvo esteja naquele canal (409); a pessoa pode voltar.
+- **Auditoria.** Ações: criar/editar/excluir canal, overwrites alterados ou removidos, criar/editar/excluir cargo, atribuir/remover cargo, expulsar, banir, desbanir, mutar, liberar mute, desconectar, apelido alterado **por outro**, convite criado/revogado, nome/ícone do servidor, transferência de posse. Escrita pelo service dono da ação via interface mínima (`Record`), que nunca falha a ação principal. Leitura: `VIEW_AUDIT_LOG`, mais novo primeiro, cursor `before`, filtros `action` e `actor` (ação inválida: 422).
+
 ## 8. Critérios de aceite por fase
 
 Cada fase só é concluída quando todos os critérios forem atendidos **e** a instrumentação da fase (header `Server-Timing`, métricas e traces no código) e os cenários k6 correspondentes estiverem escritos e versionados em `bench/`. A **execução** das medições e o registro dos resultados ficam na **Fase B**, depois da Fase 7.
@@ -1184,6 +1228,7 @@ Cada item abaixo é aceito pelos critérios do RF correspondente (seção 3) e p
 - [ ] Bandeja, início com o sistema, contador no ícone e clique na notificação nos três SOs (RF20).
 - [x] Contas e perfil: trocar senha (derruba as outras sessões), confirmar senha, trocar e-mail, excluir conta (recusa dono; mensagens anonimizadas), usernames reservados, bio, pronomes, banner e avatar animado (RF23); [ ] conferência visual dos editores e do cartão em navegador real e da exclusão em produção.
 - [x] E-mail e login social: verificação, troca de e-mail confirmada no endereço novo, recuperação de senha (e `spook admin reset-password`), Google/Discord (entrar, vincular, desvincular, último método) e login do desktop por navegador (backend e páginas) (RF24); [ ] SMTP real, apps OAuth reais, deep link `spook://` no Rust e conferência visual (ver `VALIDACAO-MANUAL.md` e `PENDENCIAS-DONO.md`).
+- [x] Moderação: banir/desbanir, permissões por canal e canal privado, apelido, mutar/desconectar na voz e registro de auditoria (RF25); [ ] conferência visual e com LiveKit real (`VALIDACAO-MANUAL.md`).
 - [x] Painel `/admin` e `spook admin` verificados por testes; [ ] conferência dos números e da mídia do LiveKit contra a produção (RF21).
 
 ---

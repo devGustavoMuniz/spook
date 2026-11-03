@@ -67,6 +67,8 @@ let rejoinTimer: ReturnType<typeof setTimeout> | undefined;
 let stopPreview: ((remote?: boolean) => void) | null = null;
 let previewChannel: string | null = null;
 let focusNonce = 0;
+/** Um moderador mutou a minha voz (MUTE_MEMBERS): o microfone fica bloqueado até o servidor liberar. */
+let serverMuted = false;
 
 const session = () => useVoiceStore.getState();
 
@@ -234,6 +236,7 @@ export async function leaveCall() {
   if (session().status === "idle") return;
   generation++;
   clearTimeout(rejoinTimer);
+  serverMuted = false;
   const eng = engine;
   session().clear();
   useAudioStatusStore.getState().set(null);
@@ -249,6 +252,10 @@ export async function leaveCall() {
 export async function toggleMute() {
   const s = session();
   const mute = !s.selfMute;
+  if (!mute && serverMuted && s.status !== "idle") {
+    toast.error("Um moderador mutou você nesta chamada. Peça para liberarem o seu microfone.");
+    return;
+  }
   if (s.status === "idle") {
     // Fora da chamada só guarda a preferência (vale ao entrar; `clear` a preserva).
     s.patch({
@@ -302,6 +309,11 @@ function reportMediaIssue(err: unknown) {
 
 async function applyMic(on: boolean) {
   if (!engine) return;
+  if (on && serverMuted) {
+    // O servidor não deixa publicar: continua mudo em vez de tentar e falhar.
+    session().patch({ selfMute: true, muteBeforeDeaf: true });
+    return;
+  }
   try {
     await engine.setMicrophoneEnabled(on);
     if (on) session().patch({ mediaIssue: null });
@@ -616,6 +628,7 @@ async function rejoin(gen: number, attempt: number) {
 
 /** O servidor (ou a rede, sem volta) nos tirou: limpa o estado local e avisa. */
 function forcedOut(message: string) {
+  serverMuted = false;
   generation++;
   clearTimeout(rejoinTimer);
   session().clear();
@@ -642,6 +655,7 @@ export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) 
   if (s.status === "idle") return;
   if (u.channel_id === s.channelId) {
     if (!s.confirmed) s.patch({ confirmed: true });
+    syncServerMute(!!u.server_muted);
     return;
   }
   if (!s.confirmed) return;
@@ -650,6 +664,20 @@ export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) 
       ? "Você entrou em outra chamada em outro dispositivo."
       : "Você foi desconectado da chamada de voz.",
   );
+}
+
+/** O servidor mutou (ou liberou) o MEU microfone: bloqueia/libera o botão, silencia a captura e avisa. */
+function syncServerMute(muted: boolean) {
+  if (muted === serverMuted) return;
+  serverMuted = muted;
+  if (muted) {
+    session().patch({ selfMute: true, muteBeforeDeaf: true });
+    void engine?.setMicrophoneEnabled(false).catch(() => {});
+    void syncState();
+    toast.warning("Um moderador mutou você nesta chamada.");
+  } else {
+    toast.info("O moderador liberou o seu microfone. Use o botão de microfone para falar.");
+  }
 }
 
 /** Sons de quem chega, sai ou liga/desliga a transmissão na MINHA sala (nunca por mim mesmo). */
@@ -677,6 +705,7 @@ export function reconcileVoiceSnapshot(myId: string | null, states: readonly Gat
   const mine = states.find((x) => x.user_id === myId && x.channel_id);
   if (mine?.channel_id === s.channelId) {
     if (!s.confirmed) s.patch({ confirmed: true });
+    syncServerMute(!!mine.server_muted);
     return;
   }
   if (s.confirmed) forcedOut("Você foi desconectado da chamada de voz.");
@@ -695,6 +724,7 @@ export function leaveOnPageHide() {
 
 /** Área autenticada desmontada (sair da conta): solta a sala local; a sessão já não permite avisar o servidor. */
 export function shutdownVoice() {
+  serverMuted = false;
   generation++;
   clearTimeout(rejoinTimer);
   void engine?.disconnect();

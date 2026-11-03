@@ -41,7 +41,9 @@ const refreshWorkers = 16
 type Directory interface {
 	List(ctx context.Context, userID int64) ([]guild.Detail, error)
 	Member(ctx context.Context, guildID, userID int64) (perm.Member, error)
-	ChannelIDs(ctx context.Context, guildID int64) ([]int64, error)
+	// ChannelView devolve o que o usuário vê do servidor (permissão efetiva de cada canal); não-membro:
+	// perm.ErrNotMember.
+	ChannelView(ctx context.Context, guildID, userID int64) (guild.ChannelView, error)
 }
 
 // DMs é o que o gateway consulta das DMs (implementada pelo dm.Service): as DMs do usuário, com
@@ -485,6 +487,11 @@ func (h *Hub) handle(ev events.Event) {
 		}
 	case events.RoleUpdate, events.RoleDelete:
 		h.refresh(ctx, recips, ev.GuildID)
+	case events.ChannelOverwritesUpdate:
+		// Evento interno: reavalia quem vê o canal (entra/sai dos tópicos e recebe CHANNEL_CREATE/CHANNEL_DELETE
+		// só ele) e não entrega nada ao cliente.
+		h.refresh(ctx, recips, ev.GuildID)
+		return
 	case events.GuildMemberUpdate:
 		var m memberData
 		if json.Unmarshal(d, &m) == nil {
@@ -534,6 +541,10 @@ func allows(s *Session, ev events.Event) bool {
 	switch ev.Type {
 	case events.MessageCreate, events.MessageUpdate, events.MessageDelete, events.TypingStart,
 		events.ChannelCreate, events.ChannelUpdate, events.ChannelDelete, events.VoiceStateUpdate:
+		if ev.GuildID != 0 && ev.ChannelID != 0 {
+			// Visibilidade POR CANAL (cargos + overwrites): canal privado não vaza para quem não o vê.
+			return s.canSee(ev.GuildID, ev.ChannelID)
+		}
 		if ev.GuildID != 0 {
 			return s.canView(ev.GuildID)
 		}
@@ -566,7 +577,7 @@ func (h *Hub) refresh(ctx context.Context, sessions []*Session, gid int64) {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			m, err := h.dir.Member(ctx, gid, uid)
+			v, err := h.dir.ChannelView(ctx, gid, uid)
 			switch {
 			case errors.Is(err, perm.ErrNotMember):
 				for _, s := range ss {
@@ -577,10 +588,27 @@ func (h *Hub) refresh(ctx context.Context, sessions []*Session, gid int64) {
 				slog.Warn("gateway: não foi possível recalcular a permissão", "guild", gid, "user", uid, "err", err)
 				return
 			}
-			view := m.Has(perm.ViewChannel)
+			ids := make([]int64, len(v.Channels))
+			byID := make(map[int64]channel.Channel, len(v.Channels))
+			for i, c := range v.Channels {
+				ids[i] = c.ID
+				byID[c.ID] = c
+			}
 			for _, s := range ss {
-				if err := s.setView(gid, view, func() ([]int64, error) { return h.dir.ChannelIDs(ctx, gid) }); err != nil {
-					slog.Warn("gateway: não foi possível listar os canais", "guild", gid, "user", uid, "err", err)
+				added, removed := s.syncChannels(gid, v.Base, ids)
+				now := time.Now()
+				// Quem ganhou um canal o recebe como CHANNEL_CREATE; quem perdeu, como CHANNEL_DELETE (só ele).
+				for _, id := range added {
+					if d, err := json.Marshal(byID[id].Payload()); err == nil {
+						s.push(events.ChannelCreate, d, now)
+					}
+				}
+				for _, id := range removed {
+					gs := strconv.FormatInt(gid, 10)
+					p := channel.ChannelPayload{ID: strconv.FormatInt(id, 10), GuildID: &gs}
+					if d, err := json.Marshal(p); err == nil {
+						s.push(events.ChannelDelete, d, now)
+					}
 				}
 			}
 		}()

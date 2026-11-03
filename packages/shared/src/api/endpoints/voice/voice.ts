@@ -445,6 +445,91 @@ export const useCreateVoiceToken = <TError = ErrorModel, TContext = unknown>(
 > => {
   return useMutation(getCreateVoiceTokenMutationOptions(options), queryClient);
 };
+export const getDisconnectVoiceMemberUrl = (channelId: string, userId: string) => {
+  return `/api/channels/${channelId}/voice/${userId}/disconnect`;
+};
+
+/**
+ * @summary Desconecta alguém do canal de voz (DISCONNECT_MEMBERS + hierarquia). A pessoa pode entrar de novo
+ */
+export const disconnectVoiceMember = async (
+  channelId: string,
+  userId: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getDisconnectVoiceMemberUrl(channelId, userId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDisconnectVoiceMemberMutationKey = () => ["disconnectVoiceMember"] as const;
+
+export const getDisconnectVoiceMemberMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof disconnectVoiceMember>>,
+    TError,
+    DisconnectVoiceMemberMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof disconnectVoiceMember>>,
+  TError,
+  DisconnectVoiceMemberMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDisconnectVoiceMemberMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof disconnectVoiceMember>>,
+    DisconnectVoiceMemberMutationVariables
+  > = (props) => {
+    const { channelId, userId } = props ?? {};
+
+    return disconnectVoiceMember(channelId, userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DisconnectVoiceMemberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof disconnectVoiceMember>>
+>;
+
+export type DisconnectVoiceMemberMutationError = ErrorModel;
+export type DisconnectVoiceMemberMutationVariables = { channelId: string; userId: string };
+
+/**
+ * @summary Desconecta alguém do canal de voz (DISCONNECT_MEMBERS + hierarquia). A pessoa pode entrar de novo
+ */
+export const useDisconnectVoiceMember = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof disconnectVoiceMember>>,
+      TError,
+      DisconnectVoiceMemberMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof disconnectVoiceMember>>,
+  TError,
+  DisconnectVoiceMemberMutationVariables,
+  TContext
+> => {
+  return useMutation(getDisconnectVoiceMemberMutationOptions(options), queryClient);
+};
 export const getListGuildVoiceStatesUrl = (guildId: string) => {
   return `/api/guilds/${guildId}/voice-states`;
 };

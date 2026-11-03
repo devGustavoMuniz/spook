@@ -11,6 +11,7 @@ import {
   MoreHorizontal,
   PictureInPicture2,
   RefreshCw,
+  ShieldOff,
   Video,
   Volume2,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { audioCapabilities, participantVolumeMax } from "../controller";
 import { loadViewStreamPreviews } from "../devices";
 import type { VideoTrackInfo } from "../engine";
+import { useVoiceModeration, VoiceModerationItems } from "../moderation";
 import { PersonVolumePanel } from "../person-volume";
 import { togglePictureInPicture, usePictureInPictureId } from "../pip";
 import { useStreamPreview } from "../screen-preview";
@@ -69,9 +71,18 @@ function Flags({ tile }: { tile: TileModel }) {
   const camera = tile.mine ? tile.mine.camera : !!tile.state?.self_video;
   const screen = tile.mine ? tile.mine.screen : !!tile.state?.self_screen;
   const blocked = !!tile.mine?.cannotSpeak;
+  const serverMuted = !!tile.state?.server_muted;
   if (tile.kind === "screen") return null;
   return (
     <span className="flex items-center gap-1 empty:hidden">
+      {serverMuted ? (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+          title="Mutado pelo servidor"
+        >
+          <ShieldOff className="size-2.5" role="img" aria-label="Mutado pelo servidor" />
+        </span>
+      ) : null}
       {screen ? (
         <Monitor className={pillIcon} role="img" aria-label="Compartilhando a tela" />
       ) : null}
@@ -80,7 +91,7 @@ function Flags({ tile }: { tile: TileModel }) {
         <span className="inline-flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground">
           <HeadphoneOff className="size-2.5" role="img" aria-label="Áudio desativado" />
         </span>
-      ) : mute ? (
+      ) : mute && !serverMuted ? (
         <span
           className="inline-flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
           title={blocked ? "Sem permissão para falar neste canal" : undefined}
@@ -153,6 +164,20 @@ export function ParticipantTile({
   const inPip = !!track && pipId === track.id;
   const canPip = !!track && !tile.local && audioCapabilities().pictureInPicture === true;
   const canVolume = interactive && !tile.local && participantVolumeMax() !== null;
+  const modState = tile.state && tile.kind === "person" && !tile.local ? tile.state : undefined;
+  const moderation = useVoiceModeration(
+    modState ?? {
+      guild_id: null,
+      channel_id: null,
+      user_id: "",
+      self_mute: false,
+      self_deaf: false,
+      self_video: false,
+      self_screen: false,
+      screen_preview: false,
+    },
+  );
+  const canModerateTile = !!modState && moderation.any;
 
   const what = tile.kind === "screen" ? "Tela" : "Câmera";
   const caption =
@@ -377,7 +402,10 @@ export function ParticipantTile({
                   <Expand /> Tela cheia
                 </DropdownMenuItem>
               ) : null}
-              {!track && !canVolume && !tile.unwatched ? (
+              {canModerateTile && modState ? (
+                <VoiceModerationItems state={modState} name={tile.name} />
+              ) : null}
+              {!track && !canVolume && !tile.unwatched && !canModerateTile ? (
                 <DropdownMenuItem disabled>Nenhuma ação disponível</DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>

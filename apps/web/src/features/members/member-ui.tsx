@@ -1,7 +1,7 @@
 import type { MemberPayload } from "@spook/shared";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import type { Guild } from "@/lib/guild";
-import { KickDialog, MemberRolesDialog } from "./member-dialogs";
+import { BanDialog, KickDialog, MemberRolesDialog, NicknameDialog } from "./member-dialogs";
 import { ProfileCard, type ProfilePerson, personOfMember } from "./profile-card";
 import { useGuildMembers } from "./use-members";
 
@@ -10,6 +10,9 @@ type MemberUi = {
   openProfile: (person: ProfilePerson, anchor: HTMLElement) => void;
   openRoles: (member: MemberPayload) => void;
   openKick: (member: MemberPayload) => void;
+  openBan: (member: MemberPayload) => void;
+  /** Apelido neste servidor: `self` abre o do próprio usuário. */
+  openNick: (member: MemberPayload, self: boolean) => void;
 };
 
 const MemberUiContext = createContext<MemberUi | null>(null);
@@ -25,6 +28,8 @@ export function MemberUiProvider({ guild, children }: { guild?: Guild; children:
   const [card, setCard] = useState<{ person: ProfilePerson; anchor: HTMLElement } | null>(null);
   const [rolesFor, setRolesFor] = useState<MemberPayload | null>(null);
   const [kicking, setKicking] = useState<MemberPayload | null>(null);
+  const [banning, setBanning] = useState<MemberPayload | null>(null);
+  const [nicking, setNicking] = useState<{ member: MemberPayload; self: boolean } | null>(null);
   const members = useGuildMembers(guild?.id ?? "", !!guild);
   const member = card
     ? members.data?.members?.find((m) => m.user_id === card.person.id)
@@ -35,7 +40,13 @@ export function MemberUiProvider({ guild, children }: { guild?: Guild; children:
     [],
   );
   const value = useMemo<MemberUi>(
-    () => ({ openProfile, openRoles: setRolesFor, openKick: setKicking }),
+    () => ({
+      openProfile,
+      openRoles: setRolesFor,
+      openKick: setKicking,
+      openBan: setBanning,
+      openNick: (member, self) => setNicking({ member, self }),
+    }),
     [openProfile],
   );
   return (
@@ -51,12 +62,21 @@ export function MemberUiProvider({ guild, children }: { guild?: Guild; children:
           onClose={() => setCard(null)}
           onRoles={setRolesFor}
           onKick={setKicking}
+          onBan={setBanning}
+          onNick={(m, self) => setNicking({ member: m, self })}
         />
       ) : null}
       {guild ? (
         <>
           <MemberRolesDialog guild={guild} member={rolesFor} onClose={() => setRolesFor(null)} />
           <KickDialog guild={guild} member={kicking} onClose={() => setKicking(null)} />
+          <BanDialog guild={guild} member={banning} onClose={() => setBanning(null)} />
+          <NicknameDialog
+            guild={guild}
+            member={nicking?.member ?? null}
+            self={nicking?.self ?? false}
+            onClose={() => setNicking(null)}
+          />
         </>
       ) : null}
     </MemberUiContext.Provider>

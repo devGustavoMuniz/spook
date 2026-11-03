@@ -107,6 +107,8 @@ type Config struct {
 	// AuthRatePerMin é o limite de requisições por minuto, por IP, em /api/auth/* (SPOOK_AUTH_RATE_PER_MIN;
 	// zero = padrão de 10). Existe para o E2E, onde todas as contas saem do mesmo IP; em produção deixe sem definir.
 	AuthRatePerMin int
+	// AuditRetentionDays é por quantos dias o registro de auditoria é guardado (AUDIT_RETENTION_DAYS; padrão 90).
+	AuditRetentionDays int
 	// AdminUsernames (ADMIN_USERNAMES, separados por vírgula) são promovidos a administradores do painel
 	// /admin no boot, de forma idempotente. Nunca rebaixa ninguém.
 	AdminUsernames []string
@@ -195,6 +197,14 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("SPOOK_AUTH_RATE_PER_MIN inválido: %q", v)
 		}
 		c.AuthRatePerMin = n
+	}
+	c.AuditRetentionDays = 90
+	if v := os.Getenv("AUDIT_RETENTION_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 3650 {
+			return Config{}, fmt.Errorf("AUDIT_RETENTION_DAYS inválido (1 a 3650): %q", v)
+		}
+		c.AuditRetentionDays = n
 	}
 	if c.S3.Enabled() && (c.S3.AccessKeyID == "" || c.S3.SecretAccessKey == "") {
 		return Config{}, errors.New("S3_ENDPOINT definido sem S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY")
