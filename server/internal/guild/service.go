@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
 var tracer = otel.Tracer("spook/guild")
@@ -37,7 +39,7 @@ type Store interface {
 	Create(ctx context.Context, n NewGuild) (Guild, error)
 	Get(ctx context.Context, id int64) (Guild, error)
 	ListByUser(ctx context.Context, userID int64) ([]Guild, error)
-	Update(ctx context.Context, id int64, name string, iconKey *string) (Guild, error)
+	Update(ctx context.Context, id int64, name string, iconKey *string, systemChannelID *int64, systemJoinEnabled bool) (Guild, error)
 	Delete(ctx context.Context, id int64) error
 	Transfer(ctx context.Context, id, newOwner int64) error
 
@@ -56,6 +58,12 @@ type Store interface {
 	SetNickname(ctx context.Context, guildID, userID int64, nick *string) error
 	SetVoiceMuted(ctx context.Context, guildID, userID int64, muted bool) error
 	VoiceMuted(ctx context.Context, guildID, userID int64) (bool, error)
+
+	// SystemChannel é o canal das mensagens de entrada (0 = sem canal de texto) e se estão ligadas.
+	SystemChannel(ctx context.Context, guildID int64) (channelID int64, enabled bool, err error)
+	IsTextChannel(ctx context.Context, guildID, channelID int64) (bool, error)
+	// MembersAccess devolve as permissões base e os cargos de todos os membros (menções em massa).
+	MembersAccess(ctx context.Context, guildID int64) ([]perm.Member, error)
 
 	Roles(ctx context.Context, guildID int64) ([]Role, error)
 	RolesByGuilds(ctx context.Context, guildIDs []int64) (map[int64][]Role, error)
@@ -115,11 +123,14 @@ type Service struct {
 	pub      events.Publisher
 	audit    Auditor
 	limit    Limiter
+	lim      limits.Limits
 }
 
-// SetAudit liga o registro de auditoria; SetLimiter, o rate limit das ações de moderação.
-func (s *Service) SetAudit(a Auditor)   { s.audit = a }
-func (s *Service) SetLimiter(l Limiter) { s.limit = l }
+// SetAudit liga o registro de auditoria; SetLimiter, o rate limit das ações de moderação; SetLimits, os limites
+// de domínio configuráveis (LIMIT_*).
+func (s *Service) SetAudit(a Auditor)        { s.audit = a }
+func (s *Service) SetLimiter(l Limiter)      { s.limit = l }
+func (s *Service) SetLimits(l limits.Limits) { s.lim = l.Normalize() }
 
 func (s *Service) record(ctx context.Context, e audit.Entry) {
 	if s.audit != nil {
@@ -138,7 +149,7 @@ func (s *Service) take(userID int64) error {
 }
 
 func NewService(store Store, channels Channels, storage Storage, avatars Avatars, ids IDGenerator, pub events.Publisher) *Service {
-	return &Service{store: store, channels: channels, storage: storage, avatars: avatars, ids: ids, pub: pub}
+	return &Service{store: store, channels: channels, storage: storage, avatars: avatars, ids: ids, pub: pub, lim: limits.Default()}
 }
 
 // ---------- acesso ----------
@@ -315,6 +326,10 @@ func (s *Service) List(ctx context.Context, userID int64) ([]Detail, error) {
 type UpdateParams struct {
 	Name    *string
 	IconKey *string // nil = não altera; "" = remove o ícone
+	// SystemChannelID: nil = não altera; 0 = volta ao padrão (o primeiro canal de texto); senão, um canal de texto do servidor.
+	SystemChannelID *int64
+	// SystemJoinEnabled liga ou desliga as mensagens de boas-vindas (nil = não altera).
+	SystemJoinEnabled *bool
 }
 
 func (s *Service) Update(ctx context.Context, userID, guildID int64, in UpdateParams) (Guild, error) {
@@ -345,12 +360,37 @@ func (s *Service) Update(ctx context.Context, userID, guildID int64, in UpdatePa
 			icon = in.IconKey
 		}
 	}
-	g, err := s.store.Update(ctx, guildID, name, icon)
+	sysChannel, sysEnabled := cur.SystemChannelID, cur.SystemJoinEnabled
+	if in.SystemChannelID != nil {
+		if *in.SystemChannelID == 0 {
+			sysChannel = nil
+		} else {
+			ok, err := s.store.IsTextChannel(ctx, guildID, *in.SystemChannelID)
+			if err != nil {
+				return Guild{}, err
+			}
+			if !ok {
+				return Guild{}, apperr.Invalid("o canal de mensagens do sistema precisa ser um canal de texto deste servidor")
+			}
+			id := *in.SystemChannelID
+			sysChannel = &id
+		}
+	}
+	if in.SystemJoinEnabled != nil {
+		sysEnabled = *in.SystemJoinEnabled
+	}
+	g, err := s.store.Update(ctx, guildID, name, icon, sysChannel, sysEnabled)
 	if err != nil {
 		return Guild{}, err
 	}
 	s.publish(events.GuildUpdate, guildID, g.Payload(s.iconURL(ctx, g)))
 	ch := map[string]any{"target_name": g.Name}
+	if g.SystemJoinEnabled != cur.SystemJoinEnabled {
+		ch["system_join_enabled"] = map[string]any{"from": cur.SystemJoinEnabled, "to": g.SystemJoinEnabled}
+	}
+	if !sameID(cur.SystemChannelID, g.SystemChannelID) {
+		ch["system_channel_id"] = map[string]any{"from": httpx.IDPtr(cur.SystemChannelID), "to": httpx.IDPtr(g.SystemChannelID)}
+	}
 	if g.Name != cur.Name {
 		ch["name"] = map[string]any{"from": cur.Name, "to": g.Name}
 	}
@@ -398,9 +438,12 @@ func (s *Service) Delete(ctx context.Context, userID, guildID int64) error {
 	if !m.IsOwner {
 		return apperr.Forbidden("só o dono pode excluir o servidor")
 	}
+	g, gerr := s.store.Get(ctx, guildID)
 	if err := s.store.Delete(ctx, guildID); err != nil {
 		return err
 	}
+	// O registro de auditoria some junto com o servidor (ON DELETE CASCADE): a exclusão fica só neste log estruturado.
+	slog.Info("servidor excluído", "guild_id", guildID, "guild_name", g.Name, "owner_id", userID, "lookup_err", gerr)
 	s.publish(events.GuildDelete, guildID, GuildDeletePayload{ID: httpx.ID(guildID)})
 	return nil
 }
@@ -568,12 +611,26 @@ type RoleParams struct {
 	Color       *int32 // nil = não altera (na criação: sem cor); -1 remove a cor na edição
 	Position    *int32
 	Permissions *perm.Perm
+	Mentionable *bool
+}
+
+// reservedRoleNames não podem nomear um cargo: confundem com @everyone e @here (menções em massa).
+func reservedRoleName(name string) bool {
+	switch strings.ToLower(strings.TrimPrefix(strings.TrimSpace(name), "@")) {
+	case "everyone", "here":
+		return true
+	}
+	return false
 }
 
 func validRole(p RoleParams) error {
 	if p.Name != nil {
-		if _, ok := httpx.Name(*p.Name, 1, 100); !ok {
+		n, ok := httpx.Name(*p.Name, 1, 100)
+		if !ok {
 			return apperr.Invalid("o nome do cargo deve ter de 1 a 100 caracteres")
+		}
+		if reservedRoleName(n) {
+			return apperr.Invalid("os nomes everyone e here são reservados")
 		}
 	}
 	if p.Color != nil && (*p.Color < -1 || *p.Color > 0xFFFFFF) {
@@ -601,6 +658,13 @@ func (s *Service) CreateRole(ctx context.Context, userID, guildID int64, in Role
 	if err := validRole(in); err != nil {
 		return Role{}, err
 	}
+	existing, err := s.store.Roles(ctx, guildID)
+	if err != nil {
+		return Role{}, err
+	}
+	if len(existing) >= s.lim.RolesPerGuild {
+		return Role{}, TooManyRoles(s.lim.RolesPerGuild)
+	}
 	r := Role{ID: s.ids.Next(), GuildID: guildID, Position: 1}
 	r.Name, _ = httpx.Name(*in.Name, 1, 100)
 	if in.Color != nil && *in.Color >= 0 {
@@ -612,6 +676,9 @@ func (s *Service) CreateRole(ctx context.Context, userID, guildID int64, in Role
 	if in.Permissions != nil {
 		r.Permissions = *in.Permissions
 	}
+	if in.Mentionable != nil {
+		r.Mentionable = *in.Mentionable
+	}
 	if !actor.CanManageRole(int(r.Position), 0, r.Permissions) {
 		return Role{}, apperr.Forbidden("você só pode criar cargos abaixo do seu cargo mais alto e só conceder permissões que você tem")
 	}
@@ -622,7 +689,7 @@ func (s *Service) CreateRole(ctx context.Context, userID, guildID int64, in Role
 	s.publish(events.RoleCreate, guildID, r.Payload())
 	s.record(ctx, audit.Entry{
 		GuildID: guildID, ActorID: userID, Action: audit.RoleCreate, TargetType: audit.TargetRole, TargetID: r.ID,
-		Changes: map[string]any{"target_name": r.Name, "permissions": int64(r.Permissions)},
+		Changes: map[string]any{"target_name": r.Name, "permissions": int64(r.Permissions), "mentionable": r.Mentionable},
 	})
 	return r, nil
 }
@@ -658,6 +725,9 @@ func (s *Service) UpdateRole(ctx context.Context, userID, guildID, roleID int64,
 	if in.Permissions != nil {
 		next.Permissions = *in.Permissions
 	}
+	if in.Mentionable != nil {
+		next.Mentionable = *in.Mentionable
+	}
 	if cur.IsEveryone() {
 		if next.Name != cur.Name || next.Position != cur.Position {
 			return Role{}, ErrEveryoneImmutable
@@ -686,6 +756,9 @@ func (s *Service) UpdateRole(ctx context.Context, userID, guildID, roleID int64,
 	}
 	if cur.Position != r.Position {
 		ch["position"] = map[string]any{"from": cur.Position, "to": r.Position}
+	}
+	if cur.Mentionable != r.Mentionable {
+		ch["mentionable"] = map[string]any{"from": cur.Mentionable, "to": r.Mentionable}
 	}
 	if len(ch) > 1 || !sameColor(cur.Color, r.Color) {
 		s.record(ctx, audit.Entry{GuildID: guildID, ActorID: userID, Action: audit.RoleUpdate, TargetType: audit.TargetRole, TargetID: r.ID, Changes: ch})
@@ -780,6 +853,13 @@ func (s *Service) changeMemberRole(ctx context.Context, userID, guildID, targetI
 	return m, nil
 }
 
+func sameID(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 func sameColor(a, b *int32) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -858,4 +938,15 @@ func (s *Service) VoiceMuted(ctx context.Context, guildID, userID int64) (bool, 
 		return false, nil
 	}
 	return muted, err
+}
+
+// SystemChannel devolve o canal das mensagens de entrada e se estão ligadas (implementa message.SystemChannels).
+// Canal 0: o servidor não tem canal de texto.
+func (s *Service) SystemChannel(ctx context.Context, guildID int64) (int64, bool, error) {
+	return s.store.SystemChannel(ctx, guildID)
+}
+
+// MembersAccess devolve os membros com as permissões base e os cargos (implementa channel.Access).
+func (s *Service) MembersAccess(ctx context.Context, guildID int64) ([]perm.Member, error) {
+	return s.store.MembersAccess(ctx, guildID)
 }

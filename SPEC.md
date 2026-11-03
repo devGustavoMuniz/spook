@@ -219,6 +219,15 @@ Itens 3.1 a 3.5 do `PLANO-ADICIONAIS-2.md`; migration `00012_moderation`. Detalh
 - RF25.5 Registro de auditoria (`GET /api/guilds/{id}/audit-logs`, `VIEW_AUDIT_LOG`), retenção `AUDIT_RETENTION_DAYS` (90).
 - Teste: `perm`, `channel/overwrites_test.go`, `guild/moderation_test.go`, `gateway` (overwrites), `app/moderation_integration_test.go`; Vitest `moderation.test.tsx`, `channel-permissions.test.tsx`, `voice-moderation.test.tsx`; E2E `e2e/moderation.spec.ts`.
 
+### RF26 — Menções em massa, mensagem de entrada, tópico, limites e exclusão com senha (adicional)
+Itens 4.x do `PLANO-ADICIONAIS-2.md`; migration `00013_mentions_topic_system`. Decisões em 5.5 ("Adicional: menções, mensagem de sistema, tópico e limites") e regras em 7.13.
+- RF26.1 `@everyone`, `@here` e `@NomeDoCargo`: permissão `MENTION_EVERYONE` (bit 19), cargo `mentionable`, `mention_everyone`/`mention_here`/`mention_roles` na mensagem, contadores, push com limite de fan-out e rate limit; opção "Suprimir @everyone e @here" por servidor (`notification_settings.suppress_everyone`).
+- RF26.2 Mensagem de sistema `member_join` ("fulano entrou no servidor") no canal de sistema (`guilds.system_channel_id`, interruptor `system_join_enabled`).
+- RF26.3 Tópico de canal (`channels.topic`, até 1024 caracteres) no `PATCH /api/channels/{id}` e no cabeçalho.
+- RF26.4 Limites de domínio configuráveis por ambiente (`LIMIT_*`, `EVERYONE_PUSH_MAX`), com os padrões do SPEC.
+- RF26.5 Excluir servidor e transferir a posse exigem a senha confirmada há pouco (403 `password_confirmation_required`); a web pede também o nome do servidor para excluir.
+- Teste: `notification/bulk_test.go`, `message/system_test.go`, `channel/topic_test.go`, `guild/mention_test.go`, `invite/limit_test.go`, `platform/{limits,config}`, `app/mentions_integration_test.go`; Vitest `mentions-system.test.tsx`; E2E `e2e/mentions.spec.ts`.
+
 ## 4. Requisitos não funcionais
 
 ### RNF01 — Performance (metas iniciais; recalibrar após o baseline do Laravel)
@@ -772,6 +781,18 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Web.** Abas Banimentos e Auditoria (configurações do servidor), `BanDialog`, `NicknameDialog`, "Permissões" no menu do canal (`channels/permissions-dialog.tsx`: canal privado + tri-state Negar/Herdar/Permitir), moderação de voz (`voice/moderation.tsx`) e bloqueio do microfone para quem foi mutado. Vitest: `moderation.test.tsx`, `channel-permissions.test.tsx`, `voice-moderation.test.tsx`, `lib/overwrites.test.ts`; E2E `e2e/moderation.spec.ts`.
 - **Limitações.** Mutar não persiste para quem não está em voz além da flag (aplicada ao entrar). Lista de banidos mostra até 1000. Sem rastreio de quem baniu após exclusão da conta (fica nulo).
 
+**Adicional: menções, mensagem de sistema, tópico e limites** (backend + web; `PLANO-ADICIONAIS-2.md` itens 4.x; migration `00013_mentions_topic_system`)
+- **Permissão `MENTION_EVERYONE` (bit 19, só do servidor; fora de `ChannelScoped`).** Quem não a tem pode escrever `@everyone`/`@here`, mas vira texto comum (nada é marcado nem notificado). O `@everyone` do servidor não a recebe e a migração não a concede a nenhum cargo; o dono e ADMINISTRATOR sempre podem. `roles.mentionable` (padrão false): com ele ligado, qualquer pessoa que acesse o canal menciona `@NomeDoCargo`; sem ele, só quem tem `MENTION_EVERYONE`. Nomes de cargo `everyone` e `here` (com ou sem `@`) são reservados (422); os usernames já eram.
+- **Parser.** `ParseBulk` (`notification/mentions.go`): o `@` não pode vir colado a palavra (e-mail não vale); a menção precisa terminar o token; `everyone`/`here` sem diferenciar maiúsculas; o nome do cargo pode ter espaços, é comparado sem diferenciar maiúsculas e o mais longo vence. `ParseMentions` continua só para `@username`; `everyone` e `here` são descartados da resolução de usernames. Até 20 cargos por mensagem. O `Resolve` (agora devolve `message.MentionResult`) decide o que vale no envio e a mensagem guarda o resultado (`mention_everyone`, `mention_here`, `mention_role_ids`).
+- **Quem é notificado (processado no `MESSAGE_CREATE`, nunca no envio).** Universo = membros que VEEM o canal (permissão efetiva com overwrites; `channel.Service.Audience`, uma consulta de membros + overwrites). `@everyone` = todos; `@here` = quem tem presença visível diferente de offline (invisível conta como offline, DND como online); `@cargo` = membros do cargo. O autor nunca entra. Soma o contador de menções e publica `READ_STATE_UPDATE` como a menção direta. **Suprimir @everyone e @here** (`notification_settings.suppress_everyone`, só `scope=guild`, 422 em canal) tira o usuário do que veio de `@everyone`/`@here` (não soma menção nem avisa); menção direta e de cargo continuam.
+- **Push.** Só quem está sem sessão de gateway recebe (regra de sempre). DND, silêncio (canal ou servidor) e nível "nada" bloqueiam; "só menções" avisa menção direta, de cargo e `@everyone`/`@here` (já descontada a supressão); "tudo" avisa. **Fan-out:** se o alcance em massa (everyone/here/cargo) passa de `EVERYONE_PUSH_MAX` (200; 0 desliga) só os contadores são somados e os citados diretamente ainda recebem o push (métrica `reason=fanout_limit`). **Rate limit** de `@everyone`/`@here`: 1 a cada 30 s por usuário e canal (429 com `Retry-After`); cargos e texto sem marca não consomem.
+- **Mensagem de sistema `member_join`.** `messages.kind` (`default` | `member_join`, check no banco). Enviada por `invite.Service.Join` (só entrada nova, depois do `GUILD_CREATE`; falha só registra aviso) via `message.MemberJoined`, autor = quem entrou, conteúdo vazio. Canal: `guilds.system_channel_id` (canal de texto do servidor; `PATCH /api/guilds/{id}` com `system_channel_id` vazio volta ao padrão; apagar o canal zera por `ON DELETE SET NULL`) ou o primeiro canal de texto (menor posição); `system_join_enabled` (padrão true) desliga. Reentrada no mesmo minuto não duplica (`HasRecentJoinMessage`, por `snowflake_floor`). Não é editável nem respondível (422 `ErrSystemMsg`), só apaga quem tem `MANAGE_MESSAGES`, não conta como não lida (`ReadStates` filtra `kind='default'`), não avança leitura, não soma menção, não gera push, toast nem som; ordenação e paginação intactas (é uma linha de `messages`).
+- **Tópico.** `channels.topic` (NULL ou até 1024 caracteres, check no banco); `PATCH /api/channels/{id}` aceita `topic` (MANAGE_CHANNELS, só canal de texto, vazio remove, espaços das pontas cortados, sem controles exceto `\n`); renomear sem `topic` não apaga. Vai no `CHANNEL_UPDATE` e no detalhe do servidor. Auditoria `channel.update` com `topic` de/para (primeiros 100 caracteres).
+- **Limites configuráveis.** `platform/limits` (+ `config.Config.Limits`): `LIMIT_GUILDS_PER_USER` (100, SPEC 7.1), `LIMIT_CHANNELS_PER_GUILD` (500), `LIMIT_MEMBERS_PER_GUILD` (10000), `LIMIT_ROLES_PER_GUILD` (250, conta o `@everyone`), `LIMIT_INVITES_PER_GUILD` (1000 convites ainda válidos), `LIMIT_ATTACHMENT_MB` (25, SPEC 7.3), mais `EVERYONE_PUSH_MAX` (200). Os cinco primeiros valores além de servidores/anexo não existiam como limite: os padrões acima são decisão deste bloco (generosos, para não mudar o comportamento atual). Valor inválido ou fora da faixa recusa o boot. Os services aplicam o valor configurado (409 `limite de N ...` em pt-br; 422 para anexo grande); o contrato OpenAPI não anuncia o número (a doc do tamanho do anexo remete ao limite do servidor) e `openapi_limits_test` segue comparando os campos fixos (agora também `topic` 1024). Limite de membros: o `Redeem` trava a linha do servidor (`FOR NO KEY UPDATE`) para valer sob concorrência.
+- **Excluir servidor e transferir posse com senha.** As duas rotas usam o middleware `sensitive` (`RequireRecentPassword`, janela de 10 min) antes de qualquer checagem de acesso (por isso um não-membro sem confirmação também recebe 403). A web usa `useConfirmPassword().run(...)` e, para excluir, exige digitar o nome do servidor. A transferência já era auditada (`guild.transfer`); a exclusão apaga o log junto (`ON DELETE CASCADE`), então fica só no log estruturado (`servidor excluído`, com `guild_id`, nome e dono).
+- **Web.** Pílulas distintas (`@everyone`/`@here` com realce forte; `@cargo` na cor do cargo ajustada ao tema por `useReadableRoleColor`, fundo da mesma cor a 12%); a linha é destacada quando o cargo é meu ou há `@everyone`/`@here` não suprimido; autocomplete com `@everyone`, `@here` e cargos só para quem pode (`GET /api/channels/{id}/my-permissions`; cargo mencionável aparece para todos); editor de cargo com "Permitir que qualquer pessoa mencione este cargo"; "Suprimir @everyone e @here" no menu de notificações do servidor; `JoinRow` centralizada; `ChannelTopic` (uma linha truncada com dica, abre inteiro em diálogo); "Editar canal" com tópico; "Mensagens de entrada" em Configurações do servidor (interruptor + canal).
+- **Limitações.** `@here` conta quem tem sessão de gateway no momento do processamento. O alcance em massa soma contadores em uma só instrução (até `MEMBERS_PER_GUILD`). Menção em DM não tem `@everyone`/cargo. O `admin` conta as mensagens de entrada em "mensagens" do servidor.
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
@@ -817,6 +838,8 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | icon_key | text NULL | |
 | owner_id | bigint FK users | |
 | created_at | timestamptz | |
+| system_channel_id | bigint NULL FK channels | canal das mensagens de entrada; NULL = o primeiro canal de texto; `ON DELETE SET NULL` (adicional) |
+| system_join_enabled | boolean | mensagens de entrada ligadas, padrão true (adicional) |
 
 ### guild_members
 | Coluna | Tipo | Notas |
@@ -836,6 +859,7 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | color | int NULL | RGB |
 | position | int | maior = mais alto na hierarquia |
 | permissions | bigint | bitflags (ver 7.2) |
+| mentionable | boolean | qualquer pessoa com acesso ao canal pode mencionar o cargo; padrão false (adicional) |
 
 ### member_roles
 | Coluna | Tipo | Notas |
@@ -855,6 +879,7 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | owner_id | bigint NULL FK users | dono da DM em grupo |
 | last_message_id | bigint NULL | para não lidas |
 | created_at | timestamptz | |
+| topic | text NULL | tópico do canal de texto, até 1024 caracteres (adicional) |
 
 ### channel_recipients (DMs)
 | Coluna | Tipo | Notas |
@@ -875,6 +900,10 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | reference_id | bigint NULL | mensagem respondida (adicional responder); sem FK, validada no envio |
 | pinned_at | timestamptz NULL | quando foi fixada (adicional fixar); NULL = não fixada |
 | pinned_by | bigint NULL | quem fixou |
+| kind | text | `default` ou `member_join` (mensagem de sistema), padrão `default` (adicional) |
+| mention_everyone | boolean | a mensagem menciona `@everyone` (autor com MENTION_EVERYONE); padrão false (adicional) |
+| mention_here | boolean | idem para `@here` (adicional) |
+| mention_role_ids | bigint[] | cargos mencionados que a mensagem notifica; padrão `{}` (adicional) |
 
 Índice principal: `(channel_id, id DESC)`. Índice parcial `(channel_id, pinned_at DESC) WHERE pinned_at IS NOT NULL` para as fixadas.
 
@@ -929,6 +958,7 @@ IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `times
 | muted | boolean | silenciado; sem `muted_until` = até reativar |
 | muted_until | timestamptz NULL | fim do silêncio (vencido não vale, sem job) |
 | level | text NULL | `all`, `mentions`, `none`; nulo herda (canal -> servidor -> padrão) |
+| suppress_everyone | boolean | só `scope=guild`: ignora `@everyone` e `@here` (adicional) |
 | updated_at | timestamptz | |
 
 ### email_tokens (adicional)
@@ -982,6 +1012,7 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | 00010_account_profile | `users.bio`, `pronouns`, `banner_key`, `banner_color`, `deleted_at` e `sessions.password_confirmed_at` (adicional) |
 | 00011_email_social | `users.email_verified_at` e `pending_email`; tabelas `email_tokens`, `social_accounts`, `social_signups` e `desktop_login_codes` (adicional) |
 | 00012_moderation | tabelas `guild_bans`, `channel_overwrites`, `audit_logs`; `guild_members.voice_muted`; `CHANGE_NICKNAME` no `@everyone` dos servidores existentes (adicional) |
+| 00013_mentions_topic_system | `roles.mentionable`; `messages.kind`, `mention_everyone`, `mention_here`, `mention_role_ids`; `guilds.system_channel_id`, `system_join_enabled`; `channels.topic`; `notification_settings.suppress_everyone` (adicional) |
 
 ### Estado só em memória (não persistido)
 - Presença e sessões do gateway
@@ -1021,6 +1052,7 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 | 1 << 16 | MUTE_MEMBERS (adicional) |
 | 1 << 17 | DISCONNECT_MEMBERS (adicional) |
 | 1 << 18 | VIEW_AUDIT_LOG (adicional) |
+| 1 << 19 | MENTION_EVERYONE (adicional): notificar `@everyone`, `@here` e cargos não mencionáveis; só do servidor, não entra em overwrites; o `@everyone` do servidor não a recebe por padrão |
 
 - Permissão efetiva = OR das permissões de `@everyone` e de todos os cargos do membro.
 - Permissões padrão do `@everyone`: VIEW_CHANNEL, SEND_MESSAGES, ATTACH_FILES, CREATE_INVITE, CONNECT, SPEAK, VIDEO e CHANGE_NICKNAME. Em um canal, a permissão efetiva ainda passa pelos overwrites (7.12).
@@ -1097,6 +1129,24 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 
 - **Invisível (testado por todos os caminhos):** nenhum `PRESENCE_UPDATE`, `READY` de terceiros, payload REST (membros, servidores, DMs, mensagens, convites) nem rota do admin revela presença ou status de quem está Invisível; digitar e estar na voz seguem visíveis por serem ações explícitas; o push segue a regra da conexão real (sessão aberta: aviso in-app sem push; sem sessão: push), e escolher Não perturbar substitui o Invisível (o status é um valor só) e suprime o push.
 - **Acesso ao admin:** 401 sem sessão, 403 para conta comum, checagem no banco a cada requisição, sem eventos de admin no gateway.
+
+### 7.13 Menções em massa, mensagem de entrada, tópico e limites (adicional)
+
+| Situação | Resultado |
+| --- | --- |
+| `@everyone`/`@here` sem MENTION_EVERYONE | 201; texto comum, `mention_everyone`/`mention_here` false, ninguém é notificado |
+| `@everyone`/`@here` com a permissão | marca a mensagem; 2º uso em 30 s no mesmo canal: 429 com `Retry-After` |
+| `@Cargo` não mencionável sem MENTION_EVERYONE | texto comum; com a permissão, ou cargo `mentionable`, entra em `mention_roles` |
+| Quem é atingido | só quem vê o canal (overwrites); `@here` só presença visível diferente de offline; autor nunca |
+| Suprimir @everyone e @here | sai do que veio de `@everyone`/`@here`; cargo e menção direta continuam |
+| Push de menção em massa | respeita DND, silêncio e nível; alcance acima de `EVERYONE_PUSH_MAX`: só contadores (citados diretamente ainda recebem) |
+| Mensagem `member_join` | sem notificação, sem contar como não lida/menção; editar ou responder: 422; apagar: MANAGE_MESSAGES |
+| Tópico | MANAGE_CHANNELS; até 1024 caracteres (422); só canal de texto (422 em voz/categoria) |
+| `system_channel_id` | canal de texto do servidor (422 se não for); vazio = padrão |
+| Limites `LIMIT_*` | 409 em pt-br ao passar (servidores, canais, membros, cargos, convites); anexo maior: 422 |
+| Excluir servidor / transferir posse | 403 `password_confirmation_required` sem senha confirmada nos últimos 10 min |
+
+Variáveis: `LIMIT_GUILDS_PER_USER`, `LIMIT_CHANNELS_PER_GUILD`, `LIMIT_MEMBERS_PER_GUILD`, `LIMIT_ROLES_PER_GUILD`, `LIMIT_INVITES_PER_GUILD`, `LIMIT_ATTACHMENT_MB`, `EVERYONE_PUSH_MAX` (padrões em 5.5). Documentadas em `.env.example` e `deploy/README.md`.
 
 ### 7.10 Contas e perfil (adicional)
 

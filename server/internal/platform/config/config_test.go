@@ -239,3 +239,30 @@ func TestMailConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadLimits(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Limits.GuildsPerUser != 100 || c.Limits.AttachmentBytes != 25<<20 || c.EveryonePushMax != 200 {
+		t.Fatalf("padrões: %+v %d", c.Limits, c.EveryonePushMax)
+	}
+	t.Setenv("LIMIT_GUILDS_PER_USER", "5")
+	t.Setenv("LIMIT_ATTACHMENT_MB", "10")
+	t.Setenv("LIMIT_ROLES_PER_GUILD", "20")
+	t.Setenv("EVERYONE_PUSH_MAX", "0")
+	c, err = Load()
+	if err != nil || c.Limits.GuildsPerUser != 5 || c.Limits.AttachmentBytes != 10<<20 || c.Limits.RolesPerGuild != 20 || c.EveryonePushMax != 0 {
+		t.Fatalf("configurados: %+v %d %v", c.Limits, c.EveryonePushMax, err)
+	}
+	for env, v := range map[string]string{"LIMIT_GUILDS_PER_USER": "0", "LIMIT_CHANNELS_PER_GUILD": "abc", "LIMIT_ATTACHMENT_MB": "101", "LIMIT_ROLES_PER_GUILD": "1", "EVERYONE_PUSH_MAX": "-1"} {
+		t.Run(env, func(t *testing.T) {
+			t.Setenv(env, v)
+			if _, err := Load(); err == nil {
+				t.Fatalf("%s=%s deveria recusar o boot", env, v)
+			}
+		})
+	}
+}

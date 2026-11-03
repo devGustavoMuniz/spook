@@ -30,7 +30,8 @@
         "name": "geral",
         "position": 0,
         "last_message_id": "900",
-        "created_at": "2026-10-31T12:00:00Z"
+        "created_at": "2026-10-31T12:00:00Z",
+        "topic": "Avisos e conversa geral"
       }
     },
     "CHANNEL_DELETE": {
@@ -45,7 +46,8 @@
         "name": "geral",
         "position": 0,
         "last_message_id": "900",
-        "created_at": "2026-10-31T12:00:00Z"
+        "created_at": "2026-10-31T12:00:00Z",
+        "topic": "Avisos e conversa geral"
       }
     },
     "CHANNEL_UPDATE": {
@@ -60,7 +62,8 @@
         "name": "geral",
         "position": 0,
         "last_message_id": "900",
-        "created_at": "2026-10-31T12:00:00Z"
+        "created_at": "2026-10-31T12:00:00Z",
+        "topic": "Avisos e conversa geral"
       }
     },
     "GUILD_CREATE": {
@@ -73,6 +76,8 @@
         "icon_key": null,
         "owner_id": "10",
         "created_at": "2026-10-31T12:00:00Z",
+        "system_channel_id": "300",
+        "system_join_enabled": true,
         "roles": [
           {
             "id": "400",
@@ -81,7 +86,8 @@
             "color": 16746496,
             "position": 1,
             "permissions": 320,
-            "is_everyone": false
+            "is_everyone": false,
+            "mentionable": true
           },
           {
             "id": "100",
@@ -90,7 +96,8 @@
             "color": null,
             "position": 0,
             "permissions": 7904,
-            "is_everyone": true
+            "is_everyone": true,
+            "mentionable": false
           }
         ],
         "channels": [
@@ -102,7 +109,8 @@
             "name": "Canais",
             "position": 0,
             "last_message_id": null,
-            "created_at": "2026-10-31T12:00:00Z"
+            "created_at": "2026-10-31T12:00:00Z",
+            "topic": null
           },
           {
             "id": "300",
@@ -112,7 +120,8 @@
             "name": "geral",
             "position": 0,
             "last_message_id": "900",
-            "created_at": "2026-10-31T12:00:00Z"
+            "created_at": "2026-10-31T12:00:00Z",
+            "topic": "Avisos e conversa geral"
           },
           {
             "id": "301",
@@ -122,7 +131,8 @@
             "name": "Geral",
             "position": 1,
             "last_message_id": null,
-            "created_at": "2026-10-31T12:00:00Z"
+            "created_at": "2026-10-31T12:00:00Z",
+            "topic": null
           }
         ],
         "permissions": 7904,
@@ -196,7 +206,9 @@
         "name": "Spook HQ",
         "icon_key": null,
         "owner_id": "10",
-        "created_at": "2026-10-31T12:00:00Z"
+        "created_at": "2026-10-31T12:00:00Z",
+        "system_channel_id": "300",
+        "system_join_enabled": true
       }
     },
     "MESSAGE_CREATE": {
@@ -232,6 +244,12 @@
         "mention_ids": [
           "11"
         ],
+        "mention_everyone": true,
+        "mention_here": false,
+        "mention_roles": [
+          "400"
+        ],
+        "kind": "default",
         "reply_to": {
           "id": "899",
           "author": {
@@ -292,6 +310,12 @@
         "mention_ids": [
           "11"
         ],
+        "mention_everyone": true,
+        "mention_here": false,
+        "mention_roles": [
+          "400"
+        ],
+        "kind": "default",
         "reply_to": {
           "id": "899",
           "author": {
@@ -315,7 +339,8 @@
         "target_id": "300",
         "muted": true,
         "muted_until": "2026-10-31T12:00:00Z",
-        "level": "mentions"
+        "level": "mentions",
+        "suppress_everyone": false
       }
     },
     "PRESENCE_SELF_UPDATE": {
@@ -365,7 +390,8 @@
         "color": 16746496,
         "position": 1,
         "permissions": 320,
-        "is_everyone": false
+        "is_everyone": false,
+        "mentionable": true
       }
     },
     "ROLE_DELETE": {
@@ -388,7 +414,8 @@
         "color": 16746496,
         "position": 1,
         "permissions": 320,
-        "is_everyone": false
+        "is_everyone": false,
+        "mentionable": true
       }
     },
     "TYPING_START": {
@@ -431,6 +458,7 @@
       "position": 0,
       "last_message_id": "901",
       "created_at": "2026-10-31T12:00:00Z",
+      "topic": null,
       "owner_id": "11",
       "recipients": [
         {
@@ -477,6 +505,30 @@
     "s": null,
     "d": false
   },
+  "member_join_message": {
+    "op": 0,
+    "t": "MESSAGE_CREATE",
+    "s": 3,
+    "d": {
+      "id": "902",
+      "channel_id": "300",
+      "author": {
+        "id": "12",
+        "username": "maria"
+      },
+      "content": "",
+      "edited_at": null,
+      "created_at": "2026-10-31T12:00:00Z",
+      "attachments": [],
+      "mention_ids": [],
+      "mention_everyone": false,
+      "mention_here": false,
+      "mention_roles": [],
+      "kind": "member_join",
+      "reply_to": null,
+      "pinned": false
+    }
+  },
   "ready": {
     "op": 0,
     "t": "READY",
@@ -493,6 +545,8 @@
           "icon_key": null,
           "owner_id": "10",
           "created_at": "2026-10-31T12:00:00Z",
+          "system_channel_id": "300",
+          "system_join_enabled": true,
           "roles": [
             {
               "id": "400",
@@ -501,7 +555,8 @@
               "color": 16746496,
               "position": 1,
               "permissions": 320,
-              "is_everyone": false
+              "is_everyone": false,
+              "mentionable": true
             },
             {
               "id": "100",
@@ -510,7 +565,8 @@
               "color": null,
               "position": 0,
               "permissions": 7904,
-              "is_everyone": true
+              "is_everyone": true,
+              "mentionable": false
             }
           ],
           "channels": [
@@ -522,7 +578,8 @@
               "name": "Canais",
               "position": 0,
               "last_message_id": null,
-              "created_at": "2026-10-31T12:00:00Z"
+              "created_at": "2026-10-31T12:00:00Z",
+              "topic": null
             },
             {
               "id": "300",
@@ -532,7 +589,8 @@
               "name": "geral",
               "position": 0,
               "last_message_id": "900",
-              "created_at": "2026-10-31T12:00:00Z"
+              "created_at": "2026-10-31T12:00:00Z",
+              "topic": "Avisos e conversa geral"
             },
             {
               "id": "301",
@@ -542,7 +600,8 @@
               "name": "Geral",
               "position": 1,
               "last_message_id": null,
-              "created_at": "2026-10-31T12:00:00Z"
+              "created_at": "2026-10-31T12:00:00Z",
+              "topic": null
             }
           ],
           "permissions": 7904,
@@ -562,6 +621,7 @@
           "position": 0,
           "last_message_id": "901",
           "created_at": "2026-10-31T12:00:00Z",
+          "topic": null,
           "owner_id": "11",
           "recipients": [
             {
@@ -638,14 +698,16 @@
           "target_id": "100",
           "muted": true,
           "muted_until": null,
-          "level": null
+          "level": null,
+          "suppress_everyone": true
         },
         {
           "scope": "channel",
           "target_id": "300",
           "muted": false,
           "muted_until": null,
-          "level": "none"
+          "level": "none",
+          "suppress_everyone": false
         }
       ]
     }

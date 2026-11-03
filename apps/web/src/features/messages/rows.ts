@@ -43,6 +43,8 @@ export function buildRows(
       newDay ||
       marker ||
       !!message.reply_to ||
+      message.kind === "member_join" ||
+      prev?.kind === "member_join" ||
       !prev ||
       prev.author.id !== message.author.id ||
       Date.parse(message.created_at) - Date.parse(prev.created_at) > GROUP_WINDOW_MS;

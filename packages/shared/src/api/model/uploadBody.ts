@@ -14,6 +14,6 @@ export interface UploadBody {
    * @maxLength 255
    */
   filename: string;
-  /** Tamanho em bytes, de 1 a 26214400 (25 MB) */
+  /** Tamanho em bytes, a partir de 1; o máximo é o limite do servidor (padrão 25 MB, LIMIT_ATTACHMENT_MB) */
   size: number;
 }

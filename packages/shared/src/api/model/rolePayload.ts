@@ -14,6 +14,8 @@ export interface RolePayload {
   guild_id: string;
   id: string;
   is_everyone: boolean;
+  /** Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo) */
+  mentionable: boolean;
   name: string;
   /** Bitflags (SPEC 7.2) */
   permissions: number;

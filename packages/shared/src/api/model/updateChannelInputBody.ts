@@ -13,4 +13,9 @@ export interface UpdateChannelInputBody {
   name?: string;
   /** @minimum 0 */
   position?: number;
+  /**
+   * Tópico do canal de texto (MANAGE_CHANNELS); vazio remove
+   * @maxLength 1024
+   */
+  topic?: string;
 }

@@ -13,14 +13,28 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
 type PGStore struct {
-	db db.DB
-	q  *dbgen.Queries
+	db  db.DB
+	q   *dbgen.Queries
+	lim limits.Limits
 }
 
-func NewStore(d db.DB) *PGStore { return &PGStore{db: d, q: dbgen.New(d)} }
+func NewStore(d db.DB) *PGStore { return &PGStore{db: d, q: dbgen.New(d), lim: limits.Default()} }
+
+// WithLimits troca os limites de domínio (LIMIT_*); o padrão é o do SPEC.
+func (s *PGStore) WithLimits(l limits.Limits) *PGStore { s.lim = l.Normalize(); return s }
+
+// Count devolve os convites ainda válidos do servidor.
+func (s *PGStore) Count(ctx context.Context, guildID int64) (int, error) {
+	n, err := s.q.CountInvitesByGuild(ctx, guildID)
+	if err != nil {
+		return 0, fmt.Errorf("contar convites: %w", err)
+	}
+	return int(n), nil
+}
 
 func ts(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
@@ -140,8 +154,19 @@ func (s *PGStore) Redeem(ctx context.Context, code string, userID int64) (Redeem
 	if err != nil {
 		return RedeemResult{}, fmt.Errorf("contar servidores: %w", err)
 	}
-	if count >= guild.MaxGuildsPerUser {
-		return RedeemResult{}, guild.ErrTooManyGuilds
+	if int(count) >= s.lim.GuildsPerUser {
+		return RedeemResult{}, guild.TooManyGuilds(s.lim.GuildsPerUser)
+	}
+	// O lock do servidor serializa as entradas dele: o limite de membros vale mesmo com várias pessoas entrando juntas.
+	if _, err := q.LockGuild(ctx, inv.GuildID); err != nil {
+		return RedeemResult{}, fmt.Errorf("travar servidor: %w", err)
+	}
+	members, err := q.CountMembers(ctx, inv.GuildID)
+	if err != nil {
+		return RedeemResult{}, fmt.Errorf("contar membros: %w", err)
+	}
+	if int(members) >= s.lim.MembersPerGuild {
+		return RedeemResult{}, guild.TooManyMembers(s.lim.MembersPerGuild)
 	}
 	n, err := q.UseInvite(ctx, code)
 	if err != nil {

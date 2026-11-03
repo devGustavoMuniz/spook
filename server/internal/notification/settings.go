@@ -36,6 +36,7 @@ var (
 	errInvalidMute    = apperr.Invalid("muted_until exige muted=true e um instante futuro")
 	errSettingTarget  = apperr.NotFound("servidor ou canal não encontrado")
 	errInvalidSetting = apperr.Invalid("id de destino inválido")
+	errSuppressScope  = apperr.Invalid("suppress_everyone só vale para servidores")
 )
 
 // Setting é a configuração de um alvo. Muted sem MutedUntil = "até reativar".
@@ -45,6 +46,8 @@ type Setting struct {
 	Muted      bool
 	MutedUntil *time.Time
 	Level      *string
+	// SuppressEveryone (só escopo guild): ignora @everyone e @here do servidor (não soma menção nem avisa).
+	SuppressEveryone bool
 }
 
 // ActiveMute diz se o silêncio vale em now (vencido deixa de valer sem precisar de job).
@@ -55,15 +58,16 @@ func (s Setting) ActiveMute(now time.Time) bool {
 // SettingPayload é uma configuração na API, no READY e em NOTIFICATION_SETTINGS_UPDATE. Voltar ao padrão
 // (DELETE) publica muted=false e level nulo.
 type SettingPayload struct {
-	Scope      string     `json:"scope" enum:"guild,channel" doc:"guild, ou channel (canal de servidor, DM ou DM em grupo)"`
-	TargetID   string     `json:"target_id"`
-	Muted      bool       `json:"muted" doc:"Silenciado (vale até muted_until; sem muted_until, até reativar)"`
-	MutedUntil *time.Time `json:"muted_until" nullable:"true" doc:"Fim do silêncio; nulo com muted=true = até reativar"`
-	Level      *string    `json:"level" nullable:"true" enum:"all,mentions,none" doc:"Nível de notificação; nulo = herda (canal -> servidor -> padrão)"`
+	Scope            string     `json:"scope" enum:"guild,channel" doc:"guild, ou channel (canal de servidor, DM ou DM em grupo)"`
+	TargetID         string     `json:"target_id"`
+	Muted            bool       `json:"muted" doc:"Silenciado (vale até muted_until; sem muted_until, até reativar)"`
+	MutedUntil       *time.Time `json:"muted_until" nullable:"true" doc:"Fim do silêncio; nulo com muted=true = até reativar"`
+	Level            *string    `json:"level" nullable:"true" enum:"all,mentions,none" doc:"Nível de notificação; nulo = herda (canal -> servidor -> padrão)"`
+	SuppressEveryone bool       `json:"suppress_everyone" doc:"Só em servidores: ignora @everyone e @here (não soma menção nem avisa); menção a cargo e direta continuam"`
 }
 
 func (s Setting) payload(now time.Time) SettingPayload {
-	p := SettingPayload{Scope: s.Scope, TargetID: strconv.FormatInt(s.TargetID, 10), Level: s.Level}
+	p := SettingPayload{Scope: s.Scope, TargetID: strconv.FormatInt(s.TargetID, 10), Level: s.Level, SuppressEveryone: s.SuppressEveryone}
 	if s.ActiveMute(now) {
 		p.Muted, p.MutedUntil = true, s.MutedUntil
 	}
@@ -79,8 +83,7 @@ func DefaultLevel(isGuild bool) string {
 }
 
 // Allows diz se uma mensagem avisa: silenciado nunca avisa; "all" avisa sempre; "mentions" só com menção
-// direta; "none" nunca. (@everyone e @here não existem neste projeto: são só usernames, então não há o
-// que suprimir além da menção direta.)
+// (direta, de cargo ou em massa; quem ignora @everyone/@here já saiu dos alvos antes); "none" nunca.
 func Allows(muted bool, level string, mention bool) bool {
 	if muted {
 		return false
@@ -123,9 +126,10 @@ type NotifyFilter struct {
 
 // SettingInput é o corpo do PUT.
 type SettingInput struct {
-	Muted      bool
-	MutedUntil *time.Time
-	Level      *string
+	Muted            bool
+	MutedUntil       *time.Time
+	Level            *string
+	SuppressEveryone bool
 }
 
 // ListSettings devolve as configurações do usuário que diferem do padrão (silêncios vencidos sem nível somem).
@@ -139,7 +143,7 @@ func (s *Service) ListSettings(ctx context.Context, userID int64) ([]SettingPayl
 	now := time.Now()
 	out := make([]SettingPayload, 0, len(rows))
 	for _, r := range rows {
-		if p := r.payload(now); p.Muted || p.Level != nil {
+		if p := r.payload(now); p.Muted || p.Level != nil || p.SuppressEveryone {
 			out = append(out, p)
 		}
 	}
@@ -194,8 +198,11 @@ func (s *Service) PutSetting(ctx context.Context, userID int64, scope string, ta
 	if err := s.authorizeTarget(ctx, userID, scope, target); err != nil {
 		return SettingPayload{}, err
 	}
-	set := Setting{Scope: scope, TargetID: target, Muted: in.Muted, MutedUntil: in.MutedUntil, Level: in.Level}
-	if !in.Muted && in.Level == nil {
+	if in.SuppressEveryone && scope != ScopeGuild {
+		return SettingPayload{}, errSuppressScope
+	}
+	set := Setting{Scope: scope, TargetID: target, Muted: in.Muted, MutedUntil: in.MutedUntil, Level: in.Level, SuppressEveryone: in.SuppressEveryone}
+	if !in.Muted && in.Level == nil && !in.SuppressEveryone {
 		return s.resetSetting(ctx, userID, scope, target)
 	}
 	if err := s.Store.UpsertSetting(ctx, userID, set); err != nil {

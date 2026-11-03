@@ -63,6 +63,8 @@ type Store interface {
 	Pin(ctx context.Context, id, channelID, userID int64, max int) (bool, error)
 	// Unpin desafixa; false = não estava fixada.
 	Unpin(ctx context.Context, id, channelID int64) (bool, error)
+	// HasRecentJoin diz se o usuário já tem uma mensagem de entrada neste canal no último minuto.
+	HasRecentJoin(ctx context.Context, channelID, userID int64) (bool, error)
 }
 
 // InsertParams são os dados de uma nova mensagem.
@@ -70,7 +72,11 @@ type InsertParams struct {
 	ID, ChannelID, AuthorID int64
 	ReferenceID             *int64 // mensagem respondida
 	Content                 string
+	Kind                    string // "" = KindDefault
 	MentionIDs              []int64
+	MentionEveryone         bool
+	MentionHere             bool
+	MentionRoleIDs          []int64
 	AttachmentIDs           []int64
 	KeyPrefix               string    // prefixo de chave do canal (prende os anexos ao canal)
 	Since                   time.Time // só vale anexo criado depois disto (janela de 1 h)
@@ -93,11 +99,29 @@ type Channels interface {
 	Get(ctx context.Context, channelID int64) (channel.Channel, error)
 }
 
-// Mentions resolve as menções (@username) de um texto para os usuários que podem ver o canal. Quem
-// implementa é a feature de notificações (que também assina MESSAGE_CREATE); a interface evita que
-// message dependa dela. Nil = sem menções.
+// MentionResult é o que um texto menciona: usuários (@username) que veem o canal e, só quando o autor podia,
+// @everyone, @here e cargos.
+type MentionResult struct {
+	UserIDs  []int64
+	Everyone bool
+	Here     bool
+	RoleIDs  []int64
+}
+
+// Mass diz se há menção em massa (@everyone ou @here).
+func (r MentionResult) Mass() bool { return r.Everyone || r.Here }
+
+// Mentions resolve as menções de um texto. canMentionAll diz se o autor tem MENTION_EVERYONE: sem ele,
+// @everyone e @here são só texto e só cargos mencionáveis valem. Quem implementa é a feature de notificações
+// (que também assina MESSAGE_CREATE); a interface evita que message dependa dela. Nil = sem menções.
 type Mentions interface {
-	Resolve(ctx context.Context, ch channel.Channel, authorID int64, content string) ([]int64, error)
+	Resolve(ctx context.Context, ch channel.Channel, authorID int64, content string, canMentionAll bool) (MentionResult, error)
+}
+
+// SystemChannels diz para onde vai a mensagem de entrada de um servidor (implementada por guild.Service):
+// canal 0 = o servidor não tem canal de texto; enabled = as mensagens de boas-vindas estão ligadas.
+type SystemChannels interface {
+	SystemChannel(ctx context.Context, guildID int64) (channelID int64, enabled bool, err error)
 }
 
 // Limiter limita o envio (5 mensagens a cada 5 s por usuário e canal).
@@ -120,11 +144,17 @@ type Service struct {
 	ids      IDGenerator
 	pub      events.Publisher
 	mentions Mentions
+	system   SystemChannels
+	everyone Limiter // @everyone/@here: 1 por 30 s por usuário e canal (nil = sem limite)
 	now      func() time.Time
 }
 
 // SetMentions liga a resolução de menções (feita na montagem do app, depois de criar as notificações).
 func (s *Service) SetMentions(m Mentions) { s.mentions = m }
+
+// SetSystemChannels liga as mensagens de entrada; SetEveryoneLimiter, o limite de uso de @everyone/@here.
+func (s *Service) SetSystemChannels(c SystemChannels) { s.system = c }
+func (s *Service) SetEveryoneLimiter(l Limiter)       { s.everyone = l }
 
 func NewService(store Store, channels Channels, limiter Limiter, avatars Avatars, atts Attachments, ids IDGenerator, pub events.Publisher) *Service {
 	return &Service{store: store, channels: channels, limiter: limiter, avatars: avatars, atts: atts, ids: ids, pub: pub, now: time.Now}
@@ -159,7 +189,7 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 		need |= perm.AttachFiles
 	}
 	_, authSpan := tracer.Start(ctx, "message.authorize")
-	ch, _, err := s.channels.Authorize(ctx, userID, channelID, need)
+	ch, member, err := s.channels.Authorize(ctx, userID, channelID, need)
 	authSpan.End()
 	if err != nil {
 		return Message{}, err
@@ -195,11 +225,19 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 	}
 
 	var mentionIDs []int64
+	var mass MentionResult
 	if s.mentions != nil && text != "" {
 		// Falha ao resolver menções não impede a mensagem: ela sai sem destaque.
-		if mentionIDs, err = s.mentions.Resolve(ctx, ch, userID, text); err != nil {
-			slog.Warn("menções não resolvidas", "channel", channelID, "err", err)
-			mentionIDs = nil
+		res, rerr := s.mentions.Resolve(ctx, ch, userID, text, member.Has(perm.MentionEveryone))
+		if rerr != nil {
+			slog.Warn("menções não resolvidas", "channel", channelID, "err", rerr)
+		} else {
+			mentionIDs, mass = res.UserIDs, res
+		}
+	}
+	if mass.Mass() && s.everyone != nil {
+		if ok, wait := s.everyone.Take("everyone:" + strconv.FormatInt(userID, 10) + ":" + strconv.FormatInt(channelID, 10)); !ok {
+			return Message{}, apperr.RateLimited("você usou @everyone ou @here neste canal há pouco; aguarde para usar de novo", wait)
 		}
 	}
 
@@ -214,6 +252,7 @@ func (s *Service) Send(ctx context.Context, userID, channelID int64, content str
 	_, insSpan := tracer.Start(ctx, "message.insert")
 	m, atts, err := s.store.Insert(ctx, InsertParams{
 		ID: s.ids.Next(), ChannelID: channelID, AuthorID: userID, ReferenceID: refID, Content: text, AttachmentIDs: attachmentIDs, MentionIDs: mentionIDs,
+		MentionEveryone: mass.Everyone, MentionHere: mass.Here, MentionRoleIDs: mass.RoleIDs,
 		KeyPrefix: attachment.KeyPrefix(channelID), Since: s.now().Add(-attachment.ClaimWindow),
 	})
 	insSpan.End()
@@ -248,17 +287,21 @@ func (s *Service) replyTarget(ctx context.Context, channelID, replyTo int64) (*R
 	if !ok || ref.Deleted {
 		return nil, ErrReplyTarget
 	}
+	if ref.Kind != "" && ref.Kind != KindDefault {
+		return nil, ErrSystemMsg
+	}
 	return &ref, nil
 }
 
 // mentionReplyAuthor inclui o autor da mensagem respondida entre os mencionados, se ele vê o canal
 // (a checagem reaproveita a resolução de @username). Falha na resolução: a resposta sai sem a menção.
 func (s *Service) mentionReplyAuthor(ctx context.Context, ch channel.Channel, userID int64, author Author, ids []int64) []int64 {
-	resolved, err := s.mentions.Resolve(ctx, ch, userID, "@"+author.Username)
+	res, err := s.mentions.Resolve(ctx, ch, userID, "@"+author.Username, false)
 	if err != nil {
 		slog.Warn("menção da resposta não resolvida", "channel", ch.ID, "err", err)
 		return ids
 	}
+	resolved := res.UserIDs
 	if !slices.Contains(resolved, author.ID) || slices.Contains(ids, author.ID) {
 		return ids
 	}
@@ -479,6 +522,9 @@ func (s *Service) Edit(ctx context.Context, userID, channelID, messageID int64, 
 	if err != nil {
 		return Message{}, err
 	}
+	if cur.Kind != "" && cur.Kind != KindDefault {
+		return Message{}, ErrSystemMsg
+	}
 	if cur.Author.ID != userID {
 		return Message{}, apperr.Forbidden("só o autor pode editar a mensagem")
 	}
@@ -516,7 +562,8 @@ func (s *Service) Delete(ctx context.Context, userID, channelID, messageID int64
 		return err
 	}
 	// Em DM não há cargos nem MANAGE_MESSAGES: só o autor exclui.
-	if cur.Author.ID != userID && (ch.IsDM() || !member.Has(perm.ManageMessages)) {
+	system := cur.Kind != "" && cur.Kind != KindDefault
+	if (cur.Author.ID != userID || system) && (ch.IsDM() || !member.Has(perm.ManageMessages)) {
 		return apperr.Forbidden("só o autor ou quem gerencia mensagens pode excluí-la")
 	}
 	if err := s.store.Delete(ctx, messageID, channelID); err != nil {
@@ -551,4 +598,37 @@ func (s *Service) publish(typ string, ch channel.Channel, data MessagePayload) {
 		Type: typ, GuildID: gid, ChannelID: ch.ID,
 		Topics: []string{"channel:" + strconv.FormatInt(ch.ID, 10)}, Data: data,
 	})
+}
+
+// MemberJoined grava e publica a mensagem de sistema "fulano entrou" no canal de sistema do servidor
+// (implementa invite.Joiner). Não notifica ninguém (a feature de notificações ignora o tipo) e não soma
+// menção. Sem efeito se o servidor desligou as boas-vindas, se não há canal de texto ou se a pessoa já tem a
+// mensagem no último minuto (entrar, sair e entrar de novo não repete).
+func (s *Service) MemberJoined(ctx context.Context, guildID, userID int64) error {
+	ctx, span := tracer.Start(ctx, "message.MemberJoined")
+	defer span.End()
+	if s.system == nil {
+		return nil
+	}
+	channelID, enabled, err := s.system.SystemChannel(ctx, guildID)
+	if err != nil {
+		return err
+	}
+	if !enabled || channelID == 0 {
+		return nil
+	}
+	if dup, err := s.store.HasRecentJoin(ctx, channelID, userID); err != nil || dup {
+		return err
+	}
+	ch, err := s.channels.Get(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	m, _, err := s.store.Insert(ctx, InsertParams{ID: s.ids.Next(), ChannelID: channelID, AuthorID: userID, Kind: KindMemberJoin})
+	if err != nil {
+		return err
+	}
+	s.resolveAvatar(ctx, &m)
+	s.publish(events.MessageCreate, ch, m.Payload())
+	return nil
 }

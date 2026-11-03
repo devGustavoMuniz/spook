@@ -46,6 +46,7 @@ type UpdateChannelInput struct {
 	Body struct {
 		Name     *string `json:"name,omitempty" minLength:"1" maxLength:"100"`
 		Position *int32  `json:"position,omitempty" minimum:"0"`
+		Topic    *string `json:"topic,omitempty" maxLength:"1024" doc:"Tópico do canal de texto (MANAGE_CHANNELS); vazio remove"`
 	}
 }
 
@@ -134,13 +135,13 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return &ChannelListOutput{Body: Payloads(cs)}, nil
 		})
 
-	huma.Register(api, op("updateChannel", http.MethodPatch, "/api/channels/{channel_id}", "Renomeia ou reposiciona um canal", 0, http.StatusForbidden, http.StatusUnprocessableEntity),
+	huma.Register(api, op("updateChannel", http.MethodPatch, "/api/channels/{channel_id}", "Renomeia, reposiciona ou muda o tópico de um canal (MANAGE_CHANNELS)", 0, http.StatusForbidden, http.StatusUnprocessableEntity),
 		func(ctx context.Context, in *UpdateChannelInput) (*ChannelOutput, error) {
 			id, ok := httpx.ParseID(in.ChannelID)
 			if !ok {
 				return nil, httpx.BadID("canal")
 			}
-			c, err := h.svc.Update(ctx, h.userID(ctx), id, UpdateParams{Name: in.Body.Name, Position: in.Body.Position})
+			c, err := h.svc.Update(ctx, h.userID(ctx), id, UpdateParams{Name: in.Body.Name, Position: in.Body.Position, Topic: in.Body.Topic})
 			if err != nil {
 				return nil, httpx.Err(err)
 			}

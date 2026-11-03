@@ -38,7 +38,7 @@ func (q *Queries) DeleteRecipient(ctx context.Context, arg DeleteRecipientParams
 }
 
 const getDMPairChannel = `-- name: GetDMPairChannel :one
-SELECT c.id, c.type, c.guild_id, c.parent_id, c.name, c.position, c.owner_id, c.last_message_id, c.created_at FROM dm_pairs p JOIN channels c ON c.id = p.channel_id
+SELECT c.id, c.type, c.guild_id, c.parent_id, c.name, c.position, c.owner_id, c.last_message_id, c.created_at, c.topic FROM dm_pairs p JOIN channels c ON c.id = p.channel_id
 WHERE p.user_a = $1 AND p.user_b = $2
 `
 
@@ -60,13 +60,14 @@ func (q *Queries) GetDMPairChannel(ctx context.Context, arg GetDMPairChannelPara
 		&i.OwnerID,
 		&i.LastMessageID,
 		&i.CreatedAt,
+		&i.Topic,
 	)
 	return i, err
 }
 
 const insertDMChannel = `-- name: InsertDMChannel :one
 INSERT INTO channels (id, type, owner_id, name) VALUES ($1, $2, $3, $4)
-RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at
+RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic
 `
 
 type InsertDMChannelParams struct {
@@ -94,6 +95,7 @@ func (q *Queries) InsertDMChannel(ctx context.Context, arg InsertDMChannelParams
 		&i.OwnerID,
 		&i.LastMessageID,
 		&i.CreatedAt,
+		&i.Topic,
 	)
 	return i, err
 }
@@ -153,7 +155,7 @@ func (q *Queries) IsRecipient(ctx context.Context, arg IsRecipientParams) (bool,
 }
 
 const listDMChannelsByUser = `-- name: ListDMChannelsByUser :many
-SELECT c.id, c.type, c.guild_id, c.parent_id, c.name, c.position, c.owner_id, c.last_message_id, c.created_at FROM channels c
+SELECT c.id, c.type, c.guild_id, c.parent_id, c.name, c.position, c.owner_id, c.last_message_id, c.created_at, c.topic FROM channels c
 JOIN channel_recipients r ON r.channel_id = c.id
 WHERE r.user_id = $1
 ORDER BY COALESCE(c.last_message_id, c.id) DESC
@@ -179,6 +181,7 @@ func (q *Queries) ListDMChannelsByUser(ctx context.Context, userID int64) ([]Cha
 			&i.OwnerID,
 			&i.LastMessageID,
 			&i.CreatedAt,
+			&i.Topic,
 		); err != nil {
 			return nil, err
 		}
@@ -277,7 +280,7 @@ func (q *Queries) LockChannel(ctx context.Context, id int64) (int64, error) {
 
 const updateDMName = `-- name: UpdateDMName :one
 UPDATE channels SET name = $2 WHERE id = $1 AND type = 4
-RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at
+RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic
 `
 
 type UpdateDMNameParams struct {
@@ -298,6 +301,7 @@ func (q *Queries) UpdateDMName(ctx context.Context, arg UpdateDMNameParams) (Cha
 		&i.OwnerID,
 		&i.LastMessageID,
 		&i.CreatedAt,
+		&i.Topic,
 	)
 	return i, err
 }

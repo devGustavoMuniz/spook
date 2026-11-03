@@ -102,6 +102,11 @@ export const ListNotificationSettingsResponse = zod.object({
       scope: zod
         .enum(["guild", "channel"])
         .describe("guild, ou channel (canal de servidor, DM ou DM em grupo)"),
+      suppress_everyone: zod
+        .boolean()
+        .describe(
+          "Só em servidores: ignora @everyone e @here (não soma menção nem avisa); menção a cargo e direta continuam",
+        ),
       target_id: zod.string(),
     }),
   ),
@@ -133,6 +138,10 @@ export const PutNotificationSettingBody = zod.object({
     .datetime({ offset: true })
     .optional()
     .describe("Fim do silêncio (futuro); ausente com muted=true = até reativar"),
+  suppress_everyone: zod
+    .boolean()
+    .optional()
+    .describe("Só em servidores: ignora @everyone e @here (não soma menção nem avisa)"),
 });
 
 export const PutNotificationSettingResponse = zod.object({
@@ -148,6 +157,11 @@ export const PutNotificationSettingResponse = zod.object({
   scope: zod
     .enum(["guild", "channel"])
     .describe("guild, ou channel (canal de servidor, DM ou DM em grupo)"),
+  suppress_everyone: zod
+    .boolean()
+    .describe(
+      "Só em servidores: ignora @everyone e @here (não soma menção nem avisa); menção a cargo e direta continuam",
+    ),
   target_id: zod.string(),
 });
 

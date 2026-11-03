@@ -13,4 +13,6 @@ export interface NotificationSettingBody {
   muted?: boolean;
   /** Fim do silêncio (futuro); ausente com muted=true = até reativar */
   muted_until?: string;
+  /** Só em servidores: ignora @everyone e @here (não soma menção nem avisa) */
+  suppress_everyone?: boolean;
 }

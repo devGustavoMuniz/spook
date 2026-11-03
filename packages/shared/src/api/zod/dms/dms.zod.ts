@@ -44,6 +44,10 @@ export const AddDMRecipientResponse = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });
 
@@ -70,6 +74,10 @@ export const ListDMsResponseItem = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });
 export const ListDMsResponse = zod.array(ListDMsResponseItem);
@@ -113,5 +121,9 @@ export const OpenDMResponse = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });

@@ -60,9 +60,9 @@ func (f *fakeStore) NextPosition(_ context.Context, guildID int64) (int32, error
 	cs, _ := f.ListByGuild(context.Background(), guildID)
 	return int32(len(cs)), nil
 }
-func (f *fakeStore) Update(_ context.Context, id int64, name string, pos int32) (Channel, error) {
+func (f *fakeStore) Update(_ context.Context, id int64, name string, pos int32, topic *string) (Channel, error) {
 	c := f.chans[id]
-	c.Name, c.Position = name, pos
+	c.Name, c.Position, c.Topic = name, pos, topic
 	f.chans[id] = c
 	return c, nil
 }
@@ -124,6 +124,14 @@ func (f fakeAccess) Member(_ context.Context, _, userID int64) (perm.Member, err
 		return perm.Member{}, perm.ErrNotMember
 	}
 	return m, nil
+}
+
+func (f fakeAccess) MembersAccess(context.Context, int64) ([]perm.Member, error) {
+	out := make([]perm.Member, 0, len(f.members))
+	for _, m := range f.members {
+		out = append(out, m)
+	}
+	return out, nil
 }
 
 func (f fakeAccess) OverwriteTarget(_ context.Context, g int64, t perm.TargetType, id int64) (Target, error) {

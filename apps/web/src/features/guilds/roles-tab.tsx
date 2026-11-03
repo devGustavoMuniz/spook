@@ -183,7 +183,8 @@ export function RolesTab({ guild }: { guild: Guild }) {
   );
 }
 
-const rolesVersion = (r: RolePayload) => `${r.name}|${r.color}|${r.permissions}|${r.position}`;
+const rolesVersion = (r: RolePayload) =>
+  `${r.name}|${r.color}|${r.permissions}|${r.position}|${r.mentionable}`;
 
 function RoleEditor({
   guild,
@@ -207,6 +208,7 @@ function RoleEditor({
   const [color, setColor] = useState<string | null>(initialColor);
   const [perms, setPerms] = useState(role.permissions);
   const [position, setPosition] = useState(String(role.position));
+  const [mentionable, setMentionable] = useState(role.mentionable);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameError, setNameError] = useState<string>();
   const top = myTopPosition(guild);
@@ -215,6 +217,7 @@ function RoleEditor({
     name !== role.name ||
     color !== initialColor ||
     perms !== role.permissions ||
+    mentionable !== role.mentionable ||
     position !== String(role.position);
   useReportDirty("role", dirty);
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
@@ -236,6 +239,7 @@ function RoleEditor({
               name: name.trim(),
               permissions: perms,
               position: Number(position),
+              mentionable,
               ...(color ? { color: hexToColor(color) } : { remove_color: true }),
             },
       });
@@ -322,6 +326,23 @@ function RoleEditor({
                 </div>
               </div>
               <ColorPicker color={color} onChange={setColor} disabled={!editable} />
+              <div className="flex min-h-14 items-center gap-3 rounded-lg border border-border px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <Label htmlFor="role-mentionable">
+                    Permitir que qualquer pessoa mencione este cargo
+                  </Label>
+                  <p className="text-xs text-pretty text-muted-foreground">
+                    Com isso ligado, quem escrever @{name.trim() || "cargo"} notifica os membros do
+                    cargo. Sem ele, só quem pode mencionar @everyone consegue.
+                  </p>
+                </div>
+                <Switch
+                  id="role-mentionable"
+                  checked={mentionable}
+                  disabled={!editable}
+                  onCheckedChange={setMentionable}
+                />
+              </div>
             </section>
           ) : (
             <p className="text-sm text-pretty text-muted-foreground">

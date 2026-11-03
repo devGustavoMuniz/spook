@@ -18,6 +18,7 @@ type fakeStore struct {
 	redeemRes RedeemResult
 	redeemErr error
 	deleted   []string
+	count     int
 }
 
 func newStore() *fakeStore { return &fakeStore{invites: map[string]Invite{}} }
@@ -39,6 +40,7 @@ func (f *fakeStore) Get(_ context.Context, code string) (Invite, error) {
 	return i, nil
 }
 func (f *fakeStore) List(context.Context, int64) ([]Invite, error) { return nil, nil }
+func (f *fakeStore) Count(context.Context, int64) (int, error)     { return f.count, nil }
 func (f *fakeStore) Delete(_ context.Context, code string) error {
 	f.deleted = append(f.deleted, code)
 	delete(f.invites, code)

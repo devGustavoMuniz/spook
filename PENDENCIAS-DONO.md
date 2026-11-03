@@ -36,3 +36,9 @@
 - [ ] Conferir em produção com LiveKit real o mute do servidor e a desconexão (`VALIDACAO-MANUAL.md`, "Moderação e permissões por canal").
 - [ ] Decidir se canais devem herdar as permissões da categoria (hoje não herdam) e se banir deve revogar os convites de quem foi banido (hoje não revoga). Ambos estão registrados em `SPEC.md` 5.5.
 
+
+## Menções, mensagem de entrada e limites
+- [ ] Conceder `Mencionar @everyone, @here e todos os cargos` (MENTION_EVERYONE) aos cargos de moderação/anúncio dos servidores existentes: a migração `00013` **não** concede a nenhum cargo e o `@everyone` do servidor também não a tem.
+- [ ] (Opcional) Definir os `LIMIT_*` e `EVERYONE_PUSH_MAX` (Variables/ambiente do backend; ver `deploy/README.md` 7.1). Os limites de canais (500), membros (10000), cargos (250) e convites (1000) são decisões minhas (o SPEC só fixava servidores e anexo): ajuste se quiser outros.
+- [ ] Se subir `LIMIT_ATTACHMENT_MB` acima de 25, conferir o limite de corpo do túnel/Cloudflare e do bucket.
+- [ ] Rodar as verificações novas de `VALIDACAO-MANUAL.md` ("Menções em massa, mensagem de entrada...").

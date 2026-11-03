@@ -200,7 +200,7 @@ func TestUploadFlowWithThumbnailOverWebSocket(t *testing.T) {
 	// mensagem apagada some com os anexos
 	owner.call(t, "DELETE", "/api/channels/"+g.textID+"/messages/"+str(msg, "id"), nil, 204)
 	hist = obj(t, member.call(t, "GET", "/api/channels/"+g.textID+"/messages", nil, 200))
-	if len(list(hist, "messages")) != 0 {
+	if countKind(list(hist, "messages"), "default") != 0 {
 		t.Fatalf("mensagem apagada continua no histórico: %v", hist)
 	}
 }

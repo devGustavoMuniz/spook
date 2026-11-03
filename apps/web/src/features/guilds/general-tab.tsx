@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { DialogBody } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -32,9 +33,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { isConfirmationCancelled, useConfirmPassword } from "@/features/account/confirm-password";
 import { memberName, useGuildMembers } from "@/features/members/use-members";
 import { appMessage } from "@/lib/app-errors";
-import { type Guild, initials } from "@/lib/guild";
+import { CHANNEL_TEXT, channelsOf, type Guild, initials } from "@/lib/guild";
 import { refreshGuilds, removeGuild } from "@/lib/guild-cache";
 import { type GuildNameForm, guildNameSchema, validateAvatar } from "@/lib/schemas";
 import { putWithProgress } from "@/lib/upload";
@@ -45,6 +48,7 @@ export function GeneralTab({ guild, onClose }: { guild: Guild; onClose: () => vo
     <DialogBody className="gap-8">
       <NameForm guild={guild} />
       <IconSection guild={guild} />
+      <SystemMessagesSection guild={guild} />
       {guild.is_owner ? <DangerZone guild={guild} onClose={onClose} /> : null}
     </DialogBody>
   );
@@ -86,6 +90,73 @@ function NameForm({ guild }: { guild: Guild }) {
         Salvar nome
       </Button>
     </form>
+  );
+}
+
+const DEFAULT_SYSTEM_CHANNEL = "default";
+
+/** Mensagens de boas-vindas ("fulano entrou no servidor"): liga/desliga e escolhe o canal (MANAGE_GUILD). */
+function SystemMessagesSection({ guild }: { guild: Guild }) {
+  const qc = useQueryClient();
+  const update = useUpdateGuild();
+  const texts = channelsOf(guild).filter((c) => c.type === CHANNEL_TEXT);
+  const current = guild.system_channel_id ?? DEFAULT_SYSTEM_CHANNEL;
+  const value = texts.some((c) => c.id === current) ? current : DEFAULT_SYSTEM_CHANNEL;
+
+  async function save(data: { system_join_enabled?: boolean; system_channel_id?: string }) {
+    try {
+      await update.mutateAsync({ guildId: guild.id, data });
+      await refreshGuilds(qc);
+      toast.success("Mensagens de entrada atualizadas.");
+    } catch (e) {
+      toast.error(appMessage(e));
+    }
+  }
+
+  return (
+    <section aria-labelledby="system-title" className="flex flex-col gap-3">
+      <div>
+        <h3 id="system-title" className="text-sm font-semibold">
+          Mensagens de entrada
+        </h3>
+        <p className="text-xs text-pretty text-muted-foreground">
+          Avisa no canal quando alguém entra pelo convite. Não gera notificação.
+        </p>
+      </div>
+      <div className="flex min-h-14 items-center gap-3 rounded-lg border border-border px-3 py-2">
+        <Label htmlFor="system-join-enabled" className="flex-1">
+          Avisar quando alguém entrar no servidor
+        </Label>
+        <Switch
+          id="system-join-enabled"
+          checked={guild.system_join_enabled}
+          disabled={update.isPending}
+          onCheckedChange={(v) => void save({ system_join_enabled: v })}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="system-channel">Canal das mensagens</Label>
+        <Select
+          value={value}
+          disabled={update.isPending || !guild.system_join_enabled}
+          onValueChange={(v) =>
+            void save({ system_channel_id: v === DEFAULT_SYSTEM_CHANNEL ? "" : v })
+          }
+        >
+          <SelectTrigger id="system-channel" aria-label="Canal das mensagens de entrada">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={DEFAULT_SYSTEM_CHANNEL}>Padrão (primeiro canal de texto)</SelectItem>
+            {texts.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                # {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </section>
   );
 }
 
@@ -207,6 +278,8 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
   const members = useGuildMembers(guild.id);
   const transfer = useTransferGuild();
   const del = useDeleteGuild();
+  const { run } = useConfirmPassword();
+  const [typedName, setTypedName] = useState("");
   const [target, setTarget] = useState<string>("");
   const [confirmTransfer, setConfirmTransfer] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -215,12 +288,13 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
 
   async function doTransfer() {
     try {
-      await transfer.mutateAsync({ guildId: guild.id, data: { user_id: target } });
+      // Ação sensível: o servidor pede a senha confirmada há pouco; `run` abre o diálogo e repete a ação.
+      await run(() => transfer.mutateAsync({ guildId: guild.id, data: { user_id: target } }));
       await refreshGuilds(qc);
       toast.success("Posse transferida.");
       onClose();
     } catch (e) {
-      toast.error(appMessage(e));
+      if (!isConfirmationCancelled(e)) toast.error(appMessage(e));
     } finally {
       setConfirmTransfer(false);
     }
@@ -228,14 +302,15 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
 
   async function doDelete() {
     try {
-      await del.mutateAsync({ guildId: guild.id });
+      await run(() => del.mutateAsync({ guildId: guild.id }));
       removeGuild(qc, guild.id);
       onClose();
       await navigate({ to: "/" });
     } catch (e) {
-      toast.error(appMessage(e));
+      if (!isConfirmationCancelled(e)) toast.error(appMessage(e));
     } finally {
       setConfirmDelete(false);
+      setTypedName("");
     }
   }
 
@@ -294,13 +369,37 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialog
+        open={confirmDelete}
+        onOpenChange={(o) => {
+          setConfirmDelete(o);
+          if (!o) setTypedName("");
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogTitle>Excluir {guild.name}?</AlertDialogTitle>
-          <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
+          <AlertDialogDescription>
+            Esta ação não pode ser desfeita. Vamos pedir sua senha em seguida.
+          </AlertDialogDescription>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="confirm-guild-name">
+              Digite o nome do servidor (<strong>{guild.name}</strong>) para confirmar
+            </Label>
+            <Input
+              id="confirm-guild-name"
+              autoComplete="off"
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void doDelete()}>Excluir servidor</AlertDialogAction>
+            <AlertDialogAction
+              disabled={typedName.trim() !== guild.name}
+              onClick={() => void doDelete()}
+            >
+              Excluir servidor
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

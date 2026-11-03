@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"go.opentelemetry.io/otel"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
 var tracer = otel.Tracer("spook/channel")
@@ -25,7 +28,7 @@ type Store interface {
 	ListByGuild(ctx context.Context, guildID int64) ([]Channel, error)
 	ListByGuilds(ctx context.Context, guildIDs []int64) (map[int64][]Channel, error)
 	NextPosition(ctx context.Context, guildID int64) (int32, error)
-	Update(ctx context.Context, id int64, name string, position int32) (Channel, error)
+	Update(ctx context.Context, id int64, name string, position int32, topic *string) (Channel, error)
 	UpdatePlacements(ctx context.Context, guildID int64, ps []Placement) error
 	Delete(ctx context.Context, id int64) error
 
@@ -60,6 +63,8 @@ type Access interface {
 	Member(ctx context.Context, guildID, userID int64) (perm.Member, error)
 	// OverwriteTarget resolve o alvo de um overwrite (cargo ou membro do servidor); inexistente = NotFound.
 	OverwriteTarget(ctx context.Context, guildID int64, t perm.TargetType, id int64) (Target, error)
+	// MembersAccess devolve as permissões base (cargos) e os cargos de todos os membros do servidor.
+	MembersAccess(ctx context.Context, guildID int64) ([]perm.Member, error)
 }
 
 // DMs é o que channel precisa das DMs (implementada pelo dm.Service): quem participa de uma DM
@@ -79,11 +84,14 @@ type Service struct {
 	dms    DMs
 	audit  Auditor
 	limit  Limiter
+	lim    limits.Limits
 }
 
-// SetAudit liga o registro de auditoria; SetLimiter, o rate limit das ações de moderação.
-func (s *Service) SetAudit(a Auditor)   { s.audit = a }
-func (s *Service) SetLimiter(l Limiter) { s.limit = l }
+// SetAudit liga o registro de auditoria; SetLimiter, o rate limit das ações de moderação; SetLimits, os limites
+// de domínio configuráveis (LIMIT_*).
+func (s *Service) SetAudit(a Auditor)        { s.audit = a }
+func (s *Service) SetLimiter(l Limiter)      { s.limit = l }
+func (s *Service) SetLimits(l limits.Limits) { s.lim = l.Normalize() }
 
 func (s *Service) record(ctx context.Context, e audit.Entry) {
 	if s.audit != nil {
@@ -105,7 +113,7 @@ func (s *Service) take(userID int64) error {
 func (s *Service) SetDMs(d DMs) { s.dms = d }
 
 func NewService(store Store, access Access, ids IDGenerator, pub events.Publisher) *Service {
-	return &Service{store: store, access: access, ids: ids, pub: pub}
+	return &Service{store: store, access: access, ids: ids, pub: pub, lim: limits.Default()}
 }
 
 // ListByGuild e ListByGuilds são de uso interno (sem checagem de acesso): quem chama já autorizou.
@@ -303,6 +311,9 @@ func (s *Service) Create(ctx context.Context, userID, guildID int64, in CreatePa
 	if err != nil {
 		return Channel{}, err
 	}
+	if len(all) >= s.lim.ChannelsPerGuild {
+		return Channel{}, apperr.Conflict(limits.ChannelsPerGuildMsg(s.lim.ChannelsPerGuild))
+	}
 	if in.ParentID != nil {
 		if in.Type == TypeCategory {
 			return Channel{}, apperr.Invalid("uma categoria não pode estar dentro de outra")
@@ -347,6 +358,26 @@ func checkParent(guildChannels []Channel, parentID int64) error {
 type UpdateParams struct {
 	Name     *string
 	Position *int32
+	// Topic: nil = não altera; vazio = remove. Só canais de texto têm tópico.
+	Topic *string
+}
+
+// normalizeTopic valida o tópico (até MaxTopicRunes caracteres, sem controles além de quebra de linha) e
+// devolve o texto sem espaços nas pontas; vazio vira nil.
+func normalizeTopic(t string) (*string, error) {
+	t = strings.TrimSpace(t)
+	if httpx.Runes(t) > MaxTopicRunes {
+		return nil, apperr.Invalid("o tópico pode ter no máximo 1024 caracteres")
+	}
+	for _, r := range t {
+		if unicode.IsControl(r) && r != '\n' {
+			return nil, apperr.Invalid("o tópico não pode ter caracteres de controle")
+		}
+	}
+	if t == "" {
+		return nil, nil
+	}
+	return &t, nil
 }
 
 func (s *Service) Update(ctx context.Context, userID, channelID int64, in UpdateParams) (Channel, error) {
@@ -373,12 +404,24 @@ func (s *Service) Update(ctx context.Context, userID, channelID int64, in Update
 		}
 		pos = *in.Position
 	}
-	c, err := s.store.Update(ctx, channelID, name, pos)
+	topic := cur.Topic
+	if in.Topic != nil {
+		if cur.Type != TypeText {
+			return Channel{}, apperr.Invalid("só canais de texto têm tópico")
+		}
+		t, err := normalizeTopic(*in.Topic)
+		if err != nil {
+			return Channel{}, err
+		}
+		topic = t
+	}
+	c, err := s.store.Update(ctx, channelID, name, pos, topic)
 	if err != nil {
 		return Channel{}, err
 	}
 	s.publish(events.ChannelUpdate, c)
-	if c.GuildID != nil && (cur.Name != c.Name || cur.Position != c.Position) {
+	topicChanged := !sameText(cur.Topic, c.Topic)
+	if c.GuildID != nil && (cur.Name != c.Name || cur.Position != c.Position || topicChanged) {
 		ch := map[string]any{"target_name": c.Name}
 		if cur.Name != c.Name {
 			ch["name"] = map[string]any{"from": cur.Name, "to": c.Name}
@@ -386,9 +429,32 @@ func (s *Service) Update(ctx context.Context, userID, channelID int64, in Update
 		if cur.Position != c.Position {
 			ch["position"] = map[string]any{"from": cur.Position, "to": c.Position}
 		}
+		if topicChanged {
+			// O tópico chega a 1024 caracteres e o campo changes tem 4 KB: o log guarda só o começo.
+			ch["topic"] = map[string]any{"from": topicPreview(cur.Topic), "to": topicPreview(c.Topic)}
+		}
 		s.record(ctx, audit.Entry{GuildID: *c.GuildID, ActorID: userID, Action: audit.ChannelUpdate, TargetType: audit.TargetChannel, TargetID: c.ID, Changes: ch})
 	}
 	return c, nil
+}
+
+func sameText(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// topicPreview encurta o tópico para o registro de auditoria (nulo = sem tópico).
+func topicPreview(t *string) any {
+	if t == nil {
+		return nil
+	}
+	r := []rune(*t)
+	if len(r) > 100 {
+		return string(r[:99]) + "…"
+	}
+	return *t
 }
 
 // updateDM trata o PATCH de uma DM: só a DM em grupo tem nome, e só o dono o altera.
@@ -535,4 +601,31 @@ func (s *Service) publish(typ string, c Channel) {
 		Type: typ, GuildID: guildID, ChannelID: c.ID,
 		Topics: []string{"guild:" + strconv.FormatInt(guildID, 10)}, Data: c.Payload(),
 	})
+}
+
+// Audience devolve os membros do servidor do canal que o veem (permissão efetiva com os overwrites), com os
+// cargos de cada um: serve às menções em massa (@everyone, @here e cargos). Canal de DM: ErrNotFound.
+func (s *Service) Audience(ctx context.Context, channelID int64) ([]perm.Member, error) {
+	ch, err := s.store.Get(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	if ch.GuildID == nil {
+		return nil, ErrNotFound
+	}
+	members, err := s.access.MembersAccess(ctx, *ch.GuildID)
+	if err != nil {
+		return nil, err
+	}
+	ows, err := s.store.Overwrites(ctx, channelID)
+	if err != nil {
+		return nil, err
+	}
+	out := members[:0:0]
+	for _, m := range members {
+		if m.InChannel(ows).Has(perm.ViewChannel) {
+			out = append(out, m)
+		}
+	}
+	return out, nil
 }

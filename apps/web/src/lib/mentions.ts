@@ -1,6 +1,6 @@
 // Autocompletar de menção `@`: acha o trecho `@consulta` sob o cursor e ordena as sugestões.
-// A fonte de dados é uma lista de `MentionOption`; hoje só há usuários, mas `kind` deixa espaço para cargos e
-// `@everyone` (o backend os suportará num lote seguinte) sem mexer na interface do compositor.
+// A fonte de dados é uma lista de `MentionOption`: usuários, cargos e `@everyone`/`@here` (estes só aparecem
+// para quem pode mencioná-los: MENTION_EVERYONE no canal ou cargo mencionável).
 
 export type MentionOption = {
   /** Chave estável (id do usuário, do cargo...). */
@@ -10,9 +10,59 @@ export type MentionOption = {
   /** Nome mostrado (nome de exibição; cai no handle). */
   label: string;
   avatarUrl?: string;
-  /** `user` hoje; `role` e `everyone` ficam para quando o backend suportar. */
+  /** Cor do cargo (`#rrggbb`), quando `kind` é `role`. */
+  color?: string;
+  /** Texto de apoio da opção (ex.: "Notifica todos os que veem o canal"). */
+  hint?: string;
   kind: "user" | "role" | "everyone";
 };
+
+/** O que o cliente precisa saber do servidor para tratar menções em massa. */
+export type MentionContext = {
+  /** Cargos do servidor (sem o @everyone). */
+  roles: readonly { id: string; name: string; color?: string }[];
+  /** IDs dos meus cargos. */
+  myRoleIds: readonly string[];
+  /** "Suprimir @everyone e @here" ligado neste servidor. */
+  suppressEveryone: boolean;
+};
+
+/**
+ * A mensagem me notifica por menção em massa? Cargo meu vale sempre; `@everyone`/`@here` valem, a menos que eu
+ * tenha suprimido (o servidor aplica a mesma regra ao somar o contador). Mensagens minhas não contam.
+ */
+export function bulkMentionsMe(
+  m: {
+    author: { id: string };
+    mention_everyone?: boolean;
+    mention_here?: boolean;
+    mention_roles?: readonly string[] | null;
+  },
+  myId: string,
+  ctx?: Pick<MentionContext, "myRoleIds" | "suppressEveryone">,
+): boolean {
+  if (!ctx || m.author.id === myId) return false;
+  if ((m.mention_roles ?? []).some((r) => ctx.myRoleIds.includes(r))) return true;
+  return !!(m.mention_everyone || m.mention_here) && !ctx.suppressEveryone;
+}
+
+/** Opções fixas de menção em massa, para o autocompletar de quem tem MENTION_EVERYONE. */
+export const EVERYONE_OPTIONS: readonly MentionOption[] = [
+  {
+    id: "everyone",
+    handle: "everyone",
+    label: "everyone",
+    kind: "everyone",
+    hint: "Todos que veem este canal",
+  },
+  {
+    id: "here",
+    handle: "here",
+    label: "here",
+    kind: "everyone",
+    hint: "Só quem está online",
+  },
+];
 
 export type MentionQuery = { start: number; end: number; query: string };
 

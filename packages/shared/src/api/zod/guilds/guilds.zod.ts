@@ -32,6 +32,10 @@ export const ListGuildsResponseItem = zod.object({
           )
           .nullish()
           .describe("Participantes da DM (todos, inclusive você)"),
+        topic: zod
+          .string()
+          .nullable()
+          .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
         type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
@@ -53,6 +57,9 @@ export const ListGuildsResponseItem = zod.object({
         guild_id: zod.string(),
         id: zod.string(),
         is_everyone: zod.boolean(),
+        mentionable: zod
+          .boolean()
+          .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
         name: zod.string(),
         permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
         position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
@@ -60,6 +67,11 @@ export const ListGuildsResponseItem = zod.object({
     )
     .nullable()
     .describe("Do mais alto para o mais baixo"),
+  system_channel_id: zod
+    .string()
+    .nullable()
+    .describe("Canal das mensagens de entrada; null = o primeiro canal de texto"),
+  system_join_enabled: zod.boolean().describe("Mensagens de boas-vindas ligadas"),
 });
 export const ListGuildsResponse = zod.array(ListGuildsResponseItem);
 
@@ -96,6 +108,10 @@ export const CreateGuildResponse = zod.object({
           )
           .nullish()
           .describe("Participantes da DM (todos, inclusive você)"),
+        topic: zod
+          .string()
+          .nullable()
+          .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
         type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
@@ -117,6 +133,9 @@ export const CreateGuildResponse = zod.object({
         guild_id: zod.string(),
         id: zod.string(),
         is_everyone: zod.boolean(),
+        mentionable: zod
+          .boolean()
+          .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
         name: zod.string(),
         permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
         position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
@@ -124,10 +143,16 @@ export const CreateGuildResponse = zod.object({
     )
     .nullable()
     .describe("Do mais alto para o mais baixo"),
+  system_channel_id: zod
+    .string()
+    .nullable()
+    .describe("Canal das mensagens de entrada; null = o primeiro canal de texto"),
+  system_join_enabled: zod.boolean().describe("Mensagens de boas-vindas ligadas"),
 });
 
 /**
- * @summary Exclui o servidor (só o dono)
+ * Sem confirmação de senha recente responde 403 com `code: "password_confirmation_required"`; confirme em POST /api/auth/confirm-password e repita.
+ * @summary Exclui o servidor (só o dono; exige a senha confirmada nos últimos 10 min)
  */
 export const DeleteGuildParams = zod.object({
   guild_id: zod.string().describe("ID do servidor"),
@@ -165,6 +190,10 @@ export const GetGuildResponse = zod.object({
           )
           .nullish()
           .describe("Participantes da DM (todos, inclusive você)"),
+        topic: zod
+          .string()
+          .nullable()
+          .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
         type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
@@ -186,6 +215,9 @@ export const GetGuildResponse = zod.object({
         guild_id: zod.string(),
         id: zod.string(),
         is_everyone: zod.boolean(),
+        mentionable: zod
+          .boolean()
+          .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
         name: zod.string(),
         permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
         position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
@@ -193,10 +225,15 @@ export const GetGuildResponse = zod.object({
     )
     .nullable()
     .describe("Do mais alto para o mais baixo"),
+  system_channel_id: zod
+    .string()
+    .nullable()
+    .describe("Canal das mensagens de entrada; null = o primeiro canal de texto"),
+  system_join_enabled: zod.boolean().describe("Mensagens de boas-vindas ligadas"),
 });
 
 /**
- * @summary Renomeia o servidor e troca o ícone (dono ou MANAGE_GUILD)
+ * @summary Renomeia o servidor, troca o ícone e configura as mensagens de entrada (MANAGE_GUILD)
  */
 export const UpdateGuildParams = zod.object({
   guild_id: zod.string().describe("ID do servidor"),
@@ -207,6 +244,8 @@ export const updateGuildBodyIconKeyMax = 200;
 export const updateGuildBodyNameMin = 2;
 export const updateGuildBodyNameMax = 100;
 
+export const updateGuildBodySystemChannelIdMax = 20;
+
 export const UpdateGuildBody = zod.object({
   icon_key: zod
     .string()
@@ -214,6 +253,17 @@ export const UpdateGuildBody = zod.object({
     .optional()
     .describe("Chave devolvida por /guilds/{guild_id}/icon; vazio remove o ícone"),
   name: zod.string().min(updateGuildBodyNameMin).max(updateGuildBodyNameMax).optional(),
+  system_channel_id: zod
+    .string()
+    .max(updateGuildBodySystemChannelIdMax)
+    .optional()
+    .describe(
+      "Canal de texto das mensagens de entrada; vazio volta ao padrão (o primeiro canal de texto)",
+    ),
+  system_join_enabled: zod
+    .boolean()
+    .optional()
+    .describe("Liga ou desliga as mensagens de boas-vindas"),
 });
 
 export const UpdateGuildResponse = zod.object({
@@ -223,6 +273,11 @@ export const UpdateGuildResponse = zod.object({
   id: zod.string(),
   name: zod.string(),
   owner_id: zod.string(),
+  system_channel_id: zod
+    .string()
+    .nullable()
+    .describe("Canal das mensagens de entrada; null = o primeiro canal de texto"),
+  system_join_enabled: zod.boolean().describe("Mensagens de boas-vindas ligadas"),
 });
 
 /**
@@ -527,6 +582,9 @@ export const ListGuildRolesResponseItem = zod.object({
   guild_id: zod.string(),
   id: zod.string(),
   is_everyone: zod.boolean(),
+  mentionable: zod
+    .boolean()
+    .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
   name: zod.string(),
   permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
   position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
@@ -549,6 +607,10 @@ export const createGuildRoleBodyPermissionsMin = 0;
 
 export const CreateGuildRoleBody = zod.object({
   color: zod.int().min(createGuildRoleBodyColorMin).max(createGuildRoleBodyColorMax).optional(),
+  mentionable: zod
+    .boolean()
+    .optional()
+    .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo; padrão false"),
   name: zod.string().min(1).max(createGuildRoleBodyNameMax),
   permissions: zod
     .int()
@@ -563,6 +625,9 @@ export const CreateGuildRoleResponse = zod.object({
   guild_id: zod.string(),
   id: zod.string(),
   is_everyone: zod.boolean(),
+  mentionable: zod
+    .boolean()
+    .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
   name: zod.string(),
   permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
   position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
@@ -595,6 +660,10 @@ export const updateGuildRoleBodyPermissionsMin = 0;
 
 export const UpdateGuildRoleBody = zod.object({
   color: zod.int().min(updateGuildRoleBodyColorMin).max(updateGuildRoleBodyColorMax).optional(),
+  mentionable: zod
+    .boolean()
+    .optional()
+    .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo"),
   name: zod.string().min(1).max(updateGuildRoleBodyNameMax).optional(),
   permissions: zod.int().min(updateGuildRoleBodyPermissionsMin).optional(),
   position: zod.int().min(1).optional(),
@@ -606,13 +675,17 @@ export const UpdateGuildRoleResponse = zod.object({
   guild_id: zod.string(),
   id: zod.string(),
   is_everyone: zod.boolean(),
+  mentionable: zod
+    .boolean()
+    .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
   name: zod.string(),
   permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
   position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
 });
 
 /**
- * @summary Transfere a posse para outro membro (só o dono)
+ * Sem confirmação de senha recente responde 403 com `code: "password_confirmation_required"`; confirme em POST /api/auth/confirm-password e repita.
+ * @summary Transfere a posse para outro membro (só o dono; exige a senha confirmada nos últimos 10 min)
  */
 export const TransferGuildParams = zod.object({
   guild_id: zod.string().describe("ID do servidor"),
@@ -629,4 +702,9 @@ export const TransferGuildResponse = zod.object({
   id: zod.string(),
   name: zod.string(),
   owner_id: zod.string(),
+  system_channel_id: zod
+    .string()
+    .nullable()
+    .describe("Canal das mensagens de entrada; null = o primeiro canal de texto"),
+  system_join_enabled: zod.boolean().describe("Mensagens de boas-vindas ligadas"),
 });

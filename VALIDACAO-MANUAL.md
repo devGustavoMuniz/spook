@@ -307,3 +307,12 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 - [ ] **Canal de feedback dos usuários** (SPEC, questão em aberto 4): definir onde coletar feedback antes de divulgar o desktop.
 - [ ] **Fase B (benchmarks e observabilidade):** nada foi executado. Falta a conta no Grafana Cloud (plano gratuito) com token de ingestão para o coletor OpenTelemetry do VPS, e rodar `run-alternating.sh`, `run-internal.sh` e os cenários k6 das Fases 2 a 7 (todos já escritos em `bench/`).
 - [ ] **Disco do Docker local:** a VM do Docker Desktop andou perto de 100% durante o desenvolvimento (causou falhas de Postgres e builds). Se `No space left on device` reaparecer: `docker system df`, `docker builder prune` e remover imagens e volumes de projetos que você não usa mais.
+
+### Menções em massa, mensagem de entrada, tópico e exclusão com senha (RF26)
+- [ ] **Push de `@everyone`/`@here`/cargo em produção:** com duas contas (uma sem aba aberta, com o push ligado), o dono escreve `@everyone` e a outra recebe o aviso; repetir com o nível "só menções", "nada", silenciado e Não perturbar (só o primeiro deve avisar; os contadores sobem em todos). Confirmar o limite `EVERYONE_PUSH_MAX` baixando-o para 1 em um servidor de teste (só os contadores sobem).
+- [ ] **`@here`:** com uma conta online, outra offline e outra Invisível, só a online é notificada.
+- [ ] **Cor da pílula de cargo (AA):** criar cargos com cores muito claras e muito escuras e conferir a leitura da pílula `@Cargo` nos temas claro e escuro.
+- [ ] **Mensagem de entrada:** entrar por convite e ver "fulano entrou no servidor" no canal certo (padrão, escolhido e desligado) em 390 px; confirmar que não gera som, toast nem badge.
+- [ ] **Tópico:** texto longo com quebras no cabeçalho em 390 px e no desktop; o diálogo lê o texto inteiro.
+- [ ] **Exclusão do servidor:** digitar o nome, confirmar a senha e ver o servidor sumir para todos os membros conectados; idem transferir a posse (o diálogo de senha abre sozinho).
+- [ ] **Limites:** subir o backend com `LIMIT_*` pequenos e ver as mensagens em pt-br (servidores, canais, cargos, convites, membros, anexo).

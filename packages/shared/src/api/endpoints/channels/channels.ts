@@ -133,7 +133,7 @@ export const getUpdateChannelUrl = (channelId: string) => {
 };
 
 /**
- * @summary Renomeia ou reposiciona um canal
+ * @summary Renomeia, reposiciona ou muda o tópico de um canal (MANAGE_CHANNELS)
  */
 export const updateChannel = async (
   channelId: string,
@@ -208,7 +208,7 @@ export type UpdateChannelMutationError = ErrorModel;
 export type UpdateChannelMutationVariables = { channelId: string; data: UpdateChannelInputBody };
 
 /**
- * @summary Renomeia ou reposiciona um canal
+ * @summary Renomeia, reposiciona ou muda o tópico de um canal (MANAGE_CHANNELS)
  */
 export const useUpdateChannel = <TError = ErrorModel, TContext = unknown>(
   options?: {

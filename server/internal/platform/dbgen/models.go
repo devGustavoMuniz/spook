@@ -44,6 +44,7 @@ type Channel struct {
 	OwnerID       *int64
 	LastMessageID *int64
 	CreatedAt     pgtype.Timestamptz
+	Topic         *string
 }
 
 type ChannelOverwrite struct {
@@ -87,11 +88,13 @@ type EmailToken struct {
 }
 
 type Guild struct {
-	ID        int64
-	Name      string
-	IconKey   *string
-	OwnerID   int64
-	CreatedAt pgtype.Timestamptz
+	ID                int64
+	Name              string
+	IconKey           *string
+	OwnerID           int64
+	CreatedAt         pgtype.Timestamptz
+	SystemChannelID   *int64
+	SystemJoinEnabled bool
 }
 
 type GuildBan struct {
@@ -127,26 +130,31 @@ type MemberRole struct {
 }
 
 type Message struct {
-	ID          int64
-	ChannelID   int64
-	AuthorID    int64
-	Content     string
-	EditedAt    pgtype.Timestamptz
-	DeletedAt   pgtype.Timestamptz
-	MentionIds  []int64
-	ReferenceID *int64
-	PinnedAt    pgtype.Timestamptz
-	PinnedBy    *int64
+	ID              int64
+	ChannelID       int64
+	AuthorID        int64
+	Content         string
+	EditedAt        pgtype.Timestamptz
+	DeletedAt       pgtype.Timestamptz
+	MentionIds      []int64
+	ReferenceID     *int64
+	PinnedAt        pgtype.Timestamptz
+	PinnedBy        *int64
+	Kind            string
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIds  []int64
 }
 
 type NotificationSetting struct {
-	UserID     int64
-	Scope      string
-	TargetID   int64
-	Muted      bool
-	MutedUntil pgtype.Timestamptz
-	Level      *string
-	UpdatedAt  pgtype.Timestamptz
+	UserID           int64
+	Scope            string
+	TargetID         int64
+	Muted            bool
+	MutedUntil       pgtype.Timestamptz
+	Level            *string
+	UpdatedAt        pgtype.Timestamptz
+	SuppressEveryone bool
 }
 
 type PushSubscription struct {
@@ -172,6 +180,7 @@ type Role struct {
 	Color       *int32
 	Position    int32
 	Permissions int64
+	Mentionable bool
 }
 
 type Session struct {

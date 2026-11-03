@@ -22,6 +22,8 @@ export const Permission = {
   MUTE_MEMBERS: 1 << 16,
   DISCONNECT_MEMBERS: 1 << 17,
   VIEW_AUDIT_LOG: 1 << 18,
+  /** Notificar @everyone, @here e cargos não mencionáveis (adicional). Vale no servidor inteiro. */
+  MENTION_EVERYONE: 1 << 19,
 } as const;
 
 /** Permissões que um canal pode permitir ou negar (overwrites); as demais valem só no servidor inteiro. */

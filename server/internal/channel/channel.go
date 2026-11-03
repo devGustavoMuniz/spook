@@ -20,6 +20,9 @@ const (
 	TypeGroupDM  Type = 4
 )
 
+// MaxTopicRunes é o tamanho máximo do tópico de um canal.
+const MaxTopicRunes = 1024
+
 var (
 	ErrNotFound  = apperr.NotFound("canal não encontrado")
 	ErrForbidden = apperr.Forbidden("você não tem permissão para isso neste canal")
@@ -34,6 +37,8 @@ type Channel struct {
 	Position      int32
 	LastMessageID *int64
 	CreatedAt     time.Time
+	// Topic é o tópico do canal de texto (até MaxTopicRunes caracteres); nil = sem tópico.
+	Topic *string
 
 	// Só em DMs: o dono da DM em grupo e os participantes (todos, inclusive quem consulta).
 	OwnerID    *int64
@@ -78,6 +83,7 @@ type ChannelPayload struct {
 	Position      int32     `json:"position"`
 	LastMessageID *string   `json:"last_message_id"`
 	CreatedAt     time.Time `json:"created_at"`
+	Topic         *string   `json:"topic" doc:"Tópico do canal de texto (até 1024 caracteres); null = sem tópico"`
 	// Só em DMs (omitidos nos canais de servidor).
 	OwnerID    *string            `json:"owner_id,omitempty" doc:"Dono da DM em grupo"`
 	Recipients []RecipientPayload `json:"recipients,omitempty" doc:"Participantes da DM (todos, inclusive você)"`
@@ -86,7 +92,7 @@ type ChannelPayload struct {
 func (c Channel) Payload() ChannelPayload {
 	p := ChannelPayload{
 		ID: httpx.ID(c.ID), Type: int(c.Type), GuildID: httpx.IDPtr(c.GuildID), ParentID: httpx.IDPtr(c.ParentID),
-		Name: c.Name, Position: c.Position, LastMessageID: httpx.IDPtr(c.LastMessageID), CreatedAt: c.CreatedAt,
+		Name: c.Name, Position: c.Position, LastMessageID: httpx.IDPtr(c.LastMessageID), CreatedAt: c.CreatedAt, Topic: c.Topic,
 	}
 	if c.IsDM() {
 		p.OwnerID = httpx.IDPtr(c.OwnerID)

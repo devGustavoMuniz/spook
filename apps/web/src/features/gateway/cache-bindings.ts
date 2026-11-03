@@ -22,6 +22,7 @@ import {
   upsertRole,
 } from "@/lib/guild-cache";
 import { dropRoleFromMembers, removeMember, upsertMember } from "@/lib/member-cache";
+import { bulkMentionsMe } from "@/lib/mentions";
 import { addMessage, removeMessage, replaceMessage } from "@/lib/message-cache";
 import { applyPinUpdate, removePinned } from "@/lib/pins-cache";
 import { isMembersKey, isMessagesKey, queryKeys } from "@/lib/queryKeys";
@@ -251,6 +252,8 @@ function onDmMessage(qc: QueryClient, channelId: string, messageId: string) {
 function onIncomingMessage(qc: QueryClient, fx: GatewayEffects, m: MessagePayload) {
   const myId = fx.myId();
   if (!myId || m.author.id === myId) return;
+  // Mensagem de sistema ("fulano entrou"): não conta como não lida nem avisa.
+  if (m.kind === "member_join") return;
   const guild = guildsOf(qc)?.find((g) => g.channels?.some((c) => c.id === m.channel_id));
   const dm = guild ? undefined : findDm(qc, m.channel_id);
   if (!guild && !dm) return; // canal desconhecido (o CHANNEL_CREATE ainda não chegou)
@@ -270,6 +273,12 @@ function onIncomingMessage(qc: QueryClient, fx: GatewayEffects, m: MessagePayloa
       myId,
       isDm: !!dm,
       mentionIds: m.mention_ids ?? [],
+      bulkMention: bulkMentionsMe(m, myId, {
+        myRoleIds: guild?.my_role_ids ?? [],
+        suppressEveryone:
+          useNotificationSettings.getState().entries[`guild:${guild?.id}`]?.suppress_everyone ??
+          false,
+      }),
       viewing,
       muted: useNotificationPrefs.getState().muted || eff.muted,
       level: eff.level,

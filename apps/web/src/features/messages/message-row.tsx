@@ -1,5 +1,15 @@
 import type { MessagePayload } from "@spook/shared";
-import { Copy, Hash, MoreHorizontal, Pencil, Pin, PinOff, Reply, Trash2 } from "lucide-react";
+import {
+  Copy,
+  Hash,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Reply,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 import {
   type KeyboardEvent,
   memo,
@@ -25,6 +35,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { shownName } from "@/features/account/removed-user";
 import { MessageAttachments } from "@/features/attachments/message-attachments";
 import { formatClock, formatFullDate, formatMessageTime } from "@/lib/format";
+import { bulkMentionsMe, type MentionContext } from "@/lib/mentions";
 import { useReadableRoleColor } from "@/lib/role-color";
 import { InviteCards } from "./invite-card";
 import { MAX_MESSAGE_LENGTH, runeCount } from "./limits";
@@ -43,6 +54,8 @@ export type MessageRowProps = {
   myUsername: string;
   /** Usernames (minúsculos) que podem ser citados na conversa: ganham a pílula de menção. */
   mentionable?: ReadonlySet<string>;
+  /** Cargos do servidor e os meus: `@everyone`, `@here` e `@cargo` ganham pílula e destacam a linha. */
+  mentionCtx?: MentionContext;
   canEdit: boolean;
   canDelete: boolean;
   /** Pode responder (SEND_MESSAGES no servidor; sempre em DM). */
@@ -83,7 +96,8 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
   const nameColor = useReadableRoleColor(p.color);
   // mention_ids traz quem deve ser NOTIFICADO (o servidor exclui o próprio autor). Só ele destaca a linha;
   // o "@usuário" no texto é destacado sempre que cita você, inclusive numa mensagem sua.
-  const mentionsMe = (m.mention_ids ?? []).includes(p.myId);
+  const mentionsMe =
+    (m.mention_ids ?? []).includes(p.myId) || bulkMentionsMe(m, p.myId, p.mentionCtx);
   const [touchMenu, setTouchMenu] = useState(false);
   const press = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hasActions = !p.editing && (p.canEdit || p.canDelete || p.canReply || p.canPin);
@@ -119,6 +133,15 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
       </button>
     ) : (
       <span className={className}>{child}</span>
+    );
+
+  if (m.kind === "member_join")
+    return (
+      <>
+        {p.marker ? <NewMessagesDivider /> : null}
+        {p.day ? <DayDivider label={p.day} /> : null}
+        <JoinRow name={name} at={m.created_at} />
+      </>
     );
 
   return (
@@ -208,7 +231,12 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                 {m.content ? (
                   <p className="text-sm leading-6 break-words whitespace-pre-wrap">
                     {m.content.includes("@")
-                      ? highlightMentions(m.content, p.myUsername, p.mentionable)
+                      ? highlightMentions(
+                          m.content,
+                          p.myUsername,
+                          p.mentionable,
+                          bulkOf(m, p.mentionCtx),
+                        )
                       : m.content}
                     {m.edited_at ? (
                       <Tooltip>
@@ -487,43 +515,144 @@ export function highlightMention(content: string, username: string): ReactNode[]
   return highlightMentions(content, username);
 }
 
+/** Menções em massa que esta mensagem realmente faz (as que o servidor aceitou) e os cargos citados. */
+export type BulkHighlight = {
+  everyone: boolean;
+  here: boolean;
+  roles: readonly { id: string; name: string; color?: string }[];
+};
+
+/** O que a mensagem marcou como menção em massa; `undefined` se nada (o texto `@everyone` fica comum). */
+export function bulkOf(m: MessagePayload, ctx?: MentionContext): BulkHighlight | undefined {
+  const ids = new Set(m.mention_roles ?? []);
+  if (!m.mention_everyone && !m.mention_here && ids.size === 0) return undefined;
+  return {
+    everyone: !!m.mention_everyone,
+    here: !!m.mention_here,
+    roles: (ctx?.roles ?? []).filter((r) => ids.has(r.id)),
+  };
+}
+
+const NO_LEAD = /[A-Za-z0-9_.@]/;
+const WORDISH = /[\p{L}\p{N}_@]/u;
+const USER_TOKEN = /^[A-Za-z0-9_.]+/;
+
+/** O que vem depois da menção a encerra? (fim do texto, espaço ou pontuação.) */
+function endsToken(content: string, at: number): boolean {
+  if (at >= content.length) return true;
+  const cp = content.codePointAt(at);
+  return cp === undefined || !WORDISH.test(String.fromCodePoint(cp));
+}
+
+/** Pílula de cargo: o texto usa a cor do cargo ajustada ao tema (contraste AA) sobre um fundo suave da mesma cor. */
+function RolePill({ name, color }: { name: string; color?: string }) {
+  const text = useReadableRoleColor(color);
+  return (
+    <mark
+      data-mention-pill="role"
+      className="rounded-sm bg-brand-500/12 px-1 font-medium text-brand-text"
+      style={text && color ? { color: text, backgroundColor: `${color}1f` } : undefined}
+    >
+      @{name}
+    </mark>
+  );
+}
+
 /**
- * Transforma `@usuário` em pílula: a minha menção ganha realce forte; as de quem está na conversa (`known`,
- * usernames em minúsculas) ganham a pílula suave. Mesma regra do servidor: o @ não pode vir colado a letra,
- * dígito, _, . ou @, e o nome termina onde acaba o token.
+ * Transforma menções em pílulas: a minha `@usuário` ganha realce forte; as de quem está na conversa (`known`,
+ * usernames em minúsculas) ganham a pílula suave; `@everyone`/`@here` (se a mensagem realmente os marcou) e
+ * `@NomeDoCargo` (cargos que ela marcou) ganham pílula própria. Mesma regra do servidor: o @ não pode vir colado
+ * a letra, dígito, _, . ou @, e o nome termina onde acaba o token (o nome de cargo pode ter espaços).
  */
 export function highlightMentions(
   content: string,
   username: string,
   known?: ReadonlySet<string>,
+  bulk?: BulkHighlight,
 ): ReactNode[] {
   const me = username.toLowerCase();
-  const re = /(^|[^A-Za-z0-9_.@])@([A-Za-z0-9_.]+)/g;
+  const roles = bulk ? [...bulk.roles].sort((a, b) => b.name.length - a.name.length) : [];
   const out: ReactNode[] = [];
   let last = 0;
-  for (const match of content.matchAll(re)) {
-    const lead = match[1]?.length ?? 0;
-    const start = (match.index ?? 0) + lead;
-    const raw = match[2] ?? "";
-    // O nome de usuário pode ter ponto no meio, mas ponto no fim é pontuação da frase.
-    const token = raw.replace(/\.+$/, "");
-    const lower = token.toLowerCase();
-    const isMe = !!me && lower === me;
-    if (!isMe && !known?.has(lower)) continue;
-    if (start > last) out.push(content.slice(last, start));
-    out.push(
-      <mark
-        key={start}
-        data-mention-pill={isMe ? "me" : "other"}
-        className={`rounded-sm px-1 font-medium text-brand-text ${isMe ? "bg-brand-500/25" : "bg-brand-500/12"}`}
-      >
-        @{token}
-      </mark>,
-    );
-    last = start + 1 + token.length;
+  for (let i = 0; i < content.length; i++) {
+    if (content.charAt(i) !== "@") continue;
+    if (i > 0 && NO_LEAD.test(content.charAt(i - 1))) continue;
+    const rest = content.slice(i + 1);
+    const lower = rest.toLowerCase();
+    let end = -1;
+    let node: ReactNode = null;
+
+    for (const word of ["everyone", "here"] as const) {
+      if (bulk?.[word] && lower.startsWith(word) && endsToken(content, i + 1 + word.length)) {
+        end = i + 1 + word.length;
+        node = (
+          <mark
+            key={i}
+            data-mention-pill="everyone"
+            className="rounded-sm bg-brand-500/25 px-1 font-medium text-brand-text"
+          >
+            @{word}
+          </mark>
+        );
+        break;
+      }
+    }
+    if (!node) {
+      for (const role of roles) {
+        const n = role.name.length;
+        if (n > 0 && lower.startsWith(role.name.toLowerCase()) && endsToken(content, i + 1 + n)) {
+          end = i + 1 + n;
+          node = <RolePill key={i} name={rest.slice(0, n)} color={role.color} />;
+          break;
+        }
+      }
+    }
+    if (!node) {
+      const raw = USER_TOKEN.exec(rest)?.[0] ?? "";
+      // O nome de usuário pode ter ponto no meio, mas ponto no fim é pontuação da frase.
+      const token = raw.replace(/\.+$/, "");
+      const isMe = !!me && token.toLowerCase() === me;
+      const after = i + 1 + raw.length;
+      if (token && (isMe || known?.has(token.toLowerCase())) && endsToken(content, after)) {
+        end = i + 1 + token.length;
+        node = (
+          <mark
+            key={i}
+            data-mention-pill={isMe ? "me" : "other"}
+            className={`rounded-sm px-1 font-medium text-brand-text ${isMe ? "bg-brand-500/25" : "bg-brand-500/12"}`}
+          >
+            @{token}
+          </mark>
+        );
+      }
+    }
+    if (!node) continue;
+    if (i > last) out.push(content.slice(last, i));
+    out.push(node);
+    last = end;
+    i = end - 1;
   }
   if (last < content.length) out.push(content.slice(last));
   return out.length > 0 ? out : [content];
+}
+
+/** Mensagem de sistema "fulano entrou no servidor": linha centralizada, sem avatar nem ações. */
+function JoinRow({ name, at }: { name: string; at: string }) {
+  return (
+    <article
+      aria-label={`${name} entrou no servidor`}
+      data-system="member_join"
+      className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-muted-foreground"
+    >
+      <UserPlus className="size-4 shrink-0 text-brand-text" aria-hidden />
+      <p className="min-w-0 text-center break-words">
+        <strong className="font-medium text-foreground">{name}</strong> entrou no servidor.
+      </p>
+      <time dateTime={at} title={formatFullDate(at)} className="shrink-0 text-2xs tabular">
+        {formatMessageTime(at)}
+      </time>
+    </article>
+  );
 }
 
 function EditBox({

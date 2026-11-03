@@ -95,6 +95,9 @@ describe("fixtures do gateway", () => {
   it("MESSAGE_CREATE traz mention_ids e READ_STATE_UPDATE segue o fixture", () => {
     const msg = dispatchFrameSchema("MESSAGE_CREATE").parse(fixtures.dispatch.MESSAGE_CREATE);
     expect(msg.d.mention_ids).toEqual(["11"]);
+    expect(msg.d).toMatchObject({ mention_everyone: true, mention_here: false, mention_roles: ["400"], kind: "default" });
+    const join = dispatchFrameSchema("MESSAGE_CREATE").parse(fixtures.member_join_message);
+    expect(join.d).toMatchObject({ kind: "member_join", content: "", author: { id: "12" } });
     const rs = dispatchFrameSchema("READ_STATE_UPDATE").parse(fixtures.dispatch.READ_STATE_UPDATE);
     expect(rs.d).toEqual({ channel_id: "300", last_read_message_id: "901", mention_count: 2 });
   });

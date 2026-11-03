@@ -182,7 +182,7 @@ func TestAdminServersList(t *testing.T) {
 		t.Fatalf("servidores = %v", p)
 	}
 	it := items[0]
-	if str(it, "owner") != owner.name || num(it, "members") != 2 || num(it, "messages") != 1 || num(it, "channels") < 2 || num(it, "invites_active") < 1 {
+	if str(it, "owner") != owner.name || num(it, "members") != 2 || num(it, "messages") != 2 || num(it, "channels") < 2 || num(it, "invites_active") < 1 {
 		t.Fatalf("linha = %v", it)
 	}
 	// busca pelo dono também funciona

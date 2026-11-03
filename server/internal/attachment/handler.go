@@ -21,7 +21,7 @@ func NewHandler(svc *Service, userID func(context.Context) int64) *Handler {
 type UploadBody struct {
 	Filename    string `json:"filename" minLength:"1" maxLength:"255" doc:"Nome original; o servidor tira caminho e caracteres de controle e limita a 100 caracteres"`
 	ContentType string `json:"content_type" doc:"Tipo permitido (png, jpeg, gif, webp, pdf, text/plain, zip, audio mpeg/ogg/webm, vídeo mp4/webm); a extensão do nome precisa combinar"`
-	Size        int64  `json:"size" doc:"Tamanho em bytes, de 1 a 26214400 (25 MB)"`
+	Size        int64  `json:"size" doc:"Tamanho em bytes, a partir de 1; o máximo é o limite do servidor (padrão 25 MB, LIMIT_ATTACHMENT_MB)"`
 }
 
 type UploadOutput struct{ Body UploadPayload }

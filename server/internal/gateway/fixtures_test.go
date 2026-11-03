@@ -62,13 +62,13 @@ func buildFixtures(t *testing.T) map[string]any {
 	at := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	ch := channel.ChannelPayload{
 		ID: "300", Type: 0, GuildID: ptr("100"), ParentID: ptr("200"), Name: "geral", Position: 0,
-		LastMessageID: ptr("900"), CreatedAt: at,
+		LastMessageID: ptr("900"), CreatedAt: at, Topic: ptr("Avisos e conversa geral"),
 	}
 	voice := channel.ChannelPayload{ID: "301", Type: 1, GuildID: ptr("100"), ParentID: ptr("200"), Name: "Geral", Position: 1, CreatedAt: at}
 	cat := channel.ChannelPayload{ID: "200", Type: 2, GuildID: ptr("100"), Name: "Canais", Position: 0, CreatedAt: at}
 	everyone := guild.RolePayload{ID: "100", GuildID: "100", Name: "@everyone", Position: 0, Permissions: 7904, IsEveryone: true}
-	mod := guild.RolePayload{ID: "400", GuildID: "100", Name: "Moderador", Color: ptr(int32(0xFF8800)), Position: 1, Permissions: 320}
-	g := guild.GuildPayload{ID: "100", Name: "Spook HQ", IconKey: nil, OwnerID: "10", CreatedAt: at}
+	mod := guild.RolePayload{ID: "400", GuildID: "100", Name: "Moderador", Color: ptr(int32(0xFF8800)), Position: 1, Permissions: 320, Mentionable: true}
+	g := guild.GuildPayload{ID: "100", Name: "Spook HQ", IconKey: nil, OwnerID: "10", CreatedAt: at, SystemChannelID: ptr("300"), SystemJoinEnabled: true}
 	detail := guild.DetailPayload{
 		GuildPayload: g, Roles: []guild.RolePayload{mod, everyone}, Channels: []channel.ChannelPayload{cat, ch, voice},
 		Permissions: 7904, IsOwner: false, MyRoleIDs: []string{"400"},
@@ -84,6 +84,13 @@ func buildFixtures(t *testing.T) map[string]any {
 		Author: message.AuthorPayload{ID: "10", Username: "gustavo"},
 	}
 	msg.MentionIDs = []string{"11"}
+	msg.Kind = message.KindDefault
+	msg.MentionEveryone, msg.MentionRoles = true, []string{"400"}
+	join := message.MessagePayload{
+		ID: "902", ChannelID: "300", CreatedAt: at, Kind: message.KindMemberJoin,
+		Author:      message.AuthorPayload{ID: "12", Username: "maria"},
+		Attachments: []attachment.AttachmentPayload{}, MentionIDs: []string{}, MentionRoles: []string{},
+	}
 	// Resposta a outra mensagem (a prévia da original) e fixada: o MESSAGE_UPDATE de fixar traz pinned = true.
 	msg.ReplyTo = &message.ReplyPayload{
 		ID: "899", Content: "Quem vai ao estudo de Go?", HasAttachments: true,
@@ -155,17 +162,18 @@ func buildFixtures(t *testing.T) map[string]any {
 			PrivateChannels:      []channel.ChannelPayload{dm},
 			Presences:            []presence.UpdatePayload{{UserID: "12", Status: presence.StatusOnline}, {UserID: "13", Status: presence.StatusIdle}, {UserID: "14", Status: presence.StatusDND, CustomStatus: &presence.CustomStatus{Emoji: "🎧"}}},
 			SelfPresence:         presence.SelfPayload{StatusPref: presence.PrefOnline, CustomStatus: &presence.CustomStatus{Text: "almoçando", Emoji: "🍽️", ExpiresAt: &at}},
-			NotificationSettings: []notification.SettingPayload{{Scope: "guild", TargetID: "100", Muted: true}, {Scope: "channel", TargetID: "300", Level: ptr("none")}},
+			NotificationSettings: []notification.SettingPayload{{Scope: "guild", TargetID: "100", Muted: true, SuppressEveryone: true}, {Scope: "channel", TargetID: "300", Level: ptr("none")}},
 			VoiceStates:          []voicepkg.StatePayload{{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "12", SelfVideo: true}},
 			ReadStates: []notification.ReadStatePayload{
 				{ChannelID: "300", GuildID: "100", LastReadMessageID: "890", MentionCount: 2, UnreadCount: 12},
 				{ChannelID: "500", LastReadMessageID: "880", UnreadCount: 100},
 			},
 		}),
-		"set_presence":      control(t, OpPresence, "", SetPresence{Status: presence.StatusIdle}),
-		"dm_channel_create": dispatch(t, 2, events.ChannelCreate, dm),
-		"resumed":           control(t, OpDispatch, EventResumed, Resumed{SessionID: "c2Vzc2lvbi1pZA", Replayed: 3}),
-		"dispatch":          disp,
+		"set_presence":        control(t, OpPresence, "", SetPresence{Status: presence.StatusIdle}),
+		"dm_channel_create":   dispatch(t, 2, events.ChannelCreate, dm),
+		"member_join_message": dispatch(t, 3, events.MessageCreate, join),
+		"resumed":             control(t, OpDispatch, EventResumed, Resumed{SessionID: "c2Vzc2lvbi1pZA", Replayed: 3}),
+		"dispatch":            disp,
 		"close_codes": map[string]int{
 			"going_away": CloseGoingAway, "unknown": CloseUnknown, "invalid_op": CloseInvalidOp,
 			"session_taken_over": CloseSessionTakenOver, "not_identified": CloseNotIdentified,

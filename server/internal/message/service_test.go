@@ -36,6 +36,7 @@ type fakeStore struct {
 	lastBefore int64
 	lastLimit  int
 	refCalls   int
+	recentJoin map[int64]bool
 }
 
 func newFakeStore() *fakeStore {
@@ -48,7 +49,7 @@ func (f *fakeStore) Insert(_ context.Context, p InsertParams) (Message, []attach
 	if f.insertErr != nil {
 		return Message{}, nil, f.insertErr
 	}
-	m := Message{ID: p.ID, ChannelID: p.ChannelID, Content: p.Content, MentionIDs: p.MentionIDs, ReferenceID: p.ReferenceID, Author: Author{ID: p.AuthorID, Username: "u"}}
+	m := Message{ID: p.ID, ChannelID: p.ChannelID, Content: p.Content, MentionIDs: p.MentionIDs, ReferenceID: p.ReferenceID, Kind: kindOrDefault(p.Kind), MentionEveryone: p.MentionEveryone, MentionHere: p.MentionHere, MentionRoleIDs: p.MentionRoleIDs, Author: Author{ID: p.AuthorID, Username: "u"}}
 	f.msgs[p.ID] = m
 	var atts []attachment.Attachment
 	for _, id := range p.AttachmentIDs {
@@ -102,7 +103,7 @@ func (f *fakeStore) References(_ context.Context, channelID int64, ids []int64) 
 		if !ok || m.ChannelID != channelID {
 			continue
 		}
-		r := Reply{ID: id, Author: m.Author, Deleted: f.deleted[id]}
+		r := Reply{ID: id, Author: m.Author, Deleted: f.deleted[id], Kind: m.Kind}
 		if !r.Deleted {
 			r.Content = truncateRunes(m.Content, ReplyPreviewRunes)
 		}
@@ -138,6 +139,10 @@ func (f *fakeStore) Pin(_ context.Context, id, _, _ int64, max int) (bool, error
 	m.PinnedAt = &now
 	f.msgs[id] = m
 	return true, nil
+}
+
+func (f *fakeStore) HasRecentJoin(_ context.Context, _, u int64) (bool, error) {
+	return f.recentJoin[u], nil
 }
 
 func (f *fakeStore) Unpin(_ context.Context, id, _ int64) (bool, error) {
@@ -575,14 +580,23 @@ func TestRepublishUpdate(t *testing.T) {
 }
 
 type fakeMentions struct {
-	ids  []int64
-	err  error
-	seen []string
+	ids    []int64
+	err    error
+	seen   []string
+	canAll []bool
 }
 
-func (f *fakeMentions) Resolve(_ context.Context, _ channel.Channel, _ int64, content string) ([]int64, error) {
+func (f *fakeMentions) Resolve(_ context.Context, _ channel.Channel, _ int64, content string, canAll bool) (MentionResult, error) {
 	f.seen = append(f.seen, content)
-	return f.ids, f.err
+	f.canAll = append(f.canAll, canAll)
+	if f.err != nil {
+		return MentionResult{}, f.err
+	}
+	res := MentionResult{UserIDs: f.ids}
+	if canAll && strings.Contains(content, "@everyone") {
+		res.Everyone = true
+	}
+	return res, nil
 }
 
 func TestSendResolvesMentionsIntoPayload(t *testing.T) {
@@ -650,13 +664,13 @@ type replyMentions struct {
 	byName  map[string]int64
 }
 
-func (f *replyMentions) Resolve(_ context.Context, _ channel.Channel, _ int64, content string) ([]int64, error) {
+func (f *replyMentions) Resolve(_ context.Context, _ channel.Channel, _ int64, content string, _ bool) (MentionResult, error) {
 	f.seen = append(f.seen, content)
 	name := strings.TrimPrefix(content, "@")
 	if id, ok := f.byName[name]; ok && f.visible[id] {
-		return []int64{id}, nil
+		return MentionResult{UserIDs: []int64{id}}, nil
 	}
-	return nil, nil
+	return MentionResult{}, nil
 }
 
 func TestSendReplyBuildsPreviewAndMentionsAuthor(t *testing.T) {
@@ -733,11 +747,11 @@ type compositeMentions struct {
 	reply replyMentions
 }
 
-func (c *compositeMentions) Resolve(ctx context.Context, ch channel.Channel, a int64, content string) ([]int64, error) {
+func (c *compositeMentions) Resolve(ctx context.Context, ch channel.Channel, a int64, content string, canAll bool) (MentionResult, error) {
 	if content == "@x" {
-		return c.text, nil
+		return MentionResult{UserIDs: c.text}, nil
 	}
-	return c.reply.Resolve(ctx, ch, a, content)
+	return c.reply.Resolve(ctx, ch, a, content, canAll)
 }
 
 func TestSendReplyRejectsInvalidTargets(t *testing.T) {

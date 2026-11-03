@@ -54,11 +54,23 @@ export const ListMessagesResponse = zod.object({
         created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
         edited_at: zod.iso.datetime({ offset: true }).nullable(),
         id: zod.string(),
+        kind: zod
+          .enum(["default", "member_join"])
+          .describe("default ou member_join (mensagem de sistema; não editável nem respondível)"),
+        mention_everyone: zod
+          .boolean()
+          .describe("A mensagem menciona @everyone (autor com MENTION_EVERYONE)"),
+        mention_here: zod
+          .boolean()
+          .describe("A mensagem menciona @here (autor com MENTION_EVERYONE)"),
         mention_ids: zod
           .array(zod.string())
           .describe(
             "IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)",
           ),
+        mention_roles: zod
+          .array(zod.string())
+          .describe("IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica"),
         pinned: zod.boolean().describe("A mensagem está fixada no canal"),
         reply_to: zod
           .union([
@@ -146,9 +158,19 @@ export const SendMessageResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
   edited_at: zod.iso.datetime({ offset: true }).nullable(),
   id: zod.string(),
+  kind: zod
+    .enum(["default", "member_join"])
+    .describe("default ou member_join (mensagem de sistema; não editável nem respondível)"),
+  mention_everyone: zod
+    .boolean()
+    .describe("A mensagem menciona @everyone (autor com MENTION_EVERYONE)"),
+  mention_here: zod.boolean().describe("A mensagem menciona @here (autor com MENTION_EVERYONE)"),
   mention_ids: zod
     .array(zod.string())
     .describe("IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"),
+  mention_roles: zod
+    .array(zod.string())
+    .describe("IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica"),
   pinned: zod.boolean().describe("A mensagem está fixada no canal"),
   reply_to: zod
     .union([
@@ -225,9 +247,19 @@ export const EditMessageResponse = zod.object({
   created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
   edited_at: zod.iso.datetime({ offset: true }).nullable(),
   id: zod.string(),
+  kind: zod
+    .enum(["default", "member_join"])
+    .describe("default ou member_join (mensagem de sistema; não editável nem respondível)"),
+  mention_everyone: zod
+    .boolean()
+    .describe("A mensagem menciona @everyone (autor com MENTION_EVERYONE)"),
+  mention_here: zod.boolean().describe("A mensagem menciona @here (autor com MENTION_EVERYONE)"),
   mention_ids: zod
     .array(zod.string())
     .describe("IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"),
+  mention_roles: zod
+    .array(zod.string())
+    .describe("IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica"),
   pinned: zod.boolean().describe("A mensagem está fixada no canal"),
   reply_to: zod
     .union([
@@ -286,11 +318,23 @@ export const ListPinnedMessagesResponse = zod.object({
         created_at: zod.iso.datetime({ offset: true }).describe("Derivado do ID Snowflake"),
         edited_at: zod.iso.datetime({ offset: true }).nullable(),
         id: zod.string(),
+        kind: zod
+          .enum(["default", "member_join"])
+          .describe("default ou member_join (mensagem de sistema; não editável nem respondível)"),
+        mention_everyone: zod
+          .boolean()
+          .describe("A mensagem menciona @everyone (autor com MENTION_EVERYONE)"),
+        mention_here: zod
+          .boolean()
+          .describe("A mensagem menciona @here (autor com MENTION_EVERYONE)"),
         mention_ids: zod
           .array(zod.string())
           .describe(
             "IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)",
           ),
+        mention_roles: zod
+          .array(zod.string())
+          .describe("IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica"),
         pinned: zod.boolean().describe("A mensagem está fixada no canal"),
         reply_to: zod
           .union([

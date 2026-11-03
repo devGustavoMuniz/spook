@@ -7,6 +7,7 @@ import { ErrorState, HomeButton, StateScreen } from "@/components/state-screen";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChannelSidebar } from "@/features/channels/channel-sidebar";
+import { ChannelTopic } from "@/features/channels/channel-topic";
 import { useGuild } from "@/features/guilds/use-guild";
 import { MemberUiProvider } from "@/features/members/member-ui";
 import { MembersPanel } from "@/features/members/members-panel";
@@ -116,8 +117,9 @@ export function ChannelPage() {
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
         <NavToggle />
         <Hash className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-        <h1 className="truncate font-semibold">{channel.name}</h1>
-        <div className="ml-auto flex items-center gap-1">
+        <h1 className="max-w-[45%] shrink-0 truncate font-semibold">{channel.name}</h1>
+        <ChannelTopic name={channel.name} topic={channel.topic} />
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <PinnedMessagesButton
             channelId={channel.id}
             canUnpin={can(guild, Permission.MANAGE_MESSAGES)}

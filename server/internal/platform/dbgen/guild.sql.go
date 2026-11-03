@@ -98,7 +98,7 @@ func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, 
 }
 
 const getGuild = `-- name: GetGuild :one
-SELECT id, name, icon_key, owner_id, created_at FROM guilds WHERE id = $1
+SELECT id, name, icon_key, owner_id, created_at, system_channel_id, system_join_enabled FROM guilds WHERE id = $1
 `
 
 func (q *Queries) GetGuild(ctx context.Context, id int64) (Guild, error) {
@@ -110,6 +110,8 @@ func (q *Queries) GetGuild(ctx context.Context, id int64) (Guild, error) {
 		&i.IconKey,
 		&i.OwnerID,
 		&i.CreatedAt,
+		&i.SystemChannelID,
+		&i.SystemJoinEnabled,
 	)
 	return i, err
 }
@@ -206,7 +208,7 @@ func (q *Queries) GetMemberAccess(ctx context.Context, arg GetMemberAccessParams
 }
 
 const getRole = `-- name: GetRole :one
-SELECT id, guild_id, name, color, position, permissions FROM roles WHERE id = $1 AND guild_id = $2
+SELECT id, guild_id, name, color, position, permissions, mentionable FROM roles WHERE id = $1 AND guild_id = $2
 `
 
 type GetRoleParams struct {
@@ -224,13 +226,37 @@ func (q *Queries) GetRole(ctx context.Context, arg GetRoleParams) (Role, error) 
 		&i.Color,
 		&i.Position,
 		&i.Permissions,
+		&i.Mentionable,
 	)
+	return i, err
+}
+
+const getSystemChannel = `-- name: GetSystemChannel :one
+SELECT g.system_join_enabled AS enabled,
+       COALESCE(
+           (SELECT c.id FROM channels c WHERE c.id = g.system_channel_id AND c.guild_id = g.id AND c.type = 0),
+           (SELECT c.id FROM channels c WHERE c.guild_id = g.id AND c.type = 0 ORDER BY c.position, c.id LIMIT 1),
+           0)::bigint AS channel_id
+FROM guilds g WHERE g.id = $1
+`
+
+type GetSystemChannelRow struct {
+	Enabled   bool
+	ChannelID int64
+}
+
+// Canal das mensagens de entrada: o configurado (se ainda for um canal de texto do servidor) ou o primeiro canal
+// de texto. enabled = false: nenhuma mensagem de entrada.
+func (q *Queries) GetSystemChannel(ctx context.Context, id int64) (GetSystemChannelRow, error) {
+	row := q.db.QueryRow(ctx, getSystemChannel, id)
+	var i GetSystemChannelRow
+	err := row.Scan(&i.Enabled, &i.ChannelID)
 	return i, err
 }
 
 const insertGuild = `-- name: InsertGuild :one
 INSERT INTO guilds (id, name, owner_id) VALUES ($1, $2, $3)
-RETURNING id, name, icon_key, owner_id, created_at
+RETURNING id, name, icon_key, owner_id, created_at, system_channel_id, system_join_enabled
 `
 
 type InsertGuildParams struct {
@@ -248,6 +274,8 @@ func (q *Queries) InsertGuild(ctx context.Context, arg InsertGuildParams) (Guild
 		&i.IconKey,
 		&i.OwnerID,
 		&i.CreatedAt,
+		&i.SystemChannelID,
+		&i.SystemJoinEnabled,
 	)
 	return i, err
 }
@@ -290,8 +318,8 @@ func (q *Queries) InsertMemberRole(ctx context.Context, arg InsertMemberRolePara
 }
 
 const insertRole = `-- name: InsertRole :one
-INSERT INTO roles (id, guild_id, name, color, position, permissions) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, guild_id, name, color, position, permissions
+INSERT INTO roles (id, guild_id, name, color, position, permissions, mentionable) VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, guild_id, name, color, position, permissions, mentionable
 `
 
 type InsertRoleParams struct {
@@ -301,6 +329,7 @@ type InsertRoleParams struct {
 	Color       *int32
 	Position    int32
 	Permissions int64
+	Mentionable bool
 }
 
 func (q *Queries) InsertRole(ctx context.Context, arg InsertRoleParams) (Role, error) {
@@ -311,6 +340,7 @@ func (q *Queries) InsertRole(ctx context.Context, arg InsertRoleParams) (Role, e
 		arg.Color,
 		arg.Position,
 		arg.Permissions,
+		arg.Mentionable,
 	)
 	var i Role
 	err := row.Scan(
@@ -320,8 +350,25 @@ func (q *Queries) InsertRole(ctx context.Context, arg InsertRoleParams) (Role, e
 		&i.Color,
 		&i.Position,
 		&i.Permissions,
+		&i.Mentionable,
 	)
 	return i, err
+}
+
+const isGuildTextChannel = `-- name: IsGuildTextChannel :one
+SELECT EXISTS (SELECT 1 FROM channels WHERE id = $1 AND guild_id = $2 AND type = 0)
+`
+
+type IsGuildTextChannelParams struct {
+	ID      int64
+	GuildID *int64
+}
+
+func (q *Queries) IsGuildTextChannel(ctx context.Context, arg IsGuildTextChannelParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isGuildTextChannel, arg.ID, arg.GuildID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const isMember = `-- name: IsMember :one
@@ -384,8 +431,57 @@ func (q *Queries) ListAccessByUser(ctx context.Context, userID int64) ([]ListAcc
 	return items, nil
 }
 
+const listGuildMemberAccess = `-- name: ListGuildMemberAccess :many
+SELECT m.user_id, g.owner_id,
+       COALESCE(bit_or(r.permissions), 0)::bigint AS permissions,
+       COALESCE(max(r.position), 0)::int AS highest_position,
+       COALESCE((SELECT array_agg(mr.role_id) FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = m.user_id), '{}')::bigint[] AS role_ids
+FROM guild_members m
+JOIN guilds g ON g.id = m.guild_id
+LEFT JOIN roles r ON r.guild_id = g.id
+     AND (r.id = g.id OR r.id IN (SELECT mr.role_id FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = m.user_id))
+WHERE m.guild_id = $1
+GROUP BY m.user_id, g.id, g.owner_id
+ORDER BY m.user_id
+`
+
+type ListGuildMemberAccessRow struct {
+	UserID          int64
+	OwnerID         int64
+	Permissions     int64
+	HighestPosition int32
+	RoleIds         []int64
+}
+
+// Membros do servidor com o necessário para a permissão efetiva e os cargos (menções em massa).
+func (q *Queries) ListGuildMemberAccess(ctx context.Context, guildID int64) ([]ListGuildMemberAccessRow, error) {
+	rows, err := q.db.Query(ctx, listGuildMemberAccess, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGuildMemberAccessRow
+	for rows.Next() {
+		var i ListGuildMemberAccessRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.OwnerID,
+			&i.Permissions,
+			&i.HighestPosition,
+			&i.RoleIds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGuildsByUser = `-- name: ListGuildsByUser :many
-SELECT g.id, g.name, g.icon_key, g.owner_id, g.created_at FROM guilds g
+SELECT g.id, g.name, g.icon_key, g.owner_id, g.created_at, g.system_channel_id, g.system_join_enabled FROM guilds g
 JOIN guild_members m ON m.guild_id = g.id
 WHERE m.user_id = $1
 ORDER BY m.joined_at, g.id
@@ -406,6 +502,8 @@ func (q *Queries) ListGuildsByUser(ctx context.Context, userID int64) ([]Guild, 
 			&i.IconKey,
 			&i.OwnerID,
 			&i.CreatedAt,
+			&i.SystemChannelID,
+			&i.SystemJoinEnabled,
 		); err != nil {
 			return nil, err
 		}
@@ -516,7 +614,7 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 }
 
 const listRolesByGuild = `-- name: ListRolesByGuild :many
-SELECT id, guild_id, name, color, position, permissions FROM roles WHERE guild_id = $1 ORDER BY position DESC, id
+SELECT id, guild_id, name, color, position, permissions, mentionable FROM roles WHERE guild_id = $1 ORDER BY position DESC, id
 `
 
 func (q *Queries) ListRolesByGuild(ctx context.Context, guildID int64) ([]Role, error) {
@@ -535,6 +633,7 @@ func (q *Queries) ListRolesByGuild(ctx context.Context, guildID int64) ([]Role, 
 			&i.Color,
 			&i.Position,
 			&i.Permissions,
+			&i.Mentionable,
 		); err != nil {
 			return nil, err
 		}
@@ -547,7 +646,7 @@ func (q *Queries) ListRolesByGuild(ctx context.Context, guildID int64) ([]Role, 
 }
 
 const listRolesByGuilds = `-- name: ListRolesByGuilds :many
-SELECT id, guild_id, name, color, position, permissions FROM roles WHERE guild_id = ANY($1::bigint[]) ORDER BY guild_id, position DESC, id
+SELECT id, guild_id, name, color, position, permissions, mentionable FROM roles WHERE guild_id = ANY($1::bigint[]) ORDER BY guild_id, position DESC, id
 `
 
 func (q *Queries) ListRolesByGuilds(ctx context.Context, dollar_1 []int64) ([]Role, error) {
@@ -566,6 +665,7 @@ func (q *Queries) ListRolesByGuilds(ctx context.Context, dollar_1 []int64) ([]Ro
 			&i.Color,
 			&i.Position,
 			&i.Permissions,
+			&i.Mentionable,
 		); err != nil {
 			return nil, err
 		}
@@ -575,6 +675,18 @@ func (q *Queries) ListRolesByGuilds(ctx context.Context, dollar_1 []int64) ([]Ro
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockGuild = `-- name: LockGuild :one
+SELECT id FROM guilds WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// Trava o servidor (serializa entradas simultâneas para valer o limite de membros).
+func (q *Queries) LockGuild(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, lockGuild, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
 }
 
 const lockUser = `-- name: LockUser :one
@@ -589,18 +701,26 @@ func (q *Queries) LockUser(ctx context.Context, id int64) (int64, error) {
 }
 
 const updateGuild = `-- name: UpdateGuild :one
-UPDATE guilds SET name = $2, icon_key = $3 WHERE id = $1
-RETURNING id, name, icon_key, owner_id, created_at
+UPDATE guilds SET name = $2, icon_key = $3, system_channel_id = $4, system_join_enabled = $5 WHERE id = $1
+RETURNING id, name, icon_key, owner_id, created_at, system_channel_id, system_join_enabled
 `
 
 type UpdateGuildParams struct {
-	ID      int64
-	Name    string
-	IconKey *string
+	ID                int64
+	Name              string
+	IconKey           *string
+	SystemChannelID   *int64
+	SystemJoinEnabled bool
 }
 
 func (q *Queries) UpdateGuild(ctx context.Context, arg UpdateGuildParams) (Guild, error) {
-	row := q.db.QueryRow(ctx, updateGuild, arg.ID, arg.Name, arg.IconKey)
+	row := q.db.QueryRow(ctx, updateGuild,
+		arg.ID,
+		arg.Name,
+		arg.IconKey,
+		arg.SystemChannelID,
+		arg.SystemJoinEnabled,
+	)
 	var i Guild
 	err := row.Scan(
 		&i.ID,
@@ -608,6 +728,8 @@ func (q *Queries) UpdateGuild(ctx context.Context, arg UpdateGuildParams) (Guild
 		&i.IconKey,
 		&i.OwnerID,
 		&i.CreatedAt,
+		&i.SystemChannelID,
+		&i.SystemJoinEnabled,
 	)
 	return i, err
 }
@@ -627,8 +749,8 @@ func (q *Queries) UpdateGuildOwner(ctx context.Context, arg UpdateGuildOwnerPara
 }
 
 const updateRole = `-- name: UpdateRole :one
-UPDATE roles SET name = $3, color = $4, position = $5, permissions = $6 WHERE id = $1 AND guild_id = $2
-RETURNING id, guild_id, name, color, position, permissions
+UPDATE roles SET name = $3, color = $4, position = $5, permissions = $6, mentionable = $7 WHERE id = $1 AND guild_id = $2
+RETURNING id, guild_id, name, color, position, permissions, mentionable
 `
 
 type UpdateRoleParams struct {
@@ -638,6 +760,7 @@ type UpdateRoleParams struct {
 	Color       *int32
 	Position    int32
 	Permissions int64
+	Mentionable bool
 }
 
 func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error) {
@@ -648,6 +771,7 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, e
 		arg.Color,
 		arg.Position,
 		arg.Permissions,
+		arg.Mentionable,
 	)
 	var i Role
 	err := row.Scan(
@@ -657,6 +781,7 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, e
 		&i.Color,
 		&i.Position,
 		&i.Permissions,
+		&i.Mentionable,
 	)
 	return i, err
 }

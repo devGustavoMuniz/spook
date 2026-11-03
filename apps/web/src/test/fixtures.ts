@@ -20,6 +20,7 @@ export function role(id: string, name: string, position: number, extra: Partial<
     color: null,
     permissions: 0,
     is_everyone: false,
+    mentionable: false,
     ...extra,
   } satisfies RolePayload;
 }
@@ -40,6 +41,7 @@ export function channel(
     guild_id: "g",
     last_message_id: null,
     created_at: "2026-10-30T12:00:00Z",
+    topic: null,
   };
 }
 
@@ -54,6 +56,8 @@ export function guild(id: string, name: string, extra: Partial<DetailPayload> = 
     my_role_ids: [],
     permissions: base,
     created_at: "2026-10-30T12:00:00Z",
+    system_channel_id: null,
+    system_join_enabled: true,
     roles: [role(id, "@everyone", 0, { is_everyone: true, permissions: base })],
     channels: [
       channel(`${id}-cat`, "Canais", 0, 2),
@@ -91,6 +95,10 @@ export function messages(
     edited_at: null,
     attachments: [],
     mention_ids: [],
+    kind: "default",
+    mention_everyone: false,
+    mention_here: false,
+    mention_roles: [],
     reply_to: null,
     pinned: false,
   }));
@@ -116,6 +124,7 @@ export function dm(
     position: 0,
     last_message_id: null,
     created_at: "2026-10-30T12:00:00Z",
+    topic: null,
     recipients,
     ...extra,
   };

@@ -25,3 +25,8 @@ SELECT i.code, i.guild_id, i.max_uses, i.uses, i.expires_at,
        (SELECT count(*) FROM guild_members m WHERE m.guild_id = i.guild_id) AS member_count
 FROM invites i JOIN guilds g ON g.id = i.guild_id
 WHERE i.code = $1;
+
+-- Convites ainda válidos do servidor (os expirados ou esgotados não contam para o limite).
+-- name: CountInvitesByGuild :one
+SELECT count(*) FROM invites
+WHERE guild_id = $1 AND (expires_at IS NULL OR expires_at > now()) AND (max_uses IS NULL OR uses < max_uses);

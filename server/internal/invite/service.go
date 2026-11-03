@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -14,6 +15,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
 var tracer = otel.Tracer("spook/invite")
@@ -34,6 +36,8 @@ type Store interface {
 	Create(ctx context.Context, i Invite) (Invite, error) // ErrCodeTaken
 	Get(ctx context.Context, code string) (Invite, error) // ErrNotFound
 	List(ctx context.Context, guildID int64) ([]Invite, error)
+	// Count devolve os convites ainda válidos do servidor (limite por servidor).
+	Count(ctx context.Context, guildID int64) (int, error)
 	Delete(ctx context.Context, code string) error
 	Preview(ctx context.Context, code string) (Preview, error) // ErrNotFound
 	// Redeem entra no servidor numa transação: quem já é membro não consome uso; senão
@@ -65,7 +69,19 @@ type Service struct {
 	icons  Icons
 	now    func() time.Time
 	audit  Auditor
+	joined Joiner
+	lim    limits.Limits
 }
+
+// Joiner é avisado depois que alguém entra no servidor por um convite (a mensagem de sistema "fulano entrou").
+// Falha dele nunca desfaz a entrada.
+type Joiner interface {
+	MemberJoined(ctx context.Context, guildID, userID int64) error
+}
+
+// SetJoiner liga o aviso de entrada; SetLimits, os limites de domínio configuráveis (LIMIT_*).
+func (s *Service) SetJoiner(j Joiner)        { s.joined = j }
+func (s *Service) SetLimits(l limits.Limits) { s.lim = l.Normalize() }
 
 // Auditor grava o registro de auditoria (audit.Service; pode ser nil).
 type Auditor interface {
@@ -82,7 +98,7 @@ func (s *Service) record(ctx context.Context, e audit.Entry) {
 }
 
 func NewService(store Store, access Access, guilds Guilds, icons Icons) *Service {
-	return &Service{store: store, access: access, guilds: guilds, icons: icons, now: time.Now}
+	return &Service{store: store, access: access, guilds: guilds, icons: icons, now: time.Now, lim: limits.Default()}
 }
 
 func newCode() (string, error) {
@@ -127,6 +143,11 @@ func (s *Service) Create(ctx context.Context, userID, guildID int64, in CreatePa
 	}
 	if in.MaxUses != nil && (*in.MaxUses < 1 || *in.MaxUses > MaxMaxUses) {
 		return Invite{}, apperr.Invalid("max_uses deve ser de 1 a 1000000")
+	}
+	if n, err := s.store.Count(ctx, guildID); err != nil {
+		return Invite{}, err
+	} else if n >= s.lim.InvitesPerGuild {
+		return Invite{}, apperr.Conflict(limits.InvitesPerGuildMsg(s.lim.InvitesPerGuild))
 	}
 	inv := Invite{GuildID: guildID, CreatorID: userID, MaxUses: in.MaxUses}
 	if in.ExpiresIn != nil {
@@ -196,7 +217,16 @@ func (s *Service) Join(ctx context.Context, userID int64, code string) (guild.De
 	if !res.Joined {
 		return s.guilds.Get(ctx, userID, res.GuildID)
 	}
-	return s.guilds.PublishJoined(ctx, res.GuildID, userID)
+	d, err := s.guilds.PublishJoined(ctx, res.GuildID, userID)
+	if err != nil {
+		return guild.Detail{}, err
+	}
+	if s.joined != nil {
+		if err := s.joined.MemberJoined(ctx, res.GuildID, userID); err != nil {
+			slog.Warn("mensagem de entrada não enviada", "guild", res.GuildID, "user", userID, "err", err)
+		}
+	}
+	return d, nil
 }
 
 // Revoke apaga o convite; o criador ou quem tem MANAGE_GUILD.

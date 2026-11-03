@@ -1,6 +1,7 @@
 import { Bell, BellOff } from "lucide-react";
 import { toast } from "sonner";
 import {
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -19,6 +20,7 @@ import {
   type Scope,
   setLevel,
   setMute,
+  setSuppressEveryone,
   useNotificationSettings,
   useSetting,
 } from "./settings";
@@ -109,6 +111,17 @@ export function NotificationMenuItems({
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
+          {scope === "guild" ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={setting?.suppress_everyone ?? false}
+                onCheckedChange={(v) => void run(() => setSuppressEveryone(targetId, v === true))}
+              >
+                Suprimir @everyone e @here
+              </DropdownMenuCheckboxItem>
+            </>
+          ) : null}
         </DropdownMenuSubContent>
       </DropdownMenuSub>
     </>

@@ -23,7 +23,7 @@ func NewStore(d db.DB) *PGStore { return &PGStore{db: d, q: dbgen.New(d)} }
 func FromRow(r dbgen.Channel) Channel {
 	c := Channel{
 		ID: r.ID, Type: Type(r.Type), GuildID: r.GuildID, ParentID: r.ParentID,
-		Position: r.Position, LastMessageID: r.LastMessageID, CreatedAt: r.CreatedAt.Time, OwnerID: r.OwnerID,
+		Position: r.Position, LastMessageID: r.LastMessageID, CreatedAt: r.CreatedAt.Time, OwnerID: r.OwnerID, Topic: r.Topic,
 	}
 	if r.Name != nil {
 		c.Name = *r.Name
@@ -85,7 +85,7 @@ func (s *PGStore) NextPosition(ctx context.Context, guildID int64) (int32, error
 	return p, nil
 }
 
-func (s *PGStore) Update(ctx context.Context, id int64, name string, position int32) (Channel, error) {
+func (s *PGStore) Update(ctx context.Context, id int64, name string, position int32, topic *string) (Channel, error) {
 	cur, err := s.q.GetChannel(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Channel{}, ErrNotFound
@@ -93,7 +93,7 @@ func (s *PGStore) Update(ctx context.Context, id int64, name string, position in
 	if err != nil {
 		return Channel{}, fmt.Errorf("buscar canal: %w", err)
 	}
-	r, err := s.q.UpdateChannel(ctx, dbgen.UpdateChannelParams{ID: id, Name: &name, Position: position, ParentID: cur.ParentID})
+	r, err := s.q.UpdateChannel(ctx, dbgen.UpdateChannelParams{ID: id, Name: &name, Position: position, ParentID: cur.ParentID, Topic: topic})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Channel{}, ErrNotFound
 	}
@@ -119,7 +119,7 @@ func (s *PGStore) UpdatePlacements(ctx context.Context, guildID int64, ps []Plac
 		if cur.GuildID == nil || *cur.GuildID != guildID {
 			return ErrNotFound
 		}
-		if _, err := q.UpdateChannel(ctx, dbgen.UpdateChannelParams{ID: p.ID, Name: cur.Name, Position: p.Position, ParentID: p.ParentID}); err != nil {
+		if _, err := q.UpdateChannel(ctx, dbgen.UpdateChannelParams{ID: p.ID, Name: cur.Name, Position: p.Position, ParentID: p.ParentID, Topic: cur.Topic}); err != nil {
 			return fmt.Errorf("reordenar canal: %w", err)
 		}
 	}

@@ -30,7 +30,7 @@ func TestParseMentions(t *testing.T) {
 		{"quebra de linha", "oi\n@maria\n@joao", []string{"maria", "joao"}},
 		{"nome grande demais", "@" + strings.Repeat("a", 33), nil},
 		{"nome com 32", "@" + strings.Repeat("a", 32), []string{strings.Repeat("a", 32)}},
-		{"everyone e here valem como usernames comuns", "@everyone @here", []string{"everyone", "here"}},
+		{"everyone e here saem do parser de usernames (Resolve os descarta; ParseBulk os trata)", "@everyone @here", []string{"everyone", "here"}},
 		{"emoji antes", "👋@maria", []string{"maria"}},
 	}
 	for _, c := range cases {

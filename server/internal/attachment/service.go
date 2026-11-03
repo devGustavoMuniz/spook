@@ -65,10 +65,18 @@ type Service struct {
 	ids      IDGenerator
 	m        *metrics
 	now      func() time.Time
+	maxSize  int64
+}
+
+// SetMaxFileSize troca o tamanho máximo de um anexo (LIMIT_ATTACHMENT_MB); o padrão é MaxFileSize (25 MB, SPEC 7.3).
+func (s *Service) SetMaxFileSize(n int64) {
+	if n > 0 {
+		s.maxSize = n
+	}
 }
 
 func NewService(store Store, objects Objects, channels Channels, limiter Limiter, ids IDGenerator) *Service {
-	return &Service{store: store, objects: objects, channels: channels, limiter: limiter, ids: ids, m: newMetrics(), now: time.Now}
+	return &Service{store: store, objects: objects, channels: channels, limiter: limiter, ids: ids, m: newMetrics(), now: time.Now, maxSize: MaxFileSize}
 }
 
 // KeyPrefix é o prefixo das chaves dos anexos de um canal; é ele que prende o anexo ao canal.
@@ -94,7 +102,7 @@ func (s *Service) RequestUpload(ctx context.Context, userID, channelID int64, fi
 		s.reject(ctx, "rate_limit")
 		return UploadPayload{}, apperr.RateLimited("você está pedindo uploads rápido demais", wait)
 	}
-	name, err := ValidateUpload(filename, contentType, size)
+	name, err := ValidateUploadMax(filename, contentType, size, s.maxSize)
 	if err != nil {
 		s.reject(ctx, "invalid")
 		return UploadPayload{}, err

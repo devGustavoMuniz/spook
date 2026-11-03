@@ -31,4 +31,11 @@ export interface DetailPayload {
    * @nullable
    */
   roles: RolePayload[] | null;
+  /**
+   * Canal das mensagens de entrada; null = o primeiro canal de texto
+   * @nullable
+   */
+  system_channel_id: string | null;
+  /** Mensagens de boas-vindas ligadas */
+  system_join_enabled: boolean;
 }

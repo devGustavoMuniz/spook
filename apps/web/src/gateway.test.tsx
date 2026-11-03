@@ -29,6 +29,10 @@ const incoming = (id: string, content: string, author = "50") => ({
   created_at: "2026-10-31T12:00:00Z",
   attachments: [],
   mention_ids: [],
+  kind: "default" as const,
+  mention_everyone: false,
+  mention_here: false,
+  mention_roles: [],
   reply_to: null,
   pinned: false,
 });

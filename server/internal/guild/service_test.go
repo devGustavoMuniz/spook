@@ -32,18 +32,19 @@ func (r *recorder) last() events.Event { return r.evs[len(r.evs)-1] }
 // fakeStore guarda só o que os testes de regra precisam; o resto do contrato fica nil (panic se usado).
 type fakeStore struct {
 	Store
-	guild    Guild
-	members  map[int64]Access // userID -> acesso
-	roles    map[int64]Role
-	memRoles map[int64]map[int64]bool
-	created  *NewGuild
-	tooMany  bool
-	removed  []int64
+	guild      Guild
+	members    map[int64]Access // userID -> acesso
+	roles      map[int64]Role
+	memRoles   map[int64]map[int64]bool
+	created    *NewGuild
+	tooMany    bool
+	sysChannel int64
+	removed    []int64
 }
 
 func newFake() *fakeStore {
 	return &fakeStore{
-		guild:    Guild{ID: 1, Name: "G", OwnerID: 1},
+		guild:    Guild{ID: 1, Name: "G", OwnerID: 1, SystemJoinEnabled: true},
 		members:  map[int64]Access{},
 		roles:    map[int64]Role{1: {ID: 1, GuildID: 1, Name: "@everyone", Permissions: perm.DefaultEveryone}},
 		memRoles: map[int64]map[int64]bool{},
@@ -119,10 +120,16 @@ func (f *fakeStore) RemoveMember(_ context.Context, _, u int64) error {
 }
 func (f *fakeStore) Transfer(_ context.Context, _, n int64) error { f.guild.OwnerID = n; return nil }
 func (f *fakeStore) Delete(context.Context, int64) error          { return nil }
-func (f *fakeStore) Update(_ context.Context, _ int64, name string, icon *string) (Guild, error) {
-	f.guild.Name, f.guild.IconKey = name, icon
+func (f *fakeStore) Update(_ context.Context, _ int64, name string, icon *string, sysChannel *int64, sysEnabled bool) (Guild, error) {
+	f.guild.Name, f.guild.IconKey, f.guild.SystemChannelID, f.guild.SystemJoinEnabled = name, icon, sysChannel, sysEnabled
 	return f.guild, nil
 }
+
+func (f *fakeStore) SystemChannel(context.Context, int64) (int64, bool, error) {
+	return f.sysChannel, f.guild.SystemJoinEnabled, nil
+}
+func (f *fakeStore) IsTextChannel(_ context.Context, _, c int64) (bool, error)   { return c == 5, nil }
+func (f *fakeStore) MembersAccess(context.Context, int64) ([]perm.Member, error) { return nil, nil }
 
 type fakeChannels struct{}
 

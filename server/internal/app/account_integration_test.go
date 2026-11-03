@@ -250,6 +250,7 @@ func TestDeleteAccountRefusesOwnerAndRequiresPassword(t *testing.T) {
 	a.call(t, "GET", "/api/users/me", nil, 200) // nada foi apagado
 
 	// excluindo o servidor, a conta pode ser excluída
+	a.confirm(t, pw, 200)
 	a.call(t, "DELETE", "/api/guilds/"+g.id, nil, 204)
 	a.call(t, "DELETE", "/api/users/me", J{"password": pw}, 204)
 }

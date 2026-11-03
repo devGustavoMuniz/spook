@@ -53,6 +53,12 @@ export const messagePayloadSchema = z.object({
   reply_to: replyPayloadSchema.nullable().default(null),
   // Fixar: a mensagem está fixada no canal.
   pinned: z.boolean().default(false),
+  // Menções em massa (adicional): valem só quando o autor podia fazê-las. `default` tolera servidor anterior.
+  mention_everyone: z.boolean().default(false),
+  mention_here: z.boolean().default(false),
+  mention_roles: z.array(z.string()).default([]),
+  // default (mensagem comum) ou member_join (mensagem de sistema "fulano entrou").
+  kind: z.enum(["default", "member_join"]).default("default"),
 });
 
 export const recipientPayloadSchema = z.object({
@@ -71,6 +77,8 @@ export const channelPayloadSchema = z.object({
   position: z.number().int(),
   last_message_id: z.string().nullable(),
   created_at: z.string(),
+  /** Tópico do canal de texto (null = sem tópico). */
+  topic: z.string().nullable().default(null),
   // Só em DMs (tipo 3 e 4): o dono do grupo e todos os participantes, inclusive quem consulta.
   owner_id: z.string().optional(),
   recipients: z.array(recipientPayloadSchema).nullable().optional(),
@@ -84,6 +92,8 @@ export const rolePayloadSchema = z.object({
   position: z.number().int(),
   permissions: z.number().int(),
   is_everyone: z.boolean(),
+  /** Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo). */
+  mentionable: z.boolean().default(false),
 });
 
 export const memberPayloadSchema = z.object({
@@ -110,6 +120,9 @@ export const guildPayloadSchema = z.object({
   icon_url: z.string().optional(),
   owner_id: z.string(),
   created_at: z.string(),
+  /** Canal das mensagens de entrada (null = o primeiro canal de texto). */
+  system_channel_id: z.string().nullable().default(null),
+  system_join_enabled: z.boolean().default(true),
 });
 
 export const guildDetailPayloadSchema = guildPayloadSchema.extend({
@@ -160,6 +173,8 @@ export const notificationSettingSchema = z.object({
   muted: z.boolean(),
   muted_until: z.string().nullable(),
   level: notificationLevelSchema.nullable(),
+  /** Só em servidores: ignora @everyone e @here (adicional). */
+  suppress_everyone: z.boolean().default(false),
 });
 export type NotificationSettingPayload = z.infer<typeof notificationSettingSchema>;
 

@@ -41,9 +41,10 @@ type SettingsOutput struct {
 type SettingOutput struct{ Body SettingPayload }
 
 type NotificationSettingBody struct {
-	Muted      bool       `json:"muted,omitempty" doc:"Silenciar (ausente = não silenciado)"`
-	MutedUntil *time.Time `json:"muted_until,omitempty" doc:"Fim do silêncio (futuro); ausente com muted=true = até reativar"`
-	Level      *string    `json:"level,omitempty" enum:"all,mentions,none" doc:"Nível; ausente = herda"`
+	Muted            bool       `json:"muted,omitempty" doc:"Silenciar (ausente = não silenciado)"`
+	MutedUntil       *time.Time `json:"muted_until,omitempty" doc:"Fim do silêncio (futuro); ausente com muted=true = até reativar"`
+	Level            *string    `json:"level,omitempty" enum:"all,mentions,none" doc:"Nível; ausente = herda"`
+	SuppressEveryone bool       `json:"suppress_everyone,omitempty" doc:"Só em servidores: ignora @everyone e @here (não soma menção nem avisa)"`
 }
 
 type VAPIDOutput struct {
@@ -174,7 +175,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 		if !ok {
 			return nil, httpx.BadID("destino")
 		}
-		p, err := h.svc.PutSetting(ctx, h.userID(ctx), in.Scope, target, SettingInput{Muted: in.Body.Muted, MutedUntil: in.Body.MutedUntil, Level: in.Body.Level})
+		p, err := h.svc.PutSetting(ctx, h.userID(ctx), in.Scope, target, SettingInput{Muted: in.Body.Muted, MutedUntil: in.Body.MutedUntil, Level: in.Body.Level, SuppressEveryone: in.Body.SuppressEveryone})
 		if err != nil {
 			return nil, httpx.Err(err)
 		}

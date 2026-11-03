@@ -22,5 +22,7 @@ export interface SettingPayload {
   muted_until: string | null;
   /** guild, ou channel (canal de servidor, DM ou DM em grupo) */
   scope: SettingPayloadScope;
+  /** Só em servidores: ignora @everyone e @here (não soma menção nem avisa); menção a cargo e direta continuam */
+  suppress_everyone: boolean;
   target_id: string;
 }

@@ -1,11 +1,13 @@
 import {
   type ChannelPayload,
+  hasPermission,
   listMessages,
   type MessagePayload,
   Permission,
   useDeleteMessage,
   useEditMessage,
   useGetMe,
+  useGetMyChannelPermissions,
 } from "@spook/shared";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Paperclip } from "lucide-react";
@@ -27,12 +29,14 @@ import { useComposerAttachments } from "@/features/attachments/use-composer-atta
 import { recipientName, recipientsOf } from "@/features/dms/dm-utils";
 import { MemberUiProvider, useMemberUi } from "@/features/members/member-ui";
 import { memberName, useGuildMembers, useMemberColors } from "@/features/members/use-members";
+import { useSetting } from "@/features/notifications/settings";
 import { useAutoAck } from "@/features/notifications/use-auto-ack";
 import { useEntryMarker } from "@/features/notifications/use-entry-marker";
 import { useViewportStore } from "@/features/notifications/viewport";
 import { appMessage } from "@/lib/app-errors";
+import { colorToHex } from "@/lib/colors";
 import { can, type Guild } from "@/lib/guild";
-import type { MentionOption } from "@/lib/mentions";
+import { EVERYONE_OPTIONS, type MentionContext, type MentionOption } from "@/lib/mentions";
 import {
   flattenPages,
   type MessagePages,
@@ -114,8 +118,33 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
       : (guildMembers.data?.members ?? []).map((m) => m.username);
     return new Set(names.map((n) => n.toLowerCase()));
   }, [dm, guildMembers.data]);
-  // Fonte do autocompletar de `@`: membros do servidor ou participantes da DM (menos eu). Cargos e `@everyone`
-  // entram aqui como `kind: "role" | "everyone"` quando o backend os suportar.
+  const perfOn = import.meta.env.DEV && !!perf;
+  // Menções em massa: cargos do servidor, os meus cargos e se ignoro @everyone/@here neste servidor.
+  const suppressEveryone = useSetting("guild", guild?.id ?? "")?.suppress_everyone ?? false;
+  const mentionCtx = useMemo<MentionContext | undefined>(
+    () =>
+      guild
+        ? {
+            roles: (guild.roles ?? [])
+              .filter((r) => !r.is_everyone)
+              .map((r) => ({ id: r.id, name: r.name, color: colorToHex(r.color) ?? undefined })),
+            myRoleIds: guild.my_role_ids ?? [],
+            suppressEveryone,
+          }
+        : undefined,
+    [guild, suppressEveryone],
+  );
+  // O que eu posso mencionar neste canal (permissão efetiva, com overwrites): @everyone/@here e cargos não
+  // mencionáveis exigem MENTION_EVERYONE; cargo mencionável vale para qualquer um.
+  const myPerms = useGetMyChannelPermissions(channelId, {
+    query: { enabled: !!guild && !perfOn, staleTime: 30_000 },
+  });
+  const canMentionAll =
+    !!guild &&
+    (guild.is_owner ||
+      hasPermission(myPerms.data?.permissions ?? guild.permissions, Permission.MENTION_EVERYONE));
+  // Fonte do autocompletar de `@`: membros do servidor ou participantes da DM (menos eu), mais cargos e
+  // `@everyone`/`@here` quando o usuário pode mencioná-los.
   const mentionOptions = useMemo<MentionOption[]>(() => {
     if (dm)
       return recipientsOf(dm)
@@ -127,7 +156,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
           avatarUrl: r.avatar_url,
           kind: "user" as const,
         }));
-    return (guildMembers.data?.members ?? [])
+    const users = (guildMembers.data?.members ?? [])
       .filter((m) => m.user_id !== me?.id)
       .map((m) => ({
         id: m.user_id,
@@ -136,8 +165,18 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
         avatarUrl: m.avatar_url,
         kind: "user" as const,
       }));
-  }, [dm, guildMembers.data, me?.id]);
-  const perfOn = import.meta.env.DEV && !!perf;
+    const mentionableRoles = (guild?.roles ?? [])
+      .filter((r) => !r.is_everyone && (canMentionAll || r.mentionable))
+      .map((r) => ({
+        id: `role:${r.id}`,
+        handle: r.name,
+        label: r.name,
+        color: colorToHex(r.color) ?? undefined,
+        hint: "Cargo",
+        kind: "role" as const,
+      }));
+    return [...(canMentionAll ? EVERYONE_OPTIONS : []), ...mentionableRoles, ...users];
+  }, [dm, guild, guildMembers.data, me?.id, canMentionAll]);
   const query = useChannelMessages(channelId, !perfOn);
   const perfMessages = useMemo(
     () => (perfOn ? makePerfMessages(perf ?? 0, channelId) : []),
@@ -294,6 +333,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
           colors={colors}
           nicknames={nicknames}
           mentionable={mentionable}
+          mentionCtx={mentionCtx}
           onOpenProfile={(userId, trigger) => {
             const a = messages.find((m) => m.author.id === userId)?.author;
             if (!a) return;

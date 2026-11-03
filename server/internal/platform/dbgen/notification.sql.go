@@ -131,7 +131,7 @@ func (q *Queries) DeletePushSubscriptionByID(ctx context.Context, id int64) erro
 }
 
 const getPushContext = `-- name: GetPushContext :one
-SELECT m.content, u.username, u.display_name, c.name AS channel_name, c.guild_id, g.name AS guild_name,
+SELECT m.content, u.username, u.display_name, c.name AS channel_name, c.guild_id, g.name AS guild_name, m.kind,
        (SELECT count(*) FROM attachments a WHERE a.message_id = m.id)::int AS attachment_count
 FROM messages m
 JOIN users u ON u.id = m.author_id
@@ -147,6 +147,7 @@ type GetPushContextRow struct {
 	ChannelName     *string
 	GuildID         *int64
 	GuildName       *string
+	Kind            string
 	AttachmentCount int32
 }
 
@@ -161,6 +162,7 @@ func (q *Queries) GetPushContext(ctx context.Context, id int64) (GetPushContextR
 		&i.ChannelName,
 		&i.GuildID,
 		&i.GuildName,
+		&i.Kind,
 		&i.AttachmentCount,
 	)
 	return i, err
@@ -270,15 +272,16 @@ func (q *Queries) ListChannelRecipientIDs(ctx context.Context, channelID int64) 
 }
 
 const listNotificationSettings = `-- name: ListNotificationSettings :many
-SELECT scope, target_id, muted, muted_until, level FROM notification_settings WHERE user_id = $1 ORDER BY scope, target_id
+SELECT scope, target_id, muted, muted_until, level, suppress_everyone FROM notification_settings WHERE user_id = $1 ORDER BY scope, target_id
 `
 
 type ListNotificationSettingsRow struct {
-	Scope      string
-	TargetID   int64
-	Muted      bool
-	MutedUntil pgtype.Timestamptz
-	Level      *string
+	Scope            string
+	TargetID         int64
+	Muted            bool
+	MutedUntil       pgtype.Timestamptz
+	Level            *string
+	SuppressEveryone bool
 }
 
 // Silenciar e nível de notificação (adicional).
@@ -297,6 +300,7 @@ func (q *Queries) ListNotificationSettings(ctx context.Context, userID int64) ([
 			&i.Muted,
 			&i.MutedUntil,
 			&i.Level,
+			&i.SuppressEveryone,
 		); err != nil {
 			return nil, err
 		}
@@ -311,7 +315,8 @@ func (q *Queries) ListNotificationSettings(ctx context.Context, userID int64) ([
 const listNotifyFilters = `-- name: ListNotifyFilters :many
 SELECT u.id AS user_id, u.status_pref,
        ch.muted AS channel_muted, ch.muted_until AS channel_muted_until, ch.level AS channel_level,
-       gu.muted AS guild_muted, gu.muted_until AS guild_muted_until, gu.level AS guild_level
+       gu.muted AS guild_muted, gu.muted_until AS guild_muted_until, gu.level AS guild_level,
+       COALESCE(gu.suppress_everyone, false)::boolean AS suppress_everyone
 FROM users u
 LEFT JOIN notification_settings ch ON ch.user_id = u.id AND ch.scope = 'channel' AND ch.target_id = $1::bigint
 LEFT JOIN notification_settings gu ON gu.user_id = u.id AND gu.scope = 'guild' AND gu.target_id = $2::bigint
@@ -333,6 +338,7 @@ type ListNotifyFiltersRow struct {
 	GuildMuted        *bool
 	GuildMutedUntil   pgtype.Timestamptz
 	GuildLevel        *string
+	SuppressEveryone  bool
 }
 
 // Para decidir o push: preferência de status e as configurações do canal e do servidor de cada destinatário.
@@ -354,6 +360,7 @@ func (q *Queries) ListNotifyFilters(ctx context.Context, arg ListNotifyFiltersPa
 			&i.GuildMuted,
 			&i.GuildMutedUntil,
 			&i.GuildLevel,
+			&i.SuppressEveryone,
 		); err != nil {
 			return nil, err
 		}
@@ -418,7 +425,7 @@ SELECT a.channel_id, a.guild_id, a.last_read::bigint AS last_read_message_id, a.
        (CASE WHEN a.last_message_id > a.last_read THEN
             (SELECT count(*) FROM (
                 SELECT 1 FROM messages m
-                WHERE m.channel_id = a.channel_id AND m.id > a.last_read AND m.author_id <> $1::bigint AND m.deleted_at IS NULL
+                WHERE m.channel_id = a.channel_id AND m.id > a.last_read AND m.author_id <> $1::bigint AND m.deleted_at IS NULL AND m.kind = 'default'
                 ORDER BY m.id DESC LIMIT 100) q)
         ELSE 0 END)::int AS unread_count
 FROM accessible a
@@ -460,6 +467,68 @@ func (q *Queries) ListReadStates(ctx context.Context, arg ListReadStatesParams) 
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRoleMentionTargets = `-- name: ListRoleMentionTargets :many
+SELECT id, name, mentionable FROM roles WHERE guild_id = $1 AND id <> guild_id
+`
+
+type ListRoleMentionTargetsRow struct {
+	ID          int64
+	Name        string
+	Mentionable bool
+}
+
+// Cargos do servidor para casar @NomeDoCargo no texto (só o que o parser precisa).
+func (q *Queries) ListRoleMentionTargets(ctx context.Context, guildID int64) ([]ListRoleMentionTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listRoleMentionTargets, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRoleMentionTargetsRow
+	for rows.Next() {
+		var i ListRoleMentionTargetsRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Mentionable); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSuppressEveryone = `-- name: ListSuppressEveryone :many
+SELECT user_id FROM notification_settings
+WHERE scope = 'guild' AND target_id = $1::bigint AND suppress_everyone AND user_id = ANY($2::bigint[])
+`
+
+type ListSuppressEveryoneParams struct {
+	GuildID int64
+	UserIds []int64
+}
+
+// Quem, entre os usuários, pediu para ignorar @everyone e @here neste servidor.
+func (q *Queries) ListSuppressEveryone(ctx context.Context, arg ListSuppressEveryoneParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listSuppressEveryone, arg.GuildID, arg.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -546,28 +615,31 @@ func (q *Queries) ResolveGuildMentions(ctx context.Context, arg ResolveGuildMent
 }
 
 const upsertNotificationSetting = `-- name: UpsertNotificationSetting :one
-INSERT INTO notification_settings (user_id, scope, target_id, muted, muted_until, level)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO notification_settings (user_id, scope, target_id, muted, muted_until, level, suppress_everyone)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (user_id, scope, target_id)
-DO UPDATE SET muted = EXCLUDED.muted, muted_until = EXCLUDED.muted_until, level = EXCLUDED.level, updated_at = now()
-RETURNING scope, target_id, muted, muted_until, level
+DO UPDATE SET muted = EXCLUDED.muted, muted_until = EXCLUDED.muted_until, level = EXCLUDED.level,
+              suppress_everyone = EXCLUDED.suppress_everyone, updated_at = now()
+RETURNING scope, target_id, muted, muted_until, level, suppress_everyone
 `
 
 type UpsertNotificationSettingParams struct {
-	UserID     int64
-	Scope      string
-	TargetID   int64
-	Muted      bool
-	MutedUntil pgtype.Timestamptz
-	Level      *string
+	UserID           int64
+	Scope            string
+	TargetID         int64
+	Muted            bool
+	MutedUntil       pgtype.Timestamptz
+	Level            *string
+	SuppressEveryone bool
 }
 
 type UpsertNotificationSettingRow struct {
-	Scope      string
-	TargetID   int64
-	Muted      bool
-	MutedUntil pgtype.Timestamptz
-	Level      *string
+	Scope            string
+	TargetID         int64
+	Muted            bool
+	MutedUntil       pgtype.Timestamptz
+	Level            *string
+	SuppressEveryone bool
 }
 
 func (q *Queries) UpsertNotificationSetting(ctx context.Context, arg UpsertNotificationSettingParams) (UpsertNotificationSettingRow, error) {
@@ -578,6 +650,7 @@ func (q *Queries) UpsertNotificationSetting(ctx context.Context, arg UpsertNotif
 		arg.Muted,
 		arg.MutedUntil,
 		arg.Level,
+		arg.SuppressEveryone,
 	)
 	var i UpsertNotificationSettingRow
 	err := row.Scan(
@@ -586,6 +659,7 @@ func (q *Queries) UpsertNotificationSetting(ctx context.Context, arg UpsertNotif
 		&i.Muted,
 		&i.MutedUntil,
 		&i.Level,
+		&i.SuppressEveryone,
 	)
 	return i, err
 }

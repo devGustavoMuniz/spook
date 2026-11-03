@@ -23,6 +23,7 @@ describe("hasPermission", () => {
     expect(Permission.VIDEO).toBe(4096);
     expect(Permission.BAN_MEMBERS).toBe(8192);
     expect(Permission.VIEW_AUDIT_LOG).toBe(262144);
-    expect(ALL_PERMISSIONS).toBe(524287);
+    expect(Permission.MENTION_EVERYONE).toBe(524288);
+    expect(ALL_PERMISSIONS).toBe(1048575);
   });
 });

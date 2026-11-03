@@ -34,7 +34,7 @@ export function MentionSuggestions({
     <div className="absolute right-0 bottom-full left-0 z-30 mb-2 px-3 sm:px-4">
       <div className="overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg">
         <p className="border-b border-border px-3 py-1.5 text-xs font-medium text-muted-foreground">
-          Membros
+          Menções
         </p>
         <ul
           id={mentionListId(id)}
@@ -64,16 +64,29 @@ export function MentionSuggestions({
               {o.kind === "user" ? (
                 <Avatar url={o.avatarUrl} name={o.label} size={24} />
               ) : (
-                <span className="flex size-6 items-center justify-center rounded-full bg-secondary">
+                <span
+                  className="flex size-6 items-center justify-center rounded-full bg-secondary"
+                  data-mention-kind={o.kind}
+                >
                   {o.kind === "everyone" ? (
                     <Users className="size-3.5" />
                   ) : (
-                    <AtSign className="size-3.5" />
+                    <AtSign
+                      className="size-3.5"
+                      style={o.color ? { color: o.color } : undefined}
+                      aria-hidden
+                    />
                   )}
                 </span>
               )}
-              <span className="min-w-0 flex-1 truncate font-medium">{o.label}</span>
-              {o.label !== o.handle ? (
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {o.kind === "everyone" ? `@${o.label}` : o.label}
+              </span>
+              {o.hint ? (
+                <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                  {o.hint}
+                </span>
+              ) : o.label !== o.handle ? (
                 <span className="shrink-0 text-xs text-muted-foreground">@{o.handle}</span>
               ) : null}
             </li>

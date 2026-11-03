@@ -140,7 +140,7 @@ func TestReplyValidation(t *testing.T) {
 		}
 	}
 	// nada foi gravado
-	if n := len(list(obj(t, owner.call(t, "GET", "/api/channels/"+g.textID+"/messages", nil, 200)), "messages")); n != 0 {
+	if n := countKind(owner.messages(t, g.textID), "default"); n != 0 {
 		t.Fatalf("o canal deveria estar vazio, tem %d", n)
 	}
 }
@@ -154,7 +154,7 @@ func TestReplyToMessageDeletedLaterShowsDeleted(t *testing.T) {
 	owner.call(t, "DELETE", "/api/channels/"+g.textID+"/messages/"+msgID(orig), nil, 204)
 
 	hist := list(obj(t, member.call(t, "GET", "/api/channels/"+g.textID+"/messages", nil, 200)), "messages")
-	if len(hist) != 1 || msgID(hist[0]) != msgID(r) {
+	if len(hist) != 2 || msgID(hist[0]) != msgID(r) { // + a mensagem de entrada
 		t.Fatalf("histórico: %v", hist)
 	}
 	rt := hist[0]["reply_to"].(map[string]any)

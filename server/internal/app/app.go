@@ -76,15 +76,16 @@ type Deps struct {
 	APILimiter *ratelimit.Limiter // padrão: 30 req/s por IP, rajada de 90
 	MsgLimiter *ratelimit.Limiter // padrão: 5 mensagens a cada 5 s por usuário e canal
 	// GatewayLimiter limita os handshakes de /api/gateway por IP (padrão: 50/s, rajada de 200).
-	GatewayLimiter *ratelimit.Limiter
-	Gateway        gateway.Config     // tempos e limites do gateway (zero = padrões)
-	Presence       presence.Config    // tolerância de offline etc. (zero = padrões; os testes usam valores curtos)
-	AuthLimiter    *ratelimit.Limiter // padrão: 10 tentativas por minuto por IP em /api/auth/*
-	DMLimiter      *ratelimit.Limiter // padrão: 10 DMs criadas por minuto por usuário
-	TypingLimiter  *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
-	UploadLimiter  *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
-	PushLimiter    *ratelimit.Limiter // padrão: 30 requisições por minuto por usuário nos endpoints de push
-	ModLimiter     *ratelimit.Limiter // padrão: rajada de 20 e 1 por segundo por usuário nas ações de moderação
+	GatewayLimiter  *ratelimit.Limiter
+	Gateway         gateway.Config     // tempos e limites do gateway (zero = padrões)
+	Presence        presence.Config    // tolerância de offline etc. (zero = padrões; os testes usam valores curtos)
+	AuthLimiter     *ratelimit.Limiter // padrão: 10 tentativas por minuto por IP em /api/auth/*
+	DMLimiter       *ratelimit.Limiter // padrão: 10 DMs criadas por minuto por usuário
+	TypingLimiter   *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
+	UploadLimiter   *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
+	PushLimiter     *ratelimit.Limiter // padrão: 30 requisições por minuto por usuário nos endpoints de push
+	EveryoneLimiter *ratelimit.Limiter // padrão: 1 uso de @everyone/@here a cada 30 s por usuário e canal
+	ModLimiter      *ratelimit.Limiter // padrão: rajada de 20 e 1 por segundo por usuário nas ações de moderação
 
 	// Limitadores por usuário das ações de conta (SPEC 7.x): senha (trocar/confirmar), e-mail e exclusão.
 	PasswordLimiter *ratelimit.Limiter // padrão: rajada de 5 e 1 a cada 30 s
@@ -330,8 +331,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	// channel não conhece guild (só a interface Access), então guild recebe channel por interface e
 	// channelSvc é criado com um proxy que aponta para guildSvc depois de pronto.
 	access := &lateAccess{}
+	lim := d.Cfg.Limits.Normalize() // limites de domínio configuráveis (LIMIT_*), com os padrões do SPEC
 	channelSvc := channel.NewService(channel.NewStore(pool), access, ids, bus)
-	guildSvc := guild.NewService(guild.NewStore(pool), channelSvc, guildStorage, userSvc, ids, bus)
+	channelSvc.SetLimits(lim)
+	guildSvc := guild.NewService(guild.NewStore(pool).WithLimits(lim), channelSvc, guildStorage, userSvc, ids, bus)
+	guildSvc.SetLimits(lim)
 	access.svc = guildSvc
 	modLimiter := d.ModLimiter
 	if modLimiter == nil {
@@ -351,8 +355,15 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		uploadLimiter = ratelimit.New(0.5, 30) // 30 pedidos por minuto
 	}
 	attachmentSvc := attachment.NewService(attachment.NewStore(pool), objects, channelSvc, uploadLimiter, ids)
+	attachmentSvc.SetMaxFileSize(lim.AttachmentBytes)
 	thumbJobs := &attachment.Enqueuer{} // ligado ao client do River logo abaixo
 	messageSvc := message.NewService(message.NewStore(pool, thumbJobs), channelSvc, msgLimiter, userSvc, attachmentSvc, ids, bus)
+	messageSvc.SetSystemChannels(guildSvc)
+	everyoneLimiter := d.EveryoneLimiter
+	if everyoneLimiter == nil {
+		everyoneLimiter = ratelimit.New(1.0/30, 1) // @everyone/@here: 1 a cada 30 s por usuário e canal
+	}
+	messageSvc.SetEveryoneLimiter(everyoneLimiter)
 
 	// Notificações (Fase 6b): não lidas, menções e Web Push. Assina MESSAGE_CREATE; message só conhece a
 	// interface de menções.
@@ -364,7 +375,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	policy := notification.EndpointPolicy{AllowPrivate: d.Push.AllowPrivate}
 	notifDeps := notification.Deps{
 		Store: notification.NewStore(pool), Channels: channelSvc, Presence: presenceSvc, Pub: bus, IDs: ids,
-		Limiter: pushLimiter, Policy: policy,
+		Limiter: pushLimiter, Policy: policy, EveryonePushMax: d.Cfg.EveryonePushMax,
 	}
 	pushJobs := &notification.Enqueuer{} // ligado ao client do River logo abaixo
 	if pushCfg.Enabled() {
@@ -448,9 +459,11 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		gwLimiter = ratelimit.New(50, 200)
 	}
 	authSvc.OnRevoke(hub.RevokeAuth) // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
-	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter)
-	inviteSvc := invite.NewService(invite.NewStore(pool), guildSvc, guildSvc, guildSvc)
+	startCleanup(ctx, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter)
+	inviteSvc := invite.NewService(invite.NewStore(pool).WithLimits(lim), guildSvc, guildSvc, guildSvc)
 	inviteSvc.SetAudit(auditSvc)
+	inviteSvc.SetLimits(lim)
+	inviteSvc.SetJoiner(messageSvc) // mensagem de sistema "fulano entrou"
 
 	guildH := guild.NewHandler(guildSvc, auth.UserID)
 	channelH := channel.NewHandler(channelSvc, auth.UserID)
@@ -556,6 +569,10 @@ func (a *lateAccess) Member(ctx context.Context, guildID, userID int64) (perm.Me
 	return a.svc.Member(ctx, guildID, userID)
 }
 
+func (a *lateAccess) MembersAccess(ctx context.Context, guildID int64) ([]perm.Member, error) {
+	return a.svc.MembersAccess(ctx, guildID)
+}
+
 func (a *lateAccess) OverwriteTarget(ctx context.Context, guildID int64, t perm.TargetType, id int64) (channel.Target, error) {
 	return a.svc.OverwriteTarget(ctx, guildID, t, id)
 }
@@ -590,7 +607,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	inviteH.WithGate(gate)
 	userH.WithSensitive(sensitive).Register(api, authed, auth.Security)
 	accountH.Register(api, authed, auth.Security)
-	guildH.Register(api, authed, auth.Security)
+	guildH.WithSensitive(sensitive).Register(api, authed, auth.Security)
 	channelH.Register(api, authed, auth.Security)
 	messageH.Register(api, authed, auth.Security)
 	attachmentH.Register(api, authed, auth.Security)

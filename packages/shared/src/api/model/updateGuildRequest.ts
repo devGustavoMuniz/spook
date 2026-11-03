@@ -16,4 +16,11 @@ export interface UpdateGuildRequest {
    * @maxLength 100
    */
   name?: string;
+  /**
+   * Canal de texto das mensagens de entrada; vazio volta ao padrão (o primeiro canal de texto)
+   * @maxLength 20
+   */
+  system_channel_id?: string;
+  /** Liga ou desliga as mensagens de boas-vindas */
+  system_join_enabled?: boolean;
 }

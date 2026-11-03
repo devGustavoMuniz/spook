@@ -33,10 +33,14 @@ const (
 	MuteMembers       Perm = 1 << 16 // mutar pelo servidor na voz
 	DisconnectMembers Perm = 1 << 17 // desconectar alguém de um canal de voz
 	ViewAuditLog      Perm = 1 << 18 // ler o registro de auditoria
+
+	// MentionEveryone (adicional): notificar @everyone, @here e cargos não mencionáveis. Vale no servidor
+	// inteiro (não é permissão de canal). O @everyone do servidor NÃO a recebe por padrão.
+	MentionEveryone Perm = 1 << 19
 )
 
 // All reúne todas as permissões definidas.
-const All Perm = 1<<19 - 1
+const All Perm = 1<<20 - 1
 
 // ChannelScoped são as permissões que um canal pode permitir ou negar (overwrites). As demais valem só
 // no servidor inteiro (gerenciar, convidar, moderar...).

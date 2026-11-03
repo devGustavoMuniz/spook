@@ -255,6 +255,15 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       state.account.passwordChanges.push(b);
       return new HttpResponse(null, { status: 204 });
     }),
+    http.delete("*/api/guilds/:guildId", ({ params, request }) => {
+      if (!state.account.confirmed)
+        return problem(403, "confirme sua senha para continuar", [], {
+          code: "password_confirmation_required",
+        });
+      state.requests.push({ method: "DELETE", path: new URL(request.url).pathname, search: "" });
+      state.guilds = state.guilds.filter((g) => g.id !== params.guildId);
+      return new HttpResponse(null, { status: 204 });
+    }),
     http.put("*/api/users/me/email", async ({ request }) => {
       if (!state.account.confirmed)
         return problem(403, "confirme sua senha para continuar", [], {
@@ -601,6 +610,7 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
             position: 0,
             last_message_id: null,
             created_at: new Date().toISOString(),
+            topic: null,
             recipients: [me, lookup(b.recipient_id)],
           };
           state.dms.push(ch);
@@ -615,11 +625,16 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           position: 0,
           last_message_id: null,
           created_at: new Date().toISOString(),
+          topic: null,
           owner_id: state.user.id,
           recipients: [me, ...(b.recipient_ids ?? []).map(lookup)],
         };
         state.dms.push(ch);
         return HttpResponse.json(ch, { status: 201 });
+      }),
+      http.get("*/api/channels/:channelId/my-permissions", ({ params }) => {
+        const g = state.guilds.find((x) => x.channels?.some((c) => c.id === params.channelId));
+        return HttpResponse.json({ permissions: g?.permissions ?? 0 });
       }),
       http.patch("*/api/channels/:channelId", async ({ params, request }) => {
         const b = (await request.json()) as { name?: string };
@@ -933,6 +948,10 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
             url: `https://storage.test/get/${id}`,
           })),
           mention_ids: mentionIds,
+          kind: "default",
+          mention_everyone: false,
+          mention_here: false,
+          mention_roles: [],
           reply_to: replyTo,
           pinned: false,
         };

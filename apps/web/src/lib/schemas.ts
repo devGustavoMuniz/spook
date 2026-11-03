@@ -115,6 +115,13 @@ export const channelFormSchema = z.object({
 });
 export type ChannelForm = z.infer<typeof channelFormSchema>;
 
+/** Editar canal: nome e (em canais de texto) tópico de até 1024 caracteres. */
+export const channelEditSchema = z.object({
+  name: z.string().trim().min(1, "Informe o nome.").max(100, "No máximo 100 caracteres."),
+  topic: z.string().max(1024, "No máximo 1024 caracteres."),
+});
+export type ChannelEditForm = z.infer<typeof channelEditSchema>;
+
 /** Aceita o código puro ou o link completo (`.../invite/<código>`) e devolve só o código. */
 export function parseInviteCode(input: string): string | null {
   const s = input.trim();

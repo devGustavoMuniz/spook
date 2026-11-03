@@ -22,7 +22,7 @@ func (q *Queries) DeleteChannel(ctx context.Context, id int64) (int64, error) {
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at FROM channels WHERE id = $1
+SELECT id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic FROM channels WHERE id = $1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id int64) (Channel, error) {
@@ -38,6 +38,7 @@ func (q *Queries) GetChannel(ctx context.Context, id int64) (Channel, error) {
 		&i.OwnerID,
 		&i.LastMessageID,
 		&i.CreatedAt,
+		&i.Topic,
 	)
 	return i, err
 }
@@ -45,7 +46,7 @@ func (q *Queries) GetChannel(ctx context.Context, id int64) (Channel, error) {
 const insertChannel = `-- name: InsertChannel :one
 INSERT INTO channels (id, type, guild_id, parent_id, name, position)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at
+RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic
 `
 
 type InsertChannelParams struct {
@@ -77,12 +78,13 @@ func (q *Queries) InsertChannel(ctx context.Context, arg InsertChannelParams) (C
 		&i.OwnerID,
 		&i.LastMessageID,
 		&i.CreatedAt,
+		&i.Topic,
 	)
 	return i, err
 }
 
 const listChannelsByGuild = `-- name: ListChannelsByGuild :many
-SELECT id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at FROM channels WHERE guild_id = $1 ORDER BY position, id
+SELECT id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic FROM channels WHERE guild_id = $1 ORDER BY position, id
 `
 
 func (q *Queries) ListChannelsByGuild(ctx context.Context, guildID *int64) ([]Channel, error) {
@@ -104,6 +106,7 @@ func (q *Queries) ListChannelsByGuild(ctx context.Context, guildID *int64) ([]Ch
 			&i.OwnerID,
 			&i.LastMessageID,
 			&i.CreatedAt,
+			&i.Topic,
 		); err != nil {
 			return nil, err
 		}
@@ -116,7 +119,7 @@ func (q *Queries) ListChannelsByGuild(ctx context.Context, guildID *int64) ([]Ch
 }
 
 const listChannelsByGuilds = `-- name: ListChannelsByGuilds :many
-SELECT id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at FROM channels WHERE guild_id = ANY($1::bigint[]) ORDER BY guild_id, position, id
+SELECT id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic FROM channels WHERE guild_id = ANY($1::bigint[]) ORDER BY guild_id, position, id
 `
 
 func (q *Queries) ListChannelsByGuilds(ctx context.Context, dollar_1 []int64) ([]Channel, error) {
@@ -138,6 +141,7 @@ func (q *Queries) ListChannelsByGuilds(ctx context.Context, dollar_1 []int64) ([
 			&i.OwnerID,
 			&i.LastMessageID,
 			&i.CreatedAt,
+			&i.Topic,
 		); err != nil {
 			return nil, err
 		}
@@ -161,8 +165,8 @@ func (q *Queries) NextChannelPosition(ctx context.Context, guildID *int64) (int3
 }
 
 const updateChannel = `-- name: UpdateChannel :one
-UPDATE channels SET name = $2, position = $3, parent_id = $4 WHERE id = $1
-RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at
+UPDATE channels SET name = $2, position = $3, parent_id = $4, topic = $5 WHERE id = $1
+RETURNING id, type, guild_id, parent_id, name, position, owner_id, last_message_id, created_at, topic
 `
 
 type UpdateChannelParams struct {
@@ -170,6 +174,7 @@ type UpdateChannelParams struct {
 	Name     *string
 	Position int32
 	ParentID *int64
+	Topic    *string
 }
 
 func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (Channel, error) {
@@ -178,6 +183,7 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 		arg.Name,
 		arg.Position,
 		arg.ParentID,
+		arg.Topic,
 	)
 	var i Channel
 	err := row.Scan(
@@ -190,6 +196,7 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 		&i.OwnerID,
 		&i.LastMessageID,
 		&i.CreatedAt,
+		&i.Topic,
 	)
 	return i, err
 }

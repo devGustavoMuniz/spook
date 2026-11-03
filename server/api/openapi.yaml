@@ -384,6 +384,11 @@ components:
           type:
             - array
             - "null"
+        topic:
+          description: Tópico do canal de texto (até 1024 caracteres); null = sem tópico
+          type:
+            - string
+            - "null"
         type:
           description: 0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo
           format: int64
@@ -397,6 +402,7 @@ components:
         - position
         - last_message_id
         - created_at
+        - topic
       type: object
     ChannelPlacement:
       additionalProperties: false
@@ -527,6 +533,9 @@ components:
           maximum: 16777215
           minimum: 0
           type: integer
+        mentionable:
+          description: Qualquer pessoa com acesso ao canal pode mencionar o cargo; padrão false
+          type: boolean
         name:
           maxLength: 100
           minLength: 1
@@ -688,6 +697,14 @@ components:
           type:
             - array
             - "null"
+        system_channel_id:
+          description: Canal das mensagens de entrada; null = o primeiro canal de texto
+          type:
+            - string
+            - "null"
+        system_join_enabled:
+          description: Mensagens de boas-vindas ligadas
+          type: boolean
       required:
         - roles
         - channels
@@ -699,6 +716,8 @@ components:
         - icon_key
         - owner_id
         - created_at
+        - system_channel_id
+        - system_join_enabled
       type: object
     EmailInputBody:
       additionalProperties: false
@@ -801,12 +820,22 @@ components:
           type: string
         owner_id:
           type: string
+        system_channel_id:
+          description: Canal das mensagens de entrada; null = o primeiro canal de texto
+          type:
+            - string
+            - "null"
+        system_join_enabled:
+          description: Mensagens de boas-vindas ligadas
+          type: boolean
       required:
         - id
         - name
         - icon_key
         - owner_id
         - created_at
+        - system_channel_id
+        - system_join_enabled
       type: object
     GuildReadStatePayload:
       additionalProperties: false
@@ -1079,8 +1108,25 @@ components:
             - "null"
         id:
           type: string
+        kind:
+          description: default ou member_join (mensagem de sistema; não editável nem respondível)
+          enum:
+            - default
+            - member_join
+          type: string
+        mention_everyone:
+          description: A mensagem menciona @everyone (autor com MENTION_EVERYONE)
+          type: boolean
+        mention_here:
+          description: A mensagem menciona @here (autor com MENTION_EVERYONE)
+          type: boolean
         mention_ids:
           description: IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)
+          items:
+            type: string
+          type: array
+        mention_roles:
+          description: IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica
           items:
             type: string
           type: array
@@ -1101,6 +1147,10 @@ components:
         - created_at
         - attachments
         - mention_ids
+        - mention_everyone
+        - mention_here
+        - mention_roles
+        - kind
         - reply_to
         - pinned
       type: object
@@ -1136,6 +1186,9 @@ components:
           description: Fim do silêncio (futuro); ausente com muted=true = até reativar
           format: date-time
           type: string
+        suppress_everyone:
+          description: "Só em servidores: ignora @everyone e @here (não soma menção nem avisa)"
+          type: boolean
       type: object
     OpenInputBody:
       additionalProperties: false
@@ -1669,6 +1722,9 @@ components:
           type: string
         is_everyone:
           type: boolean
+        mentionable:
+          description: Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)
+          type: boolean
         name:
           type: string
         permissions:
@@ -1687,6 +1743,7 @@ components:
         - position
         - permissions
         - is_everyone
+        - mentionable
       type: object
     SelfPayload:
       additionalProperties: false
@@ -1871,6 +1928,9 @@ components:
             - guild
             - channel
           type: string
+        suppress_everyone:
+          description: "Só em servidores: ignora @everyone e @here (não soma menção nem avisa); menção a cargo e direta continuam"
+          type: boolean
         target_id:
           type: string
       required:
@@ -1879,6 +1939,7 @@ components:
         - muted
         - muted_until
         - level
+        - suppress_everyone
       type: object
     SettingsOutputBody:
       additionalProperties: false
@@ -2218,6 +2279,10 @@ components:
           format: int32
           minimum: 0
           type: integer
+        topic:
+          description: Tópico do canal de texto (MANAGE_CHANNELS); vazio remove
+          maxLength: 1024
+          type: string
       type: object
     UpdateGuildRequest:
       additionalProperties: false
@@ -2230,6 +2295,13 @@ components:
           maxLength: 100
           minLength: 2
           type: string
+        system_channel_id:
+          description: Canal de texto das mensagens de entrada; vazio volta ao padrão (o primeiro canal de texto)
+          maxLength: 20
+          type: string
+        system_join_enabled:
+          description: Liga ou desliga as mensagens de boas-vindas
+          type: boolean
       type: object
     UpdateGuildRoleRequest:
       additionalProperties: false
@@ -2239,6 +2311,9 @@ components:
           maximum: 16777215
           minimum: 0
           type: integer
+        mentionable:
+          description: Qualquer pessoa com acesso ao canal pode mencionar o cargo
+          type: boolean
         name:
           maxLength: 100
           minLength: 1
@@ -2327,7 +2402,7 @@ components:
           minLength: 1
           type: string
         size:
-          description: Tamanho em bytes, de 1 a 26214400 (25 MB)
+          description: Tamanho em bytes, a partir de 1; o máximo é o limite do servidor (padrão 25 MB, LIMIT_ATTACHMENT_MB)
           format: int64
           type: integer
       required:
@@ -3547,7 +3622,7 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
-      summary: Renomeia ou reposiciona um canal
+      summary: Renomeia, reposiciona ou muda o tópico de um canal (MANAGE_CHANNELS)
       tags:
         - channels
   /api/channels/{channel_id}/ack:
@@ -5016,6 +5091,7 @@ paths:
         - guilds
   /api/guilds/{guild_id}:
     delete:
+      description: "Sem confirmação de senha recente responde 403 com `code: \"password_confirmation_required\"`; confirme em POST /api/auth/confirm-password e repita."
       operationId: deleteGuild
       parameters:
         - description: ID do servidor
@@ -5061,7 +5137,7 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
-      summary: Exclui o servidor (só o dono)
+      summary: Exclui o servidor (só o dono; exige a senha confirmada nos últimos 10 min)
       tags:
         - guilds
     get:
@@ -5167,7 +5243,7 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
-      summary: Renomeia o servidor e troca o ícone (dono ou MANAGE_GUILD)
+      summary: Renomeia o servidor, troca o ícone e configura as mensagens de entrada (MANAGE_GUILD)
       tags:
         - guilds
   /api/guilds/{guild_id}/audit-logs:
@@ -6514,6 +6590,7 @@ paths:
         - guilds
   /api/guilds/{guild_id}/transfer:
     post:
+      description: "Sem confirmação de senha recente responde 403 com `code: \"password_confirmation_required\"`; confirme em POST /api/auth/confirm-password e repita."
       operationId: transferGuild
       parameters:
         - description: ID do servidor
@@ -6569,7 +6646,7 @@ paths:
       security:
         - cookieAuth: []
         - bearerAuth: []
-      summary: Transfere a posse para outro membro (só o dono)
+      summary: Transfere a posse para outro membro (só o dono; exige a senha confirmada nos últimos 10 min)
       tags:
         - guilds
   /api/guilds/{guild_id}/voice-states:

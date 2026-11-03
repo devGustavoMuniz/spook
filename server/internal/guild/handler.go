@@ -15,6 +15,15 @@ type Handler struct {
 	userID func(context.Context) int64
 	// gate são os middlewares da ação que exige e-mail verificado (REQUIRE_EMAIL_VERIFICATION); nil = sem exigência.
 	gate huma.Middlewares
+	// sensitive são os middlewares das ações que exigem a senha confirmada há pouco (excluir servidor e transferir
+	// a posse); nil = sem exigência.
+	sensitive huma.Middlewares
+}
+
+// WithSensitive liga a confirmação de senha (sessão + RequireRecentPassword) a excluir servidor e transferir posse.
+func (h *Handler) WithSensitive(sensitive huma.Middlewares) *Handler {
+	h.sensitive = sensitive
+	return h
 }
 
 // WithGate troca os middlewares da ação "criar servidor" por gate (sessão + e-mail verificado).
@@ -128,19 +137,31 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return &DetailOutput{Body: d.Payload()}, nil
 		})
 
-	huma.Register(api, op("updateGuild", http.MethodPatch, "/api/guilds/{guild_id}", "Renomeia o servidor e troca o ícone (dono ou MANAGE_GUILD)", 0, notFound, forbidden, invalid),
+	huma.Register(api, op("updateGuild", http.MethodPatch, "/api/guilds/{guild_id}", "Renomeia o servidor, troca o ícone e configura as mensagens de entrada (MANAGE_GUILD)", 0, notFound, forbidden, invalid),
 		func(ctx context.Context, in *struct {
 			GuildPath
 			Body struct {
-				Name    *string `json:"name,omitempty" minLength:"2" maxLength:"100"`
-				IconKey *string `json:"icon_key,omitempty" maxLength:"200" doc:"Chave devolvida por /guilds/{guild_id}/icon; vazio remove o ícone"`
+				Name              *string `json:"name,omitempty" minLength:"2" maxLength:"100"`
+				IconKey           *string `json:"icon_key,omitempty" maxLength:"200" doc:"Chave devolvida por /guilds/{guild_id}/icon; vazio remove o ícone"`
+				SystemChannelID   *string `json:"system_channel_id,omitempty" maxLength:"20" doc:"Canal de texto das mensagens de entrada; vazio volta ao padrão (o primeiro canal de texto)"`
+				SystemJoinEnabled *bool   `json:"system_join_enabled,omitempty" doc:"Liga ou desliga as mensagens de boas-vindas"`
 			}
 		}) (*GuildOutput, error) {
 			gid, ok := httpx.ParseID(in.GuildID)
 			if !ok {
 				return nil, httpx.BadID("servidor")
 			}
-			g, err := h.svc.Update(ctx, h.userID(ctx), gid, UpdateParams{Name: in.Body.Name, IconKey: in.Body.IconKey})
+			up := UpdateParams{Name: in.Body.Name, IconKey: in.Body.IconKey, SystemJoinEnabled: in.Body.SystemJoinEnabled}
+			if in.Body.SystemChannelID != nil {
+				var cid int64
+				if *in.Body.SystemChannelID != "" {
+					if cid, ok = httpx.ParseID(*in.Body.SystemChannelID); !ok {
+						return nil, huma.Error422UnprocessableEntity("system_channel_id inválido")
+					}
+				}
+				up.SystemChannelID = &cid
+			}
+			g, err := h.svc.Update(ctx, h.userID(ctx), gid, up)
 			if err != nil {
 				return nil, httpx.Err(err)
 			}
@@ -178,7 +199,14 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return out, nil
 		})
 
-	huma.Register(api, op("deleteGuild", http.MethodDelete, "/api/guilds/{guild_id}", "Exclui o servidor (só o dono)", http.StatusNoContent, notFound, forbidden),
+	deleteOp := op("deleteGuild", http.MethodDelete, "/api/guilds/{guild_id}", "Exclui o servidor (só o dono; exige a senha confirmada nos últimos 10 min)", http.StatusNoContent, notFound, forbidden)
+	transferOp := op("transferGuild", http.MethodPost, "/api/guilds/{guild_id}/transfer", "Transfere a posse para outro membro (só o dono; exige a senha confirmada nos últimos 10 min)", 0, notFound, forbidden, invalid)
+	if h.sensitive != nil {
+		deleteOp.Middlewares, transferOp.Middlewares = h.sensitive, h.sensitive
+		deleteOp.Description = "Sem confirmação de senha recente responde 403 com `code: \"password_confirmation_required\"`; confirme em POST /api/auth/confirm-password e repita."
+		transferOp.Description = deleteOp.Description
+	}
+	huma.Register(api, deleteOp,
 		func(ctx context.Context, in *struct{ GuildPath }) (*struct{}, error) {
 			gid, ok := httpx.ParseID(in.GuildID)
 			if !ok {
@@ -187,7 +215,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return nil, httpx.Err(h.svc.Delete(ctx, h.userID(ctx), gid))
 		})
 
-	huma.Register(api, op("transferGuild", http.MethodPost, "/api/guilds/{guild_id}/transfer", "Transfere a posse para outro membro (só o dono)", 0, notFound, forbidden, invalid),
+	huma.Register(api, transferOp,
 		func(ctx context.Context, in *struct {
 			GuildPath
 			Body struct {
@@ -373,13 +401,14 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 				Color       *int32 `json:"color,omitempty" minimum:"0" maximum:"16777215"`
 				Position    *int32 `json:"position,omitempty" minimum:"1" doc:"Padrão: 1 (logo acima do @everyone)"`
 				Permissions *int64 `json:"permissions,omitempty" minimum:"0" doc:"Bitflags; padrão 0"`
+				Mentionable *bool  `json:"mentionable,omitempty" doc:"Qualquer pessoa com acesso ao canal pode mencionar o cargo; padrão false"`
 			}
 		}) (*RoleOutput, error) {
 			gid, ok := httpx.ParseID(in.GuildID)
 			if !ok {
 				return nil, httpx.BadID("servidor")
 			}
-			p := RoleParams{Name: &in.Body.Name, Color: in.Body.Color, Position: in.Body.Position, Permissions: permPtr(in.Body.Permissions)}
+			p := RoleParams{Name: &in.Body.Name, Color: in.Body.Color, Position: in.Body.Position, Permissions: permPtr(in.Body.Permissions), Mentionable: in.Body.Mentionable}
 			r, err := h.svc.CreateRole(ctx, h.userID(ctx), gid, p)
 			if err != nil {
 				return nil, httpx.Err(err)
@@ -396,13 +425,14 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 				RemoveColor bool    `json:"remove_color,omitempty"`
 				Position    *int32  `json:"position,omitempty" minimum:"1"`
 				Permissions *int64  `json:"permissions,omitempty" minimum:"0"`
+				Mentionable *bool   `json:"mentionable,omitempty" doc:"Qualquer pessoa com acesso ao canal pode mencionar o cargo"`
 			}
 		}) (*RoleOutput, error) {
 			gid, rid, err := h.ids(in.GuildID, in.RoleID)
 			if err != nil {
 				return nil, err
 			}
-			p := RoleParams{Name: in.Body.Name, Color: in.Body.Color, Position: in.Body.Position, Permissions: permPtr(in.Body.Permissions)}
+			p := RoleParams{Name: in.Body.Name, Color: in.Body.Color, Position: in.Body.Position, Permissions: permPtr(in.Body.Permissions), Mentionable: in.Body.Mentionable}
 			if in.Body.RemoveColor {
 				m := int32(-1)
 				p.Color = &m

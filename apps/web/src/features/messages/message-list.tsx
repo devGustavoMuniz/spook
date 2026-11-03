@@ -26,6 +26,8 @@ export type MessageListProps = {
   nicknames?: ReadonlyMap<string, string>;
   /** Usernames (minúsculos) de quem está na conversa: viram pílula de menção. */
   mentionable?: ReadonlySet<string>;
+  /** Cargos, meus cargos e "suprimir @everyone": menções em massa (pílulas e destaque). */
+  mentionCtx?: MessageRowProps["mentionCtx"];
   /** Cartão de perfil do autor (clique no nome/avatar). */
   onOpenProfile?: MessageRowProps["onOpenProfile"];
   /** Estado vazio: "Escrever primeira mensagem" devolve o foco ao composer. */
@@ -267,6 +269,7 @@ export function MessageList(props: MessageListProps) {
                       myId={props.myId}
                       myUsername={props.myUsername}
                       mentionable={props.mentionable}
+                      mentionCtx={props.mentionCtx}
                       color={props.colors.get(row.message.author.id)}
                       nickname={props.nicknames?.get(row.message.author.id)}
                       canEdit={row.message.author.id === props.myId}

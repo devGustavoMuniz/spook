@@ -27,6 +27,11 @@ export interface ChannelPayload {
    * @nullable
    */
   recipients?: RecipientPayload[] | null;
+  /**
+   * Tópico do canal de texto (até 1024 caracteres); null = sem tópico
+   * @nullable
+   */
+  topic: string | null;
   /** 0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo */
   type: number;
 }

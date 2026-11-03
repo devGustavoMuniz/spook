@@ -67,6 +67,7 @@ export * from "./memberListOutputBody";
 export * from "./memberPayload";
 export * from "./messageListOutputBody";
 export * from "./messagePayload";
+export * from "./messagePayloadKind";
 export * from "./methodsOutputBody";
 export * from "./notificationSettingBody";
 export * from "./notificationSettingBodyLevel";

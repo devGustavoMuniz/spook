@@ -39,6 +39,7 @@ import { usePersonLookup } from "@/features/voice/use-person-lookup";
 import { VoiceParticipants } from "@/features/voice/voice-participants";
 import { appMessage } from "@/lib/app-errors";
 import {
+  CHANNEL_CATEGORY,
   CHANNEL_TEXT,
   CHANNEL_VOICE,
   can,
@@ -171,7 +172,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
             <>
               {notifiable ? <DropdownMenuSeparator /> : null}
               <DropdownMenuItem onSelect={() => setRenaming(c)}>
-                <Pencil /> Renomear
+                <Pencil /> {c.type === CHANNEL_CATEGORY ? "Renomear" : "Editar canal"}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setPermsFor(c)}>
                 <ShieldCheck /> Permissões

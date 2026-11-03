@@ -38,12 +38,33 @@ func edited(t pgtype.Timestamptz) *time.Time {
 	return &t.Time
 }
 
-func build(id, channelID, authorID int64, content string, editedAt pgtype.Timestamptz, mentions []int64, referenceID *int64, pinnedAt pgtype.Timestamptz, username string, display, avatar *string) Message {
+// row reúne as colunas de uma mensagem com o autor; os tipos gerados do sqlc (um por consulta) convertem para ela.
+type row struct {
+	id, channelID, authorID int64
+	content                 string
+	editedAt                pgtype.Timestamptz
+	mentions                []int64
+	referenceID             *int64
+	pinnedAt                pgtype.Timestamptz
+	kind                    string
+	mentionEveryone         bool
+	mentionHere             bool
+	mentionRoles            []int64
+	username                string
+	display, avatar         *string
+}
+
+func (r row) message() Message {
 	return Message{
-		ID: id, ChannelID: channelID, Content: content, EditedAt: edited(editedAt), MentionIDs: mentions,
-		ReferenceID: referenceID, PinnedAt: edited(pinnedAt),
-		Author: Author{ID: authorID, Username: username, DisplayName: display, AvatarKey: avatar},
+		ID: r.id, ChannelID: r.channelID, Content: r.content, EditedAt: edited(r.editedAt), MentionIDs: r.mentions,
+		ReferenceID: r.referenceID, PinnedAt: edited(r.pinnedAt), Kind: r.kind,
+		MentionEveryone: r.mentionEveryone, MentionHere: r.mentionHere, MentionRoleIDs: r.mentionRoles,
+		Author: Author{ID: r.authorID, Username: r.username, DisplayName: r.display, AvatarKey: r.avatar},
 	}
+}
+
+func insertedRow(id, channelID, authorID int64, content string, editedAt pgtype.Timestamptz, mentions []int64, referenceID *int64, pinnedAt pgtype.Timestamptz, kind string, everyone, here bool, roles []int64, username string, display, avatar *string) row {
+	return row{id, channelID, authorID, content, editedAt, mentions, referenceID, pinnedAt, kind, everyone, here, roles, username, display, avatar}
 }
 
 // mentionIDs nunca devolve nil (a coluna é NOT NULL).
@@ -56,11 +77,12 @@ func mentionIDs(ids []int64) []int64 {
 
 func (s *PGStore) Insert(ctx context.Context, p InsertParams) (Message, []attachment.Attachment, error) {
 	if len(p.AttachmentIDs) == 0 {
-		r, err := s.q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs), ReferenceID: p.ReferenceID})
+		r, err := s.q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs), ReferenceID: p.ReferenceID,
+			Kind: kindOrDefault(p.Kind), MentionEveryone: p.MentionEveryone, MentionHere: p.MentionHere, MentionRoleIds: mentionIDs(p.MentionRoleIDs)})
 		if err != nil {
 			return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
 		}
-		return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey), nil, nil
+		return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message(), nil, nil
 	}
 	return s.insertWithAttachments(ctx, p)
 }
@@ -75,7 +97,8 @@ func (s *PGStore) insertWithAttachments(ctx context.Context, p InsertParams) (Me
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
 
-	r, err := q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs), ReferenceID: p.ReferenceID})
+	r, err := q.InsertMessage(ctx, dbgen.InsertMessageParams{ID: p.ID, ChannelID: p.ChannelID, AuthorID: p.AuthorID, Content: p.Content, MentionIds: mentionIDs(p.MentionIDs), ReferenceID: p.ReferenceID,
+		Kind: kindOrDefault(p.Kind), MentionEveryone: p.MentionEveryone, MentionHere: p.MentionHere, MentionRoleIds: mentionIDs(p.MentionRoleIDs)})
 	if err != nil {
 		return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
 	}
@@ -105,7 +128,7 @@ func (s *PGStore) insertWithAttachments(ctx context.Context, p InsertParams) (Me
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, nil, fmt.Errorf("confirmar mensagem: %w", err)
 	}
-	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey), atts, nil
+	return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message(), atts, nil
 }
 
 func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error) {
@@ -116,7 +139,7 @@ func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error)
 	if err != nil {
 		return Message{}, fmt.Errorf("buscar mensagem: %w", err)
 	}
-	return build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey), nil
+	return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message(), nil
 }
 
 func (s *PGStore) List(ctx context.Context, channelID, before int64, limit int) ([]Message, error) {
@@ -126,7 +149,7 @@ func (s *PGStore) List(ctx context.Context, channelID, before int64, limit int) 
 	}
 	out := make([]Message, len(rows))
 	for i, r := range rows {
-		out[i] = build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey)
+		out[i] = insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message()
 	}
 	return out, nil
 }
@@ -161,7 +184,7 @@ func (s *PGStore) References(ctx context.Context, channelID int64, ids []int64) 
 	}
 	out := make(map[int64]Reply, len(rows))
 	for _, r := range rows {
-		rep := Reply{ID: r.ID, Author: Author{ID: r.AuthorID, Username: r.Username, DisplayName: r.DisplayName}, Deleted: r.Deleted}
+		rep := Reply{ID: r.ID, Author: Author{ID: r.AuthorID, Username: r.Username, DisplayName: r.DisplayName}, Deleted: r.Deleted, Kind: r.Kind}
 		if !r.Deleted {
 			rep.Content, rep.HasAttachments = truncateRunes(r.Content, ReplyPreviewRunes), r.HasAttachments
 		}
@@ -177,7 +200,7 @@ func (s *PGStore) ListPinned(ctx context.Context, channelID int64, limit int) ([
 	}
 	out := make([]Message, len(rows))
 	for i, r := range rows {
-		out[i] = build(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Username, r.DisplayName, r.AvatarKey)
+		out[i] = insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message()
 	}
 	return out, nil
 }
@@ -198,4 +221,20 @@ func (s *PGStore) Unpin(ctx context.Context, id, channelID int64) (bool, error) 
 		return false, fmt.Errorf("desafixar mensagem: %w", err)
 	}
 	return n > 0, nil
+}
+
+func kindOrDefault(k string) string {
+	if k == "" {
+		return KindDefault
+	}
+	return k
+}
+
+// HasRecentJoin diz se o usuário já tem uma mensagem de entrada no canal no último minuto.
+func (s *PGStore) HasRecentJoin(ctx context.Context, channelID, userID int64) (bool, error) {
+	ok, err := s.q.HasRecentJoinMessage(ctx, dbgen.HasRecentJoinMessageParams{ChannelID: channelID, AuthorID: userID})
+	if err != nil {
+		return false, fmt.Errorf("buscar mensagem de entrada: %w", err)
+	}
+	return ok, nil
 }

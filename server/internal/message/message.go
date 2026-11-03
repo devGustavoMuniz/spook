@@ -23,6 +23,12 @@ const (
 	MaxPageSize       = 100
 )
 
+// Tipos de mensagem (messages.kind). O padrão é Default; MemberJoin é a mensagem de sistema "fulano entrou".
+const (
+	KindDefault    = "default"
+	KindMemberJoin = "member_join"
+)
+
 var (
 	ErrNotFound  = apperr.NotFound("mensagem não encontrada")
 	ErrForbidden = apperr.Forbidden("você não tem permissão para isso nesta mensagem")
@@ -31,6 +37,7 @@ var (
 	ErrEmptyMessage       = apperr.Invalid("a mensagem não pode ser vazia")
 
 	ErrReplyTarget = apperr.Invalid("a mensagem respondida não existe mais, foi apagada ou é de outro canal")
+	ErrSystemMsg   = apperr.Invalid("mensagens do sistema não podem ser editadas nem respondidas")
 	ErrTooManyPins = apperr.Conflict("este canal já tem 50 mensagens fixadas; desafixe uma antes de fixar outra")
 )
 
@@ -48,8 +55,14 @@ type Message struct {
 	Author    Author
 	Content   string
 	EditedAt  *time.Time
-	// MentionIDs são os usuários mencionados (@username) resolvidos no envio.
-	MentionIDs []int64
+	// Kind é o tipo da mensagem (KindDefault ou KindMemberJoin).
+	Kind string
+	// MentionIDs são os usuários mencionados (@username) resolvidos no envio. MentionEveryone, MentionHere e
+	// MentionRoleIDs são as menções em massa, só preenchidas quando o autor podia fazê-las.
+	MentionIDs      []int64
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIDs  []int64
 	// ReferenceID é a mensagem respondida (nil = não é resposta); Reply é a prévia montada em lote pelo service.
 	ReferenceID *int64
 	Reply       *Reply
@@ -66,6 +79,7 @@ type Reply struct {
 	Content        string
 	HasAttachments bool
 	Deleted        bool
+	Kind           string // tipo da mensagem respondida (só mensagens comuns podem ser respondidas)
 }
 
 // ReplyAuthorPayload é o autor da mensagem respondida (sem avatar: a citação é compacta).
@@ -134,6 +148,12 @@ type MessagePayload struct {
 	Attachments []attachment.AttachmentPayload `json:"attachments" nullable:"false"`
 	// MentionIDs vem sempre ([] sem menções): quem recebeu @username, resolvido no envio entre quem vê o canal.
 	MentionIDs []string `json:"mention_ids" nullable:"false" doc:"IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20)"`
+	// Menções em massa: valem só quando o autor tinha MENTION_EVERYONE (ou o cargo era mencionável).
+	MentionEveryone bool     `json:"mention_everyone" doc:"A mensagem menciona @everyone (autor com MENTION_EVERYONE)"`
+	MentionHere     bool     `json:"mention_here" doc:"A mensagem menciona @here (autor com MENTION_EVERYONE)"`
+	MentionRoles    []string `json:"mention_roles" nullable:"false" doc:"IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica"`
+	// Kind: default (mensagem comum) ou member_join (mensagem de sistema "fulano entrou"; o autor é quem entrou).
+	Kind string `json:"kind" enum:"default,member_join" doc:"default ou member_join (mensagem de sistema; não editável nem respondível)"`
 	// ReplyTo é a prévia da mensagem respondida (null = não é resposta).
 	ReplyTo *ReplyPayload `json:"reply_to"`
 	// Pinned: a mensagem está fixada no canal.
@@ -159,7 +179,11 @@ func (m Message) Payload() MessagePayload {
 	p := MessagePayload{
 		ID: httpx.ID(m.ID), ChannelID: httpx.ID(m.ChannelID), Author: a, Content: m.Content,
 		EditedAt: m.EditedAt, CreatedAt: snowflake.Time(m.ID), Attachments: atts, MentionIDs: httpx.IDs(m.MentionIDs),
-		Pinned: m.PinnedAt != nil,
+		Pinned: m.PinnedAt != nil, MentionEveryone: m.MentionEveryone, MentionHere: m.MentionHere,
+		MentionRoles: httpx.IDs(m.MentionRoleIDs), Kind: m.Kind,
+	}
+	if p.Kind == "" {
+		p.Kind = KindDefault
 	}
 	if m.Reply != nil {
 		p.ReplyTo = m.Reply.payload()

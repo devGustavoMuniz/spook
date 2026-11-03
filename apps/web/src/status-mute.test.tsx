@@ -100,6 +100,7 @@ describe("regras puras", () => {
       muted: false,
       muted_until: null,
       level: null,
+      suppress_everyone: false,
       ...extra,
     });
     const entries = {

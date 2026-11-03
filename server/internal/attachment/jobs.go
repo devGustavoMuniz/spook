@@ -166,7 +166,7 @@ func (w *ThumbnailWorker) generate(ctx context.Context, a Attachment) error {
 	s := w.svc
 
 	_, dl := tracer.Start(ctx, "attachment.thumbnail.download")
-	data, err := s.objects.Get(ctx, a.ObjectKey, MaxFileSize)
+	data, err := s.objects.Get(ctx, a.ObjectKey, s.maxSize)
 	dl.End()
 	switch {
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, storage.ErrTooLarge):

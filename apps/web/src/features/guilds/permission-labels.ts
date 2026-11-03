@@ -32,6 +32,11 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     items: [
       { name: "SEND_MESSAGES", label: "Enviar mensagens", description: "Escrever nos canais." },
       { name: "ATTACH_FILES", label: "Anexar arquivos", description: "Enviar imagens e arquivos." },
+      {
+        name: "MENTION_EVERYONE",
+        label: "Mencionar @everyone, @here e todos os cargos",
+        description: "Notifica muita gente de uma vez; use com cuidado.",
+      },
     ],
   },
   {

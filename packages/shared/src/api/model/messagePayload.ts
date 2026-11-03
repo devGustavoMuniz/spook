@@ -6,6 +6,7 @@
  */
 import type { AttachmentPayload } from "./attachmentPayload";
 import type { AuthorPayload } from "./authorPayload";
+import type { MessagePayloadKind } from "./messagePayloadKind";
 import type { ReplyPreview } from "./replyPreview";
 
 export interface MessagePayload {
@@ -18,8 +19,16 @@ export interface MessagePayload {
   /** @nullable */
   edited_at: string | null;
   id: string;
+  /** default ou member_join (mensagem de sistema; não editável nem respondível) */
+  kind: MessagePayloadKind;
+  /** A mensagem menciona @everyone (autor com MENTION_EVERYONE) */
+  mention_everyone: boolean;
+  /** A mensagem menciona @here (autor com MENTION_EVERYONE) */
+  mention_here: boolean;
   /** IDs dos usuários mencionados com @username (só quem vê o canal, no máximo 20) */
   mention_ids: string[];
+  /** IDs dos cargos mencionados (@NomeDoCargo) que a mensagem notifica */
+  mention_roles: string[];
   /** A mensagem está fixada no canal */
   pinned: boolean;
   /** Mensagem respondida (null quando não é uma resposta) */

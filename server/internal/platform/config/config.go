@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
 type S3 struct {
@@ -115,9 +117,13 @@ type Config struct {
 	// PublicURL é a URL pública do app (PUBLIC_URL, sem barra final): base dos links dos e-mails e dos
 	// callbacks OAuth (PUBLIC_URL/api/auth/social/{provider}/callback).
 	PublicURL string
-	Mail      Mail
-	Google    OAuthApp // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
-	Discord   OAuthApp // DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET
+	// Limits são os limites de domínio (LIMIT_*), com os padrões do SPEC; EveryonePushMax (EVERYONE_PUSH_MAX,
+	// padrão 200) é o máximo de destinatários de push de uma menção em massa (@everyone, @here, cargo).
+	Limits          limits.Limits
+	EveryonePushMax int
+	Mail            Mail
+	Google          OAuthApp // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+	Discord         OAuthApp // DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET
 	// SecretKey (SPOOK_SECRET_KEY) assina o estado OAuth e cifra os tokens em jobs. Vazio = chave aleatória por
 	// processo (fluxos em andamento e e-mails na fila não sobrevivem a um reinício).
 	SecretKey string
@@ -206,10 +212,53 @@ func Load() (Config, error) {
 		}
 		c.AuditRetentionDays = n
 	}
+	if err := loadLimits(&c); err != nil {
+		return Config{}, err
+	}
 	if c.S3.Enabled() && (c.S3.AccessKeyID == "" || c.S3.SecretAccessKey == "") {
 		return Config{}, errors.New("S3_ENDPOINT definido sem S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY")
 	}
 	return c, nil
+}
+
+// DefaultEveryonePushMax é o padrão de EVERYONE_PUSH_MAX.
+const DefaultEveryonePushMax = 200
+
+// loadLimits lê LIMIT_* e EVERYONE_PUSH_MAX; valor fora da faixa recusa o boot (erro de configuração).
+func loadLimits(c *Config) error {
+	c.Limits = limits.Default()
+	c.EveryonePushMax = DefaultEveryonePushMax
+	ints := []struct {
+		env      string
+		dst      *int
+		min, max int
+	}{
+		{"LIMIT_GUILDS_PER_USER", &c.Limits.GuildsPerUser, 1, limits.MaxGuildsPerUser},
+		{"LIMIT_CHANNELS_PER_GUILD", &c.Limits.ChannelsPerGuild, 1, limits.MaxChannelsPerGuild},
+		{"LIMIT_MEMBERS_PER_GUILD", &c.Limits.MembersPerGuild, 1, limits.MaxMembersPerGuild},
+		{"LIMIT_ROLES_PER_GUILD", &c.Limits.RolesPerGuild, 2, limits.MaxRolesPerGuild},
+		{"LIMIT_INVITES_PER_GUILD", &c.Limits.InvitesPerGuild, 1, limits.MaxInvitesPerGuild},
+		{"EVERYONE_PUSH_MAX", &c.EveryonePushMax, 0, 100_000},
+	}
+	for _, f := range ints {
+		v := os.Getenv(f.env)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < f.min || n > f.max {
+			return fmt.Errorf("%s inválido (%d a %d): %q", f.env, f.min, f.max, v)
+		}
+		*f.dst = n
+	}
+	if v := os.Getenv("LIMIT_ATTACHMENT_MB"); v != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || n > limits.MaxAttachmentMB {
+			return fmt.Errorf("LIMIT_ATTACHMENT_MB inválido (1 a %d): %q", limits.MaxAttachmentMB, v)
+		}
+		c.Limits.AttachmentBytes = int64(n) << 20
+	}
+	return nil
 }
 
 func loadMail(c *Config) error {

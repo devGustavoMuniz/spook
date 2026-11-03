@@ -12,7 +12,7 @@ import (
 )
 
 const getMessage = `-- name: GetMessage :one
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.id = $1 AND m.channel_id = $2 AND m.deleted_at IS NULL
@@ -24,17 +24,21 @@ type GetMessageParams struct {
 }
 
 type GetMessageRow struct {
-	ID          int64
-	ChannelID   int64
-	AuthorID    int64
-	Content     string
-	EditedAt    pgtype.Timestamptz
-	MentionIds  []int64
-	ReferenceID *int64
-	PinnedAt    pgtype.Timestamptz
-	Username    string
-	DisplayName *string
-	AvatarKey   *string
+	ID              int64
+	ChannelID       int64
+	AuthorID        int64
+	Content         string
+	EditedAt        pgtype.Timestamptz
+	MentionIds      []int64
+	ReferenceID     *int64
+	PinnedAt        pgtype.Timestamptz
+	Kind            string
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIds  []int64
+	Username        string
+	DisplayName     *string
+	AvatarKey       *string
 }
 
 func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMessageRow, error) {
@@ -49,6 +53,10 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 		&i.MentionIds,
 		&i.ReferenceID,
 		&i.PinnedAt,
+		&i.Kind,
+		&i.MentionEveryone,
+		&i.MentionHere,
+		&i.MentionRoleIds,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -57,7 +65,7 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 }
 
 const getReferencedMessages = `-- name: GetReferencedMessages :many
-SELECT m.id, m.author_id, m.content, (m.deleted_at IS NOT NULL)::boolean AS deleted,
+SELECT m.id, m.author_id, m.content, m.kind, (m.deleted_at IS NOT NULL)::boolean AS deleted,
        EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id) AS has_attachments,
        u.username, u.display_name
 FROM messages m JOIN users u ON u.id = m.author_id
@@ -73,6 +81,7 @@ type GetReferencedMessagesRow struct {
 	ID             int64
 	AuthorID       int64
 	Content        string
+	Kind           string
 	Deleted        bool
 	HasAttachments bool
 	Username       string
@@ -94,6 +103,7 @@ func (q *Queries) GetReferencedMessages(ctx context.Context, arg GetReferencedMe
 			&i.ID,
 			&i.AuthorID,
 			&i.Content,
+			&i.Kind,
 			&i.Deleted,
 			&i.HasAttachments,
 			&i.Username,
@@ -109,40 +119,69 @@ func (q *Queries) GetReferencedMessages(ctx context.Context, arg GetReferencedMe
 	return items, nil
 }
 
+const hasRecentJoinMessage = `-- name: HasRecentJoinMessage :one
+SELECT EXISTS (
+    SELECT 1 FROM messages
+    WHERE channel_id = $1 AND author_id = $2 AND kind = 'member_join' AND deleted_at IS NULL
+      AND id > snowflake_floor(now() - interval '1 minute'))
+`
+
+type HasRecentJoinMessageParams struct {
+	ChannelID int64
+	AuthorID  int64
+}
+
+// Reentrada logo depois de sair não repete a mensagem de entrada: procura uma do mesmo autor no último minuto.
+func (q *Queries) HasRecentJoinMessage(ctx context.Context, arg HasRecentJoinMessageParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasRecentJoinMessage, arg.ChannelID, arg.AuthorID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertMessage = `-- name: InsertMessage :one
 WITH m AS (
-    INSERT INTO messages (id, channel_id, author_id, content, mention_ids, reference_id)
-    VALUES ($1, $2, $3, $4, $5::bigint[], $6)
-    RETURNING id, channel_id, author_id, content, edited_at, mention_ids, reference_id, pinned_at
+    INSERT INTO messages (id, channel_id, author_id, content, mention_ids, reference_id, kind, mention_everyone, mention_here, mention_role_ids)
+    VALUES ($1, $2, $3, $4, $5::bigint[], $6, $7::text,
+            $8::boolean, $9::boolean, $10::bigint[])
+    RETURNING id, channel_id, author_id, content, edited_at, mention_ids, reference_id, pinned_at, kind, mention_everyone, mention_here, mention_role_ids
 ), c AS (
     UPDATE channels SET last_message_id = $1 WHERE id = $2 AND (last_message_id IS NULL OR last_message_id < $1)
 )
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
        u.username, u.display_name, u.avatar_key
 FROM m JOIN users u ON u.id = m.author_id
 `
 
 type InsertMessageParams struct {
-	ID          int64
-	ChannelID   int64
-	AuthorID    int64
-	Content     string
-	MentionIds  []int64
-	ReferenceID *int64
+	ID              int64
+	ChannelID       int64
+	AuthorID        int64
+	Content         string
+	MentionIds      []int64
+	ReferenceID     *int64
+	Kind            string
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIds  []int64
 }
 
 type InsertMessageRow struct {
-	ID          int64
-	ChannelID   int64
-	AuthorID    int64
-	Content     string
-	EditedAt    pgtype.Timestamptz
-	MentionIds  []int64
-	ReferenceID *int64
-	PinnedAt    pgtype.Timestamptz
-	Username    string
-	DisplayName *string
-	AvatarKey   *string
+	ID              int64
+	ChannelID       int64
+	AuthorID        int64
+	Content         string
+	EditedAt        pgtype.Timestamptz
+	MentionIds      []int64
+	ReferenceID     *int64
+	PinnedAt        pgtype.Timestamptz
+	Kind            string
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIds  []int64
+	Username        string
+	DisplayName     *string
+	AvatarKey       *string
 }
 
 // Insere a mensagem e avança channels.last_message_id numa só ida ao banco.
@@ -154,6 +193,10 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		arg.Content,
 		arg.MentionIds,
 		arg.ReferenceID,
+		arg.Kind,
+		arg.MentionEveryone,
+		arg.MentionHere,
+		arg.MentionRoleIds,
 	)
 	var i InsertMessageRow
 	err := row.Scan(
@@ -165,6 +208,10 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		&i.MentionIds,
 		&i.ReferenceID,
 		&i.PinnedAt,
+		&i.Kind,
+		&i.MentionEveryone,
+		&i.MentionHere,
+		&i.MentionRoleIds,
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
@@ -173,7 +220,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 }
 
 const listMessages = `-- name: ListMessages :many
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.id < $2 AND m.deleted_at IS NULL
@@ -188,17 +235,21 @@ type ListMessagesParams struct {
 }
 
 type ListMessagesRow struct {
-	ID          int64
-	ChannelID   int64
-	AuthorID    int64
-	Content     string
-	EditedAt    pgtype.Timestamptz
-	MentionIds  []int64
-	ReferenceID *int64
-	PinnedAt    pgtype.Timestamptz
-	Username    string
-	DisplayName *string
-	AvatarKey   *string
+	ID              int64
+	ChannelID       int64
+	AuthorID        int64
+	Content         string
+	EditedAt        pgtype.Timestamptz
+	MentionIds      []int64
+	ReferenceID     *int64
+	PinnedAt        pgtype.Timestamptz
+	Kind            string
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIds  []int64
+	Username        string
+	DisplayName     *string
+	AvatarKey       *string
 }
 
 func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]ListMessagesRow, error) {
@@ -219,6 +270,10 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.MentionIds,
 			&i.ReferenceID,
 			&i.PinnedAt,
+			&i.Kind,
+			&i.MentionEveryone,
+			&i.MentionHere,
+			&i.MentionRoleIds,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
@@ -234,7 +289,7 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 }
 
 const listPinnedMessages = `-- name: ListPinnedMessages :many
-SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at,
+SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
        u.username, u.display_name, u.avatar_key
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
@@ -248,17 +303,21 @@ type ListPinnedMessagesParams struct {
 }
 
 type ListPinnedMessagesRow struct {
-	ID          int64
-	ChannelID   int64
-	AuthorID    int64
-	Content     string
-	EditedAt    pgtype.Timestamptz
-	MentionIds  []int64
-	ReferenceID *int64
-	PinnedAt    pgtype.Timestamptz
-	Username    string
-	DisplayName *string
-	AvatarKey   *string
+	ID              int64
+	ChannelID       int64
+	AuthorID        int64
+	Content         string
+	EditedAt        pgtype.Timestamptz
+	MentionIds      []int64
+	ReferenceID     *int64
+	PinnedAt        pgtype.Timestamptz
+	Kind            string
+	MentionEveryone bool
+	MentionHere     bool
+	MentionRoleIds  []int64
+	Username        string
+	DisplayName     *string
+	AvatarKey       *string
 }
 
 func (q *Queries) ListPinnedMessages(ctx context.Context, arg ListPinnedMessagesParams) ([]ListPinnedMessagesRow, error) {
@@ -279,6 +338,10 @@ func (q *Queries) ListPinnedMessages(ctx context.Context, arg ListPinnedMessages
 			&i.MentionIds,
 			&i.ReferenceID,
 			&i.PinnedAt,
+			&i.Kind,
+			&i.MentionEveryone,
+			&i.MentionHere,
+			&i.MentionRoleIds,
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,

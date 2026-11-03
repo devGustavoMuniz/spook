@@ -5,6 +5,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/dm"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/invite"
@@ -49,6 +50,7 @@ func TestOpenAPILimitsMatchServices(t *testing.T) {
 	wantInt("SendBody.content maxLength", field("SendBody", "content").MaxLength, message.MaxContentRunes)
 	wantInt("ContentBody.content maxLength", field("ContentBody", "content").MaxLength, message.MaxContentRunes)
 	wantInt("OpenInputBody.recipient_ids maxItems", field("OpenInputBody", "recipient_ids").MaxItems, dm.MaxParticipants-1)
+	wantInt("UpdateChannelInputBody.topic maxLength", field("UpdateChannelInputBody", "topic").MaxLength, channel.MaxTopicRunes)
 	wantMax("AvatarInputBody.size maximum", field("AvatarInputBody", "size").Maximum, user.MaxAvatarBytes)
 	wantMax("RequestGuildIconUploadRequest.size maximum", field("RequestGuildIconUploadRequest", "size").Maximum, guild.MaxIconBytes)
 	wantMax("CreateInviteRequest.max_uses maximum", field("CreateInviteRequest", "max_uses").Maximum, invite.MaxMaxUses)

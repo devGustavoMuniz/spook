@@ -1,6 +1,7 @@
 package attachment
 
 import (
+	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -48,11 +49,16 @@ func AllowedTypes() []string {
 
 // ValidateUpload confere tipo, extensão e tamanho; devolve o nome sanitizado.
 func ValidateUpload(filename, contentType string, size int64) (string, error) {
+	return ValidateUploadMax(filename, contentType, size, MaxFileSize)
+}
+
+// ValidateUploadMax é ValidateUpload com o limite de tamanho configurado (LIMIT_ATTACHMENT_MB).
+func ValidateUploadMax(filename, contentType string, size, maxSize int64) (string, error) {
 	if size < 1 {
 		return "", apperr.Invalid("o arquivo está vazio")
 	}
-	if size > MaxFileSize {
-		return "", apperr.Invalid("o arquivo passa do limite de 25 MB")
+	if size > maxSize {
+		return "", apperr.Invalid(fmt.Sprintf("o arquivo passa do limite de %d MB", maxSize>>20))
 	}
 	exts, ok := allowed[contentType]
 	if !ok {

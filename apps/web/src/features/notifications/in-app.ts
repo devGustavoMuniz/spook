@@ -38,13 +38,16 @@ export function safeAppPath(url: unknown): string | null {
  * Decide se a mensagem merece aviso: nunca minha, não quando a pessoa já está olhando o canal, nunca
  * silenciada nem em "Não perturbar". Depois vale o nível: "all" avisa sempre, "mentions" só com menção
  * direta e "none" nunca. Sem `level`, o padrão é o de antes (DM avisa; servidor só com menção).
- * (@everyone e @here não existem aqui: são só usernames, então não há o que suprimir além da menção.)
+ * Menção direta, de cargo meu e `@everyone`/`@here` contam como menção; "Suprimir @everyone e @here" já vem
+ * descontado em `bulkMention`.
  */
 export function shouldNotify(args: {
   authorId: string;
   myId: string | null;
   isDm: boolean;
   mentionIds: readonly string[];
+  /** Menção por cargo meu, `@everyone` ou `@here` (já descontado "Suprimir @everyone e @here"). */
+  bulkMention?: boolean;
   viewing: "caught-up" | "focused" | "away";
   muted: boolean;
   /** Nível efetivo do canal (canal -> servidor -> padrão). */
@@ -56,5 +59,5 @@ export function shouldNotify(args: {
   if (args.viewing !== "away") return false;
   const level = args.level ?? (args.isDm ? "all" : "mentions");
   if (level === "all") return true;
-  return level === "mentions" && args.mentionIds.includes(args.myId);
+  return level === "mentions" && (args.mentionIds.includes(args.myId) || !!args.bulkMention);
 }

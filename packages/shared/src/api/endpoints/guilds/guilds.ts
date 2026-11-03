@@ -265,7 +265,8 @@ export const getDeleteGuildUrl = (guildId: string) => {
 };
 
 /**
- * @summary Exclui o servidor (só o dono)
+ * Sem confirmação de senha recente responde 403 com `code: "password_confirmation_required"`; confirme em POST /api/auth/confirm-password e repita.
+ * @summary Exclui o servidor (só o dono; exige a senha confirmada nos últimos 10 min)
  */
 export const deleteGuild = async (
   guildId: string,
@@ -318,7 +319,7 @@ export type DeleteGuildMutationError = ErrorModel;
 export type DeleteGuildMutationVariables = { guildId: string };
 
 /**
- * @summary Exclui o servidor (só o dono)
+ * @summary Exclui o servidor (só o dono; exige a senha confirmada nos últimos 10 min)
  */
 export const useDeleteGuild = <TError = ErrorModel, TContext = unknown>(
   options?: {
@@ -456,7 +457,7 @@ export const getUpdateGuildUrl = (guildId: string) => {
 };
 
 /**
- * @summary Renomeia o servidor e troca o ícone (dono ou MANAGE_GUILD)
+ * @summary Renomeia o servidor, troca o ícone e configura as mensagens de entrada (MANAGE_GUILD)
  */
 export const updateGuild = async (
   guildId: string,
@@ -531,7 +532,7 @@ export type UpdateGuildMutationError = ErrorModel;
 export type UpdateGuildMutationVariables = { guildId: string; data: UpdateGuildRequest };
 
 /**
- * @summary Renomeia o servidor e troca o ícone (dono ou MANAGE_GUILD)
+ * @summary Renomeia o servidor, troca o ícone e configura as mensagens de entrada (MANAGE_GUILD)
  */
 export const useUpdateGuild = <TError = ErrorModel, TContext = unknown>(
   options?: {
@@ -2116,7 +2117,8 @@ export const getTransferGuildUrl = (guildId: string) => {
 };
 
 /**
- * @summary Transfere a posse para outro membro (só o dono)
+ * Sem confirmação de senha recente responde 403 com `code: "password_confirmation_required"`; confirme em POST /api/auth/confirm-password e repita.
+ * @summary Transfere a posse para outro membro (só o dono; exige a senha confirmada nos últimos 10 min)
  */
 export const transferGuild = async (
   guildId: string,
@@ -2191,7 +2193,7 @@ export type TransferGuildMutationError = ErrorModel;
 export type TransferGuildMutationVariables = { guildId: string; data: TransferGuildRequest };
 
 /**
- * @summary Transfere a posse para outro membro (só o dono)
+ * @summary Transfere a posse para outro membro (só o dono; exige a senha confirmada nos últimos 10 min)
  */
 export const useTransferGuild = <TError = ErrorModel, TContext = unknown>(
   options?: {

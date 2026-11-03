@@ -11,6 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countInvitesByGuild = `-- name: CountInvitesByGuild :one
+SELECT count(*) FROM invites
+WHERE guild_id = $1 AND (expires_at IS NULL OR expires_at > now()) AND (max_uses IS NULL OR uses < max_uses)
+`
+
+// Convites ainda válidos do servidor (os expirados ou esgotados não contam para o limite).
+func (q *Queries) CountInvitesByGuild(ctx context.Context, guildID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countInvitesByGuild, guildID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteInvite = `-- name: DeleteInvite :execrows
 DELETE FROM invites WHERE code = $1
 `

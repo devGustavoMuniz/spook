@@ -9,17 +9,40 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
-// MaxGuildsPerUser é o limite de servidores por usuário (SPEC 7.1).
-const MaxGuildsPerUser = 100
+// TooManyGuilds, TooManyRoles e TooManyMembers devolvem o 409 do limite configurado n (o erro sentinela quando
+// n é o padrão do SPEC, para quem compara com errors.Is).
+func TooManyGuilds(n int) error {
+	if n == limits.DefaultGuildsPerUser {
+		return ErrTooManyGuilds
+	}
+	return apperr.Conflict(limits.GuildsPerUserMsg(n))
+}
+
+func TooManyRoles(n int) error {
+	if n == limits.DefaultRolesPerGuild {
+		return ErrTooManyRoles
+	}
+	return apperr.Conflict(limits.RolesPerGuildMsg(n))
+}
+
+func TooManyMembers(n int) error {
+	if n == limits.DefaultMembersPerGuild {
+		return ErrTooManyMembers
+	}
+	return apperr.Conflict(limits.MembersPerGuildMsg(n))
+}
 
 var (
 	ErrNotFound          = apperr.NotFound("servidor não encontrado")
 	ErrMemberNotFound    = apperr.NotFound("membro não encontrado")
 	ErrRoleNotFound      = apperr.NotFound("cargo não encontrado")
 	ErrForbidden         = apperr.Forbidden("você não tem permissão para isso neste servidor")
-	ErrTooManyGuilds     = apperr.Conflict("limite de 100 servidores por usuário atingido")
+	ErrTooManyGuilds     = apperr.Conflict(limits.GuildsPerUserMsg(limits.DefaultGuildsPerUser))
+	ErrTooManyRoles      = apperr.Conflict(limits.RolesPerGuildMsg(limits.DefaultRolesPerGuild))
+	ErrTooManyMembers    = apperr.Conflict(limits.MembersPerGuildMsg(limits.DefaultMembersPerGuild))
 	ErrOwnerCannotLeave  = apperr.Conflict("o dono não pode sair do servidor: transfira a posse antes (ou exclua o servidor)")
 	ErrEveryoneImmutable = apperr.Invalid("o cargo @everyone não pode ser excluído, renomeado nem mudar de posição")
 	ErrBanned            = apperr.Forbidden("você foi banido deste servidor")
@@ -39,6 +62,10 @@ type Guild struct {
 	IconKey   *string
 	OwnerID   int64
 	CreatedAt time.Time
+	// SystemChannelID é o canal das mensagens de entrada (nil = o primeiro canal de texto);
+	// SystemJoinEnabled liga ou desliga as mensagens de boas-vindas.
+	SystemChannelID   *int64
+	SystemJoinEnabled bool
 }
 
 type Role struct {
@@ -48,6 +75,8 @@ type Role struct {
 	Color       *int32
 	Position    int32
 	Permissions perm.Perm
+	// Mentionable: qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo).
+	Mentionable bool
 }
 
 // IsEveryone diz se é o cargo @everyone (id = guild_id).
@@ -136,6 +165,9 @@ type GuildPayload struct {
 	IconURL   string    `json:"icon_url,omitempty" doc:"URL temporária de leitura do ícone"`
 	OwnerID   string    `json:"owner_id"`
 	CreatedAt time.Time `json:"created_at"`
+	// Canal e interruptor das mensagens de entrada (Configurações do servidor).
+	SystemChannelID   *string `json:"system_channel_id" doc:"Canal das mensagens de entrada; null = o primeiro canal de texto"`
+	SystemJoinEnabled bool    `json:"system_join_enabled" doc:"Mensagens de boas-vindas ligadas"`
 }
 
 type RolePayload struct {
@@ -146,6 +178,7 @@ type RolePayload struct {
 	Position    int32  `json:"position" doc:"Maior = mais alto na hierarquia; @everyone é 0"`
 	Permissions int64  `json:"permissions" doc:"Bitflags (SPEC 7.2)"`
 	IsEveryone  bool   `json:"is_everyone"`
+	Mentionable bool   `json:"mentionable" doc:"Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"`
 }
 
 type MemberPayload struct {
@@ -192,7 +225,7 @@ type RoleDeletePayload struct {
 func (r Role) Payload() RolePayload {
 	return RolePayload{
 		ID: httpx.ID(r.ID), GuildID: httpx.ID(r.GuildID), Name: r.Name, Color: r.Color,
-		Position: r.Position, Permissions: int64(r.Permissions), IsEveryone: r.IsEveryone(),
+		Position: r.Position, Permissions: int64(r.Permissions), IsEveryone: r.IsEveryone(), Mentionable: r.Mentionable,
 	}
 }
 
@@ -226,6 +259,7 @@ func (g Guild) Payload(iconURL string) GuildPayload {
 	return GuildPayload{
 		ID: httpx.ID(g.ID), Name: g.Name, IconKey: g.IconKey, IconURL: iconURL,
 		OwnerID: httpx.ID(g.OwnerID), CreatedAt: g.CreatedAt,
+		SystemChannelID: httpx.IDPtr(g.SystemChannelID), SystemJoinEnabled: g.SystemJoinEnabled,
 	}
 }
 

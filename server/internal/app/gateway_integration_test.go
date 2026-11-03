@@ -353,6 +353,7 @@ func TestGatewayReadyAndLiveMessages(t *testing.T) {
 	g2 := owner.createGuild(t, "Segundo")
 	member.join(t, owner, g2.id)
 	mc.event("GUILD_CREATE")
+	mc.event("MESSAGE_CREATE") // "membro entrou no servidor" (mensagem de sistema)
 	owner.call(t, "POST", "/api/channels/"+g2.textID+"/messages", J{"content": "no segundo"}, 201)
 	if str(payload(t, mc.event("MESSAGE_CREATE")), "content") != "no segundo" {
 		t.Fatal("mensagem do segundo servidor")

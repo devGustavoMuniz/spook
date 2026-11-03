@@ -11,6 +11,8 @@ export interface UpdateGuildRoleRequest {
    * @maximum 16777215
    */
   color?: number;
+  /** Qualquer pessoa com acesso ao canal pode mencionar o cargo */
+  mentionable?: boolean;
   /**
    * @minLength 1
    * @maxLength 100

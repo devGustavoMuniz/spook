@@ -14,4 +14,11 @@ export interface GuildPayload {
   id: string;
   name: string;
   owner_id: string;
+  /**
+   * Canal das mensagens de entrada; null = o primeiro canal de texto
+   * @nullable
+   */
+  system_channel_id: string | null;
+  /** Mensagens de boas-vindas ligadas */
+  system_join_enabled: boolean;
 }

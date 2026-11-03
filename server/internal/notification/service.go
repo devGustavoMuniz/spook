@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,9 @@ type Channels interface {
 	Authorize(ctx context.Context, userID, channelID int64, need perm.Perm) (channel.Channel, perm.Member, error)
 	// ViewableIDs são os canais do servidor que o usuário vê (permissão efetiva de cada canal).
 	ViewableIDs(ctx context.Context, guildID, userID int64) ([]int64, error)
+	// Audience são os membros do servidor do canal que o veem (com os cargos de cada um): o público das
+	// menções em massa (@everyone, @here e cargos).
+	Audience(ctx context.Context, channelID int64) ([]perm.Member, error)
 }
 
 // Presence diz se o usuário tem sessão de gateway ativa (implementada por presence.Service). Status
@@ -61,6 +65,10 @@ type Deps struct {
 	Pub      events.Publisher
 	IDs      IDGenerator
 	Limiter  Limiter // nulo = sem limite
+
+	// EveryonePushMax é o máximo de destinatários de push de uma menção em massa (EVERYONE_PUSH_MAX, padrão 200
+	// na config): acima disso a mensagem só soma contadores. Zero = menção em massa nunca dispara push.
+	EveryonePushMax int
 
 	// Push. Sem Sender/Queue (ou com Config desligada) os endpoints respondem 503 e nada é enfileirado.
 	Push   PushConfig
@@ -195,15 +203,49 @@ func (s *Service) ReadyStates(ctx context.Context, userID int64) ([]ReadStatePay
 // ---- menções ----
 
 // Resolve implementa message.Mentions: os usuários citados com @username que podem ver o canal (membros
-// com VIEW_CHANNEL; em DM, participantes), sem o autor, em ordem de ID, no máximo MaxMentions.
-func (s *Service) Resolve(ctx context.Context, ch channel.Channel, authorID int64, content string) ([]int64, error) {
-	names := ParseMentions(content)
-	if len(names) == 0 {
-		return nil, nil
+// com VIEW_CHANNEL; em DM, participantes), sem o autor, em ordem de ID, no máximo MaxMentions. Em canais de
+// servidor também acha @everyone, @here e @NomeDoCargo: canMentionAll (MENTION_EVERYONE do autor) libera os
+// três; sem ele, só valem cargos marcados como mencionáveis, e @everyone/@here ficam como texto comum.
+func (s *Service) Resolve(ctx context.Context, ch channel.Channel, authorID int64, content string, canMentionAll bool) (message.MentionResult, error) {
+	var res message.MentionResult
+	if !strings.Contains(content, "@") {
+		return res, nil
 	}
 	ctx, span := tracer.Start(ctx, "notification.ResolveMentions")
 	defer span.End()
+
+	names := slices.DeleteFunc(ParseMentions(content), func(n string) bool { return n == "everyone" || n == "here" })
 	span.SetAttributes(attribute.Int("candidates", len(names)))
+	if len(names) > 0 {
+		ids, err := s.resolveUsers(ctx, ch, authorID, names)
+		if err != nil {
+			return message.MentionResult{}, err
+		}
+		res.UserIDs = ids
+		if len(ids) > 0 {
+			s.m.mentions.Add(ctx, int64(len(ids)))
+		}
+	}
+	if ch.GuildID != nil {
+		roles, err := s.Store.RoleMentionTargets(ctx, *ch.GuildID)
+		if err != nil {
+			return message.MentionResult{}, err
+		}
+		b := ParseBulk(content, roles)
+		if canMentionAll {
+			res.Everyone, res.Here = b.Everyone, b.Here
+		}
+		for _, id := range b.RoleIDs {
+			if i := slices.IndexFunc(roles, func(r RoleRef) bool { return r.ID == id }); i >= 0 && (canMentionAll || roles[i].Mentionable) {
+				res.RoleIDs = append(res.RoleIDs, id)
+			}
+		}
+		span.SetAttributes(attribute.Bool("everyone", res.Everyone), attribute.Bool("here", res.Here), attribute.Int("roles", len(res.RoleIDs)))
+	}
+	return res, nil
+}
+
+func (s *Service) resolveUsers(ctx context.Context, ch channel.Channel, authorID int64, names []string) ([]int64, error) {
 	var ids []int64
 	var err error
 	if ch.GuildID != nil {
@@ -231,10 +273,50 @@ func (s *Service) Resolve(ctx context.Context, ch channel.Channel, authorID int6
 		}
 		ids = kept
 	}
-	if len(ids) > 0 {
-		s.m.mentions.Add(ctx, int64(len(ids)))
-	}
 	return ids, nil
+}
+
+// bulkTargets resolve quem uma menção em massa atinge entre quem vê o canal: @everyone atinge todos, @here só
+// quem está online (presença visível; invisível conta como offline), @cargo os membros do cargo. Quem pediu
+// "Suprimir @everyone e @here" no servidor sai do que veio de @everyone/@here (não soma nem avisa), mas continua
+// recebendo o que veio de um cargo. O autor nunca entra.
+func (s *Service) bulkTargets(ctx context.Context, msg message.MessagePayload, channelID, authorID, guildID int64) ([]int64, error) {
+	if !msg.MentionEveryone && !msg.MentionHere && len(msg.MentionRoles) == 0 {
+		return nil, nil
+	}
+	audience, err := s.Channels.Audience(ctx, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("público da menção em massa: %w", err)
+	}
+	roleSet := make(map[int64]struct{}, len(msg.MentionRoles))
+	for _, r := range msg.MentionRoles {
+		if id, err := strconv.ParseInt(r, 10, 64); err == nil {
+			roleSet[id] = struct{}{}
+		}
+	}
+	var viaRole, viaMass []int64
+	for _, m := range audience {
+		if m.UserID == authorID {
+			continue
+		}
+		if slices.ContainsFunc(m.RoleIDs, func(id int64) bool { _, ok := roleSet[id]; return ok }) {
+			viaRole = append(viaRole, m.UserID)
+			continue
+		}
+		if msg.MentionEveryone || (msg.MentionHere && s.Presence.Status(m.UserID) != presence.StatusOffline) {
+			viaMass = append(viaMass, m.UserID)
+		}
+	}
+	if len(viaMass) > 0 {
+		suppressed, err := s.Store.SuppressedEveryone(ctx, guildID, viaMass)
+		if err != nil {
+			return nil, err
+		}
+		if len(suppressed) > 0 {
+			viaMass = slices.DeleteFunc(viaMass, func(id int64) bool { return slices.Contains(suppressed, id) })
+		}
+	}
+	return append(viaRole, viaMass...), nil
 }
 
 // ---- assinatura do barramento ----
@@ -326,6 +408,10 @@ func (s *Service) onMessage(ctx context.Context, ev events.Event) error {
 	if err := errors.Join(err1, err2); err != nil {
 		return fmt.Errorf("ids do payload: %w", err)
 	}
+	// Mensagem de sistema ("fulano entrou"): não avança leitura, não soma menção e não avisa ninguém.
+	if msg.Kind != "" && msg.Kind != message.KindDefault {
+		return nil
+	}
 	channelID := ev.ChannelID
 	isDM := ev.GuildID == 0
 	var guildID *int64
@@ -344,6 +430,13 @@ func (s *Service) onMessage(ctx context.Context, ev events.Event) error {
 			mentioned = append(mentioned, n)
 		}
 	}
+	var bulk []int64
+	if !isDM {
+		var err error
+		if bulk, err = s.bulkTargets(ctx, msg, channelID, authorID, ev.GuildID); err != nil {
+			return err
+		}
+	}
 	var participants []int64
 	if isDM {
 		var err error
@@ -351,7 +444,7 @@ func (s *Service) onMessage(ctx context.Context, ev events.Event) error {
 			return err
 		}
 	}
-	targets := notifyTargets(authorID, isDM, participants, mentioned)
+	targets := notifyTargets(authorID, isDM, participants, append(slices.Clone(mentioned), bulk...))
 	if len(targets) == 0 {
 		return nil
 	}
@@ -373,9 +466,28 @@ func (s *Service) onMessage(ctx context.Context, ev events.Event) error {
 	if len(recipients) == 0 {
 		return nil
 	}
-	mentionSet := make(map[int64]bool, len(mentioned))
+	// Nos servidores todo alvo é uma menção (direta, de cargo ou em massa); nas DMs, só os citados.
+	mentionSet := make(map[int64]bool, len(targets))
 	for _, id := range mentioned {
 		mentionSet[id] = true
+	}
+	if !isDM {
+		for _, id := range targets {
+			mentionSet[id] = true
+		}
+	}
+	// Limite de fan-out: menção em massa para mais gente que EveryonePushMax só soma contadores; os citados
+	// diretamente continuam recebendo o push.
+	if len(bulk) > s.EveryonePushMax {
+		direct := make(map[int64]struct{}, len(mentioned))
+		for _, id := range mentioned {
+			direct[id] = struct{}{}
+		}
+		recipients = slices.DeleteFunc(recipients, func(id int64) bool { _, ok := direct[id]; return !ok })
+		s.m.dropped.Add(ctx, 1, metric.WithAttributes(attribute.String("reason", "fanout_limit")))
+		if len(recipients) == 0 {
+			return nil
+		}
 	}
 	// Não perturbar e silenciar/nível: só o aviso muda; a contagem de menções acima já foi somada.
 	if recipients, err = s.notifiable(ctx, recipients, channelID, guildID, mentionSet); err != nil {
@@ -481,6 +593,9 @@ func (s *Service) deliver(ctx context.Context, a PushArgs) (string, error) {
 	}
 	if err != nil {
 		return resFailed, err
+	}
+	if pc.Kind != "" && pc.Kind != message.KindDefault {
+		return resSkipped, nil // mensagem de sistema nunca avisa
 	}
 
 	status, err := s.Sender.Send(ctx, sub, BuildPushPayload(pc, a.ChannelID).JSON())

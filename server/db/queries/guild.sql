@@ -18,7 +18,7 @@ ORDER BY m.joined_at, g.id;
 SELECT count(*) FROM guild_members WHERE user_id = $1;
 
 -- name: UpdateGuild :one
-UPDATE guilds SET name = $2, icon_key = $3 WHERE id = $1
+UPDATE guilds SET name = $2, icon_key = $3, system_channel_id = $4, system_join_enabled = $5 WHERE id = $1
 RETURNING *;
 
 -- name: DeleteGuild :execrows
@@ -86,6 +86,20 @@ LEFT JOIN roles r ON r.guild_id = g.id
 WHERE m.user_id = $1
 GROUP BY g.id, g.owner_id;
 
+-- Membros do servidor com o necessário para a permissão efetiva e os cargos (menções em massa).
+-- name: ListGuildMemberAccess :many
+SELECT m.user_id, g.owner_id,
+       COALESCE(bit_or(r.permissions), 0)::bigint AS permissions,
+       COALESCE(max(r.position), 0)::int AS highest_position,
+       COALESCE((SELECT array_agg(mr.role_id) FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = m.user_id), '{}')::bigint[] AS role_ids
+FROM guild_members m
+JOIN guilds g ON g.id = m.guild_id
+LEFT JOIN roles r ON r.guild_id = g.id
+     AND (r.id = g.id OR r.id IN (SELECT mr.role_id FROM member_roles mr WHERE mr.guild_id = g.id AND mr.user_id = m.user_id))
+WHERE m.guild_id = $1
+GROUP BY m.user_id, g.id, g.owner_id
+ORDER BY m.user_id;
+
 -- name: ListMemberRolesByUser :many
 SELECT guild_id, role_id FROM member_roles WHERE user_id = $1;
 
@@ -99,11 +113,11 @@ SELECT * FROM roles WHERE guild_id = ANY($1::bigint[]) ORDER BY guild_id, positi
 SELECT * FROM roles WHERE id = $1 AND guild_id = $2;
 
 -- name: InsertRole :one
-INSERT INTO roles (id, guild_id, name, color, position, permissions) VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO roles (id, guild_id, name, color, position, permissions, mentionable) VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: UpdateRole :one
-UPDATE roles SET name = $3, color = $4, position = $5, permissions = $6 WHERE id = $1 AND guild_id = $2
+UPDATE roles SET name = $3, color = $4, position = $5, permissions = $6, mentionable = $7 WHERE id = $1 AND guild_id = $2
 RETURNING *;
 
 -- name: DeleteRole :execrows
@@ -115,3 +129,20 @@ ON CONFLICT DO NOTHING;
 
 -- name: DeleteMemberRole :execrows
 DELETE FROM member_roles WHERE guild_id = $1 AND user_id = $2 AND role_id = $3;
+
+-- Canal das mensagens de entrada: o configurado (se ainda for um canal de texto do servidor) ou o primeiro canal
+-- de texto. enabled = false: nenhuma mensagem de entrada.
+-- name: GetSystemChannel :one
+SELECT g.system_join_enabled AS enabled,
+       COALESCE(
+           (SELECT c.id FROM channels c WHERE c.id = g.system_channel_id AND c.guild_id = g.id AND c.type = 0),
+           (SELECT c.id FROM channels c WHERE c.guild_id = g.id AND c.type = 0 ORDER BY c.position, c.id LIMIT 1),
+           0)::bigint AS channel_id
+FROM guilds g WHERE g.id = $1;
+
+-- Trava o servidor (serializa entradas simultâneas para valer o limite de membros).
+-- name: LockGuild :one
+SELECT id FROM guilds WHERE id = $1 FOR NO KEY UPDATE;
+
+-- name: IsGuildTextChannel :one
+SELECT EXISTS (SELECT 1 FROM channels WHERE id = $1 AND guild_id = $2 AND type = 0);

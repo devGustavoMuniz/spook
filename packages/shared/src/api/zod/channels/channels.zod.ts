@@ -16,7 +16,7 @@ export const DeleteChannelParams = zod.object({
 export const DeleteChannelResponse = zod.void();
 
 /**
- * @summary Renomeia ou reposiciona um canal
+ * @summary Renomeia, reposiciona ou muda o tópico de um canal (MANAGE_CHANNELS)
  */
 export const UpdateChannelParams = zod.object({
   channel_id: zod.string().describe("ID do canal"),
@@ -26,9 +26,16 @@ export const updateChannelBodyNameMax = 100;
 
 export const updateChannelBodyPositionMin = 0;
 
+export const updateChannelBodyTopicMax = 1024;
+
 export const UpdateChannelBody = zod.object({
   name: zod.string().min(1).max(updateChannelBodyNameMax).optional(),
   position: zod.int().min(updateChannelBodyPositionMin).optional(),
+  topic: zod
+    .string()
+    .max(updateChannelBodyTopicMax)
+    .optional()
+    .describe("Tópico do canal de texto (MANAGE_CHANNELS); vazio remove"),
 });
 
 export const UpdateChannelResponse = zod.object({
@@ -51,6 +58,10 @@ export const UpdateChannelResponse = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });
 
@@ -143,6 +154,10 @@ export const ListGuildChannelsResponseItem = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });
 export const ListGuildChannelsResponse = zod.array(ListGuildChannelsResponseItem);
@@ -187,6 +202,10 @@ export const CreateChannelResponse = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });
 
@@ -237,6 +256,10 @@ export const ReorderChannelsResponseItem = zod.object({
     )
     .nullish()
     .describe("Participantes da DM (todos, inclusive você)"),
+  topic: zod
+    .string()
+    .nullable()
+    .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
   type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
 });
 export const ReorderChannelsResponse = zod.array(ReorderChannelsResponseItem);

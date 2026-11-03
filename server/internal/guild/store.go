@@ -11,27 +11,40 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/dbgen"
+	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
 )
 
 type PGStore struct {
-	db db.DB
-	q  *dbgen.Queries
+	db  db.DB
+	q   *dbgen.Queries
+	lim limits.Limits
 }
 
-func NewStore(d db.DB) *PGStore { return &PGStore{db: d, q: dbgen.New(d)} }
+func NewStore(d db.DB) *PGStore {
+	return &PGStore{db: d, q: dbgen.New(d), lim: limits.Default()}
+}
+
+// WithLimits troca os limites de domínio (LIMIT_*); o padrão é o do SPEC.
+func (s *PGStore) WithLimits(l limits.Limits) *PGStore { s.lim = l.Normalize(); return s }
 
 func toGuild(g dbgen.Guild) Guild {
-	return Guild{ID: g.ID, Name: g.Name, IconKey: g.IconKey, OwnerID: g.OwnerID, CreatedAt: g.CreatedAt.Time}
+	return Guild{
+		ID: g.ID, Name: g.Name, IconKey: g.IconKey, OwnerID: g.OwnerID, CreatedAt: g.CreatedAt.Time,
+		SystemChannelID: g.SystemChannelID, SystemJoinEnabled: g.SystemJoinEnabled,
+	}
 }
 
 func toRole(r dbgen.Role) Role {
-	return Role{ID: r.ID, GuildID: r.GuildID, Name: r.Name, Color: r.Color, Position: r.Position, Permissions: perm.Perm(r.Permissions)}
+	return Role{
+		ID: r.ID, GuildID: r.GuildID, Name: r.Name, Color: r.Color, Position: r.Position,
+		Permissions: perm.Perm(r.Permissions), Mentionable: r.Mentionable,
+	}
 }
 
 func wrap(op string, err error) error { return fmt.Errorf("%s: %w", op, err) }
 
 // Create cria servidor, @everyone, categoria, canais iniciais e o dono como membro, numa transação.
-// O lock na linha do usuário serializa criações/entradas simultâneas do mesmo usuário (limite de 100).
+// O lock na linha do usuário serializa criações/entradas simultâneas do mesmo usuário (limite de servidores).
 func (s *PGStore) Create(ctx context.Context, n NewGuild) (Guild, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -47,8 +60,8 @@ func (s *PGStore) Create(ctx context.Context, n NewGuild) (Guild, error) {
 	if err != nil {
 		return Guild{}, wrap("contar servidores", err)
 	}
-	if count >= MaxGuildsPerUser {
-		return Guild{}, ErrTooManyGuilds
+	if int(count) >= s.lim.GuildsPerUser {
+		return Guild{}, TooManyGuilds(s.lim.GuildsPerUser)
 	}
 	g, err := q.InsertGuild(ctx, dbgen.InsertGuildParams{ID: n.ID, Name: n.Name, OwnerID: n.OwnerID})
 	if err != nil {
@@ -101,8 +114,10 @@ func (s *PGStore) ListByUser(ctx context.Context, userID int64) ([]Guild, error)
 	return out, nil
 }
 
-func (s *PGStore) Update(ctx context.Context, id int64, name string, iconKey *string) (Guild, error) {
-	g, err := s.q.UpdateGuild(ctx, dbgen.UpdateGuildParams{ID: id, Name: name, IconKey: iconKey})
+func (s *PGStore) Update(ctx context.Context, id int64, name string, iconKey *string, systemChannelID *int64, systemJoinEnabled bool) (Guild, error) {
+	g, err := s.q.UpdateGuild(ctx, dbgen.UpdateGuildParams{
+		ID: id, Name: name, IconKey: iconKey, SystemChannelID: systemChannelID, SystemJoinEnabled: systemJoinEnabled,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Guild{}, ErrNotFound
 	}
@@ -364,6 +379,7 @@ func (s *PGStore) Role(ctx context.Context, guildID, roleID int64) (Role, error)
 func (s *PGStore) CreateRole(ctx context.Context, r Role) (Role, error) {
 	row, err := s.q.InsertRole(ctx, dbgen.InsertRoleParams{
 		ID: r.ID, GuildID: r.GuildID, Name: r.Name, Color: r.Color, Position: r.Position, Permissions: int64(r.Permissions),
+		Mentionable: r.Mentionable,
 	})
 	if err != nil {
 		return Role{}, wrap("criar cargo", err)
@@ -374,6 +390,7 @@ func (s *PGStore) CreateRole(ctx context.Context, r Role) (Role, error) {
 func (s *PGStore) UpdateRole(ctx context.Context, r Role) (Role, error) {
 	row, err := s.q.UpdateRole(ctx, dbgen.UpdateRoleParams{
 		ID: r.ID, GuildID: r.GuildID, Name: r.Name, Color: r.Color, Position: r.Position, Permissions: int64(r.Permissions),
+		Mentionable: r.Mentionable,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Role{}, ErrRoleNotFound
@@ -419,4 +436,40 @@ func (s *PGStore) RemoveMemberRole(ctx context.Context, guildID, userID, roleID 
 		return wrap("remover cargo do membro", err)
 	}
 	return nil
+}
+
+// SystemChannel devolve o canal das mensagens de entrada (0 = o servidor não tem canal de texto) e se estão ligadas.
+func (s *PGStore) SystemChannel(ctx context.Context, guildID int64) (channelID int64, enabled bool, err error) {
+	r, err := s.q.GetSystemChannel(ctx, guildID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, ErrNotFound
+	}
+	if err != nil {
+		return 0, false, wrap("buscar canal de sistema", err)
+	}
+	return r.ChannelID, r.Enabled, nil
+}
+
+// MembersAccess devolve as permissões base e os cargos de todos os membros, numa consulta só.
+func (s *PGStore) MembersAccess(ctx context.Context, guildID int64) ([]perm.Member, error) {
+	rows, err := s.q.ListGuildMemberAccess(ctx, guildID)
+	if err != nil {
+		return nil, wrap("listar permissões dos membros", err)
+	}
+	out := make([]perm.Member, len(rows))
+	for i, r := range rows {
+		m := perm.NewMember(r.UserID, r.OwnerID == r.UserID, perm.Perm(r.Permissions), int(r.HighestPosition))
+		m.GuildID, m.RoleIDs = guildID, r.RoleIds
+		out[i] = m
+	}
+	return out, nil
+}
+
+// IsTextChannel diz se o canal é um canal de texto deste servidor.
+func (s *PGStore) IsTextChannel(ctx context.Context, guildID, channelID int64) (bool, error) {
+	ok, err := s.q.IsGuildTextChannel(ctx, dbgen.IsGuildTextChannelParams{ID: channelID, GuildID: &guildID})
+	if err != nil {
+		return false, wrap("buscar canal", err)
+	}
+	return ok, nil
 }

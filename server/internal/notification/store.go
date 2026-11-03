@@ -41,6 +41,7 @@ type PushContext struct {
 	GuildID         *int64
 	GuildName       string
 	AttachmentCount int
+	Kind            string // tipo da mensagem (mensagem de sistema não gera push)
 }
 
 // Store é o que o service precisa do banco.
@@ -73,6 +74,10 @@ type Store interface {
 	IsGuildMember(ctx context.Context, guildID, userID int64) (bool, error)
 	// NotifyFilters devolve, por destinatário, o DND e as configurações do canal e do servidor (1 consulta).
 	NotifyFilters(ctx context.Context, userIDs []int64, channelID int64, guildID *int64) ([]NotifyFilter, error)
+	// SuppressedEveryone devolve, entre os usuários, quem ignora @everyone e @here no servidor.
+	SuppressedEveryone(ctx context.Context, guildID int64, userIDs []int64) ([]int64, error)
+	// RoleMentionTargets são os cargos do servidor (sem o @everyone) candidatos a @NomeDoCargo.
+	RoleMentionTargets(ctx context.Context, guildID int64) ([]RoleRef, error)
 }
 
 type PGStore struct {
@@ -177,7 +182,7 @@ func (s *PGStore) PushContext(ctx context.Context, messageID int64) (PushContext
 	if err != nil {
 		return PushContext{}, wrap("buscar mensagem do push", err)
 	}
-	pc := PushContext{Content: r.Content, Username: r.Username, GuildID: r.GuildID, AttachmentCount: int(r.AttachmentCount)}
+	pc := PushContext{Kind: r.Kind, Content: r.Content, Username: r.Username, GuildID: r.GuildID, AttachmentCount: int(r.AttachmentCount)}
 	if r.DisplayName != nil {
 		pc.DisplayName = *r.DisplayName
 	}
@@ -274,13 +279,13 @@ func (s *PGStore) ListSettings(ctx context.Context, userID int64) ([]Setting, er
 	}
 	out := make([]Setting, len(rows))
 	for i, r := range rows {
-		out[i] = Setting{Scope: r.Scope, TargetID: r.TargetID, Muted: r.Muted, MutedUntil: timePtr(r.MutedUntil), Level: r.Level}
+		out[i] = Setting{Scope: r.Scope, TargetID: r.TargetID, Muted: r.Muted, MutedUntil: timePtr(r.MutedUntil), Level: r.Level, SuppressEveryone: r.SuppressEveryone}
 	}
 	return out, nil
 }
 
 func (s *PGStore) UpsertSetting(ctx context.Context, userID int64, set Setting) error {
-	arg := dbgen.UpsertNotificationSettingParams{UserID: userID, Scope: set.Scope, TargetID: set.TargetID, Muted: set.Muted, Level: set.Level}
+	arg := dbgen.UpsertNotificationSettingParams{UserID: userID, Scope: set.Scope, TargetID: set.TargetID, Muted: set.Muted, Level: set.Level, SuppressEveryone: set.SuppressEveryone}
 	if set.MutedUntil != nil {
 		arg.MutedUntil = pgtype.Timestamptz{Time: *set.MutedUntil, Valid: true}
 	}
@@ -320,6 +325,26 @@ func (s *PGStore) NotifyFilters(ctx context.Context, userIDs []int64, channelID 
 			f.Guild = &Setting{Muted: *r.GuildMuted, MutedUntil: timePtr(r.GuildMutedUntil), Level: r.GuildLevel}
 		}
 		out[i] = f
+	}
+	return out, nil
+}
+
+func (s *PGStore) SuppressedEveryone(ctx context.Context, guildID int64, userIDs []int64) ([]int64, error) {
+	ids, err := s.q.ListSuppressEveryone(ctx, dbgen.ListSuppressEveryoneParams{GuildID: guildID, UserIds: userIDs})
+	if err != nil {
+		return nil, wrap("buscar quem ignora @everyone", err)
+	}
+	return ids, nil
+}
+
+func (s *PGStore) RoleMentionTargets(ctx context.Context, guildID int64) ([]RoleRef, error) {
+	rows, err := s.q.ListRoleMentionTargets(ctx, guildID)
+	if err != nil {
+		return nil, wrap("listar cargos mencionáveis", err)
+	}
+	out := make([]RoleRef, len(rows))
+	for i, r := range rows {
+		out[i] = RoleRef{ID: r.ID, Name: r.Name, Mentionable: r.Mentionable}
 	}
 	return out, nil
 }

@@ -29,7 +29,11 @@ export const RequestUploadBody = zod.object({
     .describe(
       "Nome original; o servidor tira caminho e caracteres de controle e limita a 100 caracteres",
     ),
-  size: zod.int().describe("Tamanho em bytes, de 1 a 26214400 (25 MB)"),
+  size: zod
+    .int()
+    .describe(
+      "Tamanho em bytes, a partir de 1; o máximo é o limite do servidor (padrão 25 MB, LIMIT_ATTACHMENT_MB)",
+    ),
 });
 
 export const RequestUploadResponse = zod.object({

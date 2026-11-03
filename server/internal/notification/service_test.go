@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -38,6 +39,9 @@ type fakeStore struct {
 	filters  map[int64]NotifyFilter // por usuário; ausente = sem configuração, fora do DND
 	settings map[string]Setting     // "scope:target"
 	members  map[int64]bool         // servidores dos quais o usuário (qualquer um) é membro
+
+	roles      []RoleRef // cargos do servidor (menção a cargo)
+	suppressed []int64   // quem ignora @everyone e @here
 }
 
 type ackCall struct{ user, channel, message int64 }
@@ -120,6 +124,18 @@ func (f *fakeStore) ResolveGuildMentions(_ context.Context, _, _ int64, _ []stri
 func (f *fakeStore) ResolveDMMentions(_ context.Context, _, _ int64, _ []string) ([]int64, error) {
 	return f.resolved, f.resolveErr
 }
+func (f *fakeStore) SuppressedEveryone(_ context.Context, _ int64, users []int64) ([]int64, error) {
+	var out []int64
+	for _, u := range users {
+		if slices.Contains(f.suppressed, u) {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+func (f *fakeStore) RoleMentionTargets(context.Context, int64) ([]RoleRef, error) {
+	return f.roles, nil
+}
 func (f *fakeStore) RecipientIDs(_ context.Context, c int64) ([]int64, error) {
 	return f.recipients[c], nil
 }
@@ -161,8 +177,13 @@ func (f *fakeStore) SubscriptionsOf(_ context.Context, users []int64) ([]Subscri
 }
 
 type fakeChannels struct {
-	ch  channel.Channel
-	err error
+	ch       channel.Channel
+	err      error
+	audience []perm.Member
+}
+
+func (f fakeChannels) Audience(context.Context, int64) ([]perm.Member, error) {
+	return f.audience, f.err
 }
 
 func (f fakeChannels) Authorize(_ context.Context, _, _ int64, _ perm.Perm) (channel.Channel, perm.Member, error) {
@@ -302,29 +323,30 @@ func TestAckRules(t *testing.T) {
 func TestResolveSortsDedupesAndCaps(t *testing.T) {
 	f := newFixture(t, false)
 	ch := channel.Channel{ID: 300, GuildID: ptr(int64(100))}
-	if ids, err := f.svc.Resolve(context.Background(), ch, 1, "sem menção"); err != nil || ids != nil {
-		t.Fatalf("sem @: %v %v", ids, err)
+	if res, err := f.svc.Resolve(context.Background(), ch, 1, "sem menção", false); err != nil || res.UserIDs != nil {
+		t.Fatalf("sem @: %v %v", res, err)
 	}
 	f.store.resolved = []int64{9, 3, 3, 5}
-	ids, err := f.svc.Resolve(context.Background(), ch, 1, "oi @a1 @b2")
-	if err != nil || fmt.Sprint(ids) != "[3 5 9]" {
+	res, err := f.svc.Resolve(context.Background(), ch, 1, "oi @a1 @b2", false)
+	if ids := res.UserIDs; err != nil || fmt.Sprint(ids) != "[3 5 9]" {
 		t.Fatalf("ids %v err %v", ids, err)
 	}
 	f.store.resolved = nil
 	for i := 1; i <= 30; i++ {
 		f.store.resolved = append(f.store.resolved, int64(100-i))
 	}
-	if ids, _ := f.svc.Resolve(context.Background(), ch, 1, "@aa"); len(ids) != MaxMentions || ids[0] != 70 {
+	if r, _ := f.svc.Resolve(context.Background(), ch, 1, "@aa", false); len(r.UserIDs) != MaxMentions || r.UserIDs[0] != 70 {
+		ids := r.UserIDs
 		t.Fatalf("limite de 20: %d %v", len(ids), ids)
 	}
 	f.store.resolveErr = errors.New("db fora")
-	if _, err := f.svc.Resolve(context.Background(), ch, 1, "@aa"); err == nil {
+	if _, err := f.svc.Resolve(context.Background(), ch, 1, "@aa", false); err == nil {
 		t.Fatal("erro do banco deve subir")
 	}
 	dm := channel.Channel{ID: 500} // sem guild: usa a consulta de DM
 	f.store.resolveErr, f.store.resolved = nil, []int64{4}
-	if ids, _ := f.svc.Resolve(context.Background(), dm, 1, "@aa"); fmt.Sprint(ids) != "[4]" {
-		t.Fatal(ids)
+	if r, _ := f.svc.Resolve(context.Background(), dm, 1, "@aa", false); fmt.Sprint(r.UserIDs) != "[4]" {
+		t.Fatal(r.UserIDs)
 	}
 }
 

@@ -278,3 +278,12 @@ Itens 3.1 a 3.5 do `PLANO-ADICIONAIS-2.md`: banir e desbanir com motivo, permiss
 - **Testes.** Unit (`perm`, `channel`, `guild`, `gateway`), integração (`app/moderation_integration_test.go`: matriz, hierarquia, vazamento, gateway, voz com LiveKit falso, auditoria, retenção, rate limit), Vitest e E2E `moderation.spec.ts`.
 - **Pendências.** Ver `PENDENCIAS-DONO.md` ("Moderação e permissões").
 
+
+## Menções em massa, mensagem de entrada, tópico, limites e senha para excluir (03/11/2026)
+
+Itens 4.x do `PLANO-ADICIONAIS-2.md`. Migration `00013_mentions_topic_system`; requisitos em RF26, regras em 7.13 e decisões em 5.5 ("menções, mensagem de sistema, tópico e limites").
+
+- **Backend.** Permissão `MENTION_EVERYONE` (bit 19), cargos `mentionable`, parser `ParseBulk`, alcance por visibilidade/presença/cargo, supressão por servidor, push com DND/silêncio/nível, limite de fan-out (`EVERYONE_PUSH_MAX`) e rate limit 1/30 s; mensagem `member_join` (`messages.kind`, canal de sistema e interruptor no servidor); `channels.topic`; pacote `platform/limits` com `LIMIT_*`; `sensitive` (senha recente) em excluir servidor e transferir posse. Endpoints/campos novos: `PATCH /api/channels/{id}` (`topic`), `PATCH /api/guilds/{id}` (`system_channel_id`, `system_join_enabled`), cargos (`mentionable`), `PUT notification-settings/guild/{id}` (`suppress_everyone`), mensagem (`kind`, `mention_everyone`, `mention_here`, `mention_roles`).
+- **Web.** Pílulas de `@everyone`/`@here`/cargo, destaque, autocomplete por permissão, editor de cargo, "Suprimir @everyone e @here", linha de entrada, tópico no cabeçalho e no diálogo "Editar canal", configuração das mensagens de entrada e exclusão do servidor com nome + senha.
+- **Testes.** Unit (parser, matriz de permissão, quem notifica quem com overwrites/invisível/DND/silêncio/nível/fan-out, supressão, rate limit, mensagem de sistema, tópico, limites, config), integração (`app/mentions_integration_test.go`; os testes antigos ganharam a mensagem de entrada e a confirmação de senha), Vitest `mentions-system.test.tsx` e E2E `e2e/mentions.spec.ts`.
+- **Pendências.** Ver `PENDENCIAS-DONO.md` ("Menções, mensagem de entrada e limites").

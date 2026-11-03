@@ -37,10 +37,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_CATEGORY, CHANNEL_TEXT, channelsOf, type Guild } from "@/lib/guild";
 import { refreshGuilds } from "@/lib/guild-cache";
-import { type ChannelForm, channelFormSchema } from "@/lib/schemas";
+import {
+  type ChannelEditForm,
+  type ChannelForm,
+  channelEditSchema,
+  channelFormSchema,
+} from "@/lib/schemas";
 
 const NO_CATEGORY = "none";
 
@@ -174,6 +180,7 @@ export function CreateChannelDialog({
   );
 }
 
+/** Editar canal: nome e, nos canais de texto, o tópico (MANAGE_CHANNELS). Categorias só têm nome. */
 export function RenameChannelDialog({
   channel,
   onClose,
@@ -183,19 +190,25 @@ export function RenameChannelDialog({
 }) {
   const qc = useQueryClient();
   const update = useUpdateChannel();
+  const hasTopic = channel?.type === CHANNEL_TEXT;
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
-  } = useForm<{ name: string }>({
-    resolver: zodResolver(channelFormSchema.pick({ name: true })),
-    values: { name: channel?.name ?? "" },
+  } = useForm<ChannelEditForm>({
+    resolver: zodResolver(channelEditSchema),
+    values: { name: channel?.name ?? "", topic: channel?.topic ?? "" },
   });
+  const topicLength = [...(watch("topic") ?? "")].length;
 
-  const onSubmit = handleSubmit(async ({ name }) => {
+  const onSubmit = handleSubmit(async ({ name, topic }) => {
     if (!channel) return;
     try {
-      await update.mutateAsync({ channelId: channel.id, data: { name } });
+      await update.mutateAsync({
+        channelId: channel.id,
+        data: hasTopic ? { name, topic } : { name },
+      });
       await refreshGuilds(qc);
       onClose();
     } catch (e) {
@@ -208,7 +221,7 @@ export function RenameChannelDialog({
       <DialogContent flush size="sm">
         <DialogHead
           icon={Pencil}
-          title={`Renomear ${channel?.type === CHANNEL_CATEGORY ? "categoria" : "canal"}`}
+          title={channel?.type === CHANNEL_CATEGORY ? "Renomear categoria" : "Editar canal"}
         />
         <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
           <DialogBody>
@@ -222,6 +235,23 @@ export function RenameChannelDialog({
                 {...register("name")}
               />
             </Field>
+            {hasTopic ? (
+              <Field
+                id="channel-topic"
+                label="Tópico"
+                hint={`${topicLength}/1024 · aparece no cabeçalho do canal`}
+                error={errors.topic?.message}
+              >
+                <Textarea
+                  id="channel-topic"
+                  rows={3}
+                  placeholder="Sobre o que é este canal?"
+                  aria-invalid={!!errors.topic}
+                  aria-describedby={describedBy("channel-topic", errors.topic?.message)}
+                  {...register("topic")}
+                />
+              </Field>
+            ) : null}
           </DialogBody>
           <DialogActions>
             <Button type="button" variant="ghost" onClick={onClose}>

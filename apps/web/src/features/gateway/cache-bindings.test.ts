@@ -43,6 +43,10 @@ function msg(id: string, content = `msg ${id}`, author = "50"): MessagePayload {
     created_at: "2026-10-31T12:00:00Z",
     attachments: [],
     mention_ids: [],
+    kind: "default",
+    mention_everyone: false,
+    mention_here: false,
+    mention_roles: [],
     reply_to: null,
     pinned: false,
   };

@@ -101,7 +101,7 @@ export const useNotificationSettings = create<State & Actions>()((set, get) => {
       set({
         entries: Object.fromEntries(
           list
-            .filter((e) => e.muted || e.level)
+            .filter((e) => e.muted || e.level || e.suppress_everyone)
             .map((e) => [keyOf(e.scope, e.target_id), e] as const),
         ),
       });
@@ -111,7 +111,10 @@ export const useNotificationSettings = create<State & Actions>()((set, get) => {
       set((s) => {
         const { [keyOf(e.scope, e.target_id)]: _old, ...rest } = s.entries;
         return {
-          entries: e.muted || e.level ? { ...rest, [keyOf(e.scope, e.target_id)]: e } : rest,
+          entries:
+            e.muted || e.level || e.suppress_everyone
+              ? { ...rest, [keyOf(e.scope, e.target_id)]: e }
+              : rest,
         };
       });
       schedule();
@@ -154,13 +157,15 @@ function mutedUntil(choice: MuteChoice): string | undefined {
 export async function setMute(scope: Scope, id: string, choice: MuteChoice | null) {
   const cur = useNotificationSettings.getState().entries[keyOf(scope, id)];
   const level = cur?.level ?? undefined;
+  const suppress = cur?.suppress_everyone ?? false;
   const res =
-    choice === null && !level
+    choice === null && !level && !suppress
       ? await resetSetting(scope, id)
       : await putNotificationSetting(scope, id, {
           muted: choice !== null,
           muted_until: choice === null ? undefined : mutedUntil(choice),
           level,
+          suppress_everyone: suppress,
         });
   if (res) useNotificationSettings.getState().apply(res);
 }
@@ -169,13 +174,15 @@ export async function setMute(scope: Scope, id: string, choice: MuteChoice | nul
 export async function setLevel(scope: Scope, id: string, level: NotificationLevel | null) {
   const cur = useNotificationSettings.getState().entries[keyOf(scope, id)];
   const muted = isMutedEntry(cur);
+  const suppress = cur?.suppress_everyone ?? false;
   const res =
-    !muted && level === null
+    !muted && level === null && !suppress
       ? await resetSetting(scope, id)
       : await putNotificationSetting(scope, id, {
           muted,
           muted_until: muted ? (cur?.muted_until ?? undefined) : undefined,
           level: level ?? undefined,
+          suppress_everyone: suppress,
         });
   if (res) useNotificationSettings.getState().apply(res);
 }
@@ -189,7 +196,25 @@ export async function resetSetting(scope: Scope, id: string) {
     muted: false,
     muted_until: null,
     level: null,
+    suppress_everyone: false,
   };
   useNotificationSettings.getState().apply(empty);
   return empty;
+}
+
+/** "Suprimir @everyone e @here" do servidor: não soma menção nem avisa; menção a cargo e direta continuam. */
+export async function setSuppressEveryone(guildId: string, suppress: boolean) {
+  const cur = useNotificationSettings.getState().entries[keyOf("guild", guildId)];
+  const muted = isMutedEntry(cur);
+  const level = cur?.level ?? undefined;
+  const res =
+    !suppress && !muted && !level
+      ? await resetSetting("guild", guildId)
+      : await putNotificationSetting("guild", guildId, {
+          muted,
+          muted_until: muted ? (cur?.muted_until ?? undefined) : undefined,
+          level,
+          suppress_everyone: suppress,
+        });
+  if (res) useNotificationSettings.getState().apply(res);
 }

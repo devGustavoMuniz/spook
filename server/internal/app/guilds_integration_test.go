@@ -158,6 +158,7 @@ func (a *actor) giveRole(t *testing.T, guildID, userID, roleID string) {
 func bigLimits(d *Deps) {
 	d.APILimiter = ratelimit.New(100000, 100000)
 	d.MsgLimiter = ratelimit.New(100000, 100000)
+	d.EveryoneLimiter = ratelimit.New(100000, 100000)
 }
 
 // ---------- 401 ----------
@@ -213,7 +214,8 @@ func TestGuildLifecycle(t *testing.T) {
 		t.Fatalf("permissões na lista: %v", gs[0]["permissions"])
 	}
 
-	// não-membro: servidor inexistente (404) em tudo
+	// não-membro: servidor inexistente (404) em tudo (a confirmação de senha vem antes da checagem de acesso)
+	stranger.confirm(t, pw, 200)
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/guilds/" + g.id}, {"PATCH", "/api/guilds/" + g.id}, {"DELETE", "/api/guilds/" + g.id},
 		{"GET", "/api/guilds/" + g.id + "/members"}, {"GET", "/api/guilds/" + g.id + "/roles"},
@@ -274,6 +276,19 @@ func TestGuildLifecycle(t *testing.T) {
 
 	// dono não sai sem transferir; só o dono exclui e transfere
 	owner.call(t, "DELETE", "/api/guilds/"+g.id+"/members/@me", nil, 409)
+	// excluir e transferir exigem a senha confirmada há pouco (403 password_confirmation_required)
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{{"DELETE", "/api/guilds/" + g.id, nil}, {"POST", "/api/guilds/" + g.id + "/transfer", J{"user_id": member.id}}} {
+		resp, b := owner.do(t, c.method, c.path, c.body)
+		status(t, resp, b, 403)
+		if obj(t, b)["code"] != "password_confirmation_required" {
+			t.Fatalf("%s %s sem confirmação: %s", c.method, c.path, b)
+		}
+	}
+	owner.confirm(t, pw, 200)
+	member.confirm(t, pw, 200)
 	member.call(t, "DELETE", "/api/guilds/"+g.id, nil, 403)
 	member.call(t, "POST", "/api/guilds/"+g.id+"/transfer", J{"user_id": member.id}, 403)
 	owner.call(t, "POST", "/api/guilds/"+g.id+"/transfer", J{"user_id": stranger.id}, 422) // não é membro
@@ -286,6 +301,7 @@ func TestGuildLifecycle(t *testing.T) {
 	owner.call(t, "DELETE", "/api/guilds/"+g.id+"/members/@me", nil, 204)
 	owner.call(t, "GET", "/api/guilds/"+g.id, nil, 404)
 	// o novo dono exclui
+	member.confirm(t, pw, 200)
 	member.call(t, "DELETE", "/api/guilds/"+g.id, nil, 204)
 	member.call(t, "GET", "/api/guilds/"+g.id, nil, 404)
 }
@@ -329,6 +345,7 @@ func TestCreateGuildValidationAndLimit(t *testing.T) {
 	u.call(t, "POST", "/api/invites/"+other.invite(t, g.id), nil, 409)
 	// sair libera uma vaga
 	gs := arr(t, u.call(t, "GET", "/api/guilds", nil, 200))
+	u.confirm(t, pw, 200)
 	u.call(t, "DELETE", "/api/guilds/"+str(gs[0], "id"), nil, 204)
 	u.call(t, "POST", "/api/invites/"+other.invite(t, g.id), nil, 200)
 }
@@ -718,11 +735,11 @@ func TestMessages(t *testing.T) {
 		t.Fatalf("página 2: %v", p2)
 	}
 	all := obj(t, member.call(t, "GET", ch+"?limit=100", nil, 200))
-	if len(list(all, "messages")) != 9 || all["has_more"] != false {
+	if len(list(all, "messages")) != 10 || all["has_more"] != false {
 		t.Fatalf("tudo: %d has_more=%v", len(list(all, "messages")), all["has_more"])
 	}
 	def := obj(t, member.call(t, "GET", ch, nil, 200)) // padrão 50
-	if len(list(def, "messages")) != 9 {
+	if len(list(def, "messages")) != 10 {
 		t.Fatalf("padrão: %v", def)
 	}
 	member.call(t, "GET", ch+"?limit=0", nil, 422)
@@ -907,7 +924,7 @@ func TestOperationsPublishEvents(t *testing.T) {
 	// mensagens: tópico channel:<id>, com GuildID e ChannelID
 	ch := "/api/channels/" + g.textID + "/messages"
 	m := obj(t, member.call(t, "POST", ch, J{"content": "oi"}, 201))
-	ev = col.find(t, events.MessageCreate, nil)
+	ev = col.find(t, events.MessageCreate, func(ev events.Event) bool { return str(toJ(t, ev.Data), "id") == str(m, "id") })
 	if ev.Topics[0] != "channel:"+g.textID || fmt.Sprint(ev.ChannelID) != g.textID || fmt.Sprint(ev.GuildID) != g.id ||
 		str(toJ(t, ev.Data), "id") != str(m, "id") {
 		t.Fatalf("MESSAGE_CREATE: %+v", ev)
@@ -929,6 +946,7 @@ func TestOperationsPublishEvents(t *testing.T) {
 	col.find(t, events.GuildDelete, func(ev events.Event) bool { return ev.Topics[0] == "user:"+member.id })
 
 	// excluir o servidor
+	owner.confirm(t, pw, 200)
 	owner.call(t, "DELETE", "/api/guilds/"+g.id, nil, 204)
 	ev = col.find(t, events.GuildDelete, func(ev events.Event) bool { return ev.Topics[0] == gTopic })
 	if str(toJ(t, ev.Data), "id") != g.id {

@@ -117,6 +117,10 @@ export const JoinInviteResponse = zod.object({
           )
           .nullish()
           .describe("Participantes da DM (todos, inclusive você)"),
+        topic: zod
+          .string()
+          .nullable()
+          .describe("Tópico do canal de texto (até 1024 caracteres); null = sem tópico"),
         type: zod.int().describe("0 texto, 1 voz, 2 categoria, 3 DM, 4 DM em grupo"),
       }),
     )
@@ -138,6 +142,9 @@ export const JoinInviteResponse = zod.object({
         guild_id: zod.string(),
         id: zod.string(),
         is_everyone: zod.boolean(),
+        mentionable: zod
+          .boolean()
+          .describe("Qualquer pessoa com acesso ao canal pode mencionar o cargo (@NomeDoCargo)"),
         name: zod.string(),
         permissions: zod.int().describe("Bitflags (SPEC 7.2)"),
         position: zod.int().describe("Maior = mais alto na hierarquia; @everyone é 0"),
@@ -145,4 +152,9 @@ export const JoinInviteResponse = zod.object({
     )
     .nullable()
     .describe("Do mais alto para o mais baixo"),
+  system_channel_id: zod
+    .string()
+    .nullable()
+    .describe("Canal das mensagens de entrada; null = o primeiro canal de texto"),
+  system_join_enabled: zod.boolean().describe("Mensagens de boas-vindas ligadas"),
 });

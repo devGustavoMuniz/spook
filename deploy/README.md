@@ -344,6 +344,10 @@ Resposta JSON (ou vazia) = assinatura aceita. Depois, na tela de perfil, envie u
   ver as Pendências gerais), o aviso demora a aparecer; crie uma regra de cache "Bypass" para `/version.json`.
   Teste: `curl -s https://spook.dottadigital.com/version.json` deve devolver o sha do deploy atual.
 
+### 7.1 Limites de domínio (opcional)
+
+Variáveis do backend (Variables do GitHub / ambiente do compose), todas opcionais; os padrões são os do SPEC (7.1, 7.3 e `SPEC.md` 5.5, "menções, mensagem de sistema, tópico e limites"): `LIMIT_GUILDS_PER_USER` (100), `LIMIT_CHANNELS_PER_GUILD` (500), `LIMIT_MEMBERS_PER_GUILD` (10000), `LIMIT_ROLES_PER_GUILD` (250), `LIMIT_INVITES_PER_GUILD` (1000), `LIMIT_ATTACHMENT_MB` (25, até 100; confira também o limite do túnel/bucket) e `EVERYONE_PUSH_MAX` (200). Valor fora da faixa faz o backend recusar o boot (veja o log). Baixar um limite não remove o que já existe: só bloqueia novos.
+
 ## 8. Pendências conhecidas
 - **Observabilidade em produção** (RNF02): `SPOOK_OTLP_ENDPOINT` está vazio, ou seja, sem traces em prod. Plano e critério
   na Fase B do SPEC (Benchmarks e observabilidade): Grafana Cloud (plano gratuito) com só um coletor OpenTelemetry leve no VPS (e, então,

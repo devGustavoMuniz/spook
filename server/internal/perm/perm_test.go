@@ -46,7 +46,7 @@ func TestHasAndValid(t *testing.T) {
 	if (ViewChannel).Has(ViewChannel | SendMessages) {
 		t.Fatal("Has exige todos os bits")
 	}
-	if !All.Valid() || Perm(1<<19).Valid() || Perm(-1).Valid() {
+	if !All.Valid() || Perm(1<<20).Valid() || Perm(-1).Valid() {
 		t.Fatal("Valid incorreto")
 	}
 }
