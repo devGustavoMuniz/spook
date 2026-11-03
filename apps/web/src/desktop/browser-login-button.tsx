@@ -12,6 +12,7 @@ import {
   tauriPorts,
 } from "@/desktop/browser-login";
 import { persistSessionToken } from "@/desktop/token";
+import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 
 /**
@@ -19,6 +20,7 @@ import { messageFor } from "@/lib/errors";
  * do deep link pendente: ver `browser-login.ts`).
  */
 export function BrowserLoginButton() {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -54,7 +56,7 @@ export function BrowserLoginButton() {
       onClick={() => void start()}
     >
       <Globe aria-hidden />
-      Entrar pelo navegador
+      {t("auth.browserLogin")}
     </Button>
   );
 }

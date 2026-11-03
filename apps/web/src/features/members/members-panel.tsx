@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useStartDm } from "@/features/dms/use-start-dm";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { displayStatus, usePresenceStore } from "@/features/presence/store";
+import { formatNumber, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import {
@@ -50,6 +51,7 @@ type Flat =
   | { kind: "member"; key: string; member: MemberPayload; offline: boolean };
 
 export function MembersPanel({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const members = useGuildMembers(guild.id);
   const list = members.data?.members ?? [];
@@ -77,13 +79,18 @@ export function MembersPanel({ guild }: { guild: Guild }) {
   );
 
   return (
-    <SideSheet label="Membros" className="w-60 shrink-0 flex-col border-l bg-sidebar">
+    <SideSheet
+      label={t("people.members.title")}
+      className="w-60 shrink-0 flex-col border-l bg-sidebar"
+    >
       <h2 className="px-4 pt-4 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-        Membros{members.data ? ` — ${list.length}` : ""}
+        {members.data
+          ? t("people.members.titleCount", { count: formatNumber(list.length) })
+          : t("people.members.title")}
       </h2>
       {members.isPending ? (
-        <output className="flex flex-col gap-2 px-3 pt-3" aria-label="Carregando membros">
-          <span className="sr-only">Carregando…</span>
+        <output className="flex flex-col gap-2 px-3 pt-3" aria-label={t("people.members.loading")}>
+          <span className="sr-only">{t("people.members.loadingShort")}</span>
           {["a", "b", "c", "d", "e", "f", "g", "h"].map((k) => (
             <span key={k} className="flex items-center gap-3">
               <Skeleton className="size-8 rounded-full" />
@@ -96,14 +103,19 @@ export function MembersPanel({ guild }: { guild: Guild }) {
       ) : flat.length > VIRTUALIZE_FROM ? (
         <VirtualList guild={guild} flat={flat} meId={me?.id} />
       ) : (
-        <ul aria-label="Membros" className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+        <ul
+          aria-label={t("people.members.title")}
+          className="min-h-0 flex-1 overflow-y-auto px-2 pb-4"
+        >
           {flat.map((row) => (
             <FlatRow key={row.key} row={row} guild={guild} meId={me?.id} />
           ))}
         </ul>
       )}
       {members.data?.has_more ? (
-        <p className="px-4 pb-3 text-xs text-muted-foreground">Mostrando os primeiros membros.</p>
+        <p className="px-4 pb-3 text-xs text-muted-foreground">
+          {t("people.members.showingFirst")}
+        </p>
       ) : null}
     </SideSheet>
   );
@@ -111,6 +123,7 @@ export function MembersPanel({ guild }: { guild: Guild }) {
 
 function VirtualList({ guild, flat, meId }: { guild: Guild; flat: Flat[]; meId?: string }) {
   "use no memo";
+  const { t } = useT();
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({
     count: flat.length,
@@ -122,7 +135,7 @@ function VirtualList({ guild, flat, meId }: { guild: Guild; flat: Flat[]; meId?:
   return (
     <div ref={ref} className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
       <ul
-        aria-label="Membros"
+        aria-label={t("people.members.title")}
         style={{ height: v.getTotalSize(), position: "relative", width: "100%" }}
       >
         {v.getVirtualItems().map((item) => {
@@ -195,6 +208,7 @@ function GroupHeader({
   guild: Guild;
   virtual?: Virtual;
 }) {
+  const { t } = useT();
   const role = group.roleId ? rolesOf(guild).find((r) => r.id === group.roleId) : undefined;
   const color = role ? colorToHex(role.color) : undefined;
   return (
@@ -207,7 +221,7 @@ function GroupHeader({
             style={{ background: color }}
           />
         ) : null}
-        <span className="truncate">{group.title}</span>
+        <span className="truncate">{group.titleKey ? t(group.titleKey) : group.title}</span>
         <span className="tabular shrink-0 font-normal">— {group.members.length}</span>
       </h3>
     </li>
@@ -227,6 +241,7 @@ function MemberItem({
   meId?: string;
   virtual?: Virtual;
 }) {
+  const { t } = useT();
   const ui = useMemberUi();
   const { startDm } = useStartDm();
   const name = memberName(m);
@@ -243,9 +258,9 @@ function MemberItem({
   async function copyId() {
     try {
       await navigator.clipboard.writeText(m.user_id);
-      toast.success("ID de usuário copiado.");
+      toast.success(t("people.members.idCopied"));
     } catch {
-      toast.error("Não foi possível copiar.");
+      toast.error(t("people.members.copyFailed"));
     }
   }
 
@@ -264,7 +279,7 @@ function MemberItem({
             e.currentTarget,
           )
         }
-        aria-label={`Ver perfil de ${name}`}
+        aria-label={t("people.members.viewProfile", { name })}
         className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent aria-expanded:bg-accent"
       >
         <span className={offline ? "opacity-55" : undefined}>
@@ -287,7 +302,7 @@ function MemberItem({
               <Crown
                 className="size-3.5 shrink-0 text-warning-text"
                 role="img"
-                aria-label="Dono do servidor"
+                aria-label={t("people.members.serverOwner")}
               />
             ) : null}
           </span>
@@ -304,36 +319,36 @@ function MemberItem({
               variant="ghost"
               size="icon-sm"
               className="absolute top-1/2 right-1 size-7 -translate-y-1/2 opacity-0 group-focus-within/member:opacity-100 group-hover/member:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
-              aria-label={`Opções de ${name}`}
+              aria-label={t("people.members.optionsOf", { name })}
             >
               <MoreHorizontal />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={() => void startDm(m.user_id)}>
-              <UserRound /> Enviar mensagem
+              <UserRound /> {t("people.members.sendMessage")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void copyId()}>
-              <Copy /> Copiar ID de usuário
+              <Copy /> {t("people.members.copyUserId")}
             </DropdownMenuItem>
             {mayRoles ? (
               <DropdownMenuItem onSelect={() => ui?.openRoles(m)}>
-                <ShieldCheck /> Gerenciar cargos
+                <ShieldCheck /> {t("people.members.manageRoles")}
               </DropdownMenuItem>
             ) : null}
             {mayNick ? (
               <DropdownMenuItem onSelect={() => ui?.openNick(m, false)}>
-                <Pencil /> Mudar apelido
+                <Pencil /> {t("people.members.changeNickname")}
               </DropdownMenuItem>
             ) : null}
             {mayKick ? (
               <DropdownMenuItem destructive onSelect={() => ui?.openKick(m)}>
-                <UserMinus /> Expulsar
+                <UserMinus /> {t("people.members.kick")}
               </DropdownMenuItem>
             ) : null}
             {mayBan ? (
               <DropdownMenuItem destructive onSelect={() => ui?.openBan(m)}>
-                <Gavel /> Banir
+                <Gavel /> {t("people.members.ban")}
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>

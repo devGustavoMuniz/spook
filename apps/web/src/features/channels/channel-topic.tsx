@@ -8,12 +8,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useT } from "@/i18n";
 
 /**
  * Tópico do canal no cabeçalho: uma linha truncada (com dica ao passar o mouse); clicar (ou Enter) abre o texto
  * inteiro num diálogo, que é como se lê o tópico em telas pequenas (390 px) e quando ele é longo.
  */
 export function ChannelTopic({ name, topic }: { name: string; topic: string | null | undefined }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   if (!topic) return null;
   const oneLine = topic.replace(/\s+/g, " ");
@@ -25,7 +27,7 @@ export function ChannelTopic({ name, topic }: { name: string; topic: string | nu
           <button
             type="button"
             aria-haspopup="dialog"
-            aria-label={`Tópico do canal: ${oneLine}`}
+            aria-label={t("channels.topic.aria", { topic: oneLine })}
             data-testid="channel-topic"
             onClick={() => setOpen(true)}
             className="min-h-9 min-w-0 flex-1 truncate rounded-md px-2 text-left text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -34,7 +36,9 @@ export function ChannelTopic({ name, topic }: { name: string; topic: string | nu
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-xs">
-          {oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine} (clique para ler tudo)
+          {t("channels.topic.tip", {
+            text: oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine,
+          })}
         </TooltipContent>
       </Tooltip>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -44,7 +48,7 @@ export function ChannelTopic({ name, topic }: { name: string; topic: string | nu
               <Hash className="size-5 text-muted-foreground" aria-hidden />
               {name}
             </DialogTitle>
-            <DialogDescription>Tópico do canal</DialogDescription>
+            <DialogDescription>{t("channels.topic.heading")}</DialogDescription>
           </DialogHeader>
           <p className="max-h-[60vh] overflow-y-auto text-sm leading-6 break-words whitespace-pre-wrap">
             {topic}

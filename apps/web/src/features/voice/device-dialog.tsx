@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
+import { type MessageKey, t, useT } from "@/i18n";
 import {
   audioCapabilities,
   chooseAudioProcessing,
@@ -30,62 +31,44 @@ import type {
 import { MicTestSection } from "./mic-test-section";
 import { useAudioStatusStore, useVoiceStore } from "./store";
 
-const FIELDS: { kind: DeviceKind; label: string }[] = [
-  { kind: "audioinput", label: "Microfone" },
-  { kind: "audiooutput", label: "Alto-falante" },
-  { kind: "videoinput", label: "Câmera" },
+const FIELDS: { kind: DeviceKind; labelKey: MessageKey }[] = [
+  { kind: "audioinput", labelKey: "voice.devmenu.mic.title" },
+  { kind: "audiooutput", labelKey: "voice.devmenu.speaker.title" },
+  { kind: "videoinput", labelKey: "voice.devdlg.camera" },
 ];
 
 const AUDIO_SWITCHES: {
   key: "echoCancellation" | "autoGainControl";
-  label: string;
-  hint: string;
+  labelKey: MessageKey;
+  hintKey: MessageKey;
 }[] = [
-  {
-    key: "echoCancellation",
-    label: "Cancelamento de eco",
-    hint: "Evita que os outros ouçam você de volta. Fones de ouvido evitam o eco de vez.",
-  },
-  {
-    key: "autoGainControl",
-    label: "Ajuste automático de volume",
-    hint: "Mantém o volume da sua voz estável.",
-  },
+  { key: "echoCancellation", labelKey: "voice.audio.echo.label", hintKey: "voice.audio.echo.hint" },
+  { key: "autoGainControl", labelKey: "voice.audio.agc.label", hintKey: "voice.audio.agc.hint" },
 ];
 
-const NOISE_LEVELS: { value: NoiseSuppressionLevel; label: string; hint: string }[] = [
-  {
-    value: "off",
-    label: "Desligada",
-    hint: "Sua voz vai sem filtro. Melhor com microfone de estúdio.",
-  },
-  {
-    value: "standard",
-    label: "Padrão",
-    hint: "Filtro embutido do navegador. Leve e bom para a maioria.",
-  },
-  {
-    value: "strong",
-    label: "Forte (IA)",
-    hint: "Modelo de IA gratuito que remove teclado, ventilador e TV ao fundo. Usa mais processador.",
-  },
-];
+const NOISE_LEVELS: { value: NoiseSuppressionLevel; labelKey: MessageKey; hintKey: MessageKey }[] =
+  [
+    { value: "off", labelKey: "voice.noise.off.label", hintKey: "voice.noise.off.hint" },
+    {
+      value: "standard",
+      labelKey: "voice.noise.standard.label",
+      hintKey: "voice.noise.standard.hint",
+    },
+    { value: "strong", labelKey: "voice.noise.strong.label", hintKey: "voice.noise.strong.hint" },
+  ];
 
 /** O que está em efeito agora, em palavras simples (vai num `aria-live`). */
 export function noiseStatusText(
   chosen: NoiseSuppressionLevel,
   status: AudioProcessingStatus | null,
 ): string {
-  if (status?.state === "degraded")
-    return status.reason ?? "A IA foi desativada. Usando o filtro Padrão.";
-  if (chosen === "off") return "Desligada: sua voz não passa por nenhum filtro.";
-  if (chosen === "standard") return "Padrão do navegador: filtro leve em uso.";
-  if (status?.state === "loading") return "Carregando o modelo de IA (só na primeira vez)…";
+  if (status?.state === "degraded") return status.reason ?? t("voice.noise.status.degraded");
+  if (chosen === "off") return t("voice.noise.status.off");
+  if (chosen === "standard") return t("voice.noise.status.standard");
+  if (status?.state === "loading") return t("voice.noise.status.loading");
   if (status?.state === "active")
-    return status.load === "high"
-      ? "Processando com IA, mas o computador está no limite: o áudio pode falhar."
-      : "Processando com IA.";
-  return "A IA liga quando o microfone for aberto na chamada.";
+    return status.load === "high" ? t("voice.noise.status.high") : t("voice.noise.status.active");
+  return t("voice.noise.status.idle");
 }
 
 /** Seletor de microfone, alto-falante e câmera; a escolha fica no navegador e vale na chamada em curso. */
@@ -96,6 +79,7 @@ export function DeviceDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useT();
   const [devices, setDevices] = useState<Partial<Record<DeviceKind, DeviceInfo[]>>>({});
   const [chosen, setChosen] = useState(loadDevicePrefs);
   const [processing, setProcessing] = useState(loadAudioProcessing);
@@ -135,21 +119,17 @@ export function DeviceDialog({
       <DialogContent flush className="max-h-[min(40rem,92svh)]">
         <DialogHead
           icon={Headphones}
-          title="Dispositivos de áudio e vídeo"
-          description={
-            isTauri()
-              ? "A escolha fica salva neste computador e vale na chamada em curso."
-              : "A escolha fica salva neste navegador. Os nomes só aparecem depois que o navegador liberar o acesso ao microfone ou à câmera."
-          }
+          title={t("voice.devdlg.title")}
+          description={isTauri() ? t("voice.devdlg.descDesktop") : t("voice.devdlg.descWeb")}
         />
         <DialogBody>
-          {FIELDS.map(({ kind, label }) => {
+          {FIELDS.map(({ kind, labelKey }) => {
             const list = devices[kind] ?? [];
             const id = `device-${kind}`;
             return (
               <div key={kind} className="flex flex-col gap-1.5">
                 <label htmlFor={id} className="text-sm font-medium">
-                  {label}
+                  {t(labelKey)}
                 </label>
                 <select
                   id={id}
@@ -160,7 +140,7 @@ export function DeviceDialog({
                   }}
                   className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                 >
-                  <option value="">Padrão do sistema</option>
+                  <option value="">{t("voice.device.default")}</option>
                   {list.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.label}
@@ -176,11 +156,11 @@ export function DeviceDialog({
               className="flex flex-col gap-3 border-t pt-3"
             >
               <h3 id="mic-quality-title" className="text-sm font-medium">
-                Qualidade do microfone
+                {t("voice.devdlg.quality")}
               </h3>
               <fieldset className="flex flex-col gap-1.5">
-                <legend className="mb-1 text-sm">Redução de ruído</legend>
-                {NOISE_LEVELS.map(({ value, label, hint }) => {
+                <legend className="mb-1 text-sm">{t("voice.devdlg.noise")}</legend>
+                {NOISE_LEVELS.map(({ value, labelKey, hintKey }) => {
                   const id = `noise-${value}`;
                   const unavailable = value === "strong" && !caps.strongNoiseSuppression;
                   return (
@@ -202,13 +182,13 @@ export function DeviceDialog({
                       />
                       <span className="flex flex-col">
                         <span>
-                          {label}
+                          {t(labelKey)}
                           {unavailable && caps.strongUnavailableReason
-                            ? ` (${caps.strongUnavailableReason})`
+                            ? t("voice.noise.unavailable", { reason: caps.strongUnavailableReason })
                             : ""}
                         </span>
                         <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-                          {hint}
+                          {t(hintKey)}
                         </span>
                       </span>
                     </label>
@@ -218,13 +198,13 @@ export function DeviceDialog({
                   {noiseStatusText(processing.noiseSuppression, status)}
                 </p>
               </fieldset>
-              {AUDIO_SWITCHES.map(({ key, label, hint }) => {
+              {AUDIO_SWITCHES.map(({ key, labelKey, hintKey }) => {
                 const id = `audio-processing-${key}`;
                 return (
                   <div key={key} className="flex items-center justify-between gap-3">
                     <label htmlFor={id} className="flex flex-col text-sm">
-                      <span>{label}</span>
-                      <span className="text-xs text-muted-foreground">{hint}</span>
+                      <span>{t(labelKey)}</span>
+                      <span className="text-xs text-muted-foreground">{t(hintKey)}</span>
                     </label>
                     <Switch
                       id={id}
@@ -251,7 +231,7 @@ export function DeviceDialog({
         </DialogBody>
         <DialogActions>
           <DialogClose asChild>
-            <Button>Concluído</Button>
+            <Button>{t("voice.devdlg.done")}</Button>
           </DialogClose>
         </DialogActions>
       </DialogContent>

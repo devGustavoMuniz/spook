@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { formatMessageTime } from "@/lib/format";
 import { useJumpStore } from "./jump";
@@ -29,14 +30,15 @@ export function PinnedMessagesButton({
   /** MANAGE_MESSAGES no servidor; qualquer participante em DM. */
   canUnpin: boolean;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button
         variant="ghost"
         size="icon"
-        aria-label="Mensagens fixadas"
-        title="Mensagens fixadas"
+        aria-label={t("chat.pins.title")}
+        title={t("chat.pins.title")}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
@@ -45,8 +47,8 @@ export function PinnedMessagesButton({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="lg">
           <DialogHeader>
-            <DialogTitle>Mensagens fixadas</DialogTitle>
-            <DialogDescription>As mais recentes primeiro (até 50 por canal).</DialogDescription>
+            <DialogTitle>{t("chat.pins.title")}</DialogTitle>
+            <DialogDescription>{t("chat.pins.description")}</DialogDescription>
           </DialogHeader>
           <PinsList channelId={channelId} canUnpin={canUnpin} onClose={() => setOpen(false)} />
         </DialogContent>
@@ -64,6 +66,7 @@ function PinsList({
   canUnpin: boolean;
   onClose: () => void;
 }) {
+  const { t } = useT();
   // Montada só com o diálogo aberto: busca de novo a cada abertura (e o gateway a mantém em dia enquanto aberta).
   const pins = useListPinnedMessages(channelId, { query: { refetchOnMount: "always" } });
   const pin = usePinToggle(channelId);
@@ -72,7 +75,7 @@ function PinsList({
   if (pins.isPending) {
     return (
       <output className="flex flex-col gap-2">
-        <span className="sr-only">Carregando fixadas…</span>
+        <span className="sr-only">{t("chat.pins.loading")}</span>
         <Skeleton className="h-20 rounded-xl" />
         <Skeleton className="h-20 rounded-xl" />
       </output>
@@ -83,7 +86,7 @@ function PinsList({
       <div className="flex flex-col items-start gap-2 text-sm">
         <p className="text-destructive-text">{appMessage(pins.error)}</p>
         <Button variant="secondary" size="sm" onClick={() => void pins.refetch()}>
-          Tentar de novo
+          {t("chat.pins.retry")}
         </Button>
       </div>
     );
@@ -98,14 +101,14 @@ function PinsList({
             <Pin className="size-7" aria-hidden />
           </span>
         }
-        title="Nenhuma mensagem fixada neste canal"
-        description="Fixe as mensagens importantes para achá-las rápido."
+        title={t("chat.pins.emptyTitle")}
+        description={t("chat.pins.emptyDescription")}
       />
     );
   }
   return (
     <ul
-      aria-label="Mensagens fixadas"
+      aria-label={t("chat.pins.title")}
       className="flex max-h-[60svh] flex-col gap-2 overflow-y-auto"
     >
       {messages.map((m) => (
@@ -138,6 +141,7 @@ function PinItem({
   onGo: () => void;
   onUnpin: () => void;
 }) {
+  const { t } = useT();
   const name = m.author.display_name || m.author.username;
   const files = (m.attachments ?? []).length;
   return (
@@ -155,7 +159,7 @@ function PinItem({
       {files > 0 ? (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <Paperclip className="size-3" aria-hidden />
-          {files === 1 ? "1 anexo" : `${files} anexos`}
+          {t("chat.pins.attachments", { count: files })}
         </p>
       ) : null}
       <div className="flex gap-2">
@@ -163,9 +167,9 @@ function PinItem({
           size="sm"
           variant="secondary"
           onClick={onGo}
-          aria-label={`Ir para a mensagem de ${name}`}
+          aria-label={t("chat.pins.goToAria", { name })}
         >
-          Ir para a mensagem
+          {t("chat.pins.goTo")}
         </Button>
         {canUnpin ? (
           <Button
@@ -173,9 +177,9 @@ function PinItem({
             variant="ghost"
             disabled={busy}
             onClick={onUnpin}
-            aria-label={`Desafixar a mensagem de ${name}`}
+            aria-label={t("chat.pins.unpinAria", { name })}
           >
-            Desafixar
+            {t("chat.pins.unpin")}
           </Button>
         ) : null}
       </div>

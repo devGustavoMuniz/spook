@@ -1,3 +1,4 @@
+import type { MessageKey } from "@/i18n";
 // Último release do Spook desktop, lido da API pública do GitHub (sem login; CORS liberado). Os instaladores seguem o
 // nome `Spook-<versão>-<so>-<arquitetura>.<ext>` gerado pelo workflow Desktop; o resto dos assets (.sig, .sha256,
 // latest.json, bundles do updater) é ignorado aqui.
@@ -161,14 +162,21 @@ export async function loadLatestRelease(fetcher: typeof fetch = fetch): Promise<
 // ---- Escolha do instalador ----
 
 export const OS_LABEL: Record<Os, string> = { windows: "Windows", macos: "macOS", linux: "Linux" };
-export const KIND_LABEL: Record<InstallerKind, string> = {
-  exe: "Instalador (.exe)",
-  dmg: "Imagem de disco (.dmg)",
-  deb: "Pacote Debian/Ubuntu (.deb)",
-  AppImage: "AppImage (qualquer distro)",
-};
+/** Chaves do catálogo com o rótulo de cada tipo de instalador (traduza com `t`). */
+export const KIND_LABEL_KEY = {
+  exe: "shell.download.kind.exe",
+  dmg: "shell.download.kind.dmg",
+  deb: "shell.download.kind.deb",
+  AppImage: "shell.download.kind.AppImage",
+} as const satisfies Record<InstallerKind, MessageKey>;
 
-export type Target = { id: string; os: Os; arch: Arch; title: string; subtitle: string };
+export type Target = {
+  id: string;
+  os: Os;
+  arch: Arch;
+  titleKey: MessageKey;
+  subtitleKey: MessageKey;
+};
 
 /** Os quatro destinos que o workflow Desktop gera, na ordem de exibição. */
 export const TARGETS: readonly Target[] = [
@@ -176,29 +184,29 @@ export const TARGETS: readonly Target[] = [
     id: "windows-x64",
     os: "windows",
     arch: "x64",
-    title: "Windows",
-    subtitle: "Windows 10 ou mais novo, 64 bits",
+    titleKey: "shell.download.target.windows.title",
+    subtitleKey: "shell.download.target.windows.subtitle",
   },
   {
     id: "macos-arm64",
     os: "macos",
     arch: "arm64",
-    title: "macOS (Apple Silicon)",
-    subtitle: "Macs com chip M1 ou mais novo, macOS 12.3+",
+    titleKey: "shell.download.target.macosArm.title",
+    subtitleKey: "shell.download.target.macosArm.subtitle",
   },
   {
     id: "macos-x64",
     os: "macos",
     arch: "x64",
-    title: "macOS (Intel)",
-    subtitle: "Macs com processador Intel, macOS 12.3+",
+    titleKey: "shell.download.target.macosIntel.title",
+    subtitleKey: "shell.download.target.macosIntel.subtitle",
   },
   {
     id: "linux-x64",
     os: "linux",
     arch: "x64",
-    title: "Linux",
-    subtitle: "Ubuntu 24.04+, Debian 13+, Fedora 40+ (glibc 2.39+)",
+    titleKey: "shell.download.target.linux.title",
+    subtitleKey: "shell.download.target.linux.subtitle",
   },
 ];
 

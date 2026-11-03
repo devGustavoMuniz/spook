@@ -1,5 +1,6 @@
 // Escolha da engine por ambiente. Na web é `livekit-client`; no desktop (Fase 7) o app registra a
 // engine nativa em Rust antes de montar a interface, com `setVoiceEngineFactory(...)`.
+import { t } from "@/i18n";
 import type { VoiceEngine } from "./engine";
 import { createWebVoiceEngine } from "./web-engine";
 
@@ -16,7 +17,6 @@ export const isDesktopRuntime = () =>
 
 export function createVoiceEngine(): VoiceEngine {
   if (factory) return factory();
-  if (isDesktopRuntime())
-    throw new Error("Engine de voz nativa não registrada (setVoiceEngineFactory).");
+  if (isDesktopRuntime()) throw new Error(t("voice.engineMissing"));
   return createWebVoiceEngine();
 }

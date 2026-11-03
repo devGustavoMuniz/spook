@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { memberName } from "@/features/members/use-members";
+import { getLocale, useT } from "@/i18n";
 
 export type Person = { id: string; name: string; username: string; avatarUrl?: string };
 
@@ -35,7 +36,7 @@ export function useGuildPeople(exclude: ReadonlySet<string> = new Set()) {
           avatarUrl: m.avatar_url,
         });
       }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, getLocale()));
   }, [results.map((r) => r.dataUpdatedAt).join(","), me?.id, exclude]);
   return { people, pending };
 }
@@ -54,31 +55,32 @@ export function PeoplePicker({
   max: number;
   onToggle: (id: string) => void;
 }) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
-  const q = query.trim().toLocaleLowerCase("pt-BR");
+  const q = query.trim().toLocaleLowerCase(getLocale());
   const shown = q
     ? people.filter(
         (p) =>
-          p.name.toLocaleLowerCase("pt-BR").includes(q) || p.username.toLowerCase().includes(q),
+          p.name.toLocaleLowerCase(getLocale()).includes(q) || p.username.toLowerCase().includes(q),
       )
     : people;
   return (
     <div className="flex flex-col gap-2">
       <Input
         type="search"
-        aria-label="Buscar pessoas"
-        placeholder="Buscar pessoas"
+        aria-label={t("people.picker.search")}
+        placeholder={t("people.picker.search")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <ScrollArea className="max-h-60 rounded-lg border border-border bg-surface-1">
-        <ul aria-label="Pessoas" className="flex max-h-60 flex-col gap-0.5 p-1">
+        <ul aria-label={t("people.picker.people")} className="flex max-h-60 flex-col gap-0.5 p-1">
           {pending ? (
             <li>
               <output className="flex flex-col gap-1.5 p-1">
                 <Skeleton className="h-9 w-full" />
                 <Skeleton className="h-9 w-full" />
-                <span className="sr-only">Carregando pessoas…</span>
+                <span className="sr-only">{t("people.picker.loading")}</span>
               </output>
             </li>
           ) : shown.length === 0 ? (
@@ -89,8 +91,8 @@ export function PeoplePicker({
                 <SearchX aria-hidden className="size-6" />
               )}
               {people.length === 0
-                ? "Ninguém disponível: só dá para conversar com quem está em um servidor com você."
-                : "Ninguém encontrado."}
+                ? t("people.picker.noneAvailable")
+                : t("people.picker.noneFound")}
             </li>
           ) : null}
           {shown.map((p) => {
@@ -118,7 +120,7 @@ export function PeoplePicker({
         </ul>
       </ScrollArea>
       <p className="tabular text-xs text-muted-foreground" aria-live="polite">
-        {selected.size} de {max} selecionadas
+        {t("people.picker.selected", { count: selected.size, max })}
       </p>
     </div>
   );

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { loadViewStreamPreviews } from "./devices";
 import { useStreamPreview } from "./screen-preview";
@@ -49,6 +50,7 @@ export function StreamCard({
   children: React.ReactNode;
   className?: string;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const anchor = useRef<HTMLSpanElement>(null);
@@ -121,7 +123,7 @@ export function StreamCard({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? cardId : undefined}
-        aria-label={`Ver a transmissão de ${name}`}
+        aria-label={t("voice.stream.view", { name })}
         className="inline-flex shrink-0 rounded-sm p-0.5 text-primary outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
         onFocus={() => {
           if (skipFocusOpen.current) {
@@ -153,7 +155,7 @@ export function StreamCard({
           }
         }}
       >
-        <MonitorUp className="size-3.5" role="img" aria-label="Compartilhando a tela" />
+        <MonitorUp className="size-3.5" role="img" aria-label={t("voice.flags.sharingScreen")} />
       </button>
       {open && pos
         ? createPortal(
@@ -161,7 +163,7 @@ export function StreamCard({
               ref={card}
               id={cardId}
               role="dialog"
-              aria-label={`Transmissão de ${name}`}
+              aria-label={t("voice.stream.of", { name })}
               style={{ top: pos.top, left: pos.left, width: CARD_WIDTH }}
               className="fixed z-[var(--z-popover)] flex origin-left animate-pop-in flex-col gap-2 rounded-lg border border-border bg-popover p-2 text-popover-foreground shadow-lg"
               onMouseEnter={clear}
@@ -204,6 +206,7 @@ function StreamCardBody({
   watchRef: React.RefObject<HTMLButtonElement | null>;
   onWatched: () => void;
 }) {
+  const { t } = useT();
   // Lida na hora de abrir: a opção "Mostrar prévias das transmissões" vale para o próximo cartão.
   const [viewPreviews] = useState(loadViewStreamPreviews);
   const wantsImage = viewPreviews && state.screen_preview && state.channel_id !== null;
@@ -217,7 +220,7 @@ function StreamCardBody({
       ) : preview.status === "ready" ? (
         <img
           src={preview.url}
-          alt={`Prévia da tela de ${name}`}
+          alt={t("voice.stream.previewAlt", { name })}
           width={320}
           height={180}
           className="aspect-video w-full rounded-md bg-black object-contain"
@@ -228,9 +231,11 @@ function StreamCardBody({
         </div>
       )}
       <div className="flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-sm font-medium">Tela de {name}</p>
+        <p className="min-w-0 truncate text-sm font-medium">
+          {t("voice.stream.screenOf", { name })}
+        </p>
         <Badge variant="destructive" className="shrink-0">
-          Ao vivo
+          {t("voice.stream.live")}
         </Badge>
       </div>
       <ViewersBadge state={state} lookup={lookup} />
@@ -244,11 +249,12 @@ function StreamCardBody({
           onWatched();
         }}
       >
-        Assistir transmissão<span className="sr-only"> de {name}</span>
+        {t("voice.stream.watch")}
+        <span className="sr-only">{t("voice.stream.watchSr", { name })}</span>
       </Button>
       {watch.canConnect ? null : (
         <p id={reasonId} className="text-xs text-muted-foreground">
-          Você não tem permissão para entrar neste canal de voz.
+          {t("voice.stream.noConnect")}
         </p>
       )}
     </>

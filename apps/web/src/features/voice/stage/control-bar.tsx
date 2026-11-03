@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
   leaveCall,
@@ -104,7 +105,9 @@ function BarButton({
 }
 
 /** Barra flutuante do palco: microfone, câmera, tela, dispositivos e sair (botão vermelho). */
-export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: string }) {
+export function ControlBar({ leaveLabel }: { leaveLabel?: string }) {
+  const { t } = useT();
+  const leave = leaveLabel ?? t("voice.bar.leaveChannel");
   const s = useVoiceStore();
   const guilds = useListGuilds();
   const guild = s.guildId ? guilds.data?.find((g) => g.id === s.guildId) : null;
@@ -114,25 +117,23 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
   useStageHold(shareDialog || devices);
   const live = s.status === "connected";
   const micBlocked = !perms.speak;
-  const videoReason = perms.video
-    ? undefined
-    : "Você não tem permissão para usar vídeo neste canal.";
+  const videoReason = perms.video ? undefined : t("voice.noVideoPermission");
 
   return (
     <>
       <div
         role="toolbar"
-        aria-label="Controles do palco"
+        aria-label={t("voice.bar.toolbar")}
         className="flex items-center gap-1.5 rounded-full border border-border bg-card/85 p-1.5 shadow-lg backdrop-blur-md min-[420px]:gap-2 min-[420px]:p-2"
       >
         <DeviceMenu kind="audioinput">
           <BarButton
-            label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
+            label={s.selfMute ? t("voice.micUnmute") : t("voice.micMute")}
             shortcut="M"
             pressed={s.selfMute}
             tone="danger"
             disabled={micBlocked || !live}
-            reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
+            reason={micBlocked ? t("voice.noSpeakPermission") : undefined}
             onClick={() => void toggleMute()}
           >
             {s.selfMute ? <MicOff /> : <Mic />}
@@ -140,7 +141,7 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
         </DeviceMenu>
         <DeviceMenu kind="audiooutput">
           <BarButton
-            label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
+            label={s.selfDeaf ? t("voice.enableAudio") : t("voice.disableAudio")}
             pressed={s.selfDeaf}
             tone="danger"
             disabled={!live}
@@ -150,7 +151,7 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
           </BarButton>
         </DeviceMenu>
         <BarButton
-          label={s.camera ? "Desligar câmera" : "Ligar câmera"}
+          label={s.camera ? t("voice.cameraOff") : t("voice.cameraOn")}
           shortcut="V"
           pressed={s.camera}
           tone="brand"
@@ -161,7 +162,7 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
           {s.camera ? <Video /> : <VideoOff />}
         </BarButton>
         <BarButton
-          label={s.screen ? "Parar de compartilhar a tela" : "Compartilhar tela"}
+          label={s.screen ? t("voice.screenStop") : t("voice.screenShare")}
           pressed={s.screen}
           tone="brand"
           disabled={!perms.video || !live}
@@ -171,12 +172,12 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
           {s.screen ? <Monitor /> : <MonitorOff />}
         </BarButton>
         {s.screen && screenSourceSwapSupported() ? (
-          <BarButton label="Trocar janela/tela" onClick={() => void swapScreenSource()}>
+          <BarButton label={t("voice.bar.swapSource")} onClick={() => void swapScreenSource()}>
             <RefreshCw />
           </BarButton>
         ) : null}
         <LayoutMenu />
-        <BarButton label="Dispositivos" onClick={() => setDevices(true)}>
+        <BarButton label={t("voice.devices")} onClick={() => setDevices(true)}>
           <Settings />
         </BarButton>
         <span aria-hidden className="mx-0.5 h-6 w-px bg-border" />
@@ -186,13 +187,13 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
               variant="destructive"
               size="icon-lg"
               className="size-11 rounded-full sm:size-12"
-              aria-label={leaveLabel}
+              aria-label={leave}
               onClick={() => void leaveCall()}
             >
               <PhoneOff />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{leaveLabel}</TooltipContent>
+          <TooltipContent>{leave}</TooltipContent>
         </Tooltip>
       </div>
       <DeviceDialog open={devices} onOpenChange={setDevices} />
@@ -207,6 +208,7 @@ export function ControlBar({ leaveLabel = "Sair do canal" }: { leaveLabel?: stri
 
 /** Seletor de layout da chamada: grade, foco ou ocultar inativos (atalho L alterna). */
 function LayoutMenu() {
+  const { t } = useT();
   const layout = useCallLayoutStore((s) => s.layout);
   const set = useCallLayoutStore((s) => s.set);
   const [open, setOpen] = useState(false);
@@ -221,31 +223,31 @@ function LayoutMenu() {
               variant="secondary"
               size="icon-lg"
               className="size-9 rounded-full bg-secondary text-foreground min-[420px]:size-11 sm:size-12"
-              aria-label={`Layout da chamada: ${current?.label}`}
+              aria-label={t("voice.layout.aria", { layout: current ? t(current.labelKey) : "" })}
             >
               <LayoutGrid />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent className="flex items-center gap-2">
-          Layout: {current?.label}
+          {t("voice.layout.tooltip", { layout: current ? t(current.labelKey) : "" })}
           <Kbd className="border-background/30 bg-background/15 text-background">L</Kbd>
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent side="top" align="center" className="w-64">
-        <DropdownMenuLabel>Layout da chamada</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("voice.layout.label")}</DropdownMenuLabel>
         <DropdownMenuRadioGroup value={layout} onValueChange={(v) => set(v as typeof layout)}>
           {LAYOUTS.map((l) => (
             <DropdownMenuRadioItem key={l.id} value={l.id}>
               <span className="flex min-w-0 flex-col">
-                <span>{l.label}</span>
-                <span className="text-xs text-muted-foreground">{l.hint}</span>
+                <span>{t(l.labelKey)}</span>
+                <span className="text-xs text-muted-foreground">{t(l.hintKey)}</span>
               </span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuShortcut className="px-2 py-1.5 text-left">
-          Atalho: L alterna entre os layouts
+          {t("voice.layout.shortcut")}
         </DropdownMenuShortcut>
       </DropdownMenuContent>
     </DropdownMenu>

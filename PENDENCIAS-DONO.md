@@ -57,3 +57,9 @@
 - [ ] **Validar com LiveKit real** os espectadores (inclusive o desktop, que assina todas as telas), a reconciliação (derrubar o LiveKit por um minuto) e o histórico depois de algumas horas (`VALIDACAO-MANUAL.md`, RF28). O E2E de espectadores (`e2e/voice.spec.ts`) só roda com `E2E_VOICE=1` e LiveKit local.
 - [ ] (Decisões minhas, ajuste se quiser outras) padrões dos limites novos em `server/internal/app/ratelimits.go` (servidor 5 de rajada e 2/min, canal e cargo 30, convite 20, token de voz 10 de rajada e 30/min, perfil 10 e 20/min, fixar 15 e 30/min, avisar espectador 60 e 180/min); retenção de 35 dias; janelas do histórico (24 h em 5 min, 7 dias em 1 h, 30 dias em 1 dia).
 - [ ] **Uma única instância do backend:** o estado de voz, os espectadores e o `voice_reconcile` assumem um só processo (como a produção atual). Se um dia houver réplicas, esse estado precisa ir para um armazenamento compartilhado.
+
+## Idiomas pt-BR e inglês
+- [ ] **Compilar o Rust do desktop:** `apps/desktop/src-tauri/src/shell.rs` e `lib.rs` ganharam o comando `app_set_locale` (menu da bandeja e aviso em inglês); a máquina de desenvolvimento não tem `cargo`, então não foi compilado (o job Desktop do CI compila). Se falhar, o app segue em pt-BR na bandeja.
+- [ ] **Revisar o inglês** (`VALIDACAO-MANUAL.md`, "Idiomas pt-BR e inglês").
+- [ ] (Decisão minha, ajuste se quiser outra) idioma só no navegador (`localStorage`); para o push chegar em inglês seria preciso `users.locale` + tradução do corpo no backend.
+- [ ] (Limitação) `detail` de erro do servidor sem entrada em `lib/server-details.ts` aparece em pt-BR; ao criar mensagens novas no backend, acrescente a tabela. O painel `/admin` continua só em pt-BR.

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { MessageKey } from "@/i18n";
 import type { TileModel } from "./participant-tile";
 
 /**
@@ -9,10 +10,10 @@ import type { TileModel } from "./participant-tile";
  */
 export type CallLayout = "grid" | "focus" | "active";
 
-export const LAYOUTS: { id: CallLayout; label: string; hint: string }[] = [
-  { id: "grid", label: "Grade", hint: "Todos do mesmo tamanho" },
-  { id: "focus", label: "Foco", hint: "Um grande e os demais numa faixa" },
-  { id: "active", label: "Ocultar inativos", hint: "Esconde quem não fala nem tem vídeo" },
+export const LAYOUTS: { id: CallLayout; labelKey: MessageKey; hintKey: MessageKey }[] = [
+  { id: "grid", labelKey: "voice.layout.grid.label", hintKey: "voice.layout.grid.hint" },
+  { id: "focus", labelKey: "voice.layout.focus.label", hintKey: "voice.layout.focus.hint" },
+  { id: "active", labelKey: "voice.layout.active.label", hintKey: "voice.layout.active.hint" },
 ];
 
 const KEY = "spook:call-layout";

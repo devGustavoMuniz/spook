@@ -42,7 +42,7 @@ O critério de sucesso é técnico. Cada fase entrega uma funcionalidade usável
 - Moderação avançada (automod, logs de auditoria); o painel `/admin` (RF21) é só de leitura e não modera
 - Reações, threads, menções com autocomplete, embeds de links (responder com citação e fixar mensagens **entraram**, ver RF13 e RF14)
 - Permissões por canal (overwrites); só há permissões por cargo no servidor
-- Multi-idioma (i18n)
+- Idiomas além de pt-BR e inglês, tradução do painel `/admin`, do texto dos push (vem do servidor em pt-BR) e dos `detail` de erro do servidor sem tabela (o i18n de pt-BR/inglês da interface **entrou**, ver RF29)
 - 2FA (descartado pelo dono). O login social (Google e Discord) **entrou** como adicional, ver RF24
 
 ---
@@ -246,6 +246,14 @@ Seções 4 (4.6 e 4.13), 7 (7.2 e 7.4) e 3 (3.2/3.3 em parte) do `PLANO-ADICIONA
 - RF28.4 Admin, histórico persistido: amostra por minuto do LiveKit e do gateway (`livekit_samples`, retenção `LIVEKIT_SAMPLES_RETENTION_DAYS`, padrão 35); `GET /api/admin/livekit/history?range=24h|7d|30d` (até 300 pontos), `GET /api/admin/livekit/usage` (pico de saída 24 h, tráfego do mês, limite do plano `LIVEKIT_MONTHLY_TRAFFIC_GB`), `GET /api/admin/gateway/history` (24 h).
 - RF28.5 Admin, atividade e capacidade: `GET /api/admin/activity/heatmap` (mensagens por hora x dia da semana, 28 dias, UTC), `GET /api/admin/servers/top` (10 servidores por mensagens em 7 dias), disco do volume (`ADMIN_DISK_PATH`) e bytes de avatares/ícones/banners no S3 em `GET /api/admin/system`; web com `Heatmap`, `TimeSeriesChart`, `BarList` e medidores, "Coletando dados…" enquanto o histórico acumula.
 - Teste: `voice/watch_test.go`, `voice` (reconciliação com LiveKit falso e relógio falso), `voice/jobs_test.go`, `gateway/voice_test.go`, `admin/history_test.go`, `admin/jobs_test.go`, `platform/config`, `app/limits_test.go`, `app/voice_admin_history_integration_test.go`; Vitest `admin.test.tsx`, `screen-watch.test.ts`, `viewers.test.tsx`, `stream-card.test.tsx`; E2E de voz (`e2e/voice.spec.ts`, só com LiveKit).
+
+### RF29 — Idiomas pt-BR e inglês (adicional)
+Item 5.4 do `PLANO-ADICIONAIS-2.md`; sem migration. Decisões em 5.5 ("Adicional: internacionalização (pt-BR e inglês)").
+- RF29.1 Toda a interface web (e, por reuso, o desktop) existe em pt-BR e inglês: auth, shell, canais, chat, membros, perfil, configurações, diálogos, DMs/amigos, voz, palco, notificações, download, estados e erros, `aria-label`s, tooltips, placeholders, `document.title`, toasts, validação do Zod, datas/horas e plurais. O painel `/admin` fica só em pt-BR (ferramenta do dono).
+- RF29.2 Idioma inicial por `localStorage` -> `navigator.language` -> pt-BR; seletor em Configurações -> "Aparência e idioma" e no menu do usuário; troca ao vivo sem recarregar; `<html lang>` acompanha.
+- RF29.3 Erros do backend: traduzidos no cliente por `code` (quando existe) ou por tabela dos `detail` mais comuns (`lib/server-details.ts`); o restante aparece como veio do servidor (pt-BR).
+- RF29.4 Teste de paridade (falha se `en` não tiver as mesmas chaves, placeholders e formas de plural de pt-BR) e varredor que falha se houver literal pt-BR em JSX fora de `i18n/`.
+- Teste: `i18n/*.test.*` (interpolação, plural, fallback, troca ao vivo, `lang`, paridade, varredor), testes existentes (em pt-BR) e `e2e/i18n.spec.ts`.
 
 ## 4. Requisitos não funcionais
 
@@ -843,6 +851,17 @@ Decisões tomadas durante as fases, quando o SPEC deixava espaço. Cada item diz
 - **Web (admin).** Grupos "Atividade" (`Heatmap` e `BarList` dos servidores mais ativos) e "Histórico" (seletor 24 h / 7 dias / 30 dias; participantes, tráfego de saída, pessoas online e conexões) em `features/admin/history.tsx`; "Capacidade" ganhou o disco e o "Plano do LiveKit" (medidor do mês contra o limite, pico de saída em 24 h, tráfego de entrada); armazenamento mostra bytes por tipo. "Coletando dados…" enquanto há menos de 2 amostras; os avisos "dados virão do backend" e as notas obsoletas ("O Spook não tem...") saíram. Polling de 60 s (histórico) e 10 min (atividade).
 - **Fora de escopo/limitações.** Espectadores são o que os clientes declaram (um cliente modificado poderia mentir sobre si mesmo, mas só afeta a contagem da tela de quem ele realmente vê no canal); o desktop (Rust) assina todas as telas, então avisa todas. O E2E de voz com mídia real precisa de LiveKit local (ver `apps/web/README.md`).
 
+**Adicional: internacionalização (pt-BR e inglês)** (web + desktop; `PLANO-ADICIONAIS-2.md` item 5.4; sem migration)
+- **Módulo próprio, sem biblioteca** (`apps/web/src/i18n/`): `core.ts` (store externo do idioma, `t(key, params)`, `useT()`), `format.ts` (`Intl`/date-fns por idioma), `provider.tsx` (`<html lang>`), catálogos planos tipados em `messages/{pt-BR,en}/<arquivo>.ts` (`common`, `format`, `auth`, `shell`, `chat`, `people`, `guilds`, `voice`, `settings`, `system`; 1660 chaves por idioma). pt-BR é o idioma-fonte e `MessageKey` deriva dele (chave inexistente não compila). Interpolação `{nome}`, plural por `Intl.PluralRules` (`{ one, other }`, `zero` opcional), fallback em runtime para pt-BR e depois para a própria chave. `useT()` devolve um `t` de identidade distinta por idioma (o React Compiler memoiza por dependências).
+- **Idioma só no navegador.** Persistência em `localStorage` (`spook-locale`), sem coluna `users.locale`, sem migration e sem mudar o contrato: é mais simples e cobre web e desktop (o webview do Tauri tem o próprio `localStorage`). Custo: o idioma não acompanha a conta entre dispositivos e o backend não conhece o idioma (por isso o corpo do push segue em pt-BR). Reavaliar se o dono quiser push traduzido.
+- **Admin só em pt-BR** (`pages/admin`, `features/admin`, `components/charts`) e a vitrine `pages/dev`: ferramenta do dono, fora da varredura de literais. As datas do admin acompanham o idioma porque usam `lib/format.ts`.
+- **Erros do servidor:** `code` estável só existe para `banned` (e os de senha/e-mail tratados nas telas); para o resto, `lib/server-details.ts` mapeia (~100) `detail` pt-BR exatos para chaves e `translateDetail()` os traduz quando o idioma é inglês; sem entrada na tabela o texto vem como o servidor mandou (pt-BR). Mudança de texto no backend sem atualizar a tabela cai nesse fallback.
+- **Zod** usa mensagens preguiçosas (`{ error: () => t(...) }`); mensagens já exibidas só trocam na próxima validação.
+- **Datas:** padrões em chaves `format.pattern.*` (en: 12 h, `MM/dd/yyyy`); "Hoje/Ontem às", relativos e plurais por chave.
+- **Notificações e desktop:** textos montados no cliente usam `t`; o corpo do push vem do servidor (pt-BR). O `sw.js` só tem o título "Spook". Tauri: comando `app_set_locale` traduz o menu da bandeja e o aviso "continua rodando na bandeja" (Rust não compilado aqui, sem `cargo` na máquina; ver `PENDENCIAS-DONO.md`).
+- **Glossário** em `apps/web/README.md` ("Internacionalização"). Qualidade do inglês a revisar pelo dono (`VALIDACAO-MANUAL.md`).
+- **Testes.** Vitest: `i18n.test.tsx`, `catalog-parity.test.ts`, `no-literal-pt.test.ts` (exceções justificadas no próprio arquivo), testes existentes em pt-BR (idioma padrão dos testes definido em `test-setup.ts`); E2E `i18n.spec.ts` (trocar para inglês, shell/diálogo em inglês, recarregar, login em inglês, voltar). Capturas em `docs/design/depois/en-*.png`; sem rolagem horizontal em 390 px nas telas capturadas.
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
@@ -1234,6 +1253,10 @@ Todas aditivas (`server/db/migrations`; o rollback de imagem não desfaz migrati
 
 Variáveis: `LIMIT_GUILDS_PER_USER`, `LIMIT_CHANNELS_PER_GUILD`, `LIMIT_MEMBERS_PER_GUILD`, `LIMIT_ROLES_PER_GUILD`, `LIMIT_INVITES_PER_GUILD`, `LIMIT_ATTACHMENT_MB`, `EVERYONE_PUSH_MAX` (padrões em 5.5). Documentadas em `.env.example` e `deploy/README.md`.
 
+### 7.15 Idioma (adicional)
+
+O idioma da interface é preferência local (não existe no modelo de dados da seção 6): `localStorage` -> `navigator.language` -> pt-BR. Textos que o servidor gera (`detail`, corpo do push, e-mails) continuam em pt-BR.
+
 ### 7.14 Rate limits nomeados por ação e espectadores (adicional)
 
 Todo limitador tem um nome estável (a métrica `spook.ratelimit.blocked{name}` e `RATELIMIT_<NOME>_PER_MIN` usam o mesmo). Estourar = **429** com `Retry-After` (nunca 503). "Chave" é o que separa os contadores. `RATELIMIT_<NOME>_PER_MIN`: nome em maiúsculas com `.` virando `_`; troca a taxa sustentada e limita a rajada a ela. Os de IP não aceitam troca (exceto `auth.ip` por `SPOOK_AUTH_RATE_PER_MIN`).
@@ -1395,6 +1418,7 @@ Cada item abaixo é aceito pelos critérios do RF correspondente (seção 3) e p
 
 - [x] Responder com citação, `mention_reply` e ↑ para editar (RF13).
 - [x] Fixar e desafixar mensagens, limite de 50 e painel (RF14).
+- [x] Interface em pt-BR e inglês, seletor em "Aparência e idioma", troca ao vivo, testes de paridade e varredor (RF29; revisão do inglês em `VALIDACAO-MANUAL.md`).
 - [x] Não perturbar, Invisível e status personalizado com expiração (RF15).
 - [x] Silenciar e níveis de notificação com herança, sem perder a contagem de não lidas (RF16).
 - [ ] Qualidade da voz nos três níveis de ruído, porta, teste de microfone e volume (inclusive 200% no desktop) em máquinas reais (RF17; lógica coberta por testes, áudio real só manual).

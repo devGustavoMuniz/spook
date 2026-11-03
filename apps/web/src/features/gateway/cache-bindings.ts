@@ -11,6 +11,7 @@ import type {
   VoiceStatePayload,
 } from "@spook/shared";
 import type { QueryClient } from "@tanstack/react-query";
+import { t } from "@/i18n";
 import { bumpDM, findDm, removeDM, setDMs, upsertDM } from "@/lib/dm-cache";
 import {
   appendGuild,
@@ -260,11 +261,13 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
 /** Chamada recebida com a aba oculta: aviso do navegador/SO (o cartão da chamada só aparece à vista). */
 function notifyCall(fx: GatewayEffects, call: CallPayload) {
   if (typeof document === "undefined" || document.visibilityState !== "hidden") return;
-  const who = call.caller?.display_name || call.caller?.username || "Alguém";
+  const who = call.caller?.display_name || call.caller?.username || t("settings.typing.someone");
   fx.notify({
     channelId: `call-${call.channel_id}`,
     title: call.group && call.channel_name ? call.channel_name : who,
-    body: call.group ? `${who} está ligando` : "Chamada de voz recebida",
+    body: call.group
+      ? t("settings.notify.groupCalling", { name: who })
+      : t("settings.notify.voiceCall"),
     url: channelUrl(undefined, call.channel_id),
     mention: false,
   });
@@ -330,7 +333,13 @@ function onIncomingMessage(qc: QueryClient, fx: GatewayEffects, m: MessagePayloa
   const channelName = guild?.channels?.find((c) => c.id === m.channel_id)?.name;
   fx.notify({
     channelId: m.channel_id,
-    title: guild ? `${author} (#${channelName} · ${guild.name})` : author,
+    title: guild
+      ? t("settings.notify.guildTitle", {
+          author,
+          channel: channelName ?? "",
+          guild: guild.name,
+        })
+      : author,
     body: previewBody(m),
     url: channelUrl(guild?.id, m.channel_id),
     mention: !dm,

@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useGuild } from "@/features/guilds/use-guild";
 import { useGuildMembers } from "@/features/members/use-members";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { can, canModerate } from "@/lib/guild";
 import { queryKeys } from "@/lib/queryKeys";
@@ -41,6 +42,7 @@ export function useVoiceModeration(state: VoiceStatePayload) {
 
 /** Itens de menu "Mutar/Liberar o microfone" e "Desconectar" para quem tem permissão (nada, caso contrário). */
 export function VoiceModerationItems({ state, name }: { state: VoiceStatePayload; name: string }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const mod = useVoiceModeration(state);
   const mute = useMuteGuildMemberVoice();
@@ -55,7 +57,9 @@ export function VoiceModerationItems({ state, name }: { state: VoiceStatePayload
       if (muted) await unmute.mutateAsync(vars);
       else await mute.mutateAsync(vars);
       await qc.invalidateQueries({ queryKey: queryKeys.members(mod.guildId) });
-      toast.success(muted ? `${name} pode falar de novo.` : `${name} foi mutado pelo servidor.`);
+      toast.success(
+        muted ? t("voice.mod.allowedAgain", { name }) : t("voice.mod.serverMuted", { name }),
+      );
     } catch (e) {
       toast.error(appMessage(e));
     }
@@ -64,7 +68,7 @@ export function VoiceModerationItems({ state, name }: { state: VoiceStatePayload
     if (!state.channel_id) return;
     try {
       await disconnect.mutateAsync({ channelId: state.channel_id, userId: state.user_id });
-      toast.success(`${name} foi desconectado da chamada.`);
+      toast.success(t("voice.mod.disconnected", { name }));
     } catch (e) {
       toast.error(appMessage(e));
     }
@@ -74,12 +78,12 @@ export function VoiceModerationItems({ state, name }: { state: VoiceStatePayload
       {mod.canMute ? (
         <DropdownMenuItem onSelect={() => void toggleMute()}>
           {muted ? <ShieldOff /> : <MicOff />}
-          {muted ? "Liberar o microfone" : "Mutar pelo servidor"}
+          {muted ? t("voice.mod.unmute") : t("voice.mod.mute")}
         </DropdownMenuItem>
       ) : null}
       {mod.canDisconnect ? (
         <DropdownMenuItem destructive onSelect={() => void kickFromCall()}>
-          <PhoneOff /> Desconectar da chamada
+          <PhoneOff /> {t("voice.mod.disconnect")}
         </DropdownMenuItem>
       ) : null}
     </>

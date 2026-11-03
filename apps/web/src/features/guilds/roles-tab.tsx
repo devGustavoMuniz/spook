@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { type MessageKey, type TFunction, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex, hexToColor } from "@/lib/colors";
 import { canManageRole, type Guild, myTopPosition, rolesOf } from "@/lib/guild";
@@ -32,25 +33,26 @@ import { useReportDirty } from "./dirty";
 import { flagOf, PERMISSION_GROUPS } from "./permission-labels";
 
 /** Amostras de cor de cargo (o servidor guarda qualquer RGB; estas são só atalhos com nome). */
-const SWATCHES = [
-  { hex: "#7c5cc4", name: "Roxo" },
-  { hex: "#3b82f6", name: "Azul" },
-  { hex: "#14b8a6", name: "Turquesa" },
-  { hex: "#22c55e", name: "Verde" },
-  { hex: "#eab308", name: "Amarelo" },
-  { hex: "#f97316", name: "Laranja" },
-  { hex: "#ef4444", name: "Vermelho" },
-  { hex: "#ec4899", name: "Rosa" },
-  { hex: "#99aab5", name: "Cinza" },
+const SWATCHES: { hex: string; nameKey: MessageKey }[] = [
+  { hex: "#7c5cc4", nameKey: "guilds.roles.swatch.purple" },
+  { hex: "#3b82f6", nameKey: "guilds.roles.swatch.blue" },
+  { hex: "#14b8a6", nameKey: "guilds.roles.swatch.teal" },
+  { hex: "#22c55e", nameKey: "guilds.roles.swatch.green" },
+  { hex: "#eab308", nameKey: "guilds.roles.swatch.yellow" },
+  { hex: "#f97316", nameKey: "guilds.roles.swatch.orange" },
+  { hex: "#ef4444", nameKey: "guilds.roles.swatch.red" },
+  { hex: "#ec4899", nameKey: "guilds.roles.swatch.pink" },
+  { hex: "#99aab5", nameKey: "guilds.roles.swatch.gray" },
 ];
 
-const colorName = (hex: string | null) =>
+const colorName = (hex: string | null, t: TFunction) =>
   hex === null
-    ? "Sem cor"
-    : (SWATCHES.find((s) => s.hex === hex.toLowerCase())?.name ?? "Personalizada");
+    ? t("guilds.roles.color.none")
+    : t(SWATCHES.find((s) => s.hex === hex.toLowerCase())?.nameKey ?? "guilds.roles.color.custom");
 
 /** Cargos: lista + detalhe lado a lado no desktop; lista → detalhe (com "voltar") no celular. */
 export function RolesTab({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const create = useCreateGuildRole();
   const roles = rolesOf(guild);
@@ -62,7 +64,10 @@ export function RolesTab({ guild }: { guild: Guild }) {
 
   async function createRole() {
     try {
-      const role = await create.mutateAsync({ guildId: guild.id, data: { name: "Novo cargo" } });
+      const role = await create.mutateAsync({
+        guildId: guild.id,
+        data: { name: t("guilds.roles.defaultName") },
+      });
       await refreshGuilds(qc);
       setSelectedId(role.id);
       setDetail(true);
@@ -94,14 +99,12 @@ export function RolesTab({ guild }: { guild: Guild }) {
             onClick={() => void createRole()}
             loading={create.isPending}
           >
-            <Plus /> Criar cargo
+            <Plus /> {t("guilds.roles.createRole")}
           </Button>
-          <p className="text-xs text-pretty text-muted-foreground">
-            Do mais alto ao mais baixo. Você só gerencia cargos abaixo do seu.
-          </p>
+          <p className="text-xs text-pretty text-muted-foreground">{t("guilds.roles.listHint")}</p>
         </div>
         <ScrollArea className="min-h-0 flex-1">
-          <ul aria-label="Cargos" className="flex flex-col gap-0.5 px-2 pb-3">
+          <ul aria-label={t("guilds.roles.listAria")} className="flex flex-col gap-0.5 px-2 pb-3">
             {roles.map((r) => {
               const editable = canManageRole(guild, r);
               const active = selected?.id === r.id;
@@ -126,7 +129,7 @@ export function RolesTab({ guild }: { guild: Guild }) {
                     {!editable ? (
                       <>
                         <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                        <span className="sr-only">Acima do seu cargo, somente leitura</span>
+                        <span className="sr-only">{t("guilds.roles.readOnlySr")}</span>
                       </>
                     ) : null}
                     <span className="tabular text-2xs text-muted-foreground">{r.position}</span>
@@ -158,12 +161,10 @@ export function RolesTab({ guild }: { guild: Guild }) {
       </div>
       <AlertDialog open={switchTo !== null} onOpenChange={(o) => !o && setSwitchTo(null)}>
         <AlertDialogContent>
-          <AlertDialogTitle>Descartar alterações do cargo?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Você mudou este cargo e ainda não salvou. Ao trocar de cargo, as alterações se perdem.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{t("guilds.roles.discardTitle")}</AlertDialogTitle>
+          <AlertDialogDescription>{t("guilds.roles.discardBody")}</AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogCancel>{t("guilds.common.keepEditing")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (switchTo) {
@@ -174,7 +175,7 @@ export function RolesTab({ guild }: { guild: Guild }) {
                 setSwitchTo(null);
               }}
             >
-              Descartar
+              {t("guilds.common.discard")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -199,6 +200,7 @@ function RoleEditor({
   onDirty: (dirty: boolean) => void;
   onDeleted: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const update = useUpdateGuildRole();
   const del = useDeleteGuildRole();
@@ -225,7 +227,7 @@ function RoleEditor({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!role.is_everyone && name.trim() === "") {
-      setNameError("Dê um nome ao cargo.");
+      setNameError(t("guilds.roles.nameRequired"));
       return;
     }
     setNameError(undefined);
@@ -244,7 +246,7 @@ function RoleEditor({
             },
       });
       await refreshGuilds(qc);
-      toast.success("Cargo salvo.");
+      toast.success(t("guilds.roles.saved"));
     } catch (err) {
       toast.error(appMessage(err));
     }
@@ -272,14 +274,14 @@ function RoleEditor({
       onSubmit={save}
       noValidate
       className="flex min-h-0 flex-1 flex-col"
-      aria-label={`Editar cargo ${role.name}`}
+      aria-label={t("guilds.roles.editAria", { name: role.name })}
     >
       <button
         type="button"
         onClick={onBack}
         className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-4 text-sm font-medium text-brand-text md:hidden"
       >
-        <ChevronLeft className="size-4" aria-hidden /> Todos os cargos
+        <ChevronLeft className="size-4" aria-hidden /> {t("guilds.roles.backAll")}
       </button>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-6 px-5 py-4 md:px-6">
@@ -289,14 +291,14 @@ function RoleEditor({
               className="flex items-start gap-2 rounded-lg border border-border bg-muted p-3 text-sm text-pretty text-muted-foreground"
             >
               <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
-              Este cargo está acima do seu na hierarquia. Você pode ver, mas não alterar.
+              {t("guilds.roles.aboveNote")}
             </p>
           ) : null}
           {!role.is_everyone ? (
-            <section aria-label="Aparência do cargo" className="flex flex-col gap-4">
+            <section aria-label={t("guilds.roles.appearance")} className="flex flex-col gap-4">
               <div className="grid gap-4 sm:grid-cols-[1fr_6rem]">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="role-name">Nome do cargo</Label>
+                  <Label htmlFor="role-name">{t("guilds.roles.name")}</Label>
                   <Input
                     id="role-name"
                     value={name}
@@ -313,7 +315,7 @@ function RoleEditor({
                   ) : null}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="role-position">Posição</Label>
+                  <Label htmlFor="role-position">{t("guilds.roles.position")}</Label>
                   <Input
                     id="role-position"
                     type="number"
@@ -328,12 +330,11 @@ function RoleEditor({
               <ColorPicker color={color} onChange={setColor} disabled={!editable} />
               <div className="flex min-h-14 items-center gap-3 rounded-lg border border-border px-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <Label htmlFor="role-mentionable">
-                    Permitir que qualquer pessoa mencione este cargo
-                  </Label>
+                  <Label htmlFor="role-mentionable">{t("guilds.roles.mentionable")}</Label>
                   <p className="text-xs text-pretty text-muted-foreground">
-                    Com isso ligado, quem escrever @{name.trim() || "cargo"} notifica os membros do
-                    cargo. Sem ele, só quem pode mencionar @everyone consegue.
+                    {t("guilds.roles.mentionableHint", {
+                      name: name.trim() || t("guilds.roles.mentionFallback"),
+                    })}
                   </p>
                 </div>
                 <Switch
@@ -346,14 +347,16 @@ function RoleEditor({
             </section>
           ) : (
             <p className="text-sm text-pretty text-muted-foreground">
-              @everyone vale para todos os membros; só as permissões podem mudar.
+              {t("guilds.roles.everyoneNote")}
             </p>
           )}
           <fieldset className="flex flex-col gap-5" disabled={!editable}>
-            <legend className="mb-3 text-sm font-semibold">Permissões</legend>
+            <legend className="mb-3 text-sm font-semibold">{t("guilds.roles.permissions")}</legend>
             {PERMISSION_GROUPS.map((group) => (
-              <section key={group.id} aria-label={group.title} className="flex flex-col">
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">{group.title}</h3>
+              <section key={group.id} aria-label={t(group.titleKey)} className="flex flex-col">
+                <h3 className="mb-1 text-xs font-medium text-muted-foreground">
+                  {t(group.titleKey)}
+                </h3>
                 <div className="flex flex-col divide-y divide-border/70 rounded-lg border border-border">
                   {group.items.map((p) => {
                     const flag = flagOf(p.name);
@@ -377,10 +380,10 @@ function RoleEditor({
                             )}
                           >
                             {admin ? <ShieldAlert className="size-3.5" aria-hidden /> : null}
-                            {p.label}
+                            {t(p.labelKey)}
                           </Label>
                           <p className="text-xs text-pretty text-muted-foreground">
-                            {p.description}
+                            {t(p.descKey)}
                           </p>
                         </div>
                         <Switch
@@ -407,7 +410,7 @@ function RoleEditor({
             disabled={!editable}
             onClick={() => setConfirmDelete(true)}
           >
-            <Trash2 /> Excluir cargo
+            <Trash2 /> {t("guilds.roles.delete")}
           </Button>
         ) : null}
         <span
@@ -417,7 +420,7 @@ function RoleEditor({
             !dirty && "invisible",
           )}
         >
-          Alterações não salvas
+          {t("guilds.roles.unsaved")}
         </span>
         <Button
           type="submit"
@@ -425,18 +428,18 @@ function RoleEditor({
           disabled={!editable || !dirty}
           loading={update.isPending}
         >
-          Salvar cargo
+          {t("guilds.roles.save")}
         </Button>
       </div>
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
-          <AlertDialogTitle>Excluir o cargo “{role.name}”?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Quem tem esse cargo perde as permissões dele.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{t("guilds.roles.deleteTitle", { name: role.name })}</AlertDialogTitle>
+          <AlertDialogDescription>{t("guilds.roles.deleteBody")}</AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void remove()}>Excluir</AlertDialogAction>
+            <AlertDialogCancel>{t("guilds.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void remove()}>
+              {t("guilds.common.delete")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -453,17 +456,18 @@ function ColorPicker({
   onChange: (c: string | null) => void;
   disabled: boolean;
 }) {
+  const { t } = useT();
   return (
     <fieldset className="flex min-w-0 flex-col gap-2">
       <legend className="mb-2 flex w-full items-center justify-between gap-2">
-        <span className="text-sm leading-none font-medium">Cor do cargo</span>
+        <span className="text-sm leading-none font-medium">{t("guilds.roles.colorLabel")}</span>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             aria-hidden
             className="size-3 rounded-full border border-border"
             style={{ background: color ?? "transparent" }}
           />
-          {colorName(color)}
+          {colorName(color, t)}
           {color ? <span className="tabular uppercase">{color}</span> : null}
         </span>
       </legend>
@@ -475,7 +479,7 @@ function ColorPicker({
               key={s.hex}
               type="button"
               disabled={disabled}
-              aria-label={`Cor ${s.name}`}
+              aria-label={t("guilds.roles.colorAria", { name: t(s.nameKey) })}
               aria-pressed={on}
               onClick={() => onChange(s.hex)}
               style={{ background: s.hex }}
@@ -488,7 +492,7 @@ function ColorPicker({
         })}
         <label className="relative flex size-8 items-center justify-center overflow-hidden rounded-full border border-dashed border-input text-muted-foreground hover:border-brand-400 hover:text-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
           <Plus aria-hidden className="size-4" />
-          <span className="sr-only">Cor personalizada</span>
+          <span className="sr-only">{t("guilds.roles.colorCustom")}</span>
           <input
             type="color"
             value={color ?? "#99aab5"}
@@ -504,7 +508,7 @@ function ColorPicker({
           disabled={disabled || color === null}
           onClick={() => onChange(null)}
         >
-          Sem cor
+          {t("guilds.roles.color.none")}
         </Button>
       </div>
     </fieldset>

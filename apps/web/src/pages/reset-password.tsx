@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { type ResetForm, resetSchema } from "@/lib/schemas";
 
@@ -28,6 +29,7 @@ type Phase = "form" | "done" | "expired" | "invalid";
  * (não fica no histórico nem vai em `Referer`); depois só trafega no corpo do POST.
  */
 export function ResetPasswordPage() {
+  const { t } = useT();
   const { token: urlToken } = useSearch({ strict: false }) as { token?: string };
   const navigate = useNavigate();
   const token = useRef(urlToken);
@@ -59,7 +61,7 @@ export function ResetPasswordPage() {
       if (isApiError(e) && e.status === 410)
         setPhase(e.code === "token_expired" ? "expired" : "invalid");
       else if (isApiError(e) && e.status === 422)
-        setError("new_password", { message: "A senha precisa ter de 8 a 128 caracteres." });
+        setError("new_password", { message: t("auth.reset.passwordRange") });
       else setError("root", { message: messageFor(e) });
     }
   });
@@ -69,11 +71,11 @@ export function ResetPasswordPage() {
       <StatusCard
         icon={CircleCheck}
         tone="success"
-        title="Senha redefinida"
-        description="Sua senha foi alterada e todos os dispositivos foram desconectados. Entre com a senha nova."
+        title={t("auth.reset.doneTitle")}
+        description={t("auth.reset.doneBody")}
         actions={
           <Button asChild size="lg">
-            <Link to="/login">Entrar</Link>
+            <Link to="/login">{t("auth.signIn")}</Link>
           </Button>
         }
       />
@@ -83,15 +85,13 @@ export function ResetPasswordPage() {
       <StatusCard
         icon={phase === "expired" ? TimerOff : LinkIcon}
         tone="danger"
-        title={phase === "expired" ? "Link expirado" : "Link inválido"}
+        title={phase === "expired" ? t("auth.reset.expiredTitle") : t("auth.reset.invalidTitle")}
         description={
-          phase === "expired"
-            ? "Este link já foi usado ou passou dos 30 minutos. Peça um novo."
-            : "O link está incompleto ou não existe mais. Peça um novo."
+          phase === "expired" ? t("auth.reset.expiredBody") : t("auth.reset.invalidBody")
         }
         actions={
           <Button asChild size="lg">
-            <Link to="/forgot-password">Pedir novo link</Link>
+            <Link to="/forgot-password">{t("auth.reset.newLink")}</Link>
           </Button>
         }
       />
@@ -102,20 +102,17 @@ export function ResetPasswordPage() {
     <AuthLayout>
       <Card className="gap-5 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Criar nova senha</CardTitle>
-          <CardDescription>
-            Escolha uma senha nova. Ao concluir, todos os dispositivos conectados serão
-            desconectados.
-          </CardDescription>
+          <CardTitle className="text-2xl">{t("auth.reset.title")}</CardTitle>
+          <CardDescription>{t("auth.reset.subtitle")}</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit} noValidate aria-busy={busy || undefined}>
           <CardContent className="flex flex-col gap-4">
             {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
             <Field
               id="new_password"
-              label="Nova senha"
+              label={t("auth.reset.newPassword")}
               error={errors.new_password?.message}
-              hint="Mínimo de 8 caracteres."
+              hint={t("auth.register.passwordHint")}
             >
               <PasswordInput
                 id="new_password"
@@ -127,7 +124,7 @@ export function ResetPasswordPage() {
                 {...register("new_password")}
               />
             </Field>
-            <Field id="confirm" label="Repita a nova senha" error={errors.confirm?.message}>
+            <Field id="confirm" label={t("auth.reset.repeat")} error={errors.confirm?.message}>
               <PasswordInput
                 id="confirm"
                 autoComplete="new-password"
@@ -141,7 +138,7 @@ export function ResetPasswordPage() {
           </CardContent>
           <CardFooter className="mt-6 flex-col gap-4">
             <Button type="submit" size="xl" className="w-full" loading={busy}>
-              Redefinir senha
+              {t("auth.reset.submit")}
             </Button>
           </CardFooter>
         </form>

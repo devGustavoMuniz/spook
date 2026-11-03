@@ -1,5 +1,6 @@
 import type * as React from "react";
 import { LogoMark } from "@/components/brand";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export type PresenceStatus = "online" | "idle" | "dnd" | "invisible" | "offline";
@@ -106,7 +107,8 @@ export function Avatar({
   statusRingClassName?: string;
 }) {
   const px = typeof size === "number" ? size : avatarSizes[size];
-  const label = `Avatar de ${name}`;
+  const { t } = useT();
+  const label = t("shell.avatar.of", { name });
   const box: React.CSSProperties = { width: px, height: px };
 
   const wrapped = speaking || Boolean(status);

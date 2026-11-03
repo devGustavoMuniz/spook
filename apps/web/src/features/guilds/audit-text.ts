@@ -1,28 +1,29 @@
 import type { AuditEntryPayload } from "@spook/shared";
+import { formatList, type MessageKey, type TFunction } from "@/i18n";
 
-/** Ações do registro de auditoria (iguais às do servidor) com o texto do filtro. */
-export const AUDIT_ACTIONS: { value: string; label: string }[] = [
-  { value: "channel.create", label: "Canal criado" },
-  { value: "channel.update", label: "Canal editado" },
-  { value: "channel.delete", label: "Canal excluído" },
-  { value: "channel.overwrite_update", label: "Permissões de canal alteradas" },
-  { value: "channel.overwrite_delete", label: "Permissões de canal removidas" },
-  { value: "role.create", label: "Cargo criado" },
-  { value: "role.update", label: "Cargo editado" },
-  { value: "role.delete", label: "Cargo excluído" },
-  { value: "member.role_add", label: "Cargo atribuído" },
-  { value: "member.role_remove", label: "Cargo removido de membro" },
-  { value: "member.kick", label: "Membro expulso" },
-  { value: "member.ban", label: "Membro banido" },
-  { value: "member.unban", label: "Banimento desfeito" },
-  { value: "member.nick_update", label: "Apelido alterado" },
-  { value: "voice.mute", label: "Mutado na voz" },
-  { value: "voice.unmute", label: "Mute de voz removido" },
-  { value: "voice.disconnect", label: "Desconectado da voz" },
-  { value: "invite.create", label: "Convite criado" },
-  { value: "invite.revoke", label: "Convite revogado" },
-  { value: "guild.update", label: "Servidor alterado" },
-  { value: "guild.transfer", label: "Posse transferida" },
+/** Ações do registro de auditoria (iguais às do servidor) com a chave do texto do filtro. */
+export const AUDIT_ACTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: "channel.create", labelKey: "guilds.audit.action.channel.create" },
+  { value: "channel.update", labelKey: "guilds.audit.action.channel.update" },
+  { value: "channel.delete", labelKey: "guilds.audit.action.channel.delete" },
+  { value: "channel.overwrite_update", labelKey: "guilds.audit.action.channel.overwrite_update" },
+  { value: "channel.overwrite_delete", labelKey: "guilds.audit.action.channel.overwrite_delete" },
+  { value: "role.create", labelKey: "guilds.audit.action.role.create" },
+  { value: "role.update", labelKey: "guilds.audit.action.role.update" },
+  { value: "role.delete", labelKey: "guilds.audit.action.role.delete" },
+  { value: "member.role_add", labelKey: "guilds.audit.action.member.role_add" },
+  { value: "member.role_remove", labelKey: "guilds.audit.action.member.role_remove" },
+  { value: "member.kick", labelKey: "guilds.audit.action.member.kick" },
+  { value: "member.ban", labelKey: "guilds.audit.action.member.ban" },
+  { value: "member.unban", labelKey: "guilds.audit.action.member.unban" },
+  { value: "member.nick_update", labelKey: "guilds.audit.action.member.nick_update" },
+  { value: "voice.mute", labelKey: "guilds.audit.action.voice.mute" },
+  { value: "voice.unmute", labelKey: "guilds.audit.action.voice.unmute" },
+  { value: "voice.disconnect", labelKey: "guilds.audit.action.voice.disconnect" },
+  { value: "invite.create", labelKey: "guilds.audit.action.invite.create" },
+  { value: "invite.revoke", labelKey: "guilds.audit.action.invite.revoke" },
+  { value: "guild.update", labelKey: "guilds.audit.action.guild.update" },
+  { value: "guild.transfer", labelKey: "guilds.audit.action.guild.transfer" },
 ];
 
 type Changes = Record<string, unknown>;
@@ -35,81 +36,95 @@ const change = (c: Changes, key: string): { from: unknown; to: unknown } | undef
     : undefined;
 };
 
-function channelKind(c: Changes): string {
-  const t = Number(c.type);
-  return t === 1 ? "o canal de voz" : t === 2 ? "a categoria" : "o canal";
+function channelKind(c: Changes, t: TFunction): string {
+  const type = Number(c.type);
+  return t(
+    type === 1
+      ? "guilds.audit.s.channelVoice"
+      : type === 2
+        ? "guilds.audit.s.channelCategory"
+        : "guilds.audit.s.channelText",
+  );
 }
 
 /**
  * Frase da ação sem o autor ("criou o canal “geral”"). Sempre devolve algo legível, mesmo para ações que o
- * cliente ainda não conhece (mostra o código da ação).
+ * cliente ainda não conhece (mostra o código da ação). `t` vem do hook do componente para a frase acompanhar
+ * a troca de idioma.
  */
-export function auditSentence(e: AuditEntryPayload): string {
+export function auditSentence(e: AuditEntryPayload, t: TFunction): string {
   const c = (e.changes ?? {}) as Changes;
   const target = quoted(c.target_name);
+  const s = (key: MessageKey, extra: Record<string, string> = {}) => t(key, { target, ...extra });
+  const renamed = (name: { from: unknown; to: unknown }) =>
+    s("guilds.audit.s.renamed", { from: quoted(name.from), to: quoted(name.to) });
   switch (e.action) {
     case "channel.create":
-      return `criou ${channelKind(c)} ${target}`.trim();
+      return s("guilds.audit.s.channelCreate", { kind: channelKind(c, t) }).trim();
     case "channel.update": {
       const name = change(c, "name");
       const parts: string[] = [];
-      if (name) parts.push(`renomeou ${quoted(name.from)} para ${quoted(name.to)}`);
-      if (change(c, "position")) parts.push(`mudou a posição de ${target}`);
-      return parts.length ? parts.join(" e ") : `editou o canal ${target}`;
+      if (name) parts.push(renamed(name));
+      if (change(c, "position")) parts.push(s("guilds.audit.s.moved"));
+      return parts.length ? formatList(parts) : s("guilds.audit.s.channelEdited");
     }
     case "channel.delete":
-      return `excluiu ${channelKind(c)} ${target}`.trim();
+      return s("guilds.audit.s.channelDelete", { kind: channelKind(c, t) }).trim();
     case "channel.overwrite_update":
-      return `alterou as permissões de ${quoted(c.overwrite_target_name)} no canal ${target}`;
+      return s("guilds.audit.s.overwriteUpdate", { who: quoted(c.overwrite_target_name) });
     case "channel.overwrite_delete":
-      return `removeu as permissões de ${quoted(c.overwrite_target_name)} no canal ${target}`;
+      return s("guilds.audit.s.overwriteDelete", { who: quoted(c.overwrite_target_name) });
     case "role.create":
-      return `criou o cargo ${target}`;
+      return s("guilds.audit.s.roleCreate");
     case "role.update": {
       const name = change(c, "name");
       const bits: string[] = [];
-      if (name) bits.push(`renomeou ${quoted(name.from)} para ${quoted(name.to)}`);
-      if (change(c, "permissions")) bits.push(`mudou as permissões de ${target}`);
-      if (change(c, "position")) bits.push(`mudou a posição de ${target}`);
-      return bits.length ? bits.join(" e ") : `editou o cargo ${target}`;
+      if (name) bits.push(renamed(name));
+      if (change(c, "permissions")) bits.push(s("guilds.audit.s.rolePerms"));
+      if (change(c, "position")) bits.push(s("guilds.audit.s.moved"));
+      return bits.length ? formatList(bits) : s("guilds.audit.s.roleEdited");
     }
     case "role.delete":
-      return `excluiu o cargo ${target}`;
+      return s("guilds.audit.s.roleDelete");
     case "member.role_add":
-      return `deu o cargo ${quoted(c.role_name)} a ${target}`;
+      return s("guilds.audit.s.roleAdd", { role: quoted(c.role_name) });
     case "member.role_remove":
-      return `tirou o cargo ${quoted(c.role_name)} de ${target}`;
+      return s("guilds.audit.s.roleRemove", { role: quoted(c.role_name) });
     case "member.kick":
-      return `expulsou ${target}`;
+      return s("guilds.audit.s.kick");
     case "member.ban":
-      return `baniu ${target}`;
+      return s("guilds.audit.s.ban");
     case "member.unban":
-      return `desbaniu ${target}`;
+      return s("guilds.audit.s.unban");
     case "member.nick_update": {
       const n = change(c, "nickname");
-      return n?.to
-        ? `mudou o apelido de ${target}${n.from ? ` (era ${quoted(n.from)})` : ""}`
-        : `removeu o apelido de ${target}`;
+      if (!n?.to) return s("guilds.audit.s.nickRemoved");
+      return n.from
+        ? s("guilds.audit.s.nickChangedWas", { from: quoted(n.from) })
+        : s("guilds.audit.s.nickChanged");
     }
     case "voice.mute":
-      return `mutou ${target} na voz`;
+      return s("guilds.audit.s.voiceMute");
     case "voice.unmute":
-      return `liberou o mute de voz de ${target}`;
+      return s("guilds.audit.s.voiceUnmute");
     case "voice.disconnect":
-      return `desconectou ${target} da voz`;
+      return s("guilds.audit.s.voiceDisconnect");
     case "invite.create":
-      return `criou o convite ${target}`;
+      return s("guilds.audit.s.inviteCreate");
     case "invite.revoke":
-      return `revogou o convite ${target}`;
+      return s("guilds.audit.s.inviteRevoke");
     case "guild.update": {
       const name = change(c, "name");
       const bits: string[] = [];
-      if (name) bits.push(`renomeou o servidor de ${quoted(name.from)} para ${quoted(name.to)}`);
-      if (c.icon_changed) bits.push("trocou o ícone do servidor");
-      return bits.length ? bits.join(" e ") : "alterou o servidor";
+      if (name)
+        bits.push(
+          s("guilds.audit.s.guildRenamed", { from: quoted(name.from), to: quoted(name.to) }),
+        );
+      if (c.icon_changed) bits.push(s("guilds.audit.s.guildIcon"));
+      return bits.length ? formatList(bits) : s("guilds.audit.s.guildEdited");
     }
     case "guild.transfer":
-      return `transferiu a posse do servidor para ${target}`;
+      return s("guilds.audit.s.transfer");
     default:
       return e.action;
   }

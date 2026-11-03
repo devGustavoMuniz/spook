@@ -11,29 +11,31 @@ import {
 } from "@/desktop/shell";
 import { UpdatesSection } from "@/desktop/updates-section";
 import { SettingsGroup } from "@/features/settings/ui";
+import { type MessageKey, useT } from "@/i18n";
 
 type Key = keyof AppSettings;
 
-const OPTIONS: { key: Key; label: string; hint: string }[] = [
+const OPTIONS: { key: Key; labelKey: MessageKey; hintKey: MessageKey }[] = [
   {
     key: "closeToTray",
-    label: "Fechar vai para a bandeja",
-    hint: "Ao fechar a janela, o Spook continua rodando na bandeja do sistema (barra de menus no macOS) e a voz não cai. Para sair de verdade, use Sair no menu do ícone.",
+    labelKey: "settings.app.closeToTray",
+    hintKey: "settings.app.closeToTrayHint",
   },
   {
     key: "startWithSystem",
-    label: "Iniciar com o sistema",
-    hint: "Abre o Spook quando você entra no computador.",
+    labelKey: "settings.app.startWithSystem",
+    hintKey: "settings.app.startWithSystemHint",
   },
   {
     key: "startMinimized",
-    label: "Iniciar minimizado",
-    hint: "Quando o Spook abre sozinho com o sistema, fica só na bandeja, sem mostrar a janela.",
+    labelKey: "settings.app.startMinimized",
+    hintKey: "settings.app.startMinimizedHint",
   },
 ];
 
 /** `/settings/app`: opções do app para computador. Na web a página só explica que não se aplica. */
 export function AppSettingsPage() {
+  const { t } = useT();
   return isTauri() ? (
     <>
       <DesktopOptions />
@@ -42,13 +44,14 @@ export function AppSettingsPage() {
   ) : (
     <SettingsGroup
       icon={Monitor}
-      title="Só no app para computador"
-      description="Estas opções (bandeja, início com o sistema) existem só no app para computador."
+      title={t("settings.app.desktopOnly")}
+      description={t("settings.app.desktopOnlyDescription")}
     />
   );
 }
 
 function DesktopOptions() {
+  const { t } = useT();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,14 +83,14 @@ function DesktopOptions() {
   return (
     <SettingsGroup
       icon={Monitor}
-      title="Comportamento"
-      description="Como o Spook se comporta no seu computador. Estas escolhas valem só neste dispositivo."
+      title={t("settings.app.behavior")}
+      description={t("settings.app.behaviorDescription")}
     >
-      {OPTIONS.map(({ key, label, hint }) => (
+      {OPTIONS.map(({ key, labelKey, hintKey }) => (
         <div key={key} className="flex items-center justify-between gap-4">
           <Label htmlFor={`app-${key}`} className="flex flex-col gap-1">
-            {label}
-            <span className="text-xs font-normal text-muted-foreground">{hint}</span>
+            {t(labelKey)}
+            <span className="text-xs font-normal text-muted-foreground">{t(hintKey)}</span>
           </Label>
           <Switch
             id={`app-${key}`}

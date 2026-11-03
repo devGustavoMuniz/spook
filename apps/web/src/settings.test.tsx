@@ -42,7 +42,7 @@ describe("configurações em tela cheia", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Perfil" })).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(router.state.location.pathname).toBe("/settings/profile");
-    for (const name of ["Perfil", "Notificações", "Voz e vídeo", "Aparência"])
+    for (const name of ["Perfil", "Notificações", "Voz e vídeo", "Aparência e idioma"])
       expect(within(nav).getByRole("link", { name })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "Perfil" })).toHaveAttribute(
       "aria-current",
@@ -58,8 +58,10 @@ describe("configurações em tela cheia", () => {
     await renderApp("/settings/voice", { signedIn: true });
     expect(await screen.findByRole("heading", { level: 1, name: "Voz e vídeo" })).toHaveFocus();
     expect(screen.getByLabelText("Microfone")).toBeInTheDocument();
-    await user.click(within(await settingsNav()).getByRole("link", { name: "Aparência" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Aparência" })).toBeInTheDocument();
+    await user.click(within(await settingsNav()).getByRole("link", { name: "Aparência e idioma" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Aparência e idioma" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
@@ -124,6 +126,20 @@ describe("configurações em tela cheia", () => {
     expect(screen.getByText(/Movimento reduzido/)).toBeInTheDocument();
   });
 
+  it("Aparência e idioma: trocar o idioma traduz a tela na hora e persiste", async () => {
+    const user = userEvent.setup();
+    await renderApp("/settings/appearance", { signedIn: true });
+    const select = await screen.findByLabelText("Idioma");
+    expect(select).toHaveValue("pt-BR");
+    await user.selectOptions(select, "en");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Appearance & language" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Language")).toHaveValue("en");
+    expect(localStorage.getItem("spook-locale")).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+  });
+
   it("Perfil mostra usuário e e-mail só para leitura e o menu do usuário leva às configurações", async () => {
     await renderApp("/settings/profile", { signedIn: true });
     expect(await screen.findByText("ana@spook.dev")).toBeInTheDocument();
@@ -155,7 +171,9 @@ describe("configurações no celular (390 px)", () => {
 
   it("deep link abre direto o detalhe", async () => {
     await renderApp("/settings/appearance", { signedIn: true });
-    expect(await screen.findByRole("heading", { level: 1, name: "Aparência" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Aparência e idioma" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Voltar às configurações" })).toBeInTheDocument();
   });
 });

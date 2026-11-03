@@ -8,6 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useVoiceModeration, VoiceModerationItems } from "./moderation";
 import { PersonVolumeButton, PersonVolumePanel } from "./person-volume";
@@ -25,6 +26,7 @@ export function VoiceFlags({
   /** O ícone de tela já aparece em outro lugar (o cartão da transmissão). */
   hideScreen?: boolean;
 }) {
+  const { t } = useT();
   const icon = "size-3.5 shrink-0";
   return (
     <span className={cn("flex items-center gap-1 text-muted-foreground", className)}>
@@ -32,30 +34,34 @@ export function VoiceFlags({
         <MonitorUp
           className={cn(icon, "text-primary")}
           role="img"
-          aria-label="Compartilhando a tela"
+          aria-label={t("voice.flags.sharingScreen")}
         />
       ) : null}
       {state.self_video ? (
-        <Video className={cn(icon, "text-primary")} role="img" aria-label="Câmera ligada" />
+        <Video
+          className={cn(icon, "text-primary")}
+          role="img"
+          aria-label={t("voice.flags.cameraOn")}
+        />
       ) : null}
       {state.server_muted ? (
         <ShieldOff
           className={cn(icon, "text-destructive-text")}
           role="img"
-          aria-label="Mutado pelo servidor"
+          aria-label={t("voice.flags.serverMuted")}
         />
       ) : null}
       {state.self_deaf ? (
         <HeadphoneOff
           className={cn(icon, "text-destructive-text")}
           role="img"
-          aria-label="Áudio desativado"
+          aria-label={t("voice.flags.deafened")}
         />
       ) : state.self_mute && !state.server_muted ? (
         <MicOff
           className={cn(icon, "text-destructive-text")}
           role="img"
-          aria-label="Microfone silenciado"
+          aria-label={t("voice.flags.muted")}
         />
       ) : null}
     </span>
@@ -79,13 +85,17 @@ export function VoiceParticipants({
   watch?: WatchAction;
   className?: string;
 }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const [volumeFor, setVolumeFor] = useState<string | null>(null);
   if (participants.length === 0) return null;
   // Volume por pessoa só vale para quem está na MESMA chamada que eu (`speaking` só vem para a minha chamada).
   const inMyCall = speaking !== undefined;
   return (
-    <ul aria-label="Conectados" className={cn("flex flex-col gap-0.5", className)}>
+    <ul
+      aria-label={t("voice.participants.label")}
+      className={cn("flex flex-col gap-0.5", className)}
+    >
       {participants.map((p) => {
         const person = lookup(p.user_id);
         const talking = !!speaking?.has(p.user_id);
@@ -99,7 +109,7 @@ export function VoiceParticipants({
             )}
           >
             {person.name}
-            {talking ? <span className="sr-only"> (falando)</span> : null}
+            {talking ? <span className="sr-only">{t("voice.speaking")}</span> : null}
           </span>
         );
         return (
@@ -158,6 +168,7 @@ export function VoiceParticipants({
 
 /** Menu "⋯" do participante com as ações de moderação de voz; só existe para quem tem permissão sobre ele. */
 function ParticipantModeration({ state, name }: { state: VoiceStatePayload; name: string }) {
+  const { t } = useT();
   const mod = useVoiceModeration(state);
   if (!mod.any) return null;
   return (
@@ -167,7 +178,7 @@ function ParticipantModeration({ state, name }: { state: VoiceStatePayload; name
           variant="ghost"
           size="icon-sm"
           className="size-6 shrink-0 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
-          aria-label={`Moderar ${name} na voz`}
+          aria-label={t("voice.participants.moderate", { name })}
         >
           <MoreHorizontal />
         </Button>

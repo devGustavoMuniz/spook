@@ -2,6 +2,7 @@ import { Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { participantVolumeMax, setPersonVolume } from "./controller";
 import { personVolumeOf, useParticipantVolumeStore } from "./participant-volume";
@@ -21,6 +22,7 @@ export function PersonVolumeButton({
   onToggle: () => void;
   className?: string;
 }) {
+  const { t } = useT();
   const muted = useParticipantVolumeStore((s) => personVolumeOf(s.byUser, userId).muted);
   if (participantVolumeMax() === null) return null;
   return (
@@ -28,9 +30,9 @@ export function PersonVolumeButton({
       variant="ghost"
       size="icon"
       className={cn("size-6 shrink-0", className)}
-      aria-label={`Volume de ${name}`}
+      aria-label={t("voice.volume.of", { name })}
       aria-expanded={open}
-      title={`Volume de ${name}`}
+      title={t("voice.volume.of", { name })}
       onClick={onToggle}
     >
       {muted ? <VolumeX className="text-destructive-text" /> : <Volume2 />}
@@ -53,6 +55,7 @@ export function PersonVolumePanel({
   onClose: () => void;
   className?: string;
 }) {
+  const { t } = useT();
   const max = participantVolumeMax();
   const v = useParticipantVolumeStore((s) => personVolumeOf(s.byUser, userId));
   const sharing = useVoiceStatesStore((s) => s.byUser[userId]?.self_screen === true);
@@ -75,7 +78,7 @@ export function PersonVolumePanel({
         max={pct(max)}
         step={1}
         value={pct(Math.min(value, max))}
-        aria-valuetext={`${pct(value)} por cento`}
+        aria-valuetext={t("voice.volume.percent", { value: pct(value) })}
         onChange={(e) => setPersonVolume(userId, { [key]: Number(e.target.value) / 100 })}
         className="accent-primary"
       />
@@ -95,14 +98,19 @@ export function PersonVolumePanel({
         className,
       )}
     >
-      <legend className="sr-only">Volume de {name}</legend>
-      {slider(`vol-voice-${userId}`, `Volume da voz de ${name}`, v.voice, "voice")}
+      <legend className="sr-only">{t("voice.volume.of", { name })}</legend>
+      {slider(`vol-voice-${userId}`, t("voice.volume.voice", { name }), v.voice, "voice")}
       {sharing
-        ? slider(`vol-screen-${userId}`, `Volume do áudio da tela de ${name}`, v.screen, "screen")
+        ? slider(
+            `vol-screen-${userId}`,
+            t("voice.volume.screenAudio", { name }),
+            v.screen,
+            "screen",
+          )
         : null}
       <div className="flex items-center justify-between gap-3">
         <label htmlFor={`vol-mute-${userId}`} className="text-sm">
-          Silenciar só para mim
+          {t("voice.volume.muteForMe")}
         </label>
         <Switch
           id={`vol-mute-${userId}`}
@@ -110,13 +118,9 @@ export function PersonVolumePanel({
           onCheckedChange={(on) => setPersonVolume(userId, { muted: on })}
         />
       </div>
-      {deaf ? (
-        <p className="text-xs text-muted-foreground">
-          Seu áudio está desativado: todos continuam mudos, mesmo com o volume ajustado.
-        </p>
-      ) : null}
+      {deaf ? <p className="text-xs text-muted-foreground">{t("voice.volume.deafNote")}</p> : null}
       {max <= 1 ? (
-        <p className="text-xs text-muted-foreground">O volume vai até 100% neste navegador.</p>
+        <p className="text-xs text-muted-foreground">{t("voice.volume.maxNote")}</p>
       ) : null}
     </fieldset>
   );

@@ -23,11 +23,12 @@ import {
   DialogHead,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { t, useT } from "@/i18n";
 
 /** A pessoa fechou o diálogo "Confirme sua senha" sem confirmar. */
 export class ConfirmationCancelled extends Error {
   constructor() {
-    super("Confirmação de senha cancelada.");
+    super(t("auth.confirm.cancelled"));
     this.name = "ConfirmationCancelled";
   }
 }
@@ -114,6 +115,7 @@ function ConfirmPasswordDialog({
 }
 
 function ConfirmForm({ onSettle }: { onSettle: (ok: boolean) => void }) {
+  const { t } = useT();
   const confirm = useConfirmPasswordMutation();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
@@ -121,7 +123,7 @@ function ConfirmForm({ onSettle }: { onSettle: (ok: boolean) => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!password) {
-      setError("Informe a senha.");
+      setError(t("auth.confirm.empty"));
       return;
     }
     setError(undefined);
@@ -129,10 +131,9 @@ function ConfirmForm({ onSettle }: { onSettle: (ok: boolean) => void }) {
       await confirm.mutateAsync({ data: { password } });
       onSettle(true);
     } catch (err) {
-      if (isApiError(err) && err.status === 422) setError("Senha incorreta.");
-      else if (isApiError(err) && err.status === 429)
-        setError("Muitas tentativas. Aguarde um instante e tente de novo.");
-      else setError("Não foi possível confirmar a senha. Tente novamente.");
+      if (isApiError(err) && err.status === 422) setError(t("auth.confirm.wrong"));
+      else if (isApiError(err) && err.status === 429) setError(t("auth.confirm.tooMany"));
+      else setError(t("auth.confirm.failed"));
     }
   }
 
@@ -140,11 +141,11 @@ function ConfirmForm({ onSettle }: { onSettle: (ok: boolean) => void }) {
     <form onSubmit={(e) => void submit(e)} noValidate>
       <DialogHead
         icon={KeyRound}
-        title="Confirme sua senha"
-        description="Esta ação é sensível. Digite sua senha para continuar; a confirmação vale por 10 minutos."
+        title={t("auth.confirm.title")}
+        description={t("auth.confirm.description")}
       />
       <DialogBody>
-        <Field id="confirm-password" label="Senha" error={error}>
+        <Field id="confirm-password" label={t("common.password")} error={error}>
           <Input
             id="confirm-password"
             type="password"
@@ -159,10 +160,10 @@ function ConfirmForm({ onSettle }: { onSettle: (ok: boolean) => void }) {
       </DialogBody>
       <DialogActions>
         <Button type="button" variant="ghost" onClick={() => onSettle(false)}>
-          Cancelar
+          {t("common.cancel")}
         </Button>
         <Button type="submit" loading={confirm.isPending}>
-          Confirmar
+          {t("common.confirm")}
         </Button>
       </DialogActions>
     </form>

@@ -13,9 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PendingAttachments } from "@/features/attachments/pending-attachments";
-import { ACCEPT, MAX_ATTACHMENTS } from "@/features/attachments/rules";
+import { ACCEPT, MAX_ATTACHMENTS, MAX_FILE_SIZE } from "@/features/attachments/rules";
 import type { ComposerAttachments } from "@/features/attachments/use-composer-attachments";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
+import { formatBytes } from "@/lib/file-size";
 import { extractInviteCodes } from "@/lib/invite-links";
 import {
   applyMention,
@@ -24,6 +26,7 @@ import {
   type MentionOption,
 } from "@/lib/mentions";
 import { addMessage, truncateRunes } from "@/lib/message-cache";
+import { tRich } from "@/lib/t-rich";
 import { createTypingThrottle } from "../typing/throttle";
 import { TypingIndicator } from "../typing/typing-indicator";
 import { InviteCard } from "./invite-card";
@@ -65,6 +68,7 @@ export function MessageComposer({
    */
   mentionOptions?: readonly MentionOption[];
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const { data: me } = useGetMe();
   const meId = me?.id;
@@ -99,8 +103,8 @@ export function MessageComposer({
   // Contagem regressiva do 429 (Retry-After).
   useEffect(() => {
     if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
   }, [cooldown]);
 
   const mentionQuery = useMemo(() => findMentionQuery(text, caret), [text, caret]);
@@ -179,8 +183,10 @@ export function MessageComposer({
         toast.error(e.detail || appMessage(e));
         onCancelReply?.();
       } else if (isApiError(e) && e.status === 422 && hasFiles) {
-        toast.error(e.detail ? `Anexo recusado: ${e.detail}` : appMessage(e));
-        queue.invalidateAll("Envie este arquivo de novo.");
+        toast.error(
+          e.detail ? t("chat.composer.attachmentRefused", { detail: e.detail }) : appMessage(e),
+        );
+        queue.invalidateAll(t("chat.composer.resend"));
       } else toast.error(appMessage(e));
     } finally {
       input.current?.focus();
@@ -191,7 +197,7 @@ export function MessageComposer({
     return (
       <div className="px-4 pb-4">
         <p className="rounded-2xl border border-border bg-surface-1 px-4 py-3 text-sm text-muted-foreground">
-          Você não tem permissão para enviar mensagens neste canal.
+          {t("chat.composer.noPermission")}
         </p>
       </div>
     );
@@ -199,13 +205,13 @@ export function MessageComposer({
 
   const showCounter = length >= COUNTER_FROM || tooLong;
   const status = blocked
-    ? `Você está enviando rápido demais. Aguarde ${cooldown} s…`
+    ? t("chat.composer.slowDown", { seconds: cooldown })
     : !canAttach
-      ? "Você não tem permissão para anexar arquivos neste canal."
+      ? t("chat.upload.forbidden")
       : uploading
-        ? "Enviando anexos… a mensagem pode ser enviada quando terminar."
+        ? t("chat.composer.uploading")
         : failed
-          ? "Há anexos com erro: tente de novo ou remova-os para enviar."
+          ? t("chat.composer.hasErrors")
           : null;
 
   return (
@@ -261,7 +267,7 @@ export function MessageComposer({
             accept={ACCEPT}
             className="hidden"
             tabIndex={-1}
-            aria-label="Escolher arquivos"
+            aria-label={t("chat.composer.chooseFiles")}
             data-testid="attachment-input"
             onChange={(e) => {
               addFiles([...(e.target.files ?? [])]);
@@ -275,7 +281,7 @@ export function MessageComposer({
                 variant="ghost"
                 size="icon"
                 className="size-10 shrink-0 rounded-xl text-muted-foreground"
-                aria-label="Anexar arquivo"
+                aria-label={t("chat.composer.attach")}
                 disabled={!canAttach || items.length >= MAX_ATTACHMENTS}
                 onClick={() => picker.current?.click()}
               >
@@ -284,15 +290,26 @@ export function MessageComposer({
             </TooltipTrigger>
             <TooltipContent side="top">
               {canAttach
-                ? `Anexar arquivos (até ${MAX_ATTACHMENTS}, 25 MB cada)`
-                : "Você não tem permissão para anexar arquivos neste canal"}
+                ? t("chat.composer.attachTip", {
+                    max: MAX_ATTACHMENTS,
+                    size: formatBytes(MAX_FILE_SIZE),
+                  })
+                : t("chat.composer.attachForbiddenTip")}
             </TooltipContent>
           </Tooltip>
           {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-expanded só existe com role="combobox" (lista aberta) */}
           <textarea
             ref={input}
-            aria-label={isDm ? `Mensagem para ${channelName}` : `Mensagem em #${channelName}`}
-            placeholder={isDm ? `Conversar com ${channelName}` : `Conversar em #${channelName}`}
+            aria-label={
+              isDm
+                ? t("chat.composer.ariaDm", { name: channelName })
+                : t("chat.composer.ariaChannel", { name: channelName })
+            }
+            placeholder={
+              isDm
+                ? t("chat.composer.placeholderDm", { name: channelName })
+                : t("chat.composer.placeholderChannel", { name: channelName })
+            }
             rows={1}
             value={text}
             role={suggestionsOpen ? "combobox" : undefined}
@@ -385,7 +402,7 @@ export function MessageComposer({
             size="icon"
             variant={canSubmit ? "default" : "secondary"}
             className="size-10 shrink-0 rounded-xl"
-            aria-label="Enviar mensagem"
+            aria-label={t("chat.composer.send")}
             disabled={!canSubmit}
           >
             <SendHorizontal />
@@ -395,7 +412,15 @@ export function MessageComposer({
       <div className="flex min-h-4 items-center justify-between gap-3">
         <TypingIndicator channelId={channelId} nameOf={nameOf} />
         <p className="hidden shrink-0 items-center gap-1 text-2xs text-muted-foreground md:flex">
-          <Kbd>Enter</Kbd> envia <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> nova linha
+          {tRich(t, "chat.composer.shortcutSend", "key", <Kbd>Enter</Kbd>)}{" "}
+          {tRich(
+            t,
+            "chat.composer.shortcutNewLine",
+            "key",
+            <>
+              <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd>
+            </>,
+          )}
         </p>
       </div>
       <div id="composer-info" aria-live="polite" className="empty:hidden">
@@ -428,16 +453,23 @@ function ReplyBar({
   canMention: boolean;
   onCancel: () => void;
 }) {
+  const { t } = useT();
   const preview =
-    truncateRunes(reply.content, 80) || ((reply.attachments ?? []).length > 0 ? "Anexo" : "");
+    truncateRunes(reply.content, 80) ||
+    ((reply.attachments ?? []).length > 0 ? t("chat.row.attachment") : "");
   return (
     <fieldset
-      aria-label={`Respondendo a ${name}`}
+      aria-label={t("chat.composer.replyingTo", { name })}
       className="flex min-w-0 items-center gap-2 border-b border-border bg-surface-1 px-3 py-2 text-xs"
     >
       <Reply className="size-4 shrink-0 text-brand-text" aria-hidden />
       <span className="min-w-0 flex-1 truncate">
-        Respondendo a <strong className="font-semibold">{name}</strong>
+        {tRich(
+          t,
+          "chat.composer.replyingTo",
+          "name",
+          <strong className="font-semibold">{name}</strong>,
+        )}
         <span className="ml-2 text-muted-foreground">{preview}</span>
       </span>
       {canMention ? (
@@ -447,16 +479,16 @@ function ReplyBar({
           size="sm"
           className="h-7 gap-1 px-2 text-xs"
           aria-pressed={mention}
-          aria-label={`Mencionar ${name}`}
+          aria-label={t("chat.composer.mention", { name })}
           title={
             mention
-              ? `${name} será notificado(a). Clique para não mencionar.`
-              : `${name} não será notificado(a). Clique para mencionar.`
+              ? t("chat.composer.mentionOnTip", { name })
+              : t("chat.composer.mentionOffTip", { name })
           }
           onClick={() => onMentionChange(!mention)}
         >
           <AtSign className="size-3" aria-hidden />
-          {mention ? "ativado" : "desativado"}
+          {mention ? t("chat.composer.on") : t("chat.composer.off")}
         </Button>
       ) : null}
       <Button
@@ -464,8 +496,8 @@ function ReplyBar({
         variant="ghost"
         size="icon"
         className="size-7"
-        aria-label="Cancelar resposta"
-        title="Cancelar (Esc)"
+        aria-label={t("chat.composer.cancelReply")}
+        title={t("chat.composer.cancelReplyTip")}
         onClick={onCancel}
       >
         <X className="size-4" />

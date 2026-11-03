@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/i18n";
 import { dmMessage } from "@/lib/app-errors";
 import { upsertDM } from "@/lib/dm-cache";
 import { PeoplePicker, useGuildPeople, useSelection } from "./people";
@@ -29,6 +30,7 @@ export function NewGroupDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const create = useOpenDM();
@@ -57,9 +59,7 @@ export function NewGroupDialog({
           ch = await rename.mutateAsync({ channelId: ch.id, data: { name: trimmed } });
           upsertDM(qc, ch);
         } catch (e) {
-          toast.error(
-            `A conversa foi criada, mas não deu para dar o nome: ${dmMessage(e, "rename")}`,
-          );
+          toast.error(t("people.newGroup.renameFailed", { reason: dmMessage(e, "rename") }));
         }
       }
       close(false);
@@ -74,8 +74,8 @@ export function NewGroupDialog({
       <DialogContent flush>
         <DialogHead
           icon={Users}
-          title="Nova conversa em grupo"
-          description={`Escolha de 1 a ${MAX_GROUP_INVITEES} pessoas que estão em algum servidor com você.`}
+          title={t("people.dmSidebar.newGroup")}
+          description={t("people.newGroup.description", { max: MAX_GROUP_INVITEES })}
         />
         <form
           className="flex min-h-0 flex-1 flex-col"
@@ -86,17 +86,17 @@ export function NewGroupDialog({
         >
           <DialogBody>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="group-name">Nome do grupo (opcional)</Label>
+              <Label htmlFor="group-name">{t("people.newGroup.nameLabel")}</Label>
               <Input
                 id="group-name"
                 value={name}
-                placeholder="Ex.: Estudo de Go"
+                placeholder={t("people.newGroup.namePlaceholder")}
                 onChange={(e) => setName(e.target.value)}
                 aria-invalid={tooLong}
               />
               {tooLong ? (
                 <p role="alert" className="text-xs text-destructive-text">
-                  O nome pode ter até {MAX_GROUP_NAME} caracteres.
+                  {t("people.newGroup.nameTooLong", { max: MAX_GROUP_NAME })}
                 </p>
               ) : null}
             </div>
@@ -110,14 +110,14 @@ export function NewGroupDialog({
           </DialogBody>
           <DialogActions>
             <Button type="button" variant="ghost" onClick={() => close(false)}>
-              Cancelar
+              {t("people.common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={selected.size === 0 || tooLong}
               loading={create.isPending}
             >
-              Criar conversa
+              {t("people.newGroup.create")}
             </Button>
           </DialogActions>
         </form>

@@ -18,11 +18,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { type ForgotForm, forgotSchema } from "@/lib/schemas";
 
 /** "Esqueci minha senha": a resposta é a mesma exista ou não a conta (o servidor não revela contas). */
 export function ForgotPasswordPage() {
+  const { t } = useT();
   const forgot = useForgotPassword();
   const { data: providers } = useAuthProviders({ query: { staleTime: 60_000 } });
   const [sentTo, setSentTo] = useState<string>();
@@ -51,17 +53,15 @@ export function ForgotPasswordPage() {
       <StatusCard
         icon={MailCheck}
         tone="success"
-        title="Confira seu e-mail"
-        description={`Se existir uma conta com ${sentTo}, enviamos um link para redefinir a senha. Ele vale por 30 minutos e só pode ser usado uma vez.`}
+        title={t("auth.forgot.checkTitle")}
+        description={t("auth.forgot.sent", { email: sentTo })}
         actions={
           <Button asChild variant="outline" size="lg">
-            <Link to="/login">Voltar para entrar</Link>
+            <Link to="/login">{t("auth.forgot.backToSignIn")}</Link>
           </Button>
         }
       >
-        <p className="text-sm text-muted-foreground">
-          Não chegou? Veja a caixa de spam e tente de novo em alguns minutos.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("auth.forgot.spam")}</p>
       </StatusCard>
     );
   }
@@ -71,24 +71,19 @@ export function ForgotPasswordPage() {
     <AuthLayout>
       <Card className="gap-5 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Esqueci minha senha</CardTitle>
-          <CardDescription>
-            Informe o e-mail da sua conta e enviaremos um link para criar uma senha nova.
-          </CardDescription>
+          <CardTitle className="text-2xl">{t("auth.login.forgot")}</CardTitle>
+          <CardDescription>{t("auth.forgot.subtitle")}</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit} noValidate aria-busy={busy || undefined}>
           <CardContent className="flex flex-col gap-4">
             {providers && !providers.email_enabled ? (
               <div className="flex items-start gap-2.5 rounded-md border border-border bg-accent p-3 text-sm">
                 <Info className="mt-0.5 size-4 shrink-0 text-brand-text" aria-hidden="true" />
-                <p>
-                  Este servidor não envia e-mails. Peça ao administrador um link de redefinição de
-                  senha.
-                </p>
+                <p>{t("auth.forgot.noEmail")}</p>
               </div>
             ) : null}
             {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
-            <Field id="email" label="E-mail" error={errors.email?.message}>
+            <Field id="email" label={t("common.email")} error={errors.email?.message}>
               <Input
                 id="email"
                 type="email"
@@ -104,13 +99,13 @@ export function ForgotPasswordPage() {
           </CardContent>
           <CardFooter className="mt-6 flex-col gap-4">
             <Button type="submit" size="xl" className="w-full" loading={busy}>
-              Enviar link
+              {t("auth.forgot.sendLink")}
             </Button>
             <Link
               to="/login"
               className="text-sm font-medium text-brand-text underline-offset-4 hover:underline"
             >
-              Voltar para entrar
+              {t("auth.forgot.backToSignIn")}
             </Link>
           </CardFooter>
         </form>

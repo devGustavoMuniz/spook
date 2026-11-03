@@ -1,6 +1,7 @@
 // Captura de TESTE do microfone (web): medidor de nível fora da chamada (ou com o microfone mudo) e o "Testar"
 // (grava ~5 s e toca de volta). Passa pelo MESMO processamento da chamada (constraints do navegador, RNNoise e
 // porta de ruído, via `MicTrackProcessor`). Não importa `livekit-client`. Nunca reproduz o microfone ao vivo.
+import { t } from "@/i18n";
 import type { InputLevel, InputSensitivity, MediaErrorCode, MicTestState } from "./engine";
 import type { MicTrackProcessor } from "./noise-processor";
 
@@ -43,7 +44,7 @@ export class MicPipeline {
         strong: this.opts.strong,
         sensitivity: this.opts.sensitivity,
         onLevel: this.opts.onLevel,
-        onSlow: () => this.opts.onFail?.("O processamento por IA ficou lento demais."),
+        onSlow: () => this.opts.onFail?.(t("voice.engine.aiSlow")),
       });
       this.processor = processor;
       await processor.init({ track: input });

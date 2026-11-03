@@ -6,17 +6,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { shownName } from "@/features/account/removed-user";
 import { SettingsGroup } from "@/features/settings/ui";
 import { useAllRelationships, useSocialActions } from "@/features/social/hooks";
+import { useT } from "@/i18n";
 
 /** Configurações > Bloqueados: quem você bloqueou, com "Desbloquear". */
 export function BlockedPage() {
+  const { t } = useT();
   const rels = useAllRelationships();
   const actions = useSocialActions();
   const blocked = (rels.data ?? []).filter((r) => r.type === "blocked");
   return (
     <SettingsGroup
       icon={Ban}
-      title="Pessoas bloqueadas"
-      description="Quem você bloqueia não pode iniciar conversas privadas nem ligar para você (e você, para ela). Suas mensagens ficam recolhidas, as menções dela não geram aviso e a pessoa não é avisada."
+      title={t("settings.blocked.title")}
+      description={t("settings.blocked.description")}
     >
       {rels.isPending ? (
         <Skeleton className="h-10 w-full" />
@@ -27,9 +29,9 @@ export function BlockedPage() {
           retrying={rels.isFetching}
         />
       ) : blocked.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Você não bloqueou ninguém.</p>
+        <p className="text-sm text-muted-foreground">{t("settings.blocked.empty")}</p>
       ) : (
-        <ul aria-label="Pessoas bloqueadas" className="flex flex-col gap-1">
+        <ul aria-label={t("settings.blocked.title")} className="flex flex-col gap-1">
           {blocked.map((r) => {
             const name = shownName(r.user.display_name, r.user.username);
             return (
@@ -43,9 +45,11 @@ export function BlockedPage() {
                   variant="outline"
                   size="sm"
                   loading={actions.pending === `unblock:${r.user.id}`}
-                  onClick={() => void actions.unblock(r.user.id, `${name} foi desbloqueado.`)}
+                  onClick={() =>
+                    void actions.unblock(r.user.id, t("settings.blocked.unblocked", { name }))
+                  }
                 >
-                  Desbloquear
+                  {t("settings.blocked.unblock")}
                 </Button>
               </li>
             );

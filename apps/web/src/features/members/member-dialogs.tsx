@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import { canManageRole, type Guild, rolesOf } from "@/lib/guild";
@@ -48,6 +49,7 @@ export function KickDialog({
   member: MemberPayload | null;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const remove = useRemoveGuildMember();
   async function confirm() {
@@ -55,7 +57,7 @@ export function KickDialog({
     try {
       await remove.mutateAsync({ guildId: guild.id, userId: member.user_id });
       await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
-      toast.success(`${memberName(member)} foi expulso.`);
+      toast.success(t("people.dialogs.kicked", { name: memberName(member) }));
     } catch (e) {
       toast.error(appMessage(e));
     } finally {
@@ -65,13 +67,15 @@ export function KickDialog({
   return (
     <AlertDialog open={!!member} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
-        <AlertDialogTitle>Expulsar {member ? memberName(member) : ""}?</AlertDialogTitle>
-        <AlertDialogDescription>
-          A pessoa perde o acesso ao servidor, mas pode voltar com um novo convite.
-        </AlertDialogDescription>
+        <AlertDialogTitle>
+          {t("people.dialogs.kickTitle", { name: member ? memberName(member) : "" })}
+        </AlertDialogTitle>
+        <AlertDialogDescription>{t("people.dialogs.kickDescription")}</AlertDialogDescription>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction onClick={() => void confirm()}>Expulsar</AlertDialogAction>
+          <AlertDialogCancel>{t("people.common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void confirm()}>
+            {t("people.members.kick")}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -94,6 +98,7 @@ export function BanDialog({
   member: MemberPayload | null;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const ban = useBanGuildMember();
   const [reason, setReason] = useState("");
@@ -112,7 +117,7 @@ export function BanDialog({
         data: reason.trim() ? { reason: reason.trim() } : {},
       });
       await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
-      toast.success(`${memberName(member)} foi banido.`);
+      toast.success(t("people.dialogs.banned", { name: memberName(member) }));
     } catch (e) {
       toast.error(appMessage(e));
     } finally {
@@ -122,19 +127,18 @@ export function BanDialog({
   return (
     <AlertDialog open={!!member} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
-        <AlertDialogTitle>Banir {member ? memberName(member) : ""}?</AlertDialogTitle>
-        <AlertDialogDescription>
-          A pessoa perde o acesso e não consegue voltar por convite enquanto estiver banida. Você
-          pode desbanir em Configurações do servidor.
-        </AlertDialogDescription>
+        <AlertDialogTitle>
+          {t("people.dialogs.banTitle", { name: member ? memberName(member) : "" })}
+        </AlertDialogTitle>
+        <AlertDialogDescription>{t("people.dialogs.banDescription")}</AlertDialogDescription>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ban-reason">Motivo (opcional)</Label>
+          <Label htmlFor="ban-reason">{t("people.dialogs.banReason")}</Label>
           <Textarea
             id="ban-reason"
             value={reason}
             maxLength={BAN_REASON_MAX}
             rows={3}
-            placeholder="Fica no registro de auditoria e na lista de banidos"
+            placeholder={t("people.dialogs.banReasonPlaceholder")}
             onChange={(e) => setReason(e.target.value)}
           />
           <p className="text-xs text-muted-foreground tabular">
@@ -142,12 +146,12 @@ export function BanDialog({
           </p>
         </div>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel>{t("people.common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             onClick={() => void confirm()}
           >
-            Banir
+            {t("people.members.ban")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -167,6 +171,7 @@ export function NicknameDialog({
   self: boolean;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const set = useSetGuildMemberNickname();
   const [nick, setNick] = useState("");
@@ -186,7 +191,9 @@ export function NicknameDialog({
         data: { nick: nick.trim() || null },
       });
       await qc.invalidateQueries({ queryKey: queryKeys.members(guild.id) });
-      toast.success(nick.trim() ? "Apelido alterado." : "Apelido removido.");
+      toast.success(
+        nick.trim() ? t("people.dialogs.nickChanged") : t("people.dialogs.nickRemoved"),
+      );
       onClose();
     } catch (err) {
       toast.error(appMessage(err));
@@ -197,13 +204,17 @@ export function NicknameDialog({
       <DialogContent flush size="sm">
         <DialogHead
           icon={Pencil}
-          title={self ? "Alterar meu apelido" : `Apelido de ${member ? memberName(member) : ""}`}
-          description={`Vale só em ${guild.name}. Deixe em branco para voltar ao nome de exibição.`}
+          title={
+            self
+              ? t("people.dialogs.nickTitleSelf")
+              : t("people.dialogs.nickTitleOther", { name: member ? memberName(member) : "" })
+          }
+          description={t("people.dialogs.nickDescription", { guild: guild.name })}
         />
         <form onSubmit={(e) => void save(e)} noValidate className="flex min-h-0 flex-1 flex-col">
           <DialogBody>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="nick-input">Apelido</Label>
+              <Label htmlFor="nick-input">{t("people.dialogs.nickLabel")}</Label>
               <Input
                 id="nick-input"
                 autoFocus
@@ -218,16 +229,16 @@ export function NicknameDialog({
                 id="nick-hint"
                 className={`text-xs tabular ${tooLong ? "text-destructive-text" : "text-muted-foreground"}`}
               >
-                {[...nick.trim()].length}/{NICK_MAX} caracteres
+                {t("people.dialogs.nickCount", { count: [...nick.trim()].length, max: NICK_MAX })}
               </p>
             </div>
           </DialogBody>
           <DialogActions>
             <Button type="button" variant="ghost" onClick={onClose}>
-              Cancelar
+              {t("people.common.cancel")}
             </Button>
             <Button type="submit" loading={set.isPending} disabled={tooLong}>
-              Salvar
+              {t("people.dialogs.save")}
             </Button>
           </DialogActions>
         </form>
@@ -245,6 +256,7 @@ export function MemberRolesDialog({
   member: MemberPayload | null;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const add = useAddGuildMemberRole();
   const remove = useRemoveGuildMemberRole();
@@ -273,13 +285,13 @@ export function MemberRolesDialog({
       <DialogContent flush size="sm" className="max-h-[min(34rem,90svh)]">
         <DialogHead
           icon={Shield}
-          title={`Cargos de ${member ? memberName(member) : ""}`}
-          description="Você só pode dar ou tirar cargos abaixo do seu cargo mais alto."
+          title={t("people.dialogs.rolesTitle", { name: member ? memberName(member) : "" })}
+          description={t("people.dialogs.rolesDescription")}
         />
         <DialogBody className="gap-0 py-2">
           {assignable.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              Este servidor ainda não tem cargos. Crie um em Configurações do servidor.
+              {t("people.dialogs.rolesEmpty")}
             </p>
           ) : (
             <ul className="flex flex-col">
@@ -301,7 +313,7 @@ export function MemberRolesDialog({
                     {!allowed ? (
                       <Lock
                         className="size-3.5 shrink-0 text-muted-foreground"
-                        aria-label="Acima do seu cargo"
+                        aria-label={t("people.dialogs.aboveYourRole")}
                         role="img"
                       />
                     ) : null}
@@ -319,7 +331,7 @@ export function MemberRolesDialog({
         </DialogBody>
         <DialogActions>
           <DialogClose asChild>
-            <Button>Concluído</Button>
+            <Button>{t("people.dialogs.done")}</Button>
           </DialogClose>
         </DialogActions>
       </DialogContent>

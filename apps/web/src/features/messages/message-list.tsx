@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyChatIllustration } from "@/components/illustrations";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useT } from "@/i18n";
 import { ImageViewerProvider } from "../attachments/viewer-context";
 import { useViewportStore } from "../notifications/viewport";
 import { MessageRow, type MessageRowProps } from "./message-row";
@@ -65,12 +66,15 @@ const FAR_FROM_BOTTOM_PX = 480;
  */
 export function MessageList(props: MessageListProps) {
   "use no memo";
+  const { t, locale } = useT();
   const { messages, hasMore, loadingMore, onLoadMore } = props;
   const parentRef = useRef<HTMLDivElement>(null);
   const { newAfterId, myId } = props;
+  // `locale` na dependência: o rótulo do dia ("30 de outubro…") é formatado em buildRows.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refaz as linhas ao trocar de idioma
   const rows = useMemo(
     () => buildRows(messages, { hasMore, newAfterId, myId }),
-    [messages, hasMore, newAfterId, myId],
+    [messages, hasMore, newAfterId, myId, locale],
   );
 
   const virtualizer = useVirtualizer({
@@ -198,21 +202,21 @@ export function MessageList(props: MessageListProps) {
     return (
       <div
         role="log"
-        aria-label={`Mensagens de ${props.channelName}`}
+        aria-label={t("chat.list.messagesOf", { name: props.channelName })}
         className="relative min-h-0 flex-1 overflow-y-auto bg-brand-wash"
       >
         <EmptyState
           illustration={<EmptyChatIllustration className="h-40 w-auto" />}
-          title={props.isDm ? "Nenhuma mensagem ainda" : "Este canal está quieto"}
+          title={props.isDm ? t("chat.list.emptyDmTitle") : t("chat.list.emptyChannelTitle")}
           description={
             props.isDm
-              ? `Diga oi para ${props.channelName}: escreva a primeira mensagem e comece a conversa.`
-              : `Ainda não há mensagens em #${props.channelName}. Escreva a primeira e dê o pontapé inicial.`
+              ? t("chat.list.emptyDmDescription", { name: props.channelName })
+              : t("chat.list.emptyChannelDescription", { name: props.channelName })
           }
           action={
             props.onFocusComposer ? (
               <Button onClick={props.onFocusComposer}>
-                <MessageCircle /> Escrever a primeira mensagem
+                <MessageCircle /> {t("chat.list.writeFirst")}
               </Button>
             ) : undefined
           }
@@ -226,15 +230,15 @@ export function MessageList(props: MessageListProps) {
       <div className="relative min-h-0 flex-1">
         {loadingMore ? (
           <output className="absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-popover px-3 py-1 text-xs text-muted-foreground shadow-md">
-            <Loader2 className="size-3 animate-spin motion-essential" /> Carregando mensagens
-            anteriores…
+            <Loader2 className="size-3 animate-spin motion-essential" />{" "}
+            {t("chat.list.loadingOlder")}
           </output>
         ) : null}
         <div
           ref={parentRef}
           onScroll={maybeLoadMore}
           role="log"
-          aria-label={`Mensagens de ${props.channelName}`}
+          aria-label={t("chat.list.messagesOf", { name: props.channelName })}
           aria-live="polite"
           aria-relevant="additions"
           // biome-ignore lint/a11y/noNoninteractiveTabindex: região rolável precisa de foco para rolar pelo teclado
@@ -307,8 +311,8 @@ export function MessageList(props: MessageListProps) {
           >
             <ArrowDown />
             {unseen > 0
-              ? `${unseen} ${unseen === 1 ? "nova mensagem" : "novas mensagens"}`
-              : "Pular para o presente"}
+              ? t("chat.list.newMessages", { count: unseen })
+              : t("chat.list.jumpToPresent")}
           </Button>
         ) : null}
       </div>
@@ -318,6 +322,7 @@ export function MessageList(props: MessageListProps) {
 
 /** Começo do histórico: ícone grande do canal (ou da conversa), título e uma frase. */
 function ChannelStart({ name, isDm }: { name: string; isDm?: boolean }) {
+  const { t } = useT();
   return (
     <div className="flex flex-col gap-2 px-4 pt-8 pb-6">
       <span className="flex size-14 items-center justify-center rounded-2xl bg-accent text-brand-text">
@@ -328,10 +333,10 @@ function ChannelStart({ name, isDm }: { name: string; isDm?: boolean }) {
         )}
       </span>
       <p className="text-2xl font-semibold tracking-tight">
-        {isDm ? `Este é o início da conversa com ${name}` : `Este é o início de #${name}`}
+        {isDm ? t("chat.list.startDm", { name }) : t("chat.list.startChannel", { name })}
       </p>
       <p className="text-sm text-muted-foreground">
-        {isDm ? "Aqui começa a história da conversa." : "Aqui começa a história do canal."}
+        {isDm ? t("chat.list.startDmHint") : t("chat.list.startChannelHint")}
       </p>
     </div>
   );

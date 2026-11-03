@@ -13,6 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 /** Abaixo disto a navegação (servidores + canais/DMs) vira drawer pela esquerda (Tailwind `md`). */
@@ -197,6 +198,7 @@ export function NavDrawer({
   rail: ReactNode;
   onSlot: (el: HTMLElement | null) => void;
 }) {
+  const { t } = useT();
   const shell = useShell();
   if (!shell?.compact) return null;
   return (
@@ -204,7 +206,7 @@ export function NavDrawer({
       open={shell.navOpen}
       onClose={() => shell.setNavOpen(false)}
       side="left"
-      label="Navegação"
+      label={t("shell.nav.label")}
       className="h-dvh"
     >
       <div className="flex min-h-0 flex-1">
@@ -217,13 +219,14 @@ export function NavDrawer({
 
 /** Botão "menu" do cabeçalho: abre a navegação em telas estreitas; some a partir de 768 px. */
 export function NavToggle({ className }: { className?: string }) {
+  const { t } = useT();
   const shell = useShell();
   if (!shell) return null;
   return (
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Abrir menu de navegação"
+      aria-label={t("shell.nav.open")}
       aria-expanded={shell.navOpen}
       className={cn("-ml-2 shrink-0 md:hidden", className)}
       onClick={() => shell.setNavOpen(true)}
@@ -235,13 +238,14 @@ export function NavToggle({ className }: { className?: string }) {
 
 /** Botão que abre o painel de membros em telas sem espaço para ele (< 1024 px). */
 export function MembersToggle({ className }: { className?: string }) {
+  const { t } = useT();
   const shell = useShell();
   if (!shell) return null;
   return (
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Mostrar membros"
+      aria-label={t("shell.members.show")}
       aria-expanded={shell.membersOpen}
       className={cn("lg:hidden", className)}
       onClick={() => shell.setMembersOpen(true)}

@@ -13,6 +13,7 @@ import {
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { useSocialStore } from "./store";
 
@@ -54,12 +55,12 @@ export function invalidateRelationships(qc: QueryClient, userId?: string) {
     });
 }
 
-/** Mensagem em pt-br dos erros de amizade e bloqueio. */
+/** Mensagem (no idioma ativo) dos erros de amizade e bloqueio. */
 export function socialMessage(err: unknown): string {
   if (!isApiError(err)) return appMessage(err);
   switch (err.status) {
     case 404:
-      return "Não encontramos ninguém com esse nome de usuário.";
+      return t("people.social.userNotFound");
     case 409:
       return err.detail
         ? err.detail.charAt(0).toUpperCase() + err.detail.slice(1)
@@ -70,8 +71,8 @@ export function socialMessage(err: unknown): string {
         : appMessage(err);
     case 429:
       return err.retryAfter
-        ? `Muitas ações seguidas. Tente de novo em ${err.retryAfter} s.`
-        : "Muitas ações seguidas. Aguarde um instante.";
+        ? t("people.social.rateLimitedIn", { seconds: err.retryAfter })
+        : t("people.social.rateLimited");
     default:
       return appMessage(err);
   }
@@ -107,15 +108,15 @@ export function useSocialActions() {
         useSocialStore.getState().upsert(rel);
         toast.success(
           rel.type === "friend"
-            ? `Você e @${rel.user.username} agora são amigos.`
-            : `Pedido enviado para @${rel.user.username}.`,
+            ? t("people.social.nowFriends", { username: rel.user.username })
+            : t("people.social.requestSent", { username: rel.user.username }),
         );
       }),
     accept: (userId: string) =>
       run(`accept:${userId}`, userId, async () => {
         const rel = await acceptFriend(userId);
         useSocialStore.getState().upsert(rel);
-        toast.success(`Você e @${rel.user.username} agora são amigos.`);
+        toast.success(t("people.social.nowFriends", { username: rel.user.username }));
       }),
     /** Desfazer, recusar ou cancelar o pedido: o mesmo DELETE. */
     remove: (userId: string, done?: string) =>

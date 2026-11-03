@@ -9,17 +9,19 @@ import {
   ErrorIllustration,
   VoiceInviteIllustration,
 } from "@/components/illustrations";
+import { RichText } from "@/components/rich-text";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getLocale, type MessageKey, useT } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
 import { cn } from "@/lib/utils";
 import { type Arch, detectArch, detectPlatform, type Os } from "./platform";
 import {
   type Installer,
   installersFor,
-  KIND_LABEL,
+  KIND_LABEL_KEY,
   loadLatestRelease,
   primaryInstaller,
   RELEASES_PAGE_URL,
@@ -30,10 +32,12 @@ import {
   type Target,
 } from "./releases";
 
-const date = new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" });
+const formatDate = (iso: string) =>
+  new Intl.DateTimeFormat(getLocale(), { dateStyle: "long" }).format(new Date(iso));
 
 /** `/download`: página pública (sem login) para baixar o app desktop, a partir do último release do GitHub. */
 export function DownloadPage() {
+  const { t } = useT();
   const platform = detectPlatform(typeof navigator === "undefined" ? undefined : navigator);
   const [arch, setArch] = useState<Arch | null>(null);
   useEffect(() => {
@@ -58,14 +62,14 @@ export function DownloadPage() {
         <Link
           to="/"
           className="flex items-center gap-2 rounded-lg"
-          aria-label="Spook, ir para o início"
+          aria-label={t("shell.download.homeAria")}
         >
           <LogoMark size={36} alt="" />
           <Lettering width={96} className="w-24" />
         </Link>
         <div className="flex items-center gap-2">
           <Button asChild variant="outline">
-            <Link to="/">Abrir no navegador</Link>
+            <Link to="/">{t("shell.download.openBrowser")}</Link>
           </Button>
           <ThemeToggle />
         </div>
@@ -81,11 +85,10 @@ export function DownloadPage() {
               id="dl-title"
               className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl"
             >
-              Baixe o Spook para o seu computador
+              {t("shell.download.title")}
             </h1>
             <p className="max-w-xl text-pretty text-muted-foreground">
-              Voz, vídeo e compartilhamento de tela nativos, notificações do sistema, bandeja e
-              atualização automática. Também funciona no navegador, sem instalar nada.
+              {t("shell.download.intro")}
             </p>
             <Hero
               loading={query.isPending}
@@ -104,15 +107,15 @@ export function DownloadPage() {
         {query.data ? (
           <section aria-labelledby="dl-all" className="flex flex-col gap-4">
             <h2 id="dl-all" className="text-xl font-semibold tracking-tight">
-              Todas as plataformas
+              {t("shell.download.allPlatforms")}
             </h2>
             <ul className="grid gap-4 sm:grid-cols-2">
-              {TARGETS.map((t) => (
-                <li key={t.id}>
+              {TARGETS.map((target) => (
+                <li key={target.id}>
                   <TargetCard
-                    target={t}
+                    target={target}
                     release={query.data as Release}
-                    highlighted={recommended?.id === t.id}
+                    highlighted={recommended?.id === target.id}
                   />
                 </li>
               ))}
@@ -145,9 +148,10 @@ function Hero({
   onRetry: () => void;
   retrying: boolean;
 }) {
+  const { t } = useT();
   if (loading)
     return (
-      <output aria-label="Carregando a versão mais recente">
+      <output aria-label={t("shell.download.loadingAria")}>
         <Skeleton className="h-12 w-72" />
       </output>
     );
@@ -156,12 +160,14 @@ function Hero({
     return (
       <div className="flex max-w-xl flex-col items-start gap-3 rounded-xl border border-border bg-card p-5 shadow-sm">
         <EmptyChatIllustration className="h-28 w-auto" />
-        <h2 className="text-lg font-semibold tracking-tight">Ainda não há versão publicada</h2>
+        <h2 className="text-lg font-semibold tracking-tight">
+          {t("shell.download.noReleaseTitle")}
+        </h2>
         <p className="text-sm text-pretty text-muted-foreground">
-          O app para computador será liberado em breve. Enquanto isso, use o Spook no navegador.
+          {t("shell.download.noReleaseBody")}
         </p>
         <Button asChild>
-          <Link to="/">Abrir no navegador</Link>
+          <Link to="/">{t("shell.download.openBrowser")}</Link>
         </Button>
       </div>
     );
@@ -169,8 +175,8 @@ function Hero({
   if (mobile) {
     return (
       <p className="flex max-w-xl items-start gap-2 rounded-xl border border-border bg-card p-4 text-sm text-pretty shadow-sm">
-        <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-brand-text" aria-hidden />O app é
-        para computador (Windows, macOS e Linux). No celular, abra o Spook no navegador.
+        <MonitorSmartphone className="mt-0.5 size-4 shrink-0 text-brand-text" aria-hidden />
+        {t("shell.download.mobileNote")}
       </p>
     );
   }
@@ -181,23 +187,25 @@ function Hero({
         <>
           <Button asChild size="xl">
             <a href={main.url} download>
-              <Download aria-hidden /> Baixar para {recommended.title}
+              <Download aria-hidden />{" "}
+              {t("shell.download.downloadFor", { target: t(recommended.titleKey) })}
             </a>
           </Button>
           <p className="text-sm text-muted-foreground">
-            Versão {release.version} · {KIND_LABEL[main.kind]} · {formatBytes(main.size)}
-            {release.publishedAt ? ` · ${date.format(new Date(release.publishedAt))}` : ""}
+            {t("shell.download.versionMeta", {
+              version: release.version,
+              kind: t(KIND_LABEL_KEY[main.kind]),
+              size: formatBytes(main.size),
+            })}
+            {release.publishedAt ? ` · ${formatDate(release.publishedAt)}` : ""}
           </p>
           {os === "macos" ? (
-            <p className="text-xs text-muted-foreground">
-              Escolhemos o Mac com chip Apple. Se o seu for Intel, use o cartão "macOS (Intel)"
-              abaixo.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("shell.download.macNote")}</p>
           ) : null}
         </>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Versão {release.version}. Escolha o seu sistema abaixo.
+          {t("shell.download.pickSystem", { version: release.version })}
         </p>
       )}
     </div>
@@ -213,28 +221,29 @@ function FailureNotice({
   onRetry: () => void;
   retrying: boolean;
 }) {
+  const { t } = useT();
   const reason = error instanceof ReleaseError ? error.reason : "error";
   const text =
     reason === "rate-limit"
-      ? "O GitHub limitou as consultas deste endereço por um tempo. Tente de novo em alguns minutos ou baixe direto na página de releases."
+      ? t("shell.download.failRateLimit")
       : reason === "network"
-        ? "Não foi possível falar com o GitHub. Verifique a internet e tente de novo."
-        : "Não foi possível carregar a versão mais recente. Tente de novo ou baixe direto na página de releases.";
+        ? t("shell.download.failNetwork")
+        : t("shell.download.failGeneric");
   return (
     <div
       role="alert"
       className="flex max-w-xl flex-col items-start gap-3 rounded-xl border border-border bg-card p-5 shadow-sm"
     >
       <ErrorIllustration className="h-28 w-auto" />
-      <h2 className="text-lg font-semibold tracking-tight">Não deu para buscar a versão</h2>
+      <h2 className="text-lg font-semibold tracking-tight">{t("shell.download.failTitle")}</h2>
       <p className="text-sm text-pretty text-muted-foreground">{text}</p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={onRetry} loading={retrying}>
-          <RotateCw aria-hidden /> Tentar de novo
+          <RotateCw aria-hidden /> {t("common.retry")}
         </Button>
         <Button asChild variant="outline">
           <a href={RELEASES_PAGE_URL} target="_blank" rel="noreferrer">
-            Releases no GitHub <ExternalLink aria-hidden />
+            {t("shell.download.releasesLink")} <ExternalLink aria-hidden />
           </a>
         </Button>
       </div>
@@ -251,29 +260,30 @@ function TargetCard({
   release: Release;
   highlighted: boolean;
 }) {
+  const { t } = useT();
   const list = installersFor(release, target);
   return (
     <Card
       className={cn("h-full gap-3 py-4", highlighted && "border-brand-400 ring-1 ring-brand-400")}
-      aria-label={target.title}
+      aria-label={t(target.titleKey)}
     >
       <div className="flex flex-col gap-0.5 px-4">
         <h3 className="flex items-center gap-2 font-semibold tracking-tight">
-          {target.title}
+          {t(target.titleKey)}
           {highlighted ? (
             <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-brand-text">
-              Recomendado
+              {t("shell.download.recommended")}
             </span>
           ) : null}
         </h3>
-        <p className="text-xs text-pretty text-muted-foreground">{target.subtitle}</p>
+        <p className="text-xs text-pretty text-muted-foreground">{t(target.subtitleKey)}</p>
         <p className="text-xs text-muted-foreground">
-          Versão {release.version}
-          {release.publishedAt ? ` · ${date.format(new Date(release.publishedAt))}` : ""}
+          {t("shell.download.versionOnly", { version: release.version })}
+          {release.publishedAt ? ` · ${formatDate(release.publishedAt)}` : ""}
         </p>
       </div>
       {list.length === 0 ? (
-        <p className="px-4 text-sm text-muted-foreground">Ainda não disponível nesta versão.</p>
+        <p className="px-4 text-sm text-muted-foreground">{t("shell.download.unavailable")}</p>
       ) : (
         <ul className="flex flex-col gap-3 px-4">
           {list.map((i) => (
@@ -284,7 +294,7 @@ function TargetCard({
                 className="justify-start"
               >
                 <a href={i.url} download>
-                  <Download aria-hidden /> {KIND_LABEL[i.kind]} · {formatBytes(i.size)}
+                  <Download aria-hidden /> {t(KIND_LABEL_KEY[i.kind])} · {formatBytes(i.size)}
                 </a>
               </Button>
               <Checksum installer={i} />
@@ -297,6 +307,7 @@ function TargetCard({
 }
 
 function Checksum({ installer }: { installer: Installer }) {
+  const { t } = useT();
   const [copied, setCopied] = useState(false);
   if (!installer.sha256) {
     return installer.checksumUrl ? (
@@ -304,7 +315,7 @@ function Checksum({ installer }: { installer: Installer }) {
         href={installer.checksumUrl}
         className="text-xs text-brand-text underline-offset-4 hover:underline"
       >
-        Baixar o arquivo .sha256
+        {t("shell.download.sha256File")}
       </a>
     ) : null;
   }
@@ -315,7 +326,7 @@ function Checksum({ installer }: { installer: Installer }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error("Não foi possível copiar. Selecione o texto e copie à mão.");
+      toast.error(t("shell.download.copyFail"));
     }
   }
   return (
@@ -326,7 +337,7 @@ function Checksum({ installer }: { installer: Installer }) {
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label={`Copiar o SHA-256 de ${installer.name}`}
+        aria-label={t("shell.download.copySha", { name: installer.name })}
         onClick={() => void copy()}
       >
         {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
@@ -336,76 +347,51 @@ function Checksum({ installer }: { installer: Installer }) {
 }
 
 function InstallHelp({ highlight }: { highlight: Os | null }) {
+  const { t } = useT();
   const block = "rounded-xl border border-border bg-card shadow-sm";
   const summary =
     "flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-accent";
   const code = "rounded bg-secondary px-1.5 py-0.5 font-mono text-xs break-all";
+  const tags = {
+    b: (c: string) => <strong>{c}</strong>,
+    q: (c: string) => <q>{c}</q>,
+    code: (c: string) => <code className={code}>{c}</code>,
+  };
+  const rich = (key: MessageKey) => <RichText text={t(key)} tags={tags} />;
   return (
     <section aria-labelledby="dl-help" className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <h2 id="dl-help" className="text-xl font-semibold tracking-tight">
-          Como instalar
+          {t("shell.download.help.title")}
         </h2>
         <p className="max-w-2xl text-sm text-pretty text-muted-foreground">
-          O instalador do Spook <strong>não tem assinatura de código</strong> da Microsoft nem da
-          Apple (isso exige uma conta paga). Por isso o sistema mostra um aviso na primeira
-          abertura; o app é o mesmo e você pode conferir o SHA-256 do arquivo antes de abrir.
+          {rich("shell.download.help.intro")}
         </p>
       </div>
       <details className={block} open={highlight === "windows"}>
-        <summary className={summary}>Windows (SmartScreen)</summary>
+        <summary className={summary}>{t("shell.download.help.win.summary")}</summary>
         <ol className="flex list-decimal flex-col gap-1.5 px-8 pb-4 text-sm text-pretty">
-          <li>
-            Abra o arquivo .exe baixado. A instalação é só para o seu usuário, sem pedir
-            administrador.
-          </li>
-          <li>
-            Se aparecer <q>O Windows protegeu o computador</q>, clique em{" "}
-            <strong>Mais informações</strong> e depois em <strong>Executar assim mesmo</strong>.
-          </li>
-          <li>
-            Para conferir o arquivo: no PowerShell,{" "}
-            <code className={code}>Get-FileHash .\Spook-*.exe</code> e compare com o SHA-256 acima.
-          </li>
+          <li>{t("shell.download.help.win.step1")}</li>
+          <li>{rich("shell.download.help.win.step2")}</li>
+          <li>{rich("shell.download.help.win.step3")}</li>
         </ol>
       </details>
       <details className={block} open={highlight === "macos"}>
-        <summary className={summary}>macOS (Gatekeeper)</summary>
+        <summary className={summary}>{t("shell.download.help.mac.summary")}</summary>
         <ol className="flex list-decimal flex-col gap-1.5 px-8 pb-4 text-sm text-pretty">
-          <li>
-            Abra o .dmg e arraste o <strong>Spook</strong> para a pasta Aplicativos.
-          </li>
-          <li>
-            Na primeira vez o macOS pode dizer que o app não pode ser aberto. Abra{" "}
-            <strong>Ajustes do Sistema, Privacidade e Segurança</strong> e clique em{" "}
-            <strong>Abrir mesmo assim</strong> (em versões mais antigas: botão direito no Spook,
-            Abrir).
-          </li>
-          <li>
-            Se disser que o app está <q>danificado</q>, remova a quarentena no Terminal:{" "}
-            <code className={code}>xattr -dr com.apple.quarantine /Applications/Spook.app</code>
-          </li>
-          <li>
-            Para conferir o arquivo: <code className={code}>shasum -a 256 Spook-*.dmg</code>.
-          </li>
+          <li>{rich("shell.download.help.mac.step1")}</li>
+          <li>{rich("shell.download.help.mac.step2")}</li>
+          <li>{rich("shell.download.help.mac.step3")}</li>
+          <li>{rich("shell.download.help.mac.step4")}</li>
         </ol>
       </details>
       <details className={block} open={highlight === "linux"}>
-        <summary className={summary}>Linux</summary>
+        <summary className={summary}>{t("shell.download.help.linux.summary")}</summary>
         <ol className="flex list-decimal flex-col gap-1.5 px-8 pb-4 text-sm text-pretty">
-          <li>
-            <strong>AppImage</strong> (recomendado, atualiza sozinho):{" "}
-            <code className={code}>chmod +x Spook-*.AppImage &amp;&amp; ./Spook-*.AppImage</code>
-          </li>
-          <li>
-            <strong>.deb</strong> (Ubuntu e Debian):{" "}
-            <code className={code}>sudo apt install ./Spook-*.deb</code>. Para atualizar, baixe o
-            novo .deb aqui.
-          </li>
-          <li>Pede glibc 2.39 ou mais nova (Ubuntu 24.04+, Debian 13+, Fedora 40+).</li>
-          <li>
-            Para conferir o arquivo: <code className={code}>sha256sum Spook-*</code>.
-          </li>
+          <li>{rich("shell.download.help.linux.step1")}</li>
+          <li>{rich("shell.download.help.linux.step2")}</li>
+          <li>{t("shell.download.help.linux.step3")}</li>
+          <li>{rich("shell.download.help.linux.step4")}</li>
         </ol>
       </details>
     </section>

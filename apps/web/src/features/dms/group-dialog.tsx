@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/i18n";
 import { dmMessage } from "@/lib/app-errors";
 import { removeDM, upsertDM } from "@/lib/dm-cache";
 import { queryKeys } from "@/lib/queryKeys";
@@ -50,6 +51,7 @@ export function GroupDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: me } = useGetMe();
@@ -72,7 +74,7 @@ export function GroupDialog({
         qc,
         await rename.mutateAsync({ channelId: channel.id, data: { name: name.trim() } }),
       );
-      toast.success("Nome da conversa atualizado.");
+      toast.success(t("people.group.renamed"));
     } catch (e) {
       toast.error(dmMessage(e, "rename"));
     }
@@ -128,12 +130,11 @@ export function GroupDialog({
         >
           <DialogHead
             icon={Users}
-            title="Conversa em grupo"
-            description={`${recipients.length} de ${MAX_PARTICIPANTS} participantes. ${
-              owner
-                ? "Você é o dono: só você adiciona e remove pessoas."
-                : "Só o dono adiciona ou remove pessoas."
-            }`}
+            title={t("people.group.title")}
+            description={t(owner ? "people.group.descOwner" : "people.group.descMember", {
+              count: recipients.length,
+              max: MAX_PARTICIPANTS,
+            })}
           />
           <DialogBody className="gap-6">
             {owner ? (
@@ -145,7 +146,7 @@ export function GroupDialog({
                 }}
               >
                 <div className="flex flex-1 flex-col gap-1.5">
-                  <Label htmlFor="rename-group">Nome do grupo</Label>
+                  <Label htmlFor="rename-group">{t("people.group.nameLabel")}</Label>
                   <Input
                     id="rename-group"
                     value={name}
@@ -159,16 +160,16 @@ export function GroupDialog({
                   disabled={!nameChanged}
                   loading={rename.isPending}
                 >
-                  Salvar nome
+                  {t("people.group.saveName")}
                 </Button>
               </form>
             ) : null}
 
             <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold">Participantes</h3>
+              <h3 className="text-sm font-semibold">{t("people.group.participants")}</h3>
               <ul
                 className="flex flex-col divide-y divide-border/70 rounded-lg border border-border"
-                aria-label="Participantes"
+                aria-label={t("people.group.participants")}
               >
                 {recipients.map((r) => (
                   <li
@@ -184,11 +185,13 @@ export function GroupDialog({
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {recipientName(r)}
                       {r.id === me?.id ? (
-                        <span className="ml-1 text-xs text-muted-foreground">(você)</span>
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          {t("people.group.you")}
+                        </span>
                       ) : null}
                       {r.id === channel.owner_id ? (
                         <span className="ml-1.5 inline-flex items-center gap-1 align-middle text-xs text-brand-text">
-                          <Crown className="size-3" aria-hidden /> (dono)
+                          <Crown className="size-3" aria-hidden /> {t("people.group.owner")}
                         </span>
                       ) : null}
                     </span>
@@ -197,11 +200,11 @@ export function GroupDialog({
                         variant="ghost"
                         size="sm"
                         className="text-destructive-text hover:bg-danger-soft hover:text-destructive-text"
-                        aria-label={`Remover ${recipientName(r)}`}
+                        aria-label={t("people.group.removeAria", { name: recipientName(r) })}
                         onClick={() => void removeOne(r.id)}
                         disabled={remove.isPending}
                       >
-                        <UserMinus /> Remover
+                        <UserMinus /> {t("people.group.remove")}
                       </Button>
                     ) : null}
                   </li>
@@ -210,8 +213,8 @@ export function GroupDialog({
             </section>
 
             {owner ? (
-              <section aria-label="Adicionar pessoas" className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold">Adicionar pessoas</h3>
+              <section aria-label={t("people.group.addPeople")} className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold">{t("people.group.addPeople")}</h3>
                 {free > 0 ? (
                   <>
                     <PeoplePicker
@@ -227,12 +230,12 @@ export function GroupDialog({
                       loading={add.isPending}
                       className="self-end"
                     >
-                      Adicionar
+                      {t("people.group.add")}
                     </Button>
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    A conversa já tem 10 participantes.
+                    {t("people.group.full", { max: MAX_PARTICIPANTS })}
                   </p>
                 )}
               </section>
@@ -246,26 +249,26 @@ export function GroupDialog({
                   className="text-destructive-text hover:bg-danger-soft hover:text-destructive-text"
                   onClick={() => setLeaving(true)}
                 >
-                  <LogOut /> Sair da conversa
+                  <LogOut /> {t("people.group.leave")}
                 </Button>
               ) : undefined
             }
           >
             <DialogClose asChild>
-              <Button variant="outline">Fechar</Button>
+              <Button variant="outline">{t("people.common.close")}</Button>
             </DialogClose>
           </DialogActions>
         </DialogContent>
       </Dialog>
       <AlertDialog open={leaving} onOpenChange={setLeaving}>
         <AlertDialogContent>
-          <AlertDialogTitle>Sair da conversa?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Você deixa de receber as mensagens. Só o dono pode adicionar você de novo.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{t("people.group.leaveTitle")}</AlertDialogTitle>
+          <AlertDialogDescription>{t("people.group.leaveDescription")}</AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void leave()}>Sair</AlertDialogAction>
+            <AlertDialogCancel>{t("people.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void leave()}>
+              {t("people.group.leaveConfirm")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

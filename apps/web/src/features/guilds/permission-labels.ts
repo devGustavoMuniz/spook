@@ -1,87 +1,125 @@
 import { Permission, type PermissionName } from "@spook/shared";
+import type { MessageKey } from "@/i18n";
 
-export type PermissionInfo = { name: PermissionName; label: string; description: string };
-export type PermissionGroup = { id: string; title: string; items: PermissionInfo[] };
+/** Chaves do catálogo (guilds.ts): o texto nunca fica no módulo, para trocar de idioma ao vivo. */
+export type PermissionInfo = { name: PermissionName; labelKey: MessageKey; descKey: MessageKey };
+export type PermissionGroup = { id: string; titleKey: MessageKey; items: PermissionInfo[] };
 
 /** Permissões agrupadas para a tela de cargos (as flags são as do SPEC 7; só muda a apresentação). */
 export const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     id: "general",
-    title: "Geral",
+    titleKey: "guilds.perm.group.general",
     items: [
-      { name: "ADMINISTRATOR", label: "Administrador", description: "Todas as permissões." },
-      { name: "VIEW_CHANNEL", label: "Ver canais", description: "Ler as mensagens." },
-      { name: "MANAGE_GUILD", label: "Gerenciar servidor", description: "Nome, ícone e convites." },
+      {
+        name: "ADMINISTRATOR",
+        labelKey: "guilds.perm.ADMINISTRATOR.label",
+        descKey: "guilds.perm.ADMINISTRATOR.desc",
+      },
+      {
+        name: "VIEW_CHANNEL",
+        labelKey: "guilds.perm.VIEW_CHANNEL.label",
+        descKey: "guilds.perm.VIEW_CHANNEL.desc",
+      },
+      {
+        name: "MANAGE_GUILD",
+        labelKey: "guilds.perm.MANAGE_GUILD.label",
+        descKey: "guilds.perm.MANAGE_GUILD.desc",
+      },
       {
         name: "MANAGE_CHANNELS",
-        label: "Gerenciar canais",
-        description: "Criar, editar e excluir.",
+        labelKey: "guilds.perm.MANAGE_CHANNELS.label",
+        descKey: "guilds.perm.MANAGE_CHANNELS.desc",
       },
-      { name: "MANAGE_ROLES", label: "Gerenciar cargos", description: "Cargos abaixo do seu." },
-      { name: "CREATE_INVITE", label: "Criar convites", description: "Gerar links de convite." },
+      {
+        name: "MANAGE_ROLES",
+        labelKey: "guilds.perm.MANAGE_ROLES.label",
+        descKey: "guilds.perm.MANAGE_ROLES.desc",
+      },
+      {
+        name: "CREATE_INVITE",
+        labelKey: "guilds.perm.CREATE_INVITE.label",
+        descKey: "guilds.perm.CREATE_INVITE.desc",
+      },
       {
         name: "CHANGE_NICKNAME",
-        label: "Mudar o próprio apelido",
-        description: "Apelido só neste servidor.",
+        labelKey: "guilds.perm.CHANGE_NICKNAME.label",
+        descKey: "guilds.perm.CHANGE_NICKNAME.desc",
       },
     ],
   },
   {
     id: "text",
-    title: "Texto",
+    titleKey: "guilds.perm.group.text",
     items: [
-      { name: "SEND_MESSAGES", label: "Enviar mensagens", description: "Escrever nos canais." },
-      { name: "ATTACH_FILES", label: "Anexar arquivos", description: "Enviar imagens e arquivos." },
+      {
+        name: "SEND_MESSAGES",
+        labelKey: "guilds.perm.SEND_MESSAGES.label",
+        descKey: "guilds.perm.SEND_MESSAGES.desc",
+      },
+      {
+        name: "ATTACH_FILES",
+        labelKey: "guilds.perm.ATTACH_FILES.label",
+        descKey: "guilds.perm.ATTACH_FILES.desc",
+      },
       {
         name: "MENTION_EVERYONE",
-        label: "Mencionar @everyone, @here e todos os cargos",
-        description: "Notifica muita gente de uma vez; use com cuidado.",
+        labelKey: "guilds.perm.MENTION_EVERYONE.label",
+        descKey: "guilds.perm.MENTION_EVERYONE.desc",
       },
     ],
   },
   {
     id: "voice",
-    title: "Voz",
+    titleKey: "guilds.perm.group.voice",
     items: [
-      { name: "CONNECT", label: "Conectar à voz", description: "Entrar nos canais de voz." },
-      { name: "SPEAK", label: "Falar", description: "Usar o microfone na chamada." },
-      { name: "VIDEO", label: "Vídeo", description: "Ligar a câmera e compartilhar a tela." },
+      {
+        name: "CONNECT",
+        labelKey: "guilds.perm.CONNECT.label",
+        descKey: "guilds.perm.CONNECT.desc",
+      },
+      { name: "SPEAK", labelKey: "guilds.perm.SPEAK.label", descKey: "guilds.perm.SPEAK.desc" },
+      { name: "VIDEO", labelKey: "guilds.perm.VIDEO.label", descKey: "guilds.perm.VIDEO.desc" },
     ],
   },
   {
     id: "moderation",
-    title: "Moderação",
+    titleKey: "guilds.perm.group.moderation",
     items: [
-      { name: "KICK_MEMBERS", label: "Expulsar membros", description: "Remover do servidor." },
+      {
+        name: "KICK_MEMBERS",
+        labelKey: "guilds.perm.KICK_MEMBERS.label",
+        descKey: "guilds.perm.KICK_MEMBERS.desc",
+      },
       {
         name: "MANAGE_MESSAGES",
-        label: "Gerenciar mensagens",
-        description: "Excluir as de outros.",
+        labelKey: "guilds.perm.MANAGE_MESSAGES.label",
+        descKey: "guilds.perm.MANAGE_MESSAGES.desc",
       },
       {
         name: "BAN_MEMBERS",
-        label: "Banir membros",
-        description: "Banir e desbanir, com motivo.",
+        labelKey: "guilds.perm.BAN_MEMBERS.label",
+        descKey: "guilds.perm.BAN_MEMBERS.desc",
       },
       {
         name: "MANAGE_NICKNAMES",
-        label: "Gerenciar apelidos",
-        description: "Mudar o apelido de outros.",
+        labelKey: "guilds.perm.MANAGE_NICKNAMES.label",
+        descKey: "guilds.perm.MANAGE_NICKNAMES.desc",
       },
       {
         name: "MUTE_MEMBERS",
-        label: "Mutar membros na voz",
-        description: "Silenciar pelo servidor.",
+        labelKey: "guilds.perm.MUTE_MEMBERS.label",
+        descKey: "guilds.perm.MUTE_MEMBERS.desc",
       },
       {
         name: "DISCONNECT_MEMBERS",
-        label: "Desconectar da voz",
-        description: "Tirar alguém da chamada.",
+        labelKey: "guilds.perm.DISCONNECT_MEMBERS.label",
+        descKey: "guilds.perm.DISCONNECT_MEMBERS.desc",
       },
       {
         name: "VIEW_AUDIT_LOG",
-        label: "Ver o registro de auditoria",
-        description: "Quem fez o quê no servidor.",
+        labelKey: "guilds.perm.VIEW_AUDIT_LOG.label",
+        descKey: "guilds.perm.VIEW_AUDIT_LOG.desc",
       },
     ],
   },

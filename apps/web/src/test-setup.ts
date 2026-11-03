@@ -3,9 +3,15 @@ import { FakeSocket } from "@spook/shared/testing";
 import { toast } from "sonner";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { setGatewaySocketFactory } from "@/features/gateway/socket";
+import { setLocale } from "@/i18n";
 import { server } from "@/test/server";
 
 window.scrollTo = () => {};
+// O idioma padrão dos testes é pt-BR (o jsdom anuncia en-US); testes de i18n trocam com setLocale().
+Object.defineProperty(navigator, "language", { configurable: true, value: "pt-BR" });
+Object.defineProperty(navigator, "languages", { configurable: true, value: ["pt-BR"] });
+// Os imports já detectaram o idioma (com navigator.language = en-US): reafirma o padrão dos testes.
+setLocale("pt-BR", { persist: false });
 // jsdom não cria object URLs (miniaturas locais dos anexos).
 URL.createObjectURL ??= () => "blob:spook-test";
 URL.revokeObjectURL ??= () => {};
@@ -79,6 +85,10 @@ beforeAll(() => {
   }) as typeof fetch;
 });
 afterEach(() => {
+  setLocale("pt-BR", { persist: false });
+  try {
+    localStorage.removeItem("spook-locale");
+  } catch {}
   toast.dismiss(); // o estado dos toasts é global ao módulo: não vaza para o teste seguinte
   FakeSocket.reset();
   server.resetHandlers();

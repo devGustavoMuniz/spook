@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { useUploadQueue } from "./use-upload-queue";
 
 const SHOWN = 3;
@@ -8,7 +9,7 @@ const SHOWN = 3;
 export function toastRejected(rejected: string[]) {
   for (const msg of rejected.slice(0, SHOWN)) toast.error(msg);
   if (rejected.length > SHOWN)
-    toast.error(`E mais ${rejected.length - SHOWN} arquivo(s) recusado(s).`);
+    toast.error(t("chat.attach.moreRejected", { count: rejected.length - SHOWN }));
 }
 
 /**
@@ -21,7 +22,7 @@ export function useComposerAttachments(channelId: string, canAttach: boolean) {
     (files: File[]) => {
       if (files.length === 0) return;
       if (!canAttach) {
-        toast.error("Você não tem permissão para anexar arquivos neste canal.");
+        toast.error(t("chat.upload.forbidden"));
         return;
       }
       toastRejected(queue.add(files).rejected);

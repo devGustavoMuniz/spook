@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LogoMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
+import { t, useT } from "@/i18n";
 import { UpdateProgress } from "./update-progress";
 import { updater as appUpdater, progressPercent, type Updater, type UpdateStatus } from "./updater";
 
@@ -14,17 +15,19 @@ const FADE_MS = 200;
 export function splashText(status: UpdateStatus): string {
   switch (status.kind) {
     case "available":
-      return `Nova versão ${status.version} encontrada…`;
+      return t("settings.splash.available", { version: status.version });
     case "downloading": {
       const pct = progressPercent(status.downloaded, status.total);
-      return `Baixando a versão ${status.version}${pct === null ? "…" : `: ${pct}%`}`;
+      return pct === null
+        ? t("settings.updates.downloadingUnknown", { version: status.version })
+        : t("settings.updates.downloading", { version: status.version, percent: pct });
     }
     case "ready":
-      return "Reiniciando para atualizar…";
+      return t("settings.splash.restarting");
     case "error":
       return status.message;
     default:
-      return "Verificando atualizações…";
+      return t("settings.updates.checking");
   }
 }
 
@@ -34,6 +37,7 @@ export function splashText(status: UpdateStatus): string {
  * pessoa pode seguir usando o app; terminando o download ainda na abertura, reinicia sozinha (não há chamada ainda).
  */
 export function UpdateSplash({ updater = appUpdater }: { updater?: Updater }) {
+  const { t } = useT();
   const status = updater.useStore((s) => s.status);
   const [hiding, setHiding] = useState(false);
   const [gone, setGone] = useState(false);
@@ -100,7 +104,7 @@ export function UpdateSplash({ updater = appUpdater }: { updater?: Updater }) {
         ) : null}
         {working || failed ? (
           <Button variant="outline" size="sm" onClick={() => setHiding(true)}>
-            Continuar usando o app
+            {t("settings.splash.continue")}
           </Button>
         ) : null}
       </div>

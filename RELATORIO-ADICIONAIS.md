@@ -308,3 +308,11 @@ Itens 4.6 e 4.13 e 7.1 a 7.4 do `PLANO-ADICIONAIS-2.md`. Migration `00015_voice_
 - **Admin.** Tabela `livekit_samples` (amostra por minuto do LiveKit e do gateway, retenção `LIVEKIT_SAMPLES_RETENTION_DAYS`), `GET /api/admin/livekit/history|usage`, `gateway/history`, `activity/heatmap` e `servers/top`, disco (`ADMIN_DISK_PATH`) e bytes do S3 em `/system`; web com mapa de calor, séries de participantes/tráfego/gateway com seletor 24 h / 7 dias / 30 dias, ranking de servidores, medidores de disco e de plano, "Coletando dados…" e os avisos antigos removidos.
 - **Testes.** Go: unitários com LiveKit/Prometheus/S3 falsos e relógio falso (`voice` watch e reconciliação, `admin` histórico/uso/cache/disco, `gateway` filtro de `viewers`, `config`, `app/limits_test.go`), integração (`app/voice_admin_history_integration_test.go`: espectadores ponta a ponta com webhooks, reconciliação, 401/403/200 dos endpoints novos, deltas com reinício de contador, limites e cache, rate limits com 429); Vitest (`admin.test.tsx`, `screen-watch.test.ts`, `viewers.test.tsx`, `stream-card.test.tsx`).
 - **Pendências.** Ver `PENDENCIAS-DONO.md` ("Voz no backend, histórico do admin e rate limits") e `VALIDACAO-MANUAL.md` (RF28).
+
+## Idiomas pt-BR e inglês (03/11/2026)
+- Módulo próprio `apps/web/src/i18n/` (sem biblioteca): `t`/`useT`, interpolação, plural por `Intl.PluralRules`, fallback para pt-BR, formatação por idioma, `<html lang>`; 1660 chaves por idioma em 10 catálogos tipados.
+- Cobertura: auth, shell, canais, chat, membros, perfil, configurações, diálogos, DMs/amigos, voz/palco, notificações, download, erros e validação (Zod); admin só em pt-BR (justificado no SPEC).
+- Idioma: `localStorage` -> `navigator.language` -> pt-BR; seletor em "Aparência e idioma" e no menu do usuário; troca ao vivo. Sem mudança no backend nem no contrato.
+- Erros do servidor traduzidos por tabela de `detail` (~100) e `code`; push segue em pt-BR; bandeja do Tauri traduzida via `app_set_locale` (Rust não compilado).
+- Testes: paridade de chaves/placeholders, varredor de literais pt-BR, módulo i18n, E2E `i18n.spec.ts`. Glossário no `apps/web/README.md`.
+- Pendências: `PENDENCIAS-DONO.md` e `VALIDACAO-MANUAL.md` ("Idiomas pt-BR e inglês").

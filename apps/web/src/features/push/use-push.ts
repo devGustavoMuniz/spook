@@ -1,6 +1,7 @@
 import { isApiError } from "@spook/shared";
 import { useCallback, useEffect, useState } from "react";
 import { isTauri } from "@/desktop/runtime";
+import { t } from "@/i18n";
 import {
   detectPushStatus,
   disablePush,
@@ -11,13 +12,12 @@ import {
 
 function errorText(e: unknown): string {
   if (isApiError(e)) {
-    if (e.status === 409)
-      return "Você já tem notificações ativas em 10 dispositivos. Desative em outro para continuar.";
-    if (e.status === 422) return "O navegador devolveu uma inscrição que o servidor não aceita.";
-    if (e.status === 429) return "Muitas tentativas. Aguarde um instante e tente de novo.";
-    if (e.status === 503) return "As notificações push estão desligadas neste servidor.";
+    if (e.status === 409) return t("settings.push.tooMany");
+    if (e.status === 422) return t("settings.push.badSubscription");
+    if (e.status === 429) return t("settings.push.rateLimited");
+    if (e.status === 503) return t("settings.push.serverOff");
   }
-  return "Não foi possível mudar as notificações agora. Tente de novo.";
+  return t("settings.push.failed");
 }
 
 /** Estado e ações do push para a tela de configurações. */

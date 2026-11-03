@@ -1,22 +1,28 @@
+import { type MessageKey, t } from "@/i18n";
 import { VoiceMediaError } from "./engine";
 
 /** Mensagem amigável (pt-br) para falhas de microfone, câmera e tela. */
 export function mediaMessage(err: unknown): string {
-  if (!(err instanceof VoiceMediaError)) return "Não foi possível acessar o dispositivo.";
+  if (!(err instanceof VoiceMediaError)) return t("voice.media.deviceFallback");
   if (err.userMessage) return err.userMessage;
-  const what = { microphone: "o microfone", camera: "a câmera", screen: "a tela" }[err.device];
+  const whatKey: Record<typeof err.device, MessageKey> = {
+    microphone: "voice.media.microphone",
+    camera: "voice.media.cameraName",
+    screen: "voice.media.screenName",
+  };
+  const what = t(whatKey[err.device]);
   switch (err.code) {
     case "permission-denied":
-      return `O navegador bloqueou ${what}. Permita o acesso nas configurações do site e tente de novo.`;
+      return t("voice.media.denied", { what });
     case "cancelled":
-      return "Compartilhamento de tela cancelado.";
+      return t("voice.media.cancelled");
     case "not-found":
-      return `Nenhum dispositivo encontrado para usar ${what}.`;
+      return t("voice.media.notFound", { what });
     case "in-use":
-      return `Não foi possível abrir ${what}: outro programa pode estar usando.`;
+      return t("voice.media.inUse", { what });
     case "unsupported":
-      return "Este navegador não permite essa função.";
+      return t("voice.media.unsupported");
     default:
-      return `Não foi possível usar ${what}.`;
+      return t("voice.media.generic", { what });
   }
 }

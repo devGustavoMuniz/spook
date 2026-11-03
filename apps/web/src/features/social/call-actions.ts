@@ -1,5 +1,6 @@
 import { acceptDMCall, cancelDMCall, declineDMCall, isApiError, ringDMCall } from "@spook/shared";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { joinVoice, leaveCall } from "../voice/controller";
 import { useCallStore } from "./call-store";
@@ -12,24 +13,24 @@ const target = (channelId: string, title: string) => ({
   canSpeak: true,
 });
 
-/** Mensagem em pt-br dos erros de chamada em DM. */
+/** Mensagem (no idioma ativo) dos erros de chamada em DM. */
 export function callMessage(err: unknown): string {
   if (!isApiError(err)) return appMessage(err);
   switch (err.status) {
     case 403:
       return err.detail
         ? err.detail.charAt(0).toUpperCase() + err.detail.slice(1)
-        : "Não foi possível ligar.";
+        : t("people.call.cannotCall");
     case 404:
-      return "Essa chamada já acabou.";
+      return t("people.call.ended");
     case 409:
-      return "Já existe uma chamada nesta conversa.";
+      return t("people.call.alreadyExists");
     case 429:
       return err.retryAfter
-        ? `Você está ligando rápido demais. Tente de novo em ${err.retryAfter} s.`
-        : "Você está ligando rápido demais.";
+        ? t("people.call.rateLimitedIn", { seconds: err.retryAfter })
+        : t("people.call.rateLimited");
     case 503:
-      return "A voz está indisponível no momento. Tente novamente mais tarde.";
+      return t("people.call.voiceUnavailable");
     default:
       return appMessage(err);
   }

@@ -118,6 +118,23 @@ O diálogo "Dispositivos de áudio e vídeo" tem a seção "Qualidade do microfo
 - O teste `src/features/voice/noise-dsp.test.ts` roda o worklet e o WASM reais em Node (contexto `vm`), sem navegador: `pnpm --filter @spook/web exec vitest run src/features/voice/noise-dsp.test.ts`.
 - O compartilhamento de tela abre antes um diálogo com "Incluir áudio" desligado por padrão (evita eco); `getDisplayMedia` usa `selfBrowserSurface: "exclude"`, `suppressLocalAudioPlayback` e `restrictOwnAudio`.
 
+## Internacionalização (pt-BR e inglês)
+
+Módulo próprio, sem biblioteca: `src/i18n/` (SPEC 5.5, "Adicional: internacionalização").
+
+- **Catálogos** em `src/i18n/messages/pt-BR/<arquivo>.ts` (idioma-fonte) e `src/i18n/messages/en/<arquivo>.ts`, com chaves planas `ns.area.nome`. `MessageKey` deriva de pt-BR: `t("chave.inexistente")` não compila. Arquivos: `common`, `format` (padrões de data), `auth`, `shell`, `chat`, `people`, `guilds`, `voice`, `settings`, `system`.
+- **Componentes**: `const { t } = useT();` e `t("chat.composer.placeholder", { channel })`. Fora de componentes (schemas Zod, handlers, toasts): `import { t } from "@/i18n"`, sempre dentro de funções (nunca em escopo de módulo, senão não troca ao vivo; use `{ error: () => t(...) }` no Zod).
+- **Placeholders** `{nome}`; **plural** com `{ one: "{count} pessoa", other: "{count} pessoas" }` e `t(key, { count })` (`Intl.PluralRules`). Nada de concatenar frases.
+- **Datas e números**: `lib/format.ts` (padrões em `format.*`), `formatNumber`, `formatBadge` (99+), `formatList`, `dateFnsLocale()` em `@/i18n`.
+- **Idioma ativo**: `localStorage` (`spook-locale`) -> `navigator.language` -> pt-BR; troca ao vivo por `setLocale` (Configurações -> "Aparência e idioma" e menu do usuário); atualiza `<html lang>`. Só no navegador (não vai ao servidor).
+- **Novo idioma**: adicione o código em `LOCALES` (`i18n/types.ts`) e em `LOCALE_NAMES`, crie `messages/<código>/` espelhando `en/`, registre em `catalogs` (`core.ts`) e no `dateFnsLocale`.
+- **Nova chave**: crie em pt-BR e em en (mesmos placeholders). Os testes `catalog-parity.test.ts` (mesmas chaves, placeholders e formas) e `no-literal-pt.test.ts` (varre `src/**` atrás de texto pt-BR literal; fora dele: `i18n/`, testes, `pages/admin`, `features/admin`, `components/charts`, `pages/dev`) reprovam o esquecimento.
+- **Fora**: o painel `/admin` fica só em pt-BR (ferramenta do dono). Erros do servidor sem `code` estável e o corpo dos push vêm em pt-BR (ver `lib/app-errors.ts`).
+
+### Glossário pt-BR -> en
+
+servidor = server; canal = channel; canal de voz/texto = voice/text channel; categoria = category; mensagem direta = direct message (DM); conversa em grupo = group DM; menção = mention; fixar = pin; silenciar = mute; ensurdecer = deafen; expulsar = kick; banir = ban; cargo = role; apelido = nickname; convite = invite; amigo = friend; bloquear = block; compartilhar tela = share screen; palco = stage; espectador = viewer; Ausente = Idle; Não perturbe = Do not disturb; Invisível = Invisible; entrar na conta = sign in; criar conta = create account; sair da conta = sign out. "Spook" não se traduz.
+
 ## Download do app e aviso de versão
 
 - `/download` (pública, `features/download`): lê o último release do GitHub, destaca o instalador do seu sistema e mostra

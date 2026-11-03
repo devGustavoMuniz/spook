@@ -1,22 +1,39 @@
 import { Permission, type PermissionName } from "@spook/shared";
+import type { MessageKey } from "@/i18n";
 
-/** Permissões que um canal pode permitir ou negar, na ordem em que aparecem no editor. */
-export const CHANNEL_PERMISSIONS: { name: PermissionName; label: string; description: string }[] = [
+/** Permissões que um canal pode permitir ou negar, na ordem em que aparecem no editor (textos no catálogo). */
+export const CHANNEL_PERMISSIONS: {
+  name: PermissionName;
+  labelKey: MessageKey;
+  descKey: MessageKey;
+}[] = [
   {
     name: "VIEW_CHANNEL",
-    label: "Ver o canal",
-    description: "Sem isso o canal some para a pessoa.",
+    labelKey: "channels.perm.VIEW_CHANNEL.label",
+    descKey: "channels.perm.VIEW_CHANNEL.desc",
   },
-  { name: "SEND_MESSAGES", label: "Enviar mensagens", description: "Escrever neste canal." },
-  { name: "ATTACH_FILES", label: "Anexar arquivos", description: "Enviar imagens e arquivos." },
+  {
+    name: "SEND_MESSAGES",
+    labelKey: "channels.perm.SEND_MESSAGES.label",
+    descKey: "channels.perm.SEND_MESSAGES.desc",
+  },
+  {
+    name: "ATTACH_FILES",
+    labelKey: "channels.perm.ATTACH_FILES.label",
+    descKey: "channels.perm.ATTACH_FILES.desc",
+  },
   {
     name: "MANAGE_MESSAGES",
-    label: "Gerenciar mensagens",
-    description: "Excluir e fixar as de outros.",
+    labelKey: "channels.perm.MANAGE_MESSAGES.label",
+    descKey: "channels.perm.MANAGE_MESSAGES.desc",
   },
-  { name: "CONNECT", label: "Conectar à voz", description: "Entrar neste canal de voz." },
-  { name: "SPEAK", label: "Falar", description: "Usar o microfone na chamada." },
-  { name: "VIDEO", label: "Vídeo", description: "Câmera e compartilhamento de tela." },
+  {
+    name: "CONNECT",
+    labelKey: "channels.perm.CONNECT.label",
+    descKey: "channels.perm.CONNECT.desc",
+  },
+  { name: "SPEAK", labelKey: "channels.perm.SPEAK.label", descKey: "channels.perm.SPEAK.desc" },
+  { name: "VIDEO", labelKey: "channels.perm.VIDEO.label", descKey: "channels.perm.VIDEO.desc" },
 ];
 
 /** Só as que fazem sentido para o tipo do canal (texto não tem voz; voz não tem mensagens). */

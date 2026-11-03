@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { AboutCard, BannerCard, useSaveProfile } from "@/features/settings/profile-fields";
 import { SecuritySection } from "@/features/settings/security";
 import { SettingsGroup } from "@/features/settings/ui";
+import { useT } from "@/i18n";
 import { applyServerError, messageFor } from "@/lib/errors";
 import { type ProfileForm, profileSchema, validateAvatar } from "@/lib/schemas";
 import { putWithProgress } from "@/lib/upload";
@@ -31,6 +32,7 @@ export function ProfilePage() {
 }
 
 function NameCard({ me }: { me: View }) {
+  const { t } = useT();
   const save = useSaveProfile();
   const {
     register,
@@ -45,7 +47,7 @@ function NameCard({ me }: { me: View }) {
   const onSubmit = handleSubmit(async ({ display_name }) => {
     try {
       await save({ display_name });
-      toast.success("Perfil atualizado.");
+      toast.success(t("shell.profile.updated"));
     } catch (e) {
       if (!applyServerError(e, setError)) toast.error(messageFor(e));
     }
@@ -54,11 +56,15 @@ function NameCard({ me }: { me: View }) {
   return (
     <SettingsGroup
       icon={UserRound}
-      title="Nome de exibição"
-      description={`Como você aparece para os outros. Deixe em branco para usar @${me.username}.`}
+      title={t("shell.profile.nameTitle")}
+      description={t("shell.profile.nameDesc", { username: me.username })}
     >
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-        <Field id="display_name" label="Nome de exibição" error={errors.display_name?.message}>
+        <Field
+          id="display_name"
+          label={t("shell.profile.nameTitle")}
+          error={errors.display_name?.message}
+        >
           <Input
             id="display_name"
             maxLength={32}
@@ -68,7 +74,7 @@ function NameCard({ me }: { me: View }) {
           />
         </Field>
         <Button type="submit" className="self-start" loading={isSubmitting}>
-          Salvar
+          {t("common.save")}
         </Button>
       </form>
     </SettingsGroup>
@@ -95,21 +101,27 @@ function ReadOnly({
 
 /** Dados que ainda não dá para editar: só leitura. */
 function AccountCard({ me }: { me: View }) {
+  const { t } = useT();
   return (
     <SettingsGroup
       icon={AtSign}
-      title="Conta"
-      description="Seu nome de usuário identifica você no Spook e não pode ser alterado. O e-mail e a senha ficam em Segurança, logo abaixo."
+      title={t("shell.profile.accountTitle")}
+      description={t("shell.profile.accountDesc")}
     >
       <dl className="flex flex-col gap-3">
-        <ReadOnly icon={AtSign} label="Usuário" value={`@${me.username}`} />
-        <ReadOnly icon={Mail} label="E-mail" value={me.email} />
+        <ReadOnly
+          icon={AtSign}
+          label={t("shell.profile.usernameLabel")}
+          value={`@${me.username}`}
+        />
+        <ReadOnly icon={Mail} label={t("common.email")} value={me.email} />
       </dl>
     </SettingsGroup>
   );
 }
 
 function AvatarCard({ me }: { me: View }) {
+  const { t } = useT();
   const save = useSaveProfile();
   const requestUpload = useRequestAvatarUpload();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -133,12 +145,10 @@ function AvatarCard({ me }: { me: View }) {
       });
       await putWithProgress(upload_url, file, setProgress);
       await save({ avatar_key: key });
-      toast.success("Avatar atualizado.");
+      toast.success(t("shell.profile.avatarUpdated"));
     } catch (e) {
       toast.error(
-        e instanceof Error && !("status" in e)
-          ? "Não foi possível enviar a imagem."
-          : messageFor(e),
+        e instanceof Error && !("status" in e) ? t("shell.profile.uploadFailed") : messageFor(e),
       );
     } finally {
       setProgress(null);
@@ -149,7 +159,7 @@ function AvatarCard({ me }: { me: View }) {
   async function remove() {
     try {
       await save({ remove_avatar: true });
-      toast.success("Avatar removido.");
+      toast.success(t("shell.profile.avatarRemoved"));
     } catch (e) {
       toast.error(messageFor(e));
     }
@@ -158,8 +168,8 @@ function AvatarCard({ me }: { me: View }) {
   return (
     <SettingsGroup
       icon={ImageIcon}
-      title="Avatar"
-      description="PNG, JPEG, WebP ou GIF (animado também), de até 5 MB."
+      title={t("shell.profile.avatarTitle")}
+      description={t("shell.profile.avatarDesc")}
     >
       <div className="flex flex-wrap items-center gap-4">
         <Avatar url={me.avatar_url} name={name} size={80} />
@@ -180,11 +190,11 @@ function AvatarCard({ me }: { me: View }) {
               disabled={busy}
               onClick={() => fileInput.current?.click()}
             >
-              {busy ? "Enviando…" : "Trocar avatar"}
+              {busy ? t("shell.profile.uploading") : t("shell.profile.changeAvatar")}
             </Button>
             {me.avatar_url ? (
               <Button type="button" variant="ghost" disabled={busy} onClick={remove}>
-                Remover
+                {t("shell.profile.remove")}
               </Button>
             ) : null}
           </div>
@@ -193,7 +203,7 @@ function AvatarCard({ me }: { me: View }) {
               className="h-2 w-48 accent-primary"
               max={100}
               value={progress ?? 0}
-              aria-label="Progresso do envio"
+              aria-label={t("shell.profile.progress")}
             />
           ) : null}
           {fileError ? (

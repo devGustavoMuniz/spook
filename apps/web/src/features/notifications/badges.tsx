@@ -1,10 +1,10 @@
 import { useShallow } from "zustand/react/shallow";
+import { formatBadge, t, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
   allMentions,
   type ChannelRead,
   dmTotals,
-  formatCount,
   guildTotals,
   type Totals,
   useReadStateStore,
@@ -12,7 +12,7 @@ import {
 
 /** "1 menção em #geral" / "3 menções em #geral" (99+ acima de 99). */
 export const mentionLabel = (count: number, where: string) =>
-  `${formatCount(count)} ${count === 1 ? "menção" : "menções"} em ${where}`;
+  t("settings.badges.mentionsIn", { count, shown: formatBadge(count), where });
 
 /** Contador vermelho de menções ("99+" acima de 99). `label` é o texto para leitores de tela. */
 export function MentionBadge({
@@ -24,17 +24,18 @@ export function MentionBadge({
   label?: string;
   className?: string;
 }) {
+  const { t } = useT();
   if (count <= 0) return null;
   return (
     <span
       role="img"
-      aria-label={label ?? `${formatCount(count)} ${count === 1 ? "menção" : "menções"}`}
+      aria-label={label ?? t("settings.badges.mentions", { count, shown: formatBadge(count) })}
       className={cn(
         "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-bold text-destructive-foreground tabular-nums",
         className,
       )}
     >
-      <span aria-hidden>{formatCount(count)}</span>
+      <span aria-hidden>{formatBadge(count)}</span>
     </span>
   );
 }

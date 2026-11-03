@@ -2,6 +2,8 @@
 // A fonte de dados é uma lista de `MentionOption`: usuários, cargos e `@everyone`/`@here` (estes só aparecem
 // para quem pode mencioná-los: MENTION_EVERYONE no canal ou cargo mencionável).
 
+import type { MessageKey } from "@/i18n";
+
 export type MentionOption = {
   /** Chave estável (id do usuário, do cargo...). */
   id: string;
@@ -12,8 +14,8 @@ export type MentionOption = {
   avatarUrl?: string;
   /** Cor do cargo (`#rrggbb`), quando `kind` é `role`. */
   color?: string;
-  /** Texto de apoio da opção (ex.: "Notifica todos os que veem o canal"). */
-  hint?: string;
+  /** Chave do texto de apoio da opção (ex.: "Todos que veem este canal"); traduzida na renderização. */
+  hintKey?: MessageKey;
   kind: "user" | "role" | "everyone";
 };
 
@@ -53,14 +55,14 @@ export const EVERYONE_OPTIONS: readonly MentionOption[] = [
     handle: "everyone",
     label: "everyone",
     kind: "everyone",
-    hint: "Todos que veem este canal",
+    hintKey: "chat.mentions.hintEveryone",
   },
   {
     id: "here",
     handle: "here",
     label: "here",
     kind: "everyone",
-    hint: "Só quem está online",
+    hintKey: "chat.mentions.hintHere",
   },
 ];
 

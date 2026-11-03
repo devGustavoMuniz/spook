@@ -6,6 +6,7 @@ import { ErrorIllustration, NotFoundIllustration } from "@/components/illustrati
 import { NavToggle } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
 
@@ -46,13 +47,16 @@ export function StateScreen({
   );
 }
 
-export const HomeButton = ({ variant = "default" }: { variant?: "default" | "outline" }) => (
-  <Button asChild variant={variant}>
-    <Link to="/">
-      <Home /> Ir para o início
-    </Link>
-  </Button>
-);
+export function HomeButton({ variant = "default" }: { variant?: "default" | "outline" }) {
+  const { t } = useT();
+  return (
+    <Button asChild variant={variant}>
+      <Link to="/">
+        <Home /> {t("shell.state.goHome")}
+      </Link>
+    </Button>
+  );
+}
 
 /** Erro de carregamento: 403 vira "sem permissão"; rede e 5xx oferecem "Tentar de novo". */
 export function ErrorState({
@@ -64,18 +68,19 @@ export function ErrorState({
   onRetry?: () => void;
   retrying?: boolean;
 }) {
+  const { t } = useT();
   const forbidden = isApiError(error) && error.status === 403;
   return (
     <StateScreen
       role="alert"
       illustration={<ErrorIllustration className="h-40 w-auto" />}
-      title={forbidden ? "Sem permissão" : "Não foi possível carregar"}
-      description={forbidden ? "Você não tem acesso a esta área." : appMessage(error)}
+      title={forbidden ? t("shell.state.forbiddenTitle") : t("shell.state.loadFailedTitle")}
+      description={forbidden ? t("shell.state.forbiddenBody") : appMessage(error)}
       actions={
         <>
           {!forbidden && onRetry ? (
             <Button onClick={onRetry} loading={retrying}>
-              <RotateCw /> Tentar de novo
+              <RotateCw /> {t("common.retry")}
             </Button>
           ) : null}
           <HomeButton variant={forbidden || !onRetry ? "default" : "outline"} />

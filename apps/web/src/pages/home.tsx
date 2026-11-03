@@ -8,10 +8,12 @@ import { ErrorState } from "@/components/state-screen";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DownloadAppButton } from "@/features/download/download-link";
 import { AddServerDialog } from "@/features/guilds/add-server-dialog";
+import { useT } from "@/i18n";
 import { lastLocation } from "@/lib/last-location";
 
 /** `/`: vai ao último servidor visitado (ou ao primeiro); sem servidores, mostra o estado vazio. */
 export function HomePage() {
+  const { t } = useT();
   const guilds = useListGuilds();
   const [dialog, setDialog] = useState<"create" | "join" | null>(null);
 
@@ -20,7 +22,7 @@ export function HomePage() {
       <output className="flex h-full flex-col items-center justify-center gap-3 p-6">
         <Skeleton className="size-24 rounded-3xl" />
         <Skeleton className="h-5 w-56" />
-        <span className="sr-only">Carregando seus servidores…</span>
+        <span className="sr-only">{t("shell.home.loading")}</span>
       </output>
     );
   if (guilds.isError)
@@ -45,11 +47,10 @@ export function HomePage() {
         <LogoMark size={112} glow />
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            Você ainda não está em nenhum servidor
+            {t("shell.home.emptyTitle")}
           </h1>
           <p className="mx-auto max-w-md text-base text-muted-foreground text-pretty">
-            Servidores são onde as conversas acontecem. Crie o seu ou entre num que já existe com um
-            convite.
+            {t("shell.home.emptyBody")}
           </p>
         </div>
       </div>
@@ -57,15 +58,15 @@ export function HomePage() {
         <ActionCard
           id="create"
           icon={Plus}
-          title="Criar servidor"
-          description="Monte um espaço seu, com canais de texto e voz."
+          title={t("shell.home.createTitle")}
+          description={t("shell.home.createBody")}
           onClick={() => setDialog("create")}
         />
         <ActionCard
           id="join"
           icon={Compass}
-          title="Entrar com convite"
-          description="Cole o link ou o código que alguém enviou."
+          title={t("shell.home.joinTitle")}
+          description={t("shell.home.joinBody")}
           onClick={() => setDialog("join")}
         />
       </div>

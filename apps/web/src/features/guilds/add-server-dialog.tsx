@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { appendGuild } from "@/lib/guild-cache";
 import { type GuildNameForm, guildNameSchema, parseInviteCode } from "@/lib/schemas";
@@ -31,14 +32,15 @@ export function AddServerDialog({
   onOpenChange: (open: boolean) => void;
   initialTab?: "create" | "join";
 }) {
+  const { t } = useT();
   const [tab, setTab] = useState<"create" | "join">(initialTab);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent flush>
         <DialogHead
           icon={tab === "create" ? Plus : Compass}
-          title="Adicionar um servidor"
-          description="Crie o seu ou entre num que já existe."
+          title={t("guilds.add.title")}
+          description={t("guilds.add.description")}
         />
         <Tabs
           value={tab}
@@ -46,8 +48,8 @@ export function AddServerDialog({
           className="flex min-h-0 flex-1 flex-col gap-0"
         >
           <TabsList className="mx-6 mb-1 shrink-0 self-start">
-            <TabsTrigger value="create">Criar servidor</TabsTrigger>
-            <TabsTrigger value="join">Entrar com convite</TabsTrigger>
+            <TabsTrigger value="create">{t("guilds.add.tabCreate")}</TabsTrigger>
+            <TabsTrigger value="join">{t("guilds.add.tabJoin")}</TabsTrigger>
           </TabsList>
           <TabsContent value="create" className="min-h-0 flex-1 gap-0">
             <CreateForm onDone={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} />
@@ -62,6 +64,7 @@ export function AddServerDialog({
 }
 
 function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const create = useCreateGuild();
@@ -83,7 +86,7 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
       await navigate({ to: "/channels/$guildId", params: { guildId: guild.id } });
     } catch (e) {
       const msg = appMessage(e);
-      if (/limite|100/i.test(msg)) setError("name", { message: msg });
+      if (/limite|limit|100/i.test(msg)) setError("name", { message: msg });
       else toast.error(msg);
     }
   });
@@ -93,14 +96,14 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
       <DialogBody>
         <Field
           id="guild-name"
-          label="Nome do servidor"
+          label={t("guilds.add.nameLabel")}
           error={errors.name?.message}
-          hint="Pode ser o nome do seu grupo, da turma ou do projeto. Dá para mudar depois."
+          hint={t("guilds.add.nameHint")}
         >
           <Input
             id="guild-name"
             autoFocus
-            placeholder="Ex.: Laboratório de Go"
+            placeholder={t("guilds.add.namePlaceholder")}
             maxLength={100}
             aria-invalid={!!errors.name}
             aria-describedby={describedBy("guild-name", errors.name?.message, "hint")}
@@ -110,10 +113,10 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
       </DialogBody>
       <DialogActions>
         <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
+          {t("guilds.common.cancel")}
         </Button>
         <Button type="submit" loading={isSubmitting}>
-          Criar servidor
+          {t("guilds.add.tabCreate")}
         </Button>
       </DialogActions>
     </form>
@@ -121,6 +124,7 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
 }
 
 function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const { t } = useT();
   const navigate = useNavigate();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string>();
@@ -129,7 +133,7 @@ function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
     e.preventDefault();
     const code = parseInviteCode(value);
     if (!code) {
-      setError("Cole o link ou o código do convite.");
+      setError(t("guilds.add.inviteEmpty"));
       return;
     }
     onDone();
@@ -141,9 +145,9 @@ function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
       <DialogBody>
         <Field
           id="invite-code"
-          label="Link ou código do convite"
+          label={t("guilds.add.inviteLabel")}
           error={error}
-          hint="Exemplo: https://…/invite/ab12cd34 ou ab12cd34"
+          hint={t("guilds.add.inviteHint")}
         >
           <Input
             id="invite-code"
@@ -159,9 +163,9 @@ function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
       </DialogBody>
       <DialogActions>
         <Button type="button" variant="ghost" onClick={onCancel}>
-          Cancelar
+          {t("guilds.common.cancel")}
         </Button>
-        <Button type="submit">Continuar</Button>
+        <Button type="submit">{t("guilds.add.continue")}</Button>
       </DialogActions>
     </form>
   );

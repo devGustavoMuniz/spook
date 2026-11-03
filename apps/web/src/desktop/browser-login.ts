@@ -8,6 +8,7 @@
 // LADO RUST PENDENTE: o plugin de deep link (`tauri-plugin-deep-link`, esquema `spook://`, também como instância
 // única no Windows/Linux) ainda não está no `src-tauri`. Por isso o fluxo fica atrás da capability
 // `browserLogin`, DESLIGADA por padrão (ver PENDENCIAS-DONO.md e SPEC 5.5, "Adicional: e-mail e login social").
+import { t } from "@/i18n";
 import { invoke } from "./ipc";
 import { isTauri } from "./runtime";
 
@@ -98,11 +99,11 @@ export async function loginViaBrowser(opts: {
       rejectCode = reject;
     });
     timer = setTimeout(
-      () => rejectCode(new BrowserLoginError("timeout", "Tempo esgotado esperando o navegador.")),
+      () => rejectCode(new BrowserLoginError("timeout", t("settings.browserLogin.timeout"))),
       opts.timeoutMs ?? BROWSER_LOGIN_TIMEOUT_MS,
     );
     signal?.addEventListener("abort", () =>
-      rejectCode(new BrowserLoginError("cancelled", "Login cancelado.")),
+      rejectCode(new BrowserLoginError("cancelled", t("settings.browserLogin.cancelled"))),
     );
     // Escuta ANTES de abrir o navegador: o deep link pode chegar imediatamente.
     unlisten = await ports.onDeepLink((urls) => {
@@ -120,7 +121,7 @@ export async function loginViaBrowser(opts: {
     try {
       return await ports.exchange(code, pkce.verifier);
     } catch {
-      throw new BrowserLoginError("exchange", "O código expirou ou já foi usado. Tente de novo.");
+      throw new BrowserLoginError("exchange", t("settings.browserLogin.exchange"));
     }
   } finally {
     clearTimeout(timer);

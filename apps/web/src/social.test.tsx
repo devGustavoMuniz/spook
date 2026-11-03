@@ -110,7 +110,7 @@ describe("tela de Amigos", () => {
     const user = userEvent.setup();
     const { state } = await openFriends();
     const pendingTab = await tab(/Pendentes/);
-    expect(within(pendingTab).getByLabelText("1 pedidos recebidos")).toBeInTheDocument();
+    expect(within(pendingTab).getByLabelText("1 pedido recebido")).toBeInTheDocument();
     await user.click(pendingTab);
     const list = await screen.findByRole("list", { name: "Pedidos pendentes, 2" });
     expect(within(list).getByText(/Pedido de amizade recebido/)).toBeInTheDocument();

@@ -1,6 +1,7 @@
 import { AtSign, Users } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Avatar } from "@/components/avatar";
+import { useT } from "@/i18n";
 import type { MentionOption } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ export function MentionSuggestions({
   onPick: (o: MentionOption) => void;
   onHover: (i: number) => void;
 }) {
+  const { t } = useT();
   const activeEl = useRef<HTMLLIElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: acompanha a opção ativa
   useEffect(() => {
@@ -34,13 +36,13 @@ export function MentionSuggestions({
     <div className="absolute right-0 bottom-full left-0 z-30 mb-2 px-3 sm:px-4">
       <div className="overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg">
         <p className="border-b border-border px-3 py-1.5 text-xs font-medium text-muted-foreground">
-          Menções
+          {t("chat.mentions.title")}
         </p>
         <ul
           id={mentionListId(id)}
           // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: padrão combobox/listbox do campo
           role="listbox"
-          aria-label="Sugestões de menção"
+          aria-label={t("chat.mentions.suggestions")}
           className="max-h-60 overflow-y-auto p-1"
         >
           {options.map((o, i) => (
@@ -82,9 +84,9 @@ export function MentionSuggestions({
               <span className="min-w-0 flex-1 truncate font-medium">
                 {o.kind === "everyone" ? `@${o.label}` : o.label}
               </span>
-              {o.hint ? (
+              {o.hintKey ? (
                 <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-                  {o.hint}
+                  {t(o.hintKey)}
                 </span>
               ) : o.label !== o.handle ? (
                 <span className="shrink-0 text-xs text-muted-foreground">@{o.handle}</span>

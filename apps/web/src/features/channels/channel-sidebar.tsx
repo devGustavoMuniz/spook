@@ -37,6 +37,7 @@ import { voicePermissions } from "@/features/voice/permissions";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "@/features/voice/store";
 import { usePersonLookup } from "@/features/voice/use-person-lookup";
 import { VoiceParticipants } from "@/features/voice/voice-participants";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import {
   CHANNEL_CATEGORY,
@@ -92,6 +93,7 @@ export function useCollapsedCategories(guildId: string) {
 }
 
 export function ChannelSidebar({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const params = useParams({ strict: false }) as { channelId?: string };
   const reorder = useReorderChannels();
@@ -153,7 +155,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
             variant="ghost"
             size="icon"
             className="size-6 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-            aria-label={`Opções de ${c.name}`}
+            aria-label={t("channels.sidebar.optionsAria", { name: c.name })}
           >
             <MoreVertical />
           </Button>
@@ -163,7 +165,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
             <NotificationMenuItems
               scope="channel"
               targetId={c.id}
-              what="este canal"
+              what={t("channels.sidebar.notifyThis")}
               isGuildLike
               withSeparator={false}
             />
@@ -172,20 +174,23 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
             <>
               {notifiable ? <DropdownMenuSeparator /> : null}
               <DropdownMenuItem onSelect={() => setRenaming(c)}>
-                <Pencil /> {c.type === CHANNEL_CATEGORY ? "Renomear" : "Editar canal"}
+                <Pencil />{" "}
+                {c.type === CHANNEL_CATEGORY
+                  ? t("channels.sidebar.rename")
+                  : t("channels.sidebar.edit")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setPermsFor(c)}>
-                <ShieldCheck /> Permissões
+                <ShieldCheck /> {t("channels.sidebar.permissions")}
               </DropdownMenuItem>
               <DropdownMenuItem disabled={!canUp} onSelect={() => void move(c, -1)}>
-                <ChevronUp /> Mover para cima
+                <ChevronUp /> {t("channels.sidebar.moveUp")}
               </DropdownMenuItem>
               <DropdownMenuItem disabled={!canDown} onSelect={() => void move(c, 1)}>
-                <ChevronDown /> Mover para baixo
+                <ChevronDown /> {t("channels.sidebar.moveDown")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive onSelect={() => setDeleting(c)}>
-                <Trash2 /> Excluir
+                <Trash2 /> {t("channels.sidebar.delete")}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -230,9 +235,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
               disabled={!perms.connect}
               onClick={() => enterVoice(c)}
               title={
-                perms.connect
-                  ? "Entrar no canal de voz"
-                  : "Você não tem permissão para entrar neste canal"
+                perms.connect ? t("channels.sidebar.joinVoice") : t("channels.sidebar.noVoicePerm")
               }
               className={cn(
                 "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60",
@@ -242,7 +245,9 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
               <Volume2 className="size-4 shrink-0" aria-hidden />
               <span className="truncate">{c.name}</span>
               <span className="sr-only">
-                (canal de voz{perms.connect ? "" : ", sem permissão para entrar"})
+                {perms.connect
+                  ? t("channels.sidebar.voiceSr")
+                  : t("channels.sidebar.voiceSrNoPerm")}
               </span>
             </button>
           ) : (
@@ -257,7 +262,11 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
               <Hash className="size-4 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
               {muted ? (
-                <BellOff className="size-3.5 shrink-0" aria-label="Silenciado" role="img" />
+                <BellOff
+                  className="size-3.5 shrink-0"
+                  aria-label={t("channels.sidebar.muted")}
+                  role="img"
+                />
               ) : null}
               {read && read.mentions > 0 ? (
                 <MentionBadge
@@ -265,7 +274,7 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
                   label={mentionLabel(read.mentions, `#${c.name}`)}
                 />
               ) : unread ? (
-                <UnreadDot label={`Mensagens novas em #${c.name}`} />
+                <UnreadDot label={t("channels.sidebar.unreadIn", { name: c.name })} />
               ) : null}
             </Link>
           )}
@@ -317,18 +326,22 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
       <div className="flex w-60 shrink-0 flex-col border-r bg-sidebar">
         <GuildMenu guild={guild} onCreateChannel={() => setCreating({})} elevated={scrolled} />
         <nav
-          aria-label="Canais"
+          aria-label={t("channels.sidebar.nav")}
           onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
           className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
         >
           {groups.loose.length === 0 && groups.categories.length === 0 ? (
-            <p className="px-2 text-sm text-muted-foreground">Nenhum canal por aqui.</p>
+            <p className="px-2 text-sm text-muted-foreground">{t("channels.sidebar.none")}</p>
           ) : null}
           <ul className="flex flex-col gap-0.5">{groups.loose.map(renderChannel)}</ul>
           {groups.categories.map(({ category, children }) => {
             const isCollapsed = collapsed.has(category.id);
             return (
-              <section key={category.id} aria-label={`Categoria ${category.name}`} className="mt-4">
+              <section
+                key={category.id}
+                aria-label={t("channels.sidebar.categoryAria", { name: category.name })}
+                className="mt-4"
+              >
                 <div className="group flex items-center gap-0.5">
                   <h3 className="min-w-0 flex-1">
                     <button
@@ -354,13 +367,15 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
                           variant="ghost"
                           size="icon"
                           className="size-6 text-muted-foreground"
-                          aria-label={`Criar canal em ${category.name}`}
+                          aria-label={t("channels.sidebar.createIn", { name: category.name })}
                           onClick={() => setCreating({ parentId: category.id })}
                         >
                           <Plus />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Criar canal em {category.name}</TooltipContent>
+                      <TooltipContent>
+                        {t("channels.sidebar.createIn", { name: category.name })}
+                      </TooltipContent>
                     </Tooltip>
                   ) : null}
                   {renderMenu(category)}

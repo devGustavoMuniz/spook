@@ -8,6 +8,7 @@
 //!   desligue "Fechar vai para a bandeja" (ou abra o app de novo: a segunda instância traz a janela de volta).
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -31,9 +32,39 @@ pub const ACTIVATED_EVENT: &str = "app://activated";
 /// Quanto esperamos a voz desconectar ao sair, antes de encerrar de qualquer jeito.
 const QUIT_VOICE_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// Textos que o Rust mostra por conta própria (menu da bandeja e o aviso de "continua rodando").
+/// O idioma vem do webview (`app_set_locale`); sem ele, português.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TrayText {
+    pub open: &'static str,
+    pub quit: &'static str,
+    pub notice: &'static str,
+}
+
+/// Textos do idioma pedido (`"en"`, `"en-US"`...); qualquer outro vira português do Brasil.
+pub fn tray_text(locale: &str) -> TrayText {
+    if locale.to_ascii_lowercase().starts_with("en") {
+        TrayText {
+            open: "Open Spook",
+            quit: "Quit",
+            notice: "Spook keeps running in the tray. Use the icon to open or quit.",
+        }
+    } else {
+        TrayText {
+            open: "Abrir Spook",
+            quit: "Sair",
+            notice: "O Spook continua rodando na bandeja. Use o ícone para abrir ou sair.",
+        }
+    }
+}
+
 pub struct ShellState {
     pub settings: SettingsStore,
     quitting: AtomicBool,
+    /// Idioma da interface, repassado pelo webview.
+    locale: Mutex<String>,
+    /// Itens do menu da bandeja (abrir, sair), para trocar o texto ao mudar o idioma.
+    tray_items: Mutex<Option<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)>>,
 }
 
 type SetupResult = Result<(), Box<dyn std::error::Error>>;
@@ -46,6 +77,8 @@ pub fn setup(app: &mut tauri::App) -> SetupResult {
     app.manage(ShellState {
         settings: store,
         quitting: AtomicBool::new(false),
+        locale: Mutex::new("pt-BR".to_string()),
+        tray_items: Mutex::new(None),
     });
 
     build_tray(app)?;
@@ -66,8 +99,9 @@ pub fn setup(app: &mut tauri::App) -> SetupResult {
 }
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Abrir Spook", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+    let text = tray_text("pt-BR");
+    let open = MenuItem::with_id(app, "open", text.open, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", text.quit, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Spook")
@@ -93,6 +127,11 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
+    if let Some(state) = app.try_state::<ShellState>() {
+        if let Ok(mut items) = state.tray_items.lock() {
+            *items = Some((open, quit));
+        }
+    }
     Ok(())
 }
 
@@ -157,11 +196,12 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let _ = window.hide();
     if state.settings.take_tray_notice() {
         // Aviso único, só na primeira vez. Se o sistema não deixar notificar, tudo bem: o ícone está na bandeja.
+        let locale = state.locale.lock().map(|l| l.clone()).unwrap_or_default();
         let _ = app
             .notification()
             .builder()
             .title("Spook")
-            .body("O Spook continua rodando na bandeja. Use o ícone para abrir ou sair.")
+            .body(tray_text(&locale).notice)
             .show();
     }
 }
@@ -220,6 +260,21 @@ pub fn app_set_settings(
     state.settings.set(settings)
 }
 
+/// Idioma da interface (`"pt-BR"` ou `"en"`): troca o menu da bandeja e o aviso de "continua rodando".
+#[tauri::command]
+pub fn app_set_locale(state: State<'_, ShellState>, locale: String) {
+    let text = tray_text(&locale);
+    if let Ok(mut current) = state.locale.lock() {
+        *current = locale;
+    }
+    if let Ok(items) = state.tray_items.lock() {
+        if let Some((open, quit)) = items.as_ref() {
+            let _ = open.set_text(text.open);
+            let _ = quit.set_text(text.quit);
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct BadgeResult {
     /// O que realmente foi aplicado nesta plataforma (para diagnóstico na interface e nos testes).
@@ -248,4 +303,17 @@ pub fn app_set_badge(app: AppHandle, window: tauri::WebviewWindow, count: u32) -
         let _ = window.set_overlay_icon(icon);
     }
     BadgeResult { tooltip }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tray_text;
+
+    #[test]
+    fn tray_text_follows_the_locale() {
+        assert_eq!(tray_text("en").quit, "Quit");
+        assert_eq!(tray_text("en-US").open, "Open Spook");
+        assert_eq!(tray_text("pt-BR").quit, "Sair");
+        assert_eq!(tray_text("fr").open, "Abrir Spook");
+    }
 }

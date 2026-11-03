@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogHead,
 } from "@/components/ui/dialog";
+import { useT } from "@/i18n";
 import { can } from "@/lib/guild";
 import { socialMessage } from "./hooks";
 
@@ -22,6 +23,7 @@ export function InviteToServerDialog({
   friend: { id: string; name: string } | null;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const guilds = useListGuilds();
   const options = (guilds.data ?? []).filter((g) => can(g, Permission.CREATE_INVITE));
   const [busy, setBusy] = useState<string | null>(null);
@@ -31,7 +33,7 @@ export function InviteToServerDialog({
     setBusy(guildId);
     try {
       await inviteFriendToGuild(friend.id, { guild_id: guildId });
-      toast.success(`Convite para ${guildName} enviado a ${friend.name}.`);
+      toast.success(t("people.inviteDialog.sent", { guild: guildName, name: friend.name }));
       onClose();
     } catch (e) {
       toast.error(socialMessage(e));
@@ -45,20 +47,18 @@ export function InviteToServerDialog({
       <DialogContent flush>
         <DialogHead
           icon={Send}
-          title="Convidar para servidor"
+          title={t("people.person.inviteToServer")}
           description={
-            friend ? `Escolha o servidor; o convite vai na conversa com ${friend.name}.` : undefined
+            friend ? t("people.inviteDialog.description", { name: friend.name }) : undefined
           }
         />
         <DialogBody>
           {guilds.isPending ? (
-            <p className="text-sm text-muted-foreground">Carregando seus servidores…</p>
+            <p className="text-sm text-muted-foreground">{t("people.inviteDialog.loading")}</p>
           ) : options.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Você não tem permissão para criar convites em nenhum servidor.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("people.inviteDialog.none")}</p>
           ) : (
-            <ul className="flex flex-col gap-1" aria-label="Servidores">
+            <ul className="flex flex-col gap-1" aria-label={t("people.inviteDialog.servers")}>
               {options.map((g) => (
                 <li key={g.id}>
                   <button
@@ -70,7 +70,9 @@ export function InviteToServerDialog({
                     <Avatar url={g.icon_url} name={g.name} seed={g.id} size={32} />
                     <span className="min-w-0 flex-1 truncate font-medium">{g.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {busy === g.id ? "Enviando…" : "Enviar convite"}
+                      {busy === g.id
+                        ? t("people.inviteDialog.sending")
+                        : t("people.inviteDialog.send")}
                     </span>
                   </button>
                 </li>
@@ -80,7 +82,7 @@ export function InviteToServerDialog({
         </DialogBody>
         <DialogActions>
           <Button type="button" variant="ghost" onClick={onClose}>
-            Fechar
+            {t("people.common.close")}
           </Button>
         </DialogActions>
       </DialogContent>

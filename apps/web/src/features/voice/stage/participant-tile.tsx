@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { audioCapabilities, participantVolumeMax } from "../controller";
 import { loadViewStreamPreviews } from "../devices";
@@ -69,6 +70,7 @@ export type TileModel = {
 const pillIcon = "size-3.5 shrink-0";
 
 function Flags({ tile }: { tile: TileModel }) {
+  const { t } = useT();
   const mute = tile.mine ? tile.mine.mute : !!tile.state?.self_mute;
   const deaf = tile.mine ? tile.mine.deaf : !!tile.state?.self_deaf;
   const camera = tile.mine ? tile.mine.camera : !!tile.state?.self_video;
@@ -81,28 +83,30 @@ function Flags({ tile }: { tile: TileModel }) {
       {serverMuted ? (
         <span
           className="inline-flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
-          title="Mutado pelo servidor"
+          title={t("voice.flags.serverMuted")}
         >
-          <ShieldOff className="size-2.5" role="img" aria-label="Mutado pelo servidor" />
+          <ShieldOff className="size-2.5" role="img" aria-label={t("voice.flags.serverMuted")} />
         </span>
       ) : null}
       {screen ? (
-        <Monitor className={pillIcon} role="img" aria-label="Compartilhando a tela" />
+        <Monitor className={pillIcon} role="img" aria-label={t("voice.flags.sharingScreen")} />
       ) : null}
-      {camera ? <Video className={pillIcon} role="img" aria-label="Câmera ligada" /> : null}
+      {camera ? (
+        <Video className={pillIcon} role="img" aria-label={t("voice.flags.cameraOn")} />
+      ) : null}
       {deaf ? (
         <span className="inline-flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground">
-          <HeadphoneOff className="size-2.5" role="img" aria-label="Áudio desativado" />
+          <HeadphoneOff className="size-2.5" role="img" aria-label={t("voice.flags.deafened")} />
         </span>
       ) : mute && !serverMuted ? (
         <span
           className="inline-flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
-          title={blocked ? "Sem permissão para falar neste canal" : undefined}
+          title={blocked ? t("voice.tile.noSpeakTitle") : undefined}
         >
           <MicOff
             className="size-2.5"
             role="img"
-            aria-label={blocked ? "Sem permissão para falar" : "Microfone silenciado"}
+            aria-label={blocked ? t("voice.tile.noSpeakShort") : t("voice.flags.muted")}
           />
         </span>
       ) : null}
@@ -149,6 +153,7 @@ export function ParticipantTile({
   lookup?: PersonLookup;
   className?: string;
 }) {
+  const { t } = useT();
   const streamerState = useVoiceStatesStore((s) =>
     tile.kind === "screen" ? s.byUser[tile.userId] : undefined,
   );
@@ -188,9 +193,12 @@ export function ParticipantTile({
   );
   const canModerateTile = !!modState && moderation.any;
 
-  const what = tile.kind === "screen" ? "Tela" : "Câmera";
-  const caption =
-    tile.kind === "screen" ? (tile.local ? "Sua tela" : `Tela de ${tile.name}`) : tile.name;
+  const isScreenTile = tile.kind === "screen";
+  const caption = isScreenTile
+    ? tile.local
+      ? t("voice.tile.yourScreen")
+      : t("voice.stream.screenOf", { name: tile.name })
+    : tile.name;
   const avatarPx = Math.max(
     40,
     Math.min(large ? 168 : 128, Math.round((width ?? (large ? 520 : 240)) * 0.3)),
@@ -295,11 +303,11 @@ export function ParticipantTile({
             type="button"
             size="lg"
             className="cursor-pointer rounded-full shadow-lg"
-            aria-label={`Assistir tela de ${tile.name}`}
+            aria-label={t("voice.tile.watchLabel", { name: tile.name })}
             data-focus-target
             onClick={() => onWatch?.(tile.userId, true)}
           >
-            <Monitor /> Assistir
+            <Monitor /> {t("voice.tile.watch")}
           </Button>
         </div>
       ) : null}
@@ -309,8 +317,12 @@ export function ParticipantTile({
           onClick={() => onFocusTile?.(tile.key)}
           aria-label={
             focused
-              ? `Voltar à grade: ${what.toLowerCase()} de ${tile.name}`
-              : `Destacar ${what.toLowerCase()} de ${tile.name}`
+              ? t(isScreenTile ? "voice.tile.backScreen" : "voice.tile.backCamera", {
+                  name: tile.name,
+                })
+              : t(isScreenTile ? "voice.tile.highlightScreen" : "voice.tile.highlightCamera", {
+                  name: tile.name,
+                })
           }
           aria-pressed={focused}
           data-focus-target
@@ -324,7 +336,7 @@ export function ParticipantTile({
         >
           <Flags tile={tile} />
           <span className="truncate">{caption}</span>
-          {speaking ? <span className="sr-only"> (falando)</span> : null}
+          {speaking ? <span className="sr-only">{t("voice.speaking")}</span> : null}
           {isScreen ? (
             <ViewersBadge
               state={streamerState}
@@ -347,7 +359,7 @@ export function ParticipantTile({
               variant="secondary"
               size="icon"
               className="size-8 rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/75 hover:text-white"
-              aria-label={`Parar de assistir a tela de ${tile.name}`}
+              aria-label={t("voice.tile.stopLabel", { name: tile.name })}
               onClick={() => onWatch?.(tile.userId, false)}
             >
               <EyeOff />
@@ -358,7 +370,10 @@ export function ParticipantTile({
               variant="secondary"
               size="icon"
               className="size-8 rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/75 hover:text-white"
-              aria-label={`Tela cheia: ${what.toLowerCase()} de ${tile.name}`}
+              aria-label={t(
+                isScreenTile ? "voice.tile.fullscreenScreen" : "voice.tile.fullscreenCamera",
+                { name: tile.name },
+              )}
               onClick={() => onFullscreen?.(tile.key)}
             >
               <Expand />
@@ -370,7 +385,7 @@ export function ParticipantTile({
                 variant="secondary"
                 size="icon"
                 className="size-8 rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-black/75 hover:text-white"
-                aria-label={`Opções de ${caption}`}
+                aria-label={t("voice.tile.options", { caption })}
               >
                 <MoreHorizontal />
               </Button>
@@ -379,27 +394,27 @@ export function ParticipantTile({
               {track ? (
                 <DropdownMenuItem onSelect={() => onFocusTile?.(tile.key)}>
                   {focused ? <Minimize2 /> : <Maximize2 />}
-                  {focused ? "Voltar à grade" : "Destacar"}
+                  {focused ? t("voice.tile.backToGrid") : t("voice.tile.highlight")}
                 </DropdownMenuItem>
               ) : null}
               {tile.unwatched ? (
                 <DropdownMenuItem onSelect={() => onWatch?.(tile.userId, true)}>
-                  <Monitor /> Assistir
+                  <Monitor /> {t("voice.tile.watch")}
                 </DropdownMenuItem>
               ) : null}
               {tile.canStopWatching && track ? (
                 <DropdownMenuItem onSelect={() => onWatch?.(tile.userId, false)}>
-                  <EyeOff /> Parar de assistir
+                  <EyeOff /> {t("voice.tile.stopWatching")}
                 </DropdownMenuItem>
               ) : null}
               {tile.canSwapSource && tile.local && tile.kind === "screen" ? (
                 <DropdownMenuItem onSelect={() => onSwapSource?.()}>
-                  <RefreshCw /> Trocar janela/tela
+                  <RefreshCw /> {t("voice.tile.swap")}
                 </DropdownMenuItem>
               ) : null}
               {canVolume ? (
                 <DropdownMenuItem onSelect={() => setVolumeOpen(true)}>
-                  <Volume2 /> Volume de {tile.name}
+                  <Volume2 /> {t("voice.tile.volumeOf", { name: tile.name })}
                 </DropdownMenuItem>
               ) : null}
               {canPip && track ? (
@@ -407,23 +422,23 @@ export function ParticipantTile({
                   checked={inPip}
                   onSelect={() =>
                     void togglePictureInPicture(track).catch(() =>
-                      toast.error("Não foi possível abrir a janela flutuante."),
+                      toast.error(t("voice.tile.pipError")),
                     )
                   }
                 >
-                  <PictureInPicture2 /> Janela flutuante
+                  <PictureInPicture2 /> {t("voice.tile.pip")}
                 </DropdownMenuCheckboxItem>
               ) : null}
               {track ? (
                 <DropdownMenuItem onSelect={() => onFullscreen?.(tile.key)}>
-                  <Expand /> Tela cheia
+                  <Expand /> {t("voice.tile.fullscreen")}
                 </DropdownMenuItem>
               ) : null}
               {canModerateTile && modState ? (
                 <VoiceModerationItems state={modState} name={tile.name} />
               ) : null}
               {!track && !canVolume && !tile.unwatched && !canModerateTile ? (
-                <DropdownMenuItem disabled>Nenhuma ação disponível</DropdownMenuItem>
+                <DropdownMenuItem disabled>{t("voice.tile.noActions")}</DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>

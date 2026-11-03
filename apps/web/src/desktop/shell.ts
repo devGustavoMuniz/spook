@@ -1,5 +1,6 @@
 // Casca do app desktop vista do webview: configurações (bandeja, início com o sistema), contador no ícone e a
 // heurística de "clicar na notificação abre o canal". Tudo conversa com o Rust por `invoke` (src-tauri/src/shell.rs).
+import { t } from "@/i18n";
 import { invoke } from "./ipc";
 import { takeRecentNotification } from "./notifier";
 
@@ -22,8 +23,12 @@ export const setAppSettings = (settings: AppSettings) =>
 export function shellErrorMessage(err: unknown): string {
   if (typeof err === "string" && err) return err;
   if (err instanceof Error && err.message) return err.message;
-  return "Não foi possível salvar. Tente de novo.";
+  return t("settings.desktop.saveFailed");
 }
+
+/** Repassa o idioma da interface ao Rust (menu da bandeja e aviso de "continua rodando"). Falha é ignorada. */
+export const setNativeLocale = (locale: string) =>
+  invoke("app_set_locale", { locale }).catch(() => {});
 
 // ---- Contador no ícone ----
 

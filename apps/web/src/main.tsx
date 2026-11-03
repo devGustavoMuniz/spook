@@ -11,6 +11,7 @@ import { ScreenSourceDialog } from "@/desktop/screen-source-dialog";
 import { UpdateSplash } from "@/desktop/update-splash";
 import { UpdateWatcher } from "@/desktop/update-watcher";
 import { setupServiceWorker } from "@/features/push/sw-client";
+import { I18nProvider } from "@/i18n";
 import { createQueryClient } from "@/lib/query";
 import { VersionWatcher } from "@/lib/version-watcher";
 import { createAppRouter } from "@/router";
@@ -25,19 +26,23 @@ function start(desktop: boolean) {
   // biome-ignore lint/style/noNonNullAssertion: o elemento existe no index.html
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <ThemeProvider>
-        <ErrorBoundary>
-          <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
-            <Toaster />
-            {desktop ? <ScreenSourceDialog /> : null}
-            {desktop ? <DesktopShell navigate={(href) => void router.navigate({ href })} /> : null}
-            {desktop ? <UpdateWatcher /> : null}
-            {desktop ? <UpdateSplash /> : null}
-            <VersionWatcher />
-          </QueryClientProvider>
-        </ErrorBoundary>
-      </ThemeProvider>
+      <I18nProvider>
+        <ThemeProvider>
+          <ErrorBoundary>
+            <QueryClientProvider client={queryClient}>
+              <RouterProvider router={router} />
+              <Toaster />
+              {desktop ? <ScreenSourceDialog /> : null}
+              {desktop ? (
+                <DesktopShell navigate={(href) => void router.navigate({ href })} />
+              ) : null}
+              {desktop ? <UpdateWatcher /> : null}
+              {desktop ? <UpdateSplash /> : null}
+              <VersionWatcher />
+            </QueryClientProvider>
+          </ErrorBoundary>
+        </ThemeProvider>
+      </I18nProvider>
     </StrictMode>,
   );
 }

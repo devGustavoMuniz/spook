@@ -1,6 +1,7 @@
 import { type MessagePayload, usePinMessage, useUnpinMessage } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { setPinned } from "@/lib/message-cache";
 import { applyPinUpdate, removePinned } from "@/lib/pins-cache";
@@ -23,7 +24,7 @@ export function usePinToggle(channelId: string) {
         setPinned(qc, channelId, m.id, next);
         if (next) applyPinUpdate(qc, channelId, { ...m, pinned: true });
         else removePinned(qc, channelId, m.id);
-        toast.success(next ? "Mensagem fixada." : "Mensagem desafixada.");
+        toast.success(t(next ? "chat.pins.toastPinned" : "chat.pins.toastUnpinned"));
       } catch (e) {
         toast.error(appMessage(e));
       }

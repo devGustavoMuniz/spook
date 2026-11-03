@@ -35,6 +35,7 @@ import { DownloadAppMenuItem } from "@/features/download/download-link";
 import { useMemberUi } from "@/features/members/member-ui";
 import { useGuildMembers } from "@/features/members/use-members";
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { can, type Guild, initials } from "@/lib/guild";
 import { removeGuild } from "@/lib/guild-cache";
@@ -56,6 +57,7 @@ export function GuildMenu({
   /** A lista de canais rolou: o cabeçalho ganha uma sombra sutil. */
   elevated?: boolean;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const leave = useRemoveGuildMember();
@@ -93,7 +95,7 @@ export function GuildMenu({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={`Menu do servidor ${guild.name}`}
+            aria-label={t("guilds.menu.aria", { name: guild.name })}
             className={cn(
               "group relative z-[var(--z-sticky)] flex h-12 w-full shrink-0 items-center gap-2.5 border-b px-4 text-left font-semibold transition-[background-color,box-shadow] hover:bg-accent data-[state=open]:bg-accent",
               elevated && "shadow-md",
@@ -124,43 +126,43 @@ export function GuildMenu({
         <DropdownMenuContent align="start" className="w-56">
           {canInvite ? (
             <DropdownMenuItem onSelect={() => setTab("invites")}>
-              <UserPlus /> Convidar pessoas
+              <UserPlus /> {t("guilds.menu.invite")}
             </DropdownMenuItem>
           ) : null}
           {canSettings ? (
             <DropdownMenuItem onSelect={() => setTab("general")}>
-              <Settings /> Configurações do servidor
+              <Settings /> {t("guilds.menu.settings")}
             </DropdownMenuItem>
           ) : null}
           {canRoles ? (
             <DropdownMenuItem onSelect={() => setTab("roles")}>
-              <Shield /> Cargos
+              <Shield /> {t("guilds.menu.roles")}
             </DropdownMenuItem>
           ) : null}
           {canBans ? (
             <DropdownMenuItem onSelect={() => setTab("bans")}>
-              <Gavel /> Banimentos
+              <Gavel /> {t("guilds.menu.bans")}
             </DropdownMenuItem>
           ) : null}
           {canAudit ? (
             <DropdownMenuItem onSelect={() => setTab("audit")}>
-              <ScrollText /> Registro de auditoria
+              <ScrollText /> {t("guilds.menu.audit")}
             </DropdownMenuItem>
           ) : null}
           {canNick && myMember ? (
             <DropdownMenuItem onSelect={() => ui?.openNick(myMember, true)}>
-              <Pencil /> Alterar apelido
+              <Pencil /> {t("guilds.menu.nick")}
             </DropdownMenuItem>
           ) : null}
           {canChannels ? (
             <DropdownMenuItem onSelect={onCreateChannel}>
-              <Plus /> Criar canal
+              <Plus /> {t("guilds.menu.createChannel")}
             </DropdownMenuItem>
           ) : null}
           <NotificationMenuItems
             scope="guild"
             targetId={guild.id}
-            what="o servidor"
+            what={t("guilds.rail.notifyGuild")}
             isGuildLike
             withSeparator={
               canInvite || canSettings || canRoles || canChannels || canBans || canAudit || canNick
@@ -171,7 +173,7 @@ export function GuildMenu({
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem destructive onSelect={() => setLeaving(true)}>
-                <LogOut /> Sair do servidor
+                <LogOut /> {t("guilds.menu.leave")}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -184,13 +186,13 @@ export function GuildMenu({
       ) : null}
       <AlertDialog open={leaving} onOpenChange={setLeaving}>
         <AlertDialogContent>
-          <AlertDialogTitle>Sair de {guild.name}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Para voltar, você vai precisar de um novo convite.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{t("guilds.menu.leaveTitle", { name: guild.name })}</AlertDialogTitle>
+          <AlertDialogDescription>{t("guilds.menu.leaveBody")}</AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmLeave()}>Sair</AlertDialogAction>
+            <AlertDialogCancel>{t("guilds.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmLeave()}>
+              {t("guilds.menu.leaveConfirm")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

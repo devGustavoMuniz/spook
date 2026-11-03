@@ -109,6 +109,7 @@ pub fn run() {
             shell::app_get_settings,
             shell::app_set_settings,
             shell::app_set_badge,
+            shell::app_set_locale,
             vc::voice_connect,
             vc::voice_disconnect,
             vc::voice_set_microphone,

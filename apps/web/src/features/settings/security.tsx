@@ -38,6 +38,7 @@ import {
   useConfirmPassword,
 } from "@/features/account/confirm-password";
 import { SettingsGroup } from "@/features/settings/ui";
+import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { navigateTo } from "@/lib/navigate";
 import {
@@ -64,6 +65,7 @@ export function SecuritySection({ me }: { me: View }) {
 }
 
 function ChangePasswordCard() {
+  const { t } = useT();
   const change = useChangePassword();
   const {
     register,
@@ -80,7 +82,7 @@ function ChangePasswordCard() {
     try {
       await change.mutateAsync({ data: { current_password, new_password } });
       reset();
-      toast.success("Senha alterada. Os outros dispositivos foram desconectados.");
+      toast.success(t("settings.security.passwordChanged"));
     } catch (e) {
       if (isApiError(e) && e.status === 422) {
         const field = /atual/i.test(e.detail) ? "current_password" : "new_password";
@@ -92,11 +94,15 @@ function ChangePasswordCard() {
   return (
     <SettingsGroup
       icon={KeyRound}
-      title="Senha"
-      description="Ao trocar a senha, os outros dispositivos conectados são desconectados; este continua."
+      title={t("settings.security.password")}
+      description={t("settings.security.passwordDescription")}
     >
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-        <Field id="current_password" label="Senha atual" error={errors.current_password?.message}>
+        <Field
+          id="current_password"
+          label={t("settings.security.currentPassword")}
+          error={errors.current_password?.message}
+        >
           <Input
             id="current_password"
             type="password"
@@ -108,8 +114,8 @@ function ChangePasswordCard() {
         </Field>
         <Field
           id="new_password"
-          label="Nova senha"
-          hint="De 8 a 128 caracteres."
+          label={t("settings.security.newPassword")}
+          hint={t("settings.security.passwordHint")}
           error={errors.new_password?.message}
         >
           <Input
@@ -120,12 +126,16 @@ function ChangePasswordCard() {
             aria-describedby={describedBy(
               "new_password",
               errors.new_password?.message,
-              "De 8 a 128 caracteres.",
+              t("settings.security.passwordHint"),
             )}
             {...register("new_password")}
           />
         </Field>
-        <Field id="confirm_password" label="Repita a nova senha" error={errors.confirm?.message}>
+        <Field
+          id="confirm_password"
+          label={t("settings.security.repeatNewPassword")}
+          error={errors.confirm?.message}
+        >
           <Input
             id="confirm_password"
             type="password"
@@ -136,7 +146,7 @@ function ChangePasswordCard() {
           />
         </Field>
         <Button type="submit" className="self-start" loading={isSubmitting}>
-          Trocar senha
+          {t("settings.security.changePassword")}
         </Button>
       </form>
     </SettingsGroup>
@@ -144,6 +154,7 @@ function ChangePasswordCard() {
 }
 
 function ChangeEmailCard({ me }: { me: View }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const change = useChangeEmail();
   const { run } = useConfirmPassword();
@@ -160,7 +171,7 @@ function ChangeEmailCard({ me }: { me: View }) {
 
   const onSubmit = handleSubmit(async ({ email }) => {
     if (email.trim().toLowerCase() === me.email.toLowerCase()) {
-      setError("email", { message: "Este já é o seu e-mail." });
+      setError("email", { message: t("settings.security.sameEmail") });
       return;
     }
     try {
@@ -168,15 +179,16 @@ function ChangeEmailCard({ me }: { me: View }) {
       qc.setQueryData(getGetMeQueryKey(), res);
       reset({ email: res.pending_email ? email : res.email });
       if (res.pending_email)
-        toast.success(
-          `Enviamos um link de confirmação para ${res.pending_email}. A troca só vale depois do clique.`,
-        );
-      else toast.success("E-mail alterado.");
+        toast.success(t("settings.security.emailConfirmationSent", { email: res.pending_email }));
+      else toast.success(t("settings.security.emailChanged"));
     } catch (e) {
       if (isConfirmationCancelled(e)) return;
       if (isApiError(e) && (e.status === 409 || e.status === 422))
         setError("email", {
-          message: e.status === 409 ? "E-mail já cadastrado." : "E-mail inválido.",
+          message:
+            e.status === 409
+              ? t("settings.security.emailTaken")
+              : t("settings.security.emailInvalid"),
         });
       else toast.error(messageFor(e));
     }
@@ -185,12 +197,12 @@ function ChangeEmailCard({ me }: { me: View }) {
   return (
     <SettingsGroup
       icon={Mail}
-      title="E-mail"
-      description="Usado para entrar. Pedimos a sua senha para confirmar a troca."
+      title={t("settings.security.email")}
+      description={t("settings.security.emailDescription")}
     >
       <VerificationStatus me={me} />
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-        <Field id="email" label="E-mail" error={errors.email?.message}>
+        <Field id="email" label={t("settings.security.email")} error={errors.email?.message}>
           <Input
             id="email"
             type="email"
@@ -201,7 +213,7 @@ function ChangeEmailCard({ me }: { me: View }) {
           />
         </Field>
         <Button type="submit" className="self-start" loading={isSubmitting}>
-          Trocar e-mail
+          {t("settings.security.changeEmail")}
         </Button>
       </form>
     </SettingsGroup>
@@ -210,6 +222,7 @@ function ChangeEmailCard({ me }: { me: View }) {
 
 /** Estado da verificação do e-mail atual (e da troca pendente), com o reenvio. */
 function VerificationStatus({ me }: { me: View }) {
+  const { t } = useT();
   const { data: providers } = useAuthProviders({ query: { staleTime: 60_000 } });
   const resend = useResendVerificationEmail();
   const emailOn = providers?.email_enabled === true;
@@ -217,7 +230,7 @@ function VerificationStatus({ me }: { me: View }) {
   async function send() {
     try {
       await resend.mutateAsync();
-      toast.success("Enviamos um novo link para o seu e-mail.");
+      toast.success(t("settings.security.newLinkSent"));
     } catch (e) {
       toast.error(messageFor(e));
     }
@@ -228,25 +241,24 @@ function VerificationStatus({ me }: { me: View }) {
       {me.email_verified ? (
         <p className="flex items-center gap-2 text-success-text" data-testid="email-status">
           <MailCheck className="size-4" aria-hidden="true" />
-          E-mail verificado
+          {t("settings.security.emailVerified")}
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="email-status">
           <p className="flex items-center gap-2 text-muted-foreground">
             <MailWarning className="size-4" aria-hidden="true" />
-            E-mail não verificado
+            {t("settings.security.emailUnverified")}
           </p>
           {emailOn ? (
             <Button variant="link" size="sm" loading={resend.isPending} onClick={() => void send()}>
-              Reenviar link de verificação
+              {t("settings.security.resend")}
             </Button>
           ) : null}
         </div>
       )}
       {me.pending_email ? (
         <output className="block text-muted-foreground">
-          Aguardando confirmação do novo endereço <strong>{me.pending_email}</strong>: abra o link
-          que enviamos para lá. Até lá, você continua entrando com {me.email}.
+          {t("settings.security.pendingEmail", { pending: me.pending_email, email: me.email })}
         </output>
       ) : null}
     </div>
@@ -257,6 +269,7 @@ const PROVIDER_NAMES: Record<string, string> = { google: "Google", discord: "Dis
 
 /** Senha de contas criadas por login social (ainda sem senha): exige reautenticar com o provedor. */
 function SetPasswordCard() {
+  const { t } = useT();
   const qc = useQueryClient();
   const methods = useGetLoginMethods();
   const set = useSetInitialPassword();
@@ -279,11 +292,11 @@ function SetPasswordCard() {
       reset();
       setNeedReauth(false);
       await qc.invalidateQueries({ queryKey: getGetMeQueryKey() });
-      toast.success("Senha definida. Agora você também pode entrar com e-mail e senha.");
+      toast.success(t("settings.security.passwordSet"));
     } catch (e) {
       if (needsPasswordConfirmation(e)) setNeedReauth(true);
       else if (isApiError(e) && e.status === 422)
-        setError("new_password", { message: "A senha precisa ter de 8 a 128 caracteres." });
+        setError("new_password", { message: t("settings.security.passwordLength") });
       else toast.error(messageFor(e));
     }
   });
@@ -291,13 +304,13 @@ function SetPasswordCard() {
   return (
     <SettingsGroup
       icon={KeyRound}
-      title="Definir senha"
-      description="Sua conta entra só pelo provedor. Defina uma senha para também poder entrar com e-mail e senha."
+      title={t("settings.security.setPassword")}
+      description={t("settings.security.setPasswordDescription")}
     >
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         {needReauth ? (
           <div role="alert" className="rounded-md border border-border bg-accent p-3 text-sm">
-            <p>Por segurança, confirme sua identidade com o provedor e depois defina a senha.</p>
+            <p>{t("settings.security.reauthNotice")}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {linked.map((a) => (
                 <Button key={a.provider} asChild size="sm" variant="soft">
@@ -307,7 +320,9 @@ function SetPasswordCard() {
                       redirect: "/settings/profile",
                     })}
                   >
-                    Confirmar com {PROVIDER_NAMES[a.provider] ?? a.provider}
+                    {t("settings.security.confirmWith", {
+                      provider: PROVIDER_NAMES[a.provider] ?? a.provider,
+                    })}
                   </a>
                 </Button>
               ))}
@@ -316,8 +331,8 @@ function SetPasswordCard() {
         ) : null}
         <Field
           id="initial_password"
-          label="Nova senha"
-          hint="De 8 a 128 caracteres."
+          label={t("settings.security.newPassword")}
+          hint={t("settings.security.passwordHint")}
           error={errors.new_password?.message}
         >
           <Input
@@ -328,12 +343,16 @@ function SetPasswordCard() {
             aria-describedby={describedBy(
               "initial_password",
               errors.new_password?.message,
-              "De 8 a 128 caracteres.",
+              t("settings.security.passwordHint"),
             )}
             {...register("new_password")}
           />
         </Field>
-        <Field id="initial_confirm" label="Repita a senha" error={errors.confirm?.message}>
+        <Field
+          id="initial_confirm"
+          label={t("settings.security.repeatPassword")}
+          error={errors.confirm?.message}
+        >
           <Input
             id="initial_confirm"
             type="password"
@@ -344,7 +363,7 @@ function SetPasswordCard() {
           />
         </Field>
         <Button type="submit" className="self-start" loading={isSubmitting}>
-          Definir senha
+          {t("settings.security.setPasswordButton")}
         </Button>
       </form>
     </SettingsGroup>
@@ -356,6 +375,7 @@ function SetPasswordCard() {
  * senha reautentica com o provedor. O último método de login nunca é removido (o servidor recusa com 409).
  */
 function LoginMethodsCard({ me }: { me: View }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as {
@@ -377,16 +397,20 @@ function LoginMethodsCard({ me }: { me: View }) {
   useEffect(() => {
     if (!search.linked && !search.reauth && !search.social_error) return;
     if (search.linked) {
-      toast.success(`${PROVIDER_NAMES[search.linked] ?? search.linked} vinculado à sua conta.`);
+      toast.success(
+        t("settings.security.linkedToast", {
+          provider: PROVIDER_NAMES[search.linked] ?? search.linked,
+        }),
+      );
       void qc.invalidateQueries({ queryKey: getGetLoginMethodsQueryKey() });
     } else if (search.social_error) {
-      toast.error(socialErrorMessage(search.social_error) ?? "Não foi possível concluir.");
+      toast.error(socialErrorMessage(search.social_error) ?? t("settings.security.socialFailed"));
     } else if (search.reauth === "ok") {
       const [action, provider] = (search.then ?? "").split(":");
       if (action === "link" && provider)
         navigateTo(socialStartUrl(provider, { intent: "link", redirect: "/settings/profile" }));
       else if (action === "unlink" && provider) void doUnlink(provider);
-      else toast.success("Identidade confirmada. Tente a ação de novo.");
+      else toast.success(t("settings.security.identityConfirmed"));
     }
     void navigate({ to: "/settings/profile", search: {}, replace: true });
   }, [search.linked, search.reauth, search.social_error]);
@@ -402,14 +426,14 @@ function LoginMethodsCard({ me }: { me: View }) {
       if (me.has_password) await run(() => unlink.mutateAsync({ provider: provider as "google" }));
       else await unlink.mutateAsync({ provider: provider as "google" });
       await qc.invalidateQueries({ queryKey: getGetLoginMethodsQueryKey() });
-      toast.success(`${PROVIDER_NAMES[provider] ?? provider} desvinculado.`);
+      toast.success(
+        t("settings.security.unlinkedToast", { provider: PROVIDER_NAMES[provider] ?? provider }),
+      );
     } catch (e) {
       if (isConfirmationCancelled(e)) return;
       if (needsPasswordConfirmation(e)) reauth(provider, `unlink:${provider}`);
       else if (isApiError(e) && e.status === 409 && e.code === "last_login_method")
-        toast.error(
-          "Esse é o seu único método de login. Defina uma senha ou vincule outro provedor antes.",
-        );
+        toast.error(t("settings.security.lastMethod"));
       else toast.error(messageFor(e));
     }
   }
@@ -425,8 +449,8 @@ function LoginMethodsCard({ me }: { me: View }) {
   return (
     <SettingsGroup
       icon={Link2}
-      title="Contas vinculadas"
-      description="Entre com o Google ou o Discord. Pedimos a sua senha (ou a confirmação com o provedor) para vincular e desvincular."
+      title={t("settings.security.linkedAccounts")}
+      description={t("settings.security.linkedAccountsDescription")}
     >
       <ul className="flex flex-col divide-y divide-border">
         {names.map((p) => {
@@ -436,26 +460,34 @@ function LoginMethodsCard({ me }: { me: View }) {
               <div className="flex min-w-0 flex-col">
                 <span className="text-sm font-medium">{PROVIDER_NAMES[p] ?? p}</span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {acc ? (acc.email ? `Vinculado (${acc.email})` : "Vinculado") : "Não vinculado"}
+                  {acc
+                    ? acc.email
+                      ? t("settings.security.linkedWithEmail", { email: acc.email })
+                      : t("settings.security.linked")
+                    : t("settings.security.notLinked")}
                 </span>
               </div>
               {acc ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  aria-label={`Desvincular ${PROVIDER_NAMES[p] ?? p}`}
+                  aria-label={t("settings.security.unlinkProvider", {
+                    provider: PROVIDER_NAMES[p] ?? p,
+                  })}
                   onClick={() => void doUnlink(p)}
                 >
-                  Desvincular
+                  {t("settings.security.unlink")}
                 </Button>
               ) : (
                 <Button
                   variant="soft"
                   size="sm"
-                  aria-label={`Vincular ${PROVIDER_NAMES[p] ?? p}`}
+                  aria-label={t("settings.security.linkProvider", {
+                    provider: PROVIDER_NAMES[p] ?? p,
+                  })}
                   onClick={() => void link(p)}
                 >
-                  Vincular
+                  {t("settings.security.link")}
                 </Button>
               )}
             </li>
@@ -469,15 +501,16 @@ function LoginMethodsCard({ me }: { me: View }) {
 type OwnedGuild = { id: string; name: string };
 
 function DeleteAccountCard({ me }: { me: View }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   return (
     <SettingsGroup
       icon={Trash2}
-      title="Excluir conta"
-      description="Apaga sua conta, suas sessões e seus dados de perfil. Suas mensagens continuam nos canais, como “Usuário removido”. Não dá para desfazer."
+      title={t("settings.security.deleteAccount")}
+      description={t("settings.security.deleteDescription")}
     >
       <Button variant="destructive" className="self-start" onClick={() => setOpen(true)}>
-        Excluir minha conta
+        {t("settings.security.deleteMine")}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent size="sm" flush>
@@ -489,6 +522,7 @@ function DeleteAccountCard({ me }: { me: View }) {
 }
 
 function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const del = useDeleteMe();
@@ -506,7 +540,8 @@ function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
     try {
       await del.mutateAsync({ data: { password } });
     } catch (err) {
-      if (isApiError(err) && err.status === 422) setPasswordError("Senha incorreta.");
+      if (isApiError(err) && err.status === 422)
+        setPasswordError(t("settings.security.wrongPassword"));
       else if (isApiError(err) && err.status === 409 && err.code === "owns_guilds")
         setOwned(((err.body.guilds as OwnedGuild[] | undefined) ?? []).slice(0, 50));
       else toast.error(messageFor(err));
@@ -515,22 +550,21 @@ function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
     await clearSessionToken();
     qc.clear();
     await navigate({ to: "/login" });
-    toast.success("Conta excluída.");
+    toast.success(t("settings.security.deleted"));
   }
 
   return (
     <form onSubmit={(e) => void submit(e)} noValidate>
       <DialogHead
         icon={Trash2}
-        title="Excluir conta"
-        description="Esta ação é permanente. Confirme digitando seu nome de usuário e sua senha."
+        title={t("settings.security.deleteAccount")}
+        description={t("settings.security.deleteConfirmDescription")}
       />
       <DialogBody>
         {owned.length > 0 ? (
           <div role="alert" className="rounded-md border border-border bg-danger-soft p-3 text-sm">
             <p className="font-medium text-destructive-text">
-              Você ainda é dono de {owned.length === 1 ? "um servidor" : "servidores"}. Transfira a
-              posse ou exclua antes de excluir a conta:
+              {t("settings.security.ownsGuilds", { count: owned.length })}
             </p>
             <ul className="mt-2 list-disc pl-5">
               {owned.map((g) => (
@@ -539,7 +573,10 @@ function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
             </ul>
           </div>
         ) : null}
-        <Field id="delete-username" label={`Digite ${me.username} para confirmar`}>
+        <Field
+          id="delete-username"
+          label={t("settings.security.typeToConfirm", { username: me.username })}
+        >
           <Input
             id="delete-username"
             autoComplete="off"
@@ -548,7 +585,11 @@ function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
             onChange={(e) => setUsername(e.target.value)}
           />
         </Field>
-        <Field id="delete-password" label="Senha" error={passwordError}>
+        <Field
+          id="delete-password"
+          label={t("settings.security.passwordLabel")}
+          error={passwordError}
+        >
           <Input
             id="delete-password"
             type="password"
@@ -562,7 +603,7 @@ function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
       </DialogBody>
       <DialogActions>
         <Button type="button" variant="ghost" onClick={onClose}>
-          Cancelar
+          {t("settings.security.cancel")}
         </Button>
         <Button
           type="submit"
@@ -570,7 +611,7 @@ function DeleteForm({ me, onClose }: { me: View; onClose: () => void }) {
           disabled={!matches || !password}
           loading={del.isPending}
         >
-          Excluir conta
+          {t("settings.security.deleteAccount")}
         </Button>
       </DialogActions>
     </form>

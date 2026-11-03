@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
   estimateUplinkKbps,
@@ -74,11 +75,12 @@ export function ScreenQualityFields({
   choice: ScreenChoice;
   onChange: (c: ScreenChoice) => void;
 }) {
+  const { t } = useT();
   return (
     <div className="flex flex-col gap-3">
       <Segmented
         name={`${idPrefix}-height`}
-        label="Resolução"
+        label={t("voice.quality.resolution")}
         options={SCREEN_HEIGHTS}
         value={choice.height}
         format={(h) => `${h}p`}
@@ -86,20 +88,18 @@ export function ScreenQualityFields({
       />
       <Segmented
         name={`${idPrefix}-fps`}
-        label="Taxa de quadros"
+        label={t("voice.quality.fps")}
         options={SCREEN_FPS}
         value={choice.fps}
-        format={(f) => `${f} fps`}
+        format={(f) => t("voice.quality.fpsValue", { value: f })}
         onChange={(fps) => onChange({ ...choice, fps })}
       />
       <p className="text-xs text-muted-foreground">
-        Banda de subida: até {formatKbps(estimateUplinkKbps(qualityOf(choice)))} por espectador (o
-        uso real costuma ser menor).
+        {t("voice.quality.uplink", { rate: formatKbps(estimateUplinkKbps(qualityOf(choice))) })}
       </p>
       {isHeavy(choice) ? (
         <output className="block rounded-md border border-destructive/40 px-3 py-2 text-xs">
-          1440p ou 60 fps gastam bem mais processador e internet de quem transmite e banda do
-          servidor, que é pequeno. Se a chamada engasgar, volte para 1080p com 30 fps.
+          {t("voice.quality.heavy")}
         </output>
       ) : null}
     </div>

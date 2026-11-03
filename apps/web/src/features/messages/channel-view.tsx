@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MAX_ATTACHMENTS, MAX_FILE_SIZE } from "@/features/attachments/rules";
 import { useComposerAttachments } from "@/features/attachments/use-composer-attachments";
 import { recipientName, recipientsOf } from "@/features/dms/dm-utils";
 import { MemberUiProvider, useMemberUi } from "@/features/members/member-ui";
@@ -33,8 +34,10 @@ import { useSetting } from "@/features/notifications/settings";
 import { useAutoAck } from "@/features/notifications/use-auto-ack";
 import { useEntryMarker } from "@/features/notifications/use-entry-marker";
 import { useViewportStore } from "@/features/notifications/viewport";
+import { t as tStatic, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
+import { formatBytes } from "@/lib/file-size";
 import { can, type Guild } from "@/lib/guild";
 import { EVERYONE_OPTIONS, type MentionContext, type MentionOption } from "@/lib/mentions";
 import {
@@ -93,6 +96,7 @@ type ChannelViewProps = {
 };
 
 function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelViewProps) {
+  const { t } = useT();
   const ui = useMemberUi();
   const qc = useQueryClient();
   const { data: me } = useGetMe();
@@ -172,7 +176,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
         handle: r.name,
         label: r.name,
         color: colorToHex(r.color) ?? undefined,
-        hint: "Cargo",
+        hintKey: "chat.mentions.hintRole" as const,
         kind: "role" as const,
       }));
     return [...(canMentionAll ? EVERYONE_OPTIONS : []), ...mentionableRoles, ...users];
@@ -235,7 +239,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
       if (has(flattenPages(r.data))) return found();
       more = r.hasNextPage;
     }
-    toast.info("Essa mensagem está fora do histórico carregado.");
+    toast.info(tStatic("chat.channel.outOfHistory"));
   }, []);
 
   // Pedidos de outras partes da tela (painel de fixadas) para ir até uma mensagem deste canal.
@@ -305,20 +309,25 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
         >
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-accent/50 text-brand-text">
             <Paperclip className="size-10" />
-            <p className="text-lg font-semibold">Solte para anexar</p>
-            <p className="text-sm text-muted-foreground">Até 10 arquivos, 25 MB cada.</p>
+            <p className="text-lg font-semibold">{t("chat.channel.dropToAttach")}</p>
+            <p className="text-sm text-muted-foreground">
+              {t("chat.channel.dropLimits", {
+                max: MAX_ATTACHMENTS,
+                size: formatBytes(MAX_FILE_SIZE),
+              })}
+            </p>
           </div>
         </div>
       ) : null}
       {!canView ? (
-        <p className="p-6 text-sm text-muted-foreground">Você não pode ver este canal.</p>
+        <p className="p-6 text-sm text-muted-foreground">{t("chat.channel.cannotView")}</p>
       ) : query.isPending && !perfOn ? (
         <MessagesSkeleton />
       ) : query.isError && !perfOn ? (
         <div className="flex flex-1 flex-col items-start gap-3 p-6 text-sm">
           <p className="text-destructive-text">{appMessage(query.error)}</p>
           <Button variant="secondary" size="sm" onClick={() => void query.refetch()}>
-            Tentar de novo
+            {t("chat.channel.retry")}
           </Button>
         </div>
       ) : (
@@ -381,9 +390,9 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
       />
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>
-          <AlertDialogTitle>Excluir mensagem?</AlertDialogTitle>
+          <AlertDialogTitle>{t("chat.channel.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
-            Esta ação não pode ser desfeita.
+            {t("chat.channel.deleteDescription")}
             {toDelete ? (
               <span className="mt-2 block max-h-24 overflow-hidden rounded-md border p-2 text-foreground">
                 {toDelete.content}
@@ -391,8 +400,10 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
             ) : null}
           </AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmDelete()}>Excluir</AlertDialogAction>
+            <AlertDialogCancel>{t("chat.row.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmDelete()}>
+              {t("chat.row.delete")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -402,6 +413,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
 
 /** Carregamento do histórico: linhas que imitam mensagens (avatar + duas linhas), sem pular quando chegam. */
 function MessagesSkeleton() {
+  const { t } = useT();
   const widths = [
     ["a", "w-2/3"],
     ["b", "w-1/2"],
@@ -412,7 +424,7 @@ function MessagesSkeleton() {
   ] as const;
   return (
     <output className="flex min-h-0 flex-1 flex-col justify-end gap-5 overflow-hidden px-4 pb-4">
-      <span className="sr-only">Carregando mensagens…</span>
+      <span className="sr-only">{t("chat.channel.loading")}</span>
       {widths.map(([k, w]) => (
         <span key={k} className="flex gap-3">
           <Skeleton className="size-10 shrink-0 rounded-full" />

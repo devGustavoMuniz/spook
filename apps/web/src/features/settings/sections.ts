@@ -1,11 +1,12 @@
 import { Ban, Bell, type LucideIcon, Mic, Monitor, Palette, UserRound } from "lucide-react";
+import type { MessageKey } from "@/i18n";
 
 export type SectionKey = "profile" | "notifications" | "blocked" | "voice" | "appearance" | "app";
 
 export type Section = {
   key: SectionKey;
-  label: string;
-  description: string;
+  labelKey: MessageKey;
+  descriptionKey: MessageKey;
   icon: LucideIcon;
   /** Só existe no app para computador (some da navegação na web). */
   desktopOnly?: boolean;
@@ -14,38 +15,38 @@ export type Section = {
 export const SECTIONS: readonly Section[] = [
   {
     key: "profile",
-    label: "Perfil",
-    description: "Como você aparece para as outras pessoas e os dados da sua conta.",
+    labelKey: "settings.sections.profile.label",
+    descriptionKey: "settings.sections.profile.description",
     icon: UserRound,
   },
   {
     key: "notifications",
-    label: "Notificações",
-    description: "Avisos no app, push e o que está silenciado.",
+    labelKey: "settings.sections.notifications.label",
+    descriptionKey: "settings.sections.notifications.description",
     icon: Bell,
   },
   {
     key: "blocked",
-    label: "Bloqueados",
-    description: "Pessoas que você bloqueou e como desbloquear.",
+    labelKey: "settings.sections.blocked.label",
+    descriptionKey: "settings.sections.blocked.description",
     icon: Ban,
   },
   {
     key: "voice",
-    label: "Voz e vídeo",
-    description: "Microfone, alto-falante, câmera e a qualidade da tela compartilhada.",
+    labelKey: "settings.sections.voice.label",
+    descriptionKey: "settings.sections.voice.description",
     icon: Mic,
   },
   {
     key: "appearance",
-    label: "Aparência",
-    description: "Tema do app e acessibilidade de movimento.",
+    labelKey: "settings.sections.appearance.label",
+    descriptionKey: "settings.sections.appearance.description",
     icon: Palette,
   },
   {
     key: "app",
-    label: "Aplicativo",
-    description: "Bandeja, início com o sistema e atualizações neste computador.",
+    labelKey: "settings.sections.app.label",
+    descriptionKey: "settings.sections.app.description",
     icon: Monitor,
     desktopOnly: true,
   },

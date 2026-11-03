@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { progressPercent } from "./updater";
 
@@ -5,7 +6,7 @@ import { progressPercent } from "./updater";
 export function UpdateProgress({
   downloaded,
   total,
-  label = "Progresso do download da atualização",
+  label,
   className,
 }: {
   downloaded: number;
@@ -13,15 +14,16 @@ export function UpdateProgress({
   label?: string;
   className?: string;
 }) {
+  const { t } = useT();
   const pct = progressPercent(downloaded, total);
   return (
     <div
       role="progressbar"
-      aria-label={label}
+      aria-label={label ?? t("settings.updates.progressLabel")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct ?? undefined}
-      aria-valuetext={pct === null ? "Baixando" : `${pct}%`}
+      aria-valuetext={pct === null ? t("settings.updates.downloadingShort") : `${pct}%`}
       className={cn("h-2 w-full overflow-hidden rounded-full bg-secondary", className)}
     >
       <div

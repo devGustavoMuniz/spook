@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { type LucideIcon, X } from "lucide-react";
 import type * as React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 const Dialog = DialogPrimitive.Root;
@@ -41,6 +42,7 @@ function DialogContent({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> &
   VariantProps<typeof dialogVariants> & { flush?: boolean }) {
+  const { t } = useT();
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className={overlayClass} />
@@ -50,7 +52,7 @@ function DialogContent({
       >
         {children}
         <DialogPrimitive.Close
-          aria-label="Fechar"
+          aria-label={t("common.close")}
           className="absolute top-3.5 right-3.5 z-10 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <X className="size-4" />

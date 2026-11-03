@@ -21,21 +21,26 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { formatDateTime } from "@/lib/format";
 import { initials } from "@/lib/guild";
 import { appendGuild } from "@/lib/guild-cache";
 
-const homeButton = (variant: "default" | "outline" = "outline") => (
-  <Button asChild variant={variant}>
-    <Link to="/">
-      <Home /> Ir para o início
-    </Link>
-  </Button>
-);
+function HomeButton({ variant = "outline" }: { variant?: "default" | "outline" }) {
+  const { t } = useT();
+  return (
+    <Button asChild variant={variant}>
+      <Link to="/">
+        <Home /> {t("shell.state.goHome")}
+      </Link>
+    </Button>
+  );
+}
 
 /** `/invite/$code`: pré-visualiza o servidor e aceita o convite (a rota já exige sessão). */
 export function InvitePage() {
+  const { t } = useT();
   const { code } = useParams({ strict: false }) as { code: string };
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -75,22 +80,22 @@ export function InvitePage() {
             <NotFoundIllustration className="mb-1 h-40 w-auto" />
           )
         }
-        title={expired ? "Convite expirado" : "Convite indisponível"}
+        title={expired ? t("shell.invite.expiredTitle") : t("shell.invite.unavailableTitle")}
         description={
           missing
-            ? "Esse convite não existe ou foi revogado."
+            ? t("shell.invite.missing")
             : expired
-              ? `${appMessage(preview.error)} Peça um novo link a quem convidou você.`
+              ? t("shell.invite.expiredBody", { message: appMessage(preview.error) })
               : appMessage(preview.error)
         }
         actions={
           <>
             {network ? (
               <Button onClick={() => void preview.refetch()} loading={preview.isFetching}>
-                <RotateCw /> Tentar de novo
+                <RotateCw /> {t("common.retry")}
               </Button>
             ) : null}
-            {homeButton(network ? "outline" : "default")}
+            <HomeButton variant={network ? "outline" : "default"} />
           </>
         }
       />
@@ -103,16 +108,16 @@ export function InvitePage() {
     return (
       <StatePage
         illustration={<VoiceInviteIllustration className="mb-1 h-40 w-auto" />}
-        title="Você já está neste servidor"
-        description={`Você já é membro de ${p.guild_name}. O convite não foi usado.`}
+        title={t("shell.invite.alreadyTitle")}
+        description={t("shell.invite.alreadyBody", { guild: p.guild_name })}
         actions={
           <>
             <Button asChild>
               <Link to="/channels/$guildId" params={{ guildId: member.id }}>
-                Abrir {member.name} <ArrowRight />
+                {t("shell.invite.open", { name: member.name })} <ArrowRight />
               </Link>
             </Button>
-            {homeButton()}
+            <HomeButton />
           </>
         }
       />
@@ -127,7 +132,7 @@ export function InvitePage() {
             <Skeleton className="size-16 rounded-2xl" />
             <Skeleton className="h-5 w-40" />
             <Skeleton className="h-4 w-28" />
-            <span className="sr-only">Carregando convite…</span>
+            <span className="sr-only">{t("shell.invite.loading")}</span>
           </CardContent>
         ) : p ? (
           <>
@@ -139,12 +144,16 @@ export function InvitePage() {
                   initials(p.guild_name)
                 )}
               </div>
-              <CardDescription>Você foi convidado para entrar em</CardDescription>
+              <CardDescription>{t("shell.invite.invitedTo")}</CardDescription>
               <CardTitle>{p.guild_name}</CardTitle>
               <CardDescription className="flex items-center justify-center gap-1.5">
                 <Users className="size-3.5" aria-hidden />
-                {p.member_count} {p.member_count === 1 ? "membro" : "membros"}
-                {p.expires_at ? ` · expira em ${formatDateTime(p.expires_at)}` : ""}
+                {p.expires_at
+                  ? t("shell.invite.membersExpires", {
+                      members: t("shell.invite.members", { count: p.member_count }),
+                      date: formatDateTime(p.expires_at),
+                    })
+                  : t("shell.invite.members", { count: p.member_count })}
               </CardDescription>
             </CardHeader>
             <CardFooter className="flex-col gap-3">
@@ -163,7 +172,7 @@ export function InvitePage() {
                 onClick={() => void accept()}
                 loading={join.isPending}
               >
-                Entrar no servidor
+                {t("shell.invite.join")}
               </Button>
             </CardFooter>
           </>

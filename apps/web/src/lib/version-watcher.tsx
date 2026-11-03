@@ -2,6 +2,7 @@ import { RotateCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { isTauri } from "@/desktop/runtime";
+import { useT } from "@/i18n";
 import { currentBuild, fetchRemoteBuild, isNewerBuild } from "./version-check";
 
 /** Intervalo entre verificações com a aba aberta. */
@@ -15,6 +16,7 @@ export const VERSION_FOCUS_THROTTLE_MS = 30 * 1000;
  * roda em desenvolvimento nem no app desktop (que se atualiza pelo updater).
  */
 export function VersionWatcher({ enabled = !import.meta.env.DEV && !isTauri() }) {
+  const { t } = useT();
   const [stale, setStale] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -47,14 +49,14 @@ export function VersionWatcher({ enabled = !import.meta.env.DEV && !isTauri() })
   return (
     <div className="pointer-events-none fixed inset-x-4 bottom-4 z-[var(--z-toast)] flex justify-center pb-[env(safe-area-inset-bottom)]">
       <output className="pointer-events-auto flex w-full max-w-md items-center gap-2 rounded-xl border border-border bg-popover py-2 pr-2 pl-4 text-sm text-popover-foreground shadow-lg motion-safe:animate-slide-in">
-        <span className="min-w-0 flex-1 text-pretty">Nova versão disponível.</span>
+        <span className="min-w-0 flex-1 text-pretty">{t("shell.version.available")}</span>
         <Button size="sm" onClick={() => window.location.reload()}>
-          <RotateCw aria-hidden /> Recarregar
+          <RotateCw aria-hidden /> {t("shell.version.reload")}
         </Button>
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Dispensar aviso de nova versão"
+          aria-label={t("shell.version.dismiss")}
           onClick={() => setDismissed(true)}
         >
           <X aria-hidden />

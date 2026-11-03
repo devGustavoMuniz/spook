@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { SettingRow, SettingsGroup } from "@/features/settings/ui";
+import { useT } from "@/i18n";
 import {
   type CallSoundGroup,
   type CallSoundKind,
@@ -23,6 +24,7 @@ const SAMPLE: Record<CallSoundGroup, CallSoundKind> = {
 
 /** Configurações > Voz e vídeo > Sons da chamada: volume único e um interruptor por tipo de som. */
 export function CallSoundsGroup() {
+  const { t } = useT();
   const [prefs, setPrefs] = useState(loadCallSoundPrefs);
   const update = (next: typeof prefs) => {
     setPrefs(next);
@@ -31,12 +33,12 @@ export function CallSoundsGroup() {
   return (
     <SettingsGroup
       icon={Bell}
-      title="Sons da chamada"
-      description="Sons curtos para entrar, sair, silenciar e transmissões. Ficam mudos em Não perturbar."
+      title={t("voice.sounds.title")}
+      description={t("voice.sounds.description")}
     >
       <div className="flex flex-col gap-1">
         <label htmlFor="call-sounds-volume" className="flex justify-between text-sm font-medium">
-          <span>Volume dos sons</span>
+          <span>{t("voice.sounds.volume")}</span>
           <span className="tabular text-muted-foreground">{Math.round(prefs.volume * 100)}%</span>
         </label>
         <input
@@ -46,20 +48,25 @@ export function CallSoundsGroup() {
           max={100}
           step={5}
           value={Math.round(prefs.volume * 100)}
-          aria-valuetext={`${Math.round(prefs.volume * 100)} por cento`}
+          aria-valuetext={t("voice.volume.percent", { value: Math.round(prefs.volume * 100) })}
           onChange={(e) => update({ ...prefs, volume: Number(e.target.value) / 100 })}
           className="cursor-pointer accent-primary"
         />
       </div>
       {SOUND_GROUPS.map((g) => (
-        <SettingRow key={g.id} htmlFor={`call-sound-${g.id}`} label={g.label} hint={g.hint}>
+        <SettingRow
+          key={g.id}
+          htmlFor={`call-sound-${g.id}`}
+          label={t(g.labelKey)}
+          hint={t(g.hintKey)}
+        >
           <span className="flex shrink-0 items-center gap-2">
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
               className="size-7"
-              aria-label={`Ouvir: ${g.label}`}
+              aria-label={t("voice.sounds.listen", { label: t(g.labelKey) })}
               disabled={!prefs.groups[g.id]}
               onClick={() => {
                 noteUserGesture();

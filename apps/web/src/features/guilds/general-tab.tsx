@@ -36,6 +36,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { isConfirmationCancelled, useConfirmPassword } from "@/features/account/confirm-password";
 import { memberName, useGuildMembers } from "@/features/members/use-members";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_TEXT, channelsOf, type Guild, initials } from "@/lib/guild";
 import { refreshGuilds, removeGuild } from "@/lib/guild-cache";
@@ -55,6 +56,7 @@ export function GeneralTab({ guild, onClose }: { guild: Guild; onClose: () => vo
 }
 
 function NameForm({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const update = useUpdateGuild();
   const {
@@ -70,14 +72,18 @@ function NameForm({ guild }: { guild: Guild }) {
     try {
       await update.mutateAsync({ guildId: guild.id, data: { name } });
       await refreshGuilds(qc);
-      toast.success("Servidor atualizado.");
+      toast.success(t("guilds.general.updated"));
     } catch (e) {
       toast.error(appMessage(e));
     }
   });
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
-      <Field id="settings-guild-name" label="Nome do servidor" error={errors.name?.message}>
+      <Field
+        id="settings-guild-name"
+        label={t("guilds.general.nameLabel")}
+        error={errors.name?.message}
+      >
         <Input
           id="settings-guild-name"
           maxLength={100}
@@ -87,7 +93,7 @@ function NameForm({ guild }: { guild: Guild }) {
         />
       </Field>
       <Button type="submit" className="self-start" loading={isSubmitting} disabled={!isDirty}>
-        Salvar nome
+        {t("guilds.general.saveName")}
       </Button>
     </form>
   );
@@ -97,6 +103,7 @@ const DEFAULT_SYSTEM_CHANNEL = "default";
 
 /** Mensagens de boas-vindas ("fulano entrou no servidor"): liga/desliga e escolhe o canal (MANAGE_GUILD). */
 function SystemMessagesSection({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const update = useUpdateGuild();
   const texts = channelsOf(guild).filter((c) => c.type === CHANNEL_TEXT);
@@ -107,7 +114,7 @@ function SystemMessagesSection({ guild }: { guild: Guild }) {
     try {
       await update.mutateAsync({ guildId: guild.id, data });
       await refreshGuilds(qc);
-      toast.success("Mensagens de entrada atualizadas.");
+      toast.success(t("guilds.general.sys.saved"));
     } catch (e) {
       toast.error(appMessage(e));
     }
@@ -117,15 +124,13 @@ function SystemMessagesSection({ guild }: { guild: Guild }) {
     <section aria-labelledby="system-title" className="flex flex-col gap-3">
       <div>
         <h3 id="system-title" className="text-sm font-semibold">
-          Mensagens de entrada
+          {t("guilds.general.sys.title")}
         </h3>
-        <p className="text-xs text-pretty text-muted-foreground">
-          Avisa no canal quando alguém entra pelo convite. Não gera notificação.
-        </p>
+        <p className="text-xs text-pretty text-muted-foreground">{t("guilds.general.sys.desc")}</p>
       </div>
       <div className="flex min-h-14 items-center gap-3 rounded-lg border border-border px-3 py-2">
         <Label htmlFor="system-join-enabled" className="flex-1">
-          Avisar quando alguém entrar no servidor
+          {t("guilds.general.sys.toggle")}
         </Label>
         <Switch
           id="system-join-enabled"
@@ -135,7 +140,7 @@ function SystemMessagesSection({ guild }: { guild: Guild }) {
         />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="system-channel">Canal das mensagens</Label>
+        <Label htmlFor="system-channel">{t("guilds.general.sys.channel")}</Label>
         <Select
           value={value}
           disabled={update.isPending || !guild.system_join_enabled}
@@ -143,11 +148,13 @@ function SystemMessagesSection({ guild }: { guild: Guild }) {
             void save({ system_channel_id: v === DEFAULT_SYSTEM_CHANNEL ? "" : v })
           }
         >
-          <SelectTrigger id="system-channel" aria-label="Canal das mensagens de entrada">
+          <SelectTrigger id="system-channel" aria-label={t("guilds.general.sys.channelAria")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={DEFAULT_SYSTEM_CHANNEL}>Padrão (primeiro canal de texto)</SelectItem>
+            <SelectItem value={DEFAULT_SYSTEM_CHANNEL}>
+              {t("guilds.general.sys.default")}
+            </SelectItem>
             {texts.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 # {c.name}
@@ -161,6 +168,7 @@ function SystemMessagesSection({ guild }: { guild: Guild }) {
 }
 
 function IconSection({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const requestUpload = useRequestGuildIconUpload();
   const update = useUpdateGuild();
@@ -186,11 +194,11 @@ function IconSection({ guild }: { guild: Guild }) {
       await putWithProgress(upload_url, file, setProgress);
       await update.mutateAsync({ guildId: guild.id, data: { icon_key: key } });
       await refreshGuilds(qc);
-      toast.success("Ícone atualizado.");
+      toast.success(t("guilds.general.icon.updated"));
     } catch (e) {
       toast.error(
         e instanceof Error && !("status" in e)
-          ? "Não foi possível enviar a imagem."
+          ? t("guilds.general.icon.uploadFailed")
           : appMessage(e),
       );
     } finally {
@@ -203,7 +211,7 @@ function IconSection({ guild }: { guild: Guild }) {
     try {
       await update.mutateAsync({ guildId: guild.id, data: { icon_key: "" } });
       await refreshGuilds(qc);
-      toast.success("Ícone removido.");
+      toast.success(t("guilds.general.icon.removed"));
     } catch (e) {
       toast.error(appMessage(e));
     }
@@ -213,16 +221,18 @@ function IconSection({ guild }: { guild: Guild }) {
     <section aria-labelledby="icon-title" className="flex flex-col gap-3">
       <div>
         <h3 id="icon-title" className="text-sm font-semibold">
-          Ícone do servidor
+          {t("guilds.general.icon.title")}
         </h3>
-        <p className="text-xs text-muted-foreground">
-          PNG, JPEG ou WebP. Aparece na barra de servidores.
-        </p>
+        <p className="text-xs text-muted-foreground">{t("guilds.general.icon.desc")}</p>
       </div>
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex size-20 items-center justify-center overflow-hidden rounded-2xl border border-border bg-secondary text-xl font-semibold">
           {guild.icon_url ? (
-            <img src={guild.icon_url} alt="Ícone atual" className="size-full object-cover" />
+            <img
+              src={guild.icon_url}
+              alt={t("guilds.general.icon.current")}
+              className="size-full object-cover"
+            />
           ) : (
             initials(guild.name)
           )}
@@ -234,7 +244,7 @@ function IconSection({ guild }: { guild: Guild }) {
               type="file"
               accept="image/png,image/jpeg,image/webp"
               className="sr-only"
-              aria-label="Arquivo do ícone"
+              aria-label={t("guilds.general.icon.fileAria")}
               onChange={(e) => void onFile(e.target.files?.[0])}
               disabled={busy}
             />
@@ -244,11 +254,12 @@ function IconSection({ guild }: { guild: Guild }) {
               disabled={busy}
               onClick={() => fileInput.current?.click()}
             >
-              <ImagePlus /> {busy ? "Enviando…" : "Trocar ícone"}
+              <ImagePlus />{" "}
+              {busy ? t("guilds.general.icon.uploading") : t("guilds.general.icon.change")}
             </Button>
             {guild.icon_key ? (
               <Button type="button" variant="ghost" disabled={busy} onClick={remove}>
-                <Trash2 /> Remover
+                <Trash2 /> {t("guilds.general.icon.remove")}
               </Button>
             ) : null}
           </div>
@@ -257,7 +268,7 @@ function IconSection({ guild }: { guild: Guild }) {
               className="h-2 w-48 accent-primary"
               max={100}
               value={progress ?? 0}
-              aria-label="Progresso do envio"
+              aria-label={t("guilds.general.icon.progress")}
             />
           ) : null}
           {fileError ? (
@@ -272,6 +283,7 @@ function IconSection({ guild }: { guild: Guild }) {
 }
 
 function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: me } = useGetMe();
@@ -285,13 +297,15 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const others = (members.data?.members ?? []).filter((m) => m.user_id !== me?.id);
   const targetMember = others.find((m) => m.user_id === target);
+  // O nome do servidor vai em negrito: traduz com um marcador e parte o texto nele.
+  const typeNameParts = t("guilds.general.danger.typeName", { name: "\u0001" }).split("\u0001");
 
   async function doTransfer() {
     try {
       // Ação sensível: o servidor pede a senha confirmada há pouco; `run` abre o diálogo e repete a ação.
       await run(() => transfer.mutateAsync({ guildId: guild.id, data: { user_id: target } }));
       await refreshGuilds(qc);
-      toast.success("Posse transferida.");
+      toast.success(t("guilds.general.danger.transferred"));
       onClose();
     } catch (e) {
       if (!isConfirmationCancelled(e)) toast.error(appMessage(e));
@@ -323,17 +337,17 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
         id="danger-title"
         className="flex items-center gap-2 text-sm font-semibold text-destructive-text"
       >
-        <TriangleAlert className="size-4" aria-hidden /> Zona de perigo
+        <TriangleAlert className="size-4" aria-hidden /> {t("guilds.general.danger.title")}
       </h3>
       <div className="flex flex-col gap-2">
         <p className="text-sm text-pretty text-muted-foreground">
-          Transfira a posse para outro membro. Você continua no servidor, sem os poderes de dono.
+          {t("guilds.general.danger.transferDesc")}
         </p>
         <div className="flex flex-wrap gap-2">
           <div className="min-w-48 flex-1">
             <Select value={target} onValueChange={setTarget}>
-              <SelectTrigger aria-label="Novo dono">
-                <SelectValue placeholder="Escolha um membro" />
+              <SelectTrigger aria-label={t("guilds.general.danger.newOwner")}>
+                <SelectValue placeholder={t("guilds.general.danger.pickMember")} />
               </SelectTrigger>
               <SelectContent>
                 {others.map((m) => (
@@ -345,27 +359,32 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
             </Select>
           </div>
           <Button variant="outline" disabled={!target} onClick={() => setConfirmTransfer(true)}>
-            Transferir posse
+            {t("guilds.general.danger.transfer")}
           </Button>
         </div>
       </div>
       <div className="flex flex-col gap-2 border-t border-destructive/20 pt-5">
         <p className="text-sm text-pretty text-muted-foreground">
-          Excluir apaga canais, cargos, convites e mensagens para todos.
+          {t("guilds.general.danger.deleteDesc")}
         </p>
         <Button variant="destructive" className="self-start" onClick={() => setConfirmDelete(true)}>
-          Excluir servidor
+          {t("guilds.general.danger.delete")}
         </Button>
       </div>
       <AlertDialog open={confirmTransfer} onOpenChange={setConfirmTransfer}>
         <AlertDialogContent>
           <AlertDialogTitle>
-            Transferir {guild.name} para {targetMember ? memberName(targetMember) : ""}?
+            {t("guilds.general.danger.transferTitle", {
+              guild: guild.name,
+              member: targetMember ? memberName(targetMember) : "",
+            })}
           </AlertDialogTitle>
-          <AlertDialogDescription>Só o novo dono poderá desfazer isso.</AlertDialogDescription>
+          <AlertDialogDescription>{t("guilds.general.danger.transferBody")}</AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void doTransfer()}>Transferir</AlertDialogAction>
+            <AlertDialogCancel>{t("guilds.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void doTransfer()}>
+              {t("guilds.general.danger.transferConfirm")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -377,13 +396,15 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Excluir {guild.name}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Esta ação não pode ser desfeita. Vamos pedir sua senha em seguida.
-          </AlertDialogDescription>
+          <AlertDialogTitle>
+            {t("guilds.general.danger.deleteTitle", { name: guild.name })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>{t("guilds.general.danger.deleteBody")}</AlertDialogDescription>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="confirm-guild-name">
-              Digite o nome do servidor (<strong>{guild.name}</strong>) para confirmar
+              {typeNameParts[0]}
+              <strong>{guild.name}</strong>
+              {typeNameParts[1]}
             </Label>
             <Input
               id="confirm-guild-name"
@@ -393,12 +414,12 @@ function DangerZone({ guild, onClose }: { guild: Guild; onClose: () => void }) {
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>{t("guilds.common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={typedName.trim() !== guild.name}
               onClick={() => void doDelete()}
             >
-              Excluir servidor
+              {t("guilds.general.danger.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

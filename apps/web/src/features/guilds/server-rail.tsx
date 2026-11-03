@@ -25,6 +25,7 @@ import {
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { useIsMuted } from "@/features/notifications/settings";
 import { useIncomingCount } from "@/features/social/store";
+import { formatBadge, useT } from "@/i18n";
 import { type Guild, initials } from "@/lib/guild";
 import { cn } from "@/lib/utils";
 import { AddServerDialog } from "./add-server-dialog";
@@ -53,17 +54,22 @@ function Pill({ state }: { state: "active" | "unread" | "none" }) {
 }
 
 function GuildButton({ guild: g, active }: { guild: Guild; active: boolean }) {
-  const t = useGuildTotals(g.id);
+  const { t } = useT();
+  const totals = useGuildTotals(g.id);
   const muted = useIsMuted("guild", g.id);
   const shell = useShell();
   const [menu, setMenu] = useState(false);
   const colors = avatarColor(g.id);
-  const hasUnread = !muted && (t.unread > 0 || t.mentions > 0);
+  const hasUnread = !muted && (totals.unread > 0 || totals.mentions > 0);
   const label =
-    t.mentions > 0
-      ? `${g.name}, ${t.mentions > 99 ? "99+" : t.mentions} ${t.mentions === 1 ? "menção" : "menções"}`
+    totals.mentions > 0
+      ? t("guilds.rail.mentionsLabel", {
+          name: g.name,
+          count: totals.mentions,
+          shown: formatBadge(totals.mentions),
+        })
       : hasUnread
-        ? `${g.name}, mensagens novas`
+        ? t("guilds.rail.newMessages", { name: g.name })
         : g.name;
   return (
     <li
@@ -85,7 +91,7 @@ function GuildButton({ guild: g, active }: { guild: Guild; active: boolean }) {
           <NotificationMenuItems
             scope="guild"
             targetId={g.id}
-            what="o servidor"
+            what={t("guilds.rail.notifyGuild")}
             isGuildLike
             withSeparator={false}
           />
@@ -123,16 +129,16 @@ function GuildButton({ guild: g, active }: { guild: Guild; active: boolean }) {
             {g.name}
           </TooltipContent>
         </Tooltip>
-        {t.mentions > 0 ? (
+        {totals.mentions > 0 ? (
           <MentionBadge
-            count={t.mentions}
-            label={mentionLabel(t.mentions, g.name)}
+            count={totals.mentions}
+            label={mentionLabel(totals.mentions, g.name)}
             className="pointer-events-none absolute -right-1.5 -bottom-1.5 h-[1.125rem] min-w-[1.125rem] ring-[3px] ring-sidebar"
           />
         ) : muted ? (
           <BellOff
             role="img"
-            aria-label="Servidor silenciado"
+            aria-label={t("guilds.rail.muted")}
             className="pointer-events-none absolute -right-1 -bottom-1 size-[1.125rem] rounded-full bg-sidebar p-[3px] text-muted-foreground"
           />
         ) : null}
@@ -142,6 +148,7 @@ function GuildButton({ guild: g, active }: { guild: Guild; active: boolean }) {
 }
 
 export function ServerRail({ guilds }: { guilds: Guild[] }) {
+  const { t } = useT();
   const [adding, setAdding] = useState(false);
   const { signOut, pending } = useSignOut();
   const dms = useDmTotals();
@@ -156,7 +163,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
     "flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
   return (
     <nav
-      aria-label="Servidores"
+      aria-label={t("guilds.rail.navLabel")}
       className="flex w-[4.5rem] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r bg-sidebar py-3 scrollbar-none"
     >
       <div className="group relative flex w-full justify-center">
@@ -166,7 +173,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
             <TooltipTrigger asChild>
               <Link
                 to="/channels/@me"
-                aria-label="Início"
+                aria-label={t("guilds.rail.home")}
                 onClick={() => shell?.holdNav()}
                 className={cn(
                   itemBase,
@@ -179,24 +186,27 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={14}>
-              Início (mensagens diretas)
+              {t("guilds.rail.homeTip")}
             </TooltipContent>
           </Tooltip>
           {friendRequests > 0 && dms.mentions === 0 ? (
             <MentionBadge
               count={friendRequests}
-              label={`${friendRequests} ${friendRequests === 1 ? "pedido de amizade" : "pedidos de amizade"}`}
+              label={t("guilds.rail.friendRequests", { count: friendRequests })}
               className="pointer-events-none absolute -right-1.5 -bottom-1.5 h-[1.125rem] min-w-[1.125rem] ring-[3px] ring-sidebar"
             />
           ) : dms.mentions > 0 ? (
             <MentionBadge
               count={dms.mentions}
-              label={`${dms.mentions > 99 ? "99+" : dms.mentions} mensagens diretas não lidas`}
+              label={t("guilds.rail.dmUnread", {
+                count: dms.mentions,
+                shown: formatBadge(dms.mentions),
+              })}
               className="pointer-events-none absolute -right-1.5 -bottom-1.5 h-[1.125rem] min-w-[1.125rem] ring-[3px] ring-sidebar"
             />
           ) : dms.unread > 0 ? (
             <UnreadDot
-              label="Mensagens diretas novas"
+              label={t("guilds.rail.dmNew")}
               className="pointer-events-none absolute right-0 bottom-0 size-3 ring-[3px] ring-sidebar"
             />
           ) : null}
@@ -212,7 +222,7 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label="Adicionar um servidor"
+            aria-label={t("guilds.rail.add")}
             onClick={() => setAdding(true)}
             className={cn(
               itemBase,
@@ -224,34 +234,40 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
           </button>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={14}>
-          Criar servidor ou entrar com convite
+          {t("guilds.rail.addTip")}
         </TooltipContent>
       </Tooltip>
       <div className="mt-auto flex flex-col items-center gap-1 pt-2">
         {me?.is_admin ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Link to="/admin" aria-label="Painel de administração" className={tool}>
+              <Link to="/admin" aria-label={t("guilds.rail.admin")} className={tool}>
                 <ShieldCheck className="size-5" />
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={14}>
-              Painel de administração
+              {t("guilds.rail.admin")}
             </TooltipContent>
           </Tooltip>
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Link to="/settings/profile" aria-label="Configurações do perfil" className={tool}>
+            <Link to="/settings/profile" aria-label={t("guilds.rail.profileAria")} className={tool}>
               <Settings className="size-5" />
             </Link>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={14}>
-            Perfil
+            {t("guilds.rail.profile")}
           </TooltipContent>
         </Tooltip>
         <ThemeToggle variant="ghost" />
-        <Button variant="ghost" size="icon" aria-label="Sair" onClick={signOut} disabled={pending}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t("guilds.rail.signOut")}
+          onClick={signOut}
+          disabled={pending}
+        >
           <LogOut />
         </Button>
       </div>

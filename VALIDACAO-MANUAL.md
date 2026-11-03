@@ -338,3 +338,11 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 - [ ] **Bloqueio na prática:** A bloqueia B; B tenta abrir DM e enviar mensagem na DM antiga (erro genérico, sem a palavra "bloqueio"); numa DM em grupo as mensagens de B ficam recolhidas ("Mensagem de usuário bloqueado — mostrar") para A e continuam normais para os demais; B menciona A num servidor e A não recebe contador nem push.
 - [ ] **Convidar para servidor:** pelo menu de um amigo (e pelo cartão de perfil), o convite chega na DM como cartão com "Entrar"; convidar de novo reaproveita o mesmo link; em produção confirmar que `PUBLIC_URL` está definido (sem ele o convite pela DM responde 503).
 - [ ] **Presença de amigos sem servidor em comum:** A e B amigos sem servidor em comum veem um ao outro online/ausente/offline na tela de Amigos; com A Invisível, B vê offline; com A em "Não perturbar", B vê o ponto de DND e o status personalizado.
+
+### Idiomas pt-BR e inglês (RF29)
+- [ ] **Revisar o inglês** (1660 textos em `apps/web/src/i18n/messages/en/`): naturalidade, consistência com o glossário (`apps/web/README.md`) e tom. Percorra auth, canais, chat, configurações, voz/palco, moderação e DMs/amigos com o idioma em English.
+- [ ] **Troca ao vivo** em Configurações -> Aparência e idioma e no menu do usuário: nada precisa recarregar; abas já abertas mantêm o idioma antigo até recarregar.
+- [ ] **Layout em inglês a 390 px** nos pontos apertados: rodapé do usuário, barra de controles do palco, abas de Amigos e de configurações do servidor.
+- [ ] **Push:** o corpo vem do servidor em pt-BR (limitação); confirme que o título e o botão "Abrir" seguem o idioma.
+- [ ] **Desktop:** menu da bandeja ("Open Spook"/"Quit") e aviso "continua rodando na bandeja" mudam ao trocar o idioma (código Rust não foi compilado pelo agente; rode `cargo check`/build do desktop antes).
+- [ ] **Erros do servidor em inglês:** provoque alguns (senha errada, limite, 403) e confira se vêm traduzidos; os fora da tabela aparecem em pt-BR.

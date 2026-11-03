@@ -2,6 +2,7 @@
 // memória é o que as requisições leem (síncrono). Se o chaveiro não estiver disponível, o Rust guarda só em
 // memória e avisa (`persistent: false`): o usuário precisa entrar de novo ao reabrir o app. Nunca em arquivo.
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { invoke } from "./ipc";
 import { isTauri } from "./runtime";
 
@@ -12,8 +13,7 @@ let current: string | null = null;
 /** Token em uso pelas requisições (nulo = sem sessão). */
 export const sessionToken = (): string | null => current;
 
-export const VOLATILE_TOKEN_WARNING =
-  "Não foi possível usar o chaveiro do sistema. Você continua conectado enquanto o Spook estiver aberto, mas precisará entrar de novo ao reabri-lo.";
+export const volatileTokenWarning = () => t("settings.desktop.keychainUnavailable");
 
 /** Lê o token guardado (chamado uma vez na inicialização, antes de montar a interface). */
 export async function loadSessionToken(): Promise<void> {
@@ -30,9 +30,9 @@ export async function persistSessionToken(token: string | undefined | null): Pro
   current = token;
   try {
     const state = await invoke<TokenState>("auth_set_token", { token });
-    if (!state.persistent) toast.warning(VOLATILE_TOKEN_WARNING, { duration: 12_000 });
+    if (!state.persistent) toast.warning(volatileTokenWarning(), { duration: 12_000 });
   } catch {
-    toast.warning(VOLATILE_TOKEN_WARNING, { duration: 12_000 });
+    toast.warning(volatileTokenWarning(), { duration: 12_000 });
   }
 }
 

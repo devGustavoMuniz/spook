@@ -12,6 +12,7 @@
 import rnnoiseWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
 import rnnoiseSimdWasmUrl from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
 import rnnoiseWorkletUrl from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
+import { t } from "@/i18n";
 import type { InputLevel, InputSensitivity } from "./engine";
 import gateWorkletUrl from "./gate-worklet.js?url";
 
@@ -156,10 +157,10 @@ export class MicTrackProcessor {
     try {
       ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: "interactive" });
     } catch {
-      throw new Error("O navegador não cria o áudio a 48 kHz.");
+      throw new Error(t("voice.engine.sampleRate"));
     }
     this.ctx = ctx;
-    if (ctx.sampleRate !== SAMPLE_RATE) throw new Error("O navegador não cria o áudio a 48 kHz.");
+    if (ctx.sampleRate !== SAMPLE_RATE) throw new Error(t("voice.engine.sampleRate"));
     if (ctx.state === "suspended") await ctx.resume().catch(() => {});
     if (strong) await ctx.audioWorklet.addModule(rnnoiseWorkletUrl);
     await ctx.audioWorklet.addModule(gateWorkletUrl);

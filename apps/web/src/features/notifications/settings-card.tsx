@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { dmTitle } from "@/features/dms/dm-utils";
 import { useDms } from "@/features/dms/use-dms";
 import { SettingsGroup } from "@/features/settings/ui";
+import { dateFnsLocale, t, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import {
   defaultLevel,
@@ -14,11 +15,18 @@ import {
   useNotificationSettings,
 } from "./settings";
 
-const levelLabel = (l: string) => LEVEL_OPTIONS.find((o) => o.value === l)?.label ?? l;
+const levelLabel = (l: string) => {
+  const o = LEVEL_OPTIONS.find((x) => x.value === l);
+  return o ? t(o.labelKey) : l;
+};
 
 function mutedText(until: string | null) {
-  if (!until) return "silenciado até você reativar";
-  return `silenciado até ${new Date(until).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`;
+  if (!until) return t("settings.notifCard.mutedForever");
+  const when = new Date(until).toLocaleString(dateFnsLocale().code, {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  return t("settings.notifCard.mutedUntil", { when });
 }
 
 /**
@@ -27,6 +35,7 @@ function mutedText(until: string | null) {
  * podem ser desfeitos aqui.
  */
 export function NotificationDefaultsCard() {
+  const { t } = useT();
   const entries = useNotificationSettings((s) => s.entries);
   useNotificationSettings((s) => s.tick);
   const guilds = useListGuilds();
@@ -34,14 +43,15 @@ export function NotificationDefaultsCard() {
   const { data: me } = useGetMe();
 
   const nameOf = (scope: string, id: string): string => {
-    if (scope === "guild") return guilds.data?.find((g) => g.id === id)?.name ?? "Servidor";
+    if (scope === "guild")
+      return guilds.data?.find((g) => g.id === id)?.name ?? t("settings.notifCard.guild");
     const dm = dms.list.find((c) => c.id === id);
-    if (dm) return me ? dmTitle(dm, me.id) : "Conversa";
+    if (dm) return me ? dmTitle(dm, me.id) : t("settings.notifCard.conversation");
     for (const g of guilds.data ?? []) {
       const ch = g.channels?.find((c) => c.id === id);
       if (ch) return `#${ch.name} · ${g.name}`;
     }
-    return "Canal";
+    return t("settings.notifCard.channel");
   };
 
   const rows = Object.values(entries)
@@ -51,11 +61,14 @@ export function NotificationDefaultsCard() {
   return (
     <SettingsGroup
       icon={BellOff}
-      title="Silenciados e níveis"
-      description={`Padrão dos servidores: ${levelLabel(defaultLevel(true)).toLowerCase()}. Padrão das conversas diretas: ${levelLabel(defaultLevel(false)).toLowerCase()}. Para mudar, abra o menu do servidor, do canal ou da conversa. Silenciar e o nível só mudam os avisos: as contagens de não lidas e menções continuam aparecendo.`}
+      title={t("settings.notifCard.title")}
+      description={t("settings.notifCard.description", {
+        guilds: levelLabel(defaultLevel(true)).toLowerCase(),
+        dms: levelLabel(defaultLevel(false)).toLowerCase(),
+      })}
     >
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nada personalizado por enquanto.</p>
+        <p className="text-sm text-muted-foreground">{t("settings.notifCard.empty")}</p>
       ) : (
         <ul className="flex flex-col divide-y">
           {rows.map((e) => (
@@ -80,7 +93,7 @@ export function NotificationDefaultsCard() {
                   )
                 }
               >
-                Restaurar padrão
+                {t("settings.notifCard.reset")}
               </Button>
             </li>
           ))}

@@ -9,6 +9,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { t, useT } from "@/i18n";
 import { updater as appUpdater, type Updater } from "./updater";
 
 const TOAST_ID = "app-update";
@@ -18,6 +19,7 @@ const TOAST_ID = "app-update";
  * baixada ("Reiniciar para atualizar") e pede confirmação antes de reiniciar com uma chamada de voz em andamento.
  */
 export function UpdateWatcher({ updater = appUpdater }: { updater?: Updater }) {
+  const { t: tr } = useT();
   const status = updater.useStore((s) => s.status);
   const confirm = updater.useStore((s) => s.confirmRestart);
   const announced = useRef<string | null>(null);
@@ -27,26 +29,26 @@ export function UpdateWatcher({ updater = appUpdater }: { updater?: Updater }) {
   useEffect(() => {
     if (status.kind !== "ready" || announced.current === status.version) return;
     announced.current = status.version;
-    toast(`Spook ${status.version} está pronto`, {
+    toast(t("settings.watcher.toastTitle", { version: status.version }), {
       id: TOAST_ID,
-      description: "Reinicie o app para usar a nova versão.",
+      description: t("settings.watcher.toastDescription"),
       duration: Number.POSITIVE_INFINITY,
-      action: { label: "Reiniciar para atualizar", onClick: () => void updater.requestRestart() },
+      action: {
+        label: t("settings.updates.restart"),
+        onClick: () => void updater.requestRestart(),
+      },
     });
   }, [status, updater]);
 
   return (
     <AlertDialog open={confirm} onOpenChange={(open) => !open && updater.dismissRestart()}>
       <AlertDialogContent>
-        <AlertDialogTitle>Reiniciar durante a chamada?</AlertDialogTitle>
-        <AlertDialogDescription>
-          Você está em uma chamada de voz. Ao reiniciar para atualizar, a chamada é encerrada. Você
-          pode deixar para depois: o app se atualiza na próxima vez que abrir.
-        </AlertDialogDescription>
+        <AlertDialogTitle>{tr("settings.watcher.confirmTitle")}</AlertDialogTitle>
+        <AlertDialogDescription>{tr("settings.watcher.confirmDescription")}</AlertDialogDescription>
         <AlertDialogFooter>
-          <AlertDialogCancel>Agora não</AlertDialogCancel>
+          <AlertDialogCancel>{tr("settings.watcher.notNow")}</AlertDialogCancel>
           <AlertDialogAction onClick={() => void updater.confirmRestartNow()}>
-            Reiniciar e sair da chamada
+            {tr("settings.watcher.restartAndLeave")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -14,11 +14,13 @@ import { MembersPanel } from "@/features/members/members-panel";
 import { ChannelView } from "@/features/messages/channel-view";
 import { PinnedMessagesButton } from "@/features/messages/pins-panel";
 import { VoiceChannelView } from "@/features/voice/voice-channel-view";
+import { useT } from "@/i18n";
 import { CHANNEL_TEXT, CHANNEL_VOICE, can, channelsOf } from "@/lib/guild";
 import { lastLocation } from "@/lib/last-location";
 
 /** `/channels/$guildId`: barra de canais + conteúdo + membros. */
 export function GuildLayout() {
+  const { t } = useT();
   const { guildId } = useParams({ strict: false }) as { guildId: string };
   const { guild, isPending, isError, error, refetch, isFetching } = useGuild(guildId);
 
@@ -31,7 +33,7 @@ export function GuildLayout() {
       <output className="flex h-full flex-col gap-3 p-6">
         <Skeleton className="h-6 w-48" />
         <Skeleton className="h-4 w-72" />
-        <span className="sr-only">Carregando servidor…</span>
+        <span className="sr-only">{t("shell.guild.loading")}</span>
       </output>
     );
   if (isError)
@@ -39,8 +41,8 @@ export function GuildLayout() {
   if (!guild)
     return (
       <StateScreen
-        title="Servidor não encontrado"
-        description="Ele pode ter sido excluído, ou você não faz parte dele."
+        title={t("shell.guild.notFoundTitle")}
+        description={t("shell.guild.notFoundBody")}
         actions={<HomeButton />}
       />
     );
@@ -60,6 +62,7 @@ export function GuildLayout() {
 
 /** `/channels/$guildId` sem canal: abre o último canal de texto visitado ou o primeiro. */
 export function GuildIndex() {
+  const { t } = useT();
   const { guildId } = useParams({ strict: false }) as { guildId: string };
   const { guild } = useGuild(guildId);
   if (!guild) return null;
@@ -74,14 +77,12 @@ export function GuildIndex() {
       />
     );
   return (
-    <StateScreen
-      title="Nenhum canal de texto"
-      description="Quando houver um canal de texto que você possa ver, ele aparece aqui."
-    />
+    <StateScreen title={t("shell.guild.noTextTitle")} description={t("shell.guild.noTextBody")} />
   );
 }
 
 export function ChannelPage() {
+  const { t } = useT();
   const { guildId, channelId } = useParams({ strict: false }) as {
     guildId: string;
     channelId: string;
@@ -98,12 +99,12 @@ export function ChannelPage() {
   if (!channel)
     return (
       <StateScreen
-        title="Canal não encontrado"
-        description="Ele pode ter sido excluído, ou você não tem acesso a ele."
+        title={t("shell.guild.channelNotFoundTitle")}
+        description={t("shell.guild.channelNotFoundBody")}
         actions={
           <Button asChild>
             <Link to="/channels/$guildId" params={{ guildId }}>
-              <ArrowLeft /> Escolher outro canal
+              <ArrowLeft /> {t("shell.guild.pickChannel")}
             </Link>
           </Button>
         }

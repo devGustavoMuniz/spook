@@ -7,6 +7,7 @@
 // `tauri.conf.json`; sem assinatura válida o download falha e nada é instalado.
 import { create } from "zustand";
 import { useVoiceStore } from "@/features/voice/store";
+import { t } from "@/i18n";
 
 /** Verificação periódica com o app aberto. */
 export const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -40,30 +41,27 @@ export type UpdaterBackend = {
 
 // ---- Mensagens de erro (puras) ----
 
-const DOWNLOAD_PAGE_HINT = "Você também pode baixar o instalador novo na página de download.";
-
 /** Traduz o erro do plugin (texto em inglês vindo do Rust) numa frase clara para a pessoa. */
 export function updateErrorMessage(err: unknown, phase: UpdatePhase): string {
   const raw = (
     typeof err === "string" ? err : err instanceof Error ? err.message : String(err ?? "")
   ).toLowerCase();
   if (/signature|minisign|verif/.test(raw)) {
-    return `A assinatura da atualização não confere, então ela não foi instalada (por segurança). ${DOWNLOAD_PAGE_HINT}`;
+    return t("settings.updater.badSignature");
   }
   if (
     /error sending request|network|dns|connect|timed out|timeout|offline|failed to fetch|unreachable|os error/.test(
       raw,
     )
   ) {
-    return "Sem conexão com o servidor de atualizações. Verifique a internet e tente de novo.";
+    return t("settings.updater.offline");
   }
   if (/valid release json|404|not found|status code/.test(raw)) {
-    return "Ainda não há nenhuma versão publicada para atualizar.";
+    return t("settings.updater.noRelease");
   }
-  if (phase === "check")
-    return "Não foi possível verificar as atualizações. Tente de novo mais tarde.";
-  if (phase === "download") return "Não foi possível baixar a atualização. Tente de novo.";
-  return `Não foi possível instalar a atualização. ${DOWNLOAD_PAGE_HINT}`;
+  if (phase === "check") return t("settings.updater.checkFailed");
+  if (phase === "download") return t("settings.updater.downloadFailed");
+  return t("settings.updater.installFailed");
 }
 
 /** 0..100 ou `null` quando o tamanho total é desconhecido. */

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useT } from "@/i18n";
 import type { Guild } from "@/lib/guild";
 import { cn } from "@/lib/utils";
 import {
@@ -143,6 +144,7 @@ export function VoiceStage({
   leaveLabel?: string;
   className?: string;
 }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const status = useVoiceStore((s) => s.status);
   const speaking = useVoiceStore((s) => s.speaking);
@@ -327,7 +329,7 @@ export function VoiceStage({
       <TooltipProvider>
         <section
           ref={root}
-          aria-label="Vídeo da chamada"
+          aria-label={t("voice.stage.label")}
           data-fullscreen={fullscreen || undefined}
           data-controls={barVisible ? "visible" : "hidden"}
           onKeyDown={onKeyDown}
@@ -344,14 +346,16 @@ export function VoiceStage({
               {status !== "connected" ? (
                 <output className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-card/90 px-3.5 py-1.5 text-sm font-medium shadow-md backdrop-blur-md">
                   <Spinner />
-                  {status === "reconnecting" ? "Reconectando à chamada…" : "Conectando à chamada…"}
+                  {status === "reconnecting"
+                    ? t("voice.stage.reconnecting")
+                    : t("voice.stage.connecting")}
                 </output>
               ) : null}
               {audioBlocked ? (
                 <div className="pointer-events-auto flex items-center gap-3 rounded-xl border border-warning/50 bg-card/95 py-2 pr-2 pl-3.5 text-sm shadow-md backdrop-blur-md">
-                  <span>O navegador bloqueou o áudio da chamada.</span>
+                  <span>{t("voice.stage.audioBlocked")}</span>
                   <Button size="sm" onClick={() => void resumeAudio()}>
-                    <Volume2 /> Ativar áudio
+                    <Volume2 /> {t("voice.enableAudio")}
                   </Button>
                 </div>
               ) : null}
@@ -369,7 +373,7 @@ export function VoiceStage({
                     variant="ghost"
                     size="icon-sm"
                     className="size-7 shrink-0"
-                    aria-label="Dispensar aviso"
+                    aria-label={t("voice.stage.dismiss")}
                     onClick={() => setIssueDismissed(issue)}
                   >
                     <X />
@@ -390,14 +394,14 @@ export function VoiceStage({
             {focused ? (
               <>
                 <ul
-                  aria-label="Em destaque"
+                  aria-label={t("voice.stage.spotlight")}
                   className="flex min-h-0 flex-1 list-none items-stretch justify-center"
                 >
                   {tileFor(focused, { large: true, focused: true, className: "min-h-0 flex-1" })}
                 </ul>
                 {shownTiles.length > 1 ? (
                   <ul
-                    aria-label="Participantes da chamada"
+                    aria-label={t("voice.stage.participants")}
                     className="flex shrink-0 list-none gap-2 overflow-x-auto pb-1"
                   >
                     {shownTiles
@@ -408,7 +412,7 @@ export function VoiceStage({
               </>
             ) : (
               <ul
-                aria-label="Participantes da chamada"
+                aria-label={t("voice.stage.participants")}
                 data-cols={grid.cols}
                 className="m-auto flex min-h-full list-none flex-wrap content-center items-center justify-center"
                 style={{ gap: GAP }}
@@ -422,9 +426,7 @@ export function VoiceStage({
                 data-testid="hidden-count"
                 className="pointer-events-none absolute top-3 left-3 z-10 rounded-full border border-border bg-card/90 px-3 py-1 text-xs font-medium shadow-sm backdrop-blur-md"
               >
-                {active.hidden === 1
-                  ? "1 participante oculto"
-                  : `${active.hidden} participantes ocultos`}
+                {t("voice.stage.hidden", { count: active.hidden })}
               </p>
             ) : null}
           </div>
@@ -445,7 +447,9 @@ export function VoiceStage({
               <Button
                 variant="secondary"
                 size="icon-lg"
-                aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia do palco"}
+                aria-label={
+                  fullscreen ? t("voice.stage.exitFullscreen") : t("voice.stage.fullscreen")
+                }
                 aria-pressed={fullscreen}
                 className={cn(
                   "pointer-events-auto absolute right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] hidden size-11 rounded-full border border-border bg-card/85 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-[var(--dur-base)] sm:inline-flex",

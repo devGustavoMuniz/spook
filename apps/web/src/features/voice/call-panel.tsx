@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { dmTitle } from "@/features/dms/dm-utils";
 import { cancelCall, placeCall } from "@/features/social/call-actions";
 import { useCallStore } from "@/features/social/call-store";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { joinVoice, leaveCall, watchStream } from "./controller";
 import { VoiceStage } from "./stage/voice-stage";
@@ -47,6 +48,7 @@ export function useStageParticipants(channelId: string, guildId: string | null, 
  * "Entrar na chamada" (sem tocar de novo) e, dentro dela, "Em chamada" + "Sair da chamada".
  */
 export function DmCallButton({ channel }: { channel: ChannelPayload }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const inThis = useVoiceStore((s) => s.channelId === channel.id && s.status !== "idle");
   const connecting = useVoiceStore((s) => s.status === "connecting");
@@ -60,10 +62,10 @@ export function DmCallButton({ channel }: { channel: ChannelPayload }) {
     return (
       <div className="flex items-center gap-2">
         <output className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Phone aria-hidden className="size-4 animate-pulse" /> Chamando…
+          <Phone aria-hidden className="size-4 animate-pulse" /> {t("voice.call.calling")}
         </output>
         <Button variant="destructive" size="sm" onClick={() => void cancelCall(channel.id)}>
-          <PhoneOff /> Cancelar
+          <PhoneOff /> {t("voice.cancel")}
         </Button>
       </div>
     );
@@ -71,10 +73,11 @@ export function DmCallButton({ channel }: { channel: ChannelPayload }) {
     return (
       <div className="flex items-center gap-2">
         <span className="hidden items-center gap-1.5 text-sm text-emerald-600 sm:flex dark:text-emerald-400">
-          <span aria-hidden className="size-2 rounded-full bg-emerald-500" /> Em chamada
+          <span aria-hidden className="size-2 rounded-full bg-emerald-500" />{" "}
+          {t("voice.call.inCall")}
         </span>
         <Button variant="destructive" size="sm" onClick={() => void leaveCall()}>
-          <PhoneOff /> Sair da chamada
+          <PhoneOff /> {t("voice.leaveCall")}
         </Button>
       </div>
     );
@@ -89,13 +92,14 @@ export function DmCallButton({ channel }: { channel: ChannelPayload }) {
           : placeCall(channel.id, title))
       }
     >
-      <Phone /> {ongoing ? "Entrar na chamada" : "Ligar"}
+      <Phone /> {ongoing ? t("voice.call.join") : t("voice.call.start")}
     </Button>
   );
 }
 
 /** Faixa no topo da DM: chamada em andamento (quem está nela) e, se estou nela, o vídeo. */
 export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const inThis = useVoiceStore((s) => s.channelId === channel.id && s.status !== "idle");
   const participants = useStageParticipants(channel.id, null, inThis);
@@ -103,7 +107,7 @@ export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
   if (participants.length === 0 && !inThis) return null;
   return (
     <section
-      aria-label="Chamada em andamento"
+      aria-label={t("voice.call.ongoing")}
       className={cn(
         "flex flex-col border-b bg-muted/40",
         inThis && "h-[60%] min-h-80 shrink-0 bg-surface-1",
@@ -111,9 +115,9 @@ export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
     >
       <div className="flex items-center gap-2 px-4 py-2 text-sm">
         <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
-        <span className="font-medium">Chamada em andamento</span>
+        <span className="font-medium">{t("voice.call.ongoing")}</span>
         <span className="text-muted-foreground">
-          {participants.length} {participants.length === 1 ? "pessoa" : "pessoas"}
+          {t("voice.call.people", { count: participants.length })}
         </span>
       </div>
       {inThis ? (
@@ -121,7 +125,7 @@ export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
           participants={participants}
           lookup={lookup}
           inCall
-          leaveLabel="Desligar a chamada"
+          leaveLabel={t("voice.call.hangUp")}
         />
       ) : (
         <VoiceParticipants
@@ -136,7 +140,7 @@ export function DmCallPanel({ channel }: { channel: ChannelPayload }) {
                 {
                   channelId: channel.id,
                   guildId: null,
-                  channelName: me ? dmTitle(channel, me.id) : "Chamada",
+                  channelName: me ? dmTitle(channel, me.id) : t("voice.call.fallbackTitle"),
                   canSpeak: true,
                 },
                 userId,

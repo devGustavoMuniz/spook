@@ -4,6 +4,7 @@ import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { toast } from "sonner";
 import { gatewayConnection } from "@/desktop/connection";
+import { t } from "@/i18n";
 import { showInAppNotification } from "../notifications/notify";
 import { useReadStateStore } from "../notifications/read-state";
 import { useNotificationSettings } from "../notifications/settings";
@@ -44,20 +45,22 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
         return params;
       },
       leftGuild: (name) => {
-        toast.info(name ? `Você não está mais em ${name}.` : "Você não está mais neste servidor.");
+        toast.info(
+          name ? t("settings.gateway.leftGuildNamed", { name }) : t("settings.gateway.leftGuild"),
+        );
         void router.navigate({ to: "/", replace: true });
       },
       channelGone: (guildId, name) => {
         toast.info(
           name
-            ? `O canal #${name} não está mais disponível.`
-            : "Este canal não está mais disponível.",
+            ? t("settings.gateway.channelGoneNamed", { name })
+            : t("settings.gateway.channelGone"),
         );
         void router.navigate({ to: "/channels/$guildId", params: { guildId }, replace: true });
       },
       dmGone: (title) => {
         toast.info(
-          title ? `Você não está mais na conversa ${title}.` : "Você não está mais nesta conversa.",
+          title ? t("settings.gateway.dmGoneNamed", { title }) : t("settings.gateway.dmGone"),
         );
         void router.navigate({ to: "/channels/@me", replace: true });
       },

@@ -1,6 +1,7 @@
 import { useAuthProviders } from "@spook/shared";
 import { Button } from "@/components/ui/button";
 import { isTauri } from "@/desktop/runtime";
+import { useT } from "@/i18n";
 
 const LABELS: Record<string, string> = { google: "Google", discord: "Discord" };
 
@@ -40,6 +41,7 @@ export function socialStartUrl(
  * (`GET /api/auth/providers`) e fora do app desktop (o login do desktop usa o navegador, ver `browser-login.ts`).
  */
 export function SocialButtons({ redirect }: { redirect?: string }) {
+  const { t } = useT();
   const { data } = useAuthProviders({ query: { staleTime: 60_000 } });
   const providers = data?.providers ?? [];
   if (providers.length === 0 || isTauri()) return null;
@@ -47,7 +49,7 @@ export function SocialButtons({ redirect }: { redirect?: string }) {
     <div className="flex flex-col gap-3" data-testid="social-buttons">
       <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
         <span className="h-px flex-1 bg-border" />
-        ou
+        {t("auth.social.or")}
         <span className="h-px flex-1 bg-border" />
       </div>
       {providers.map((p) => {
@@ -56,7 +58,7 @@ export function SocialButtons({ redirect }: { redirect?: string }) {
           <Button key={p} asChild variant="outline" size="xl" className="w-full">
             <a href={socialStartUrl(p, { redirect })}>
               {Icon ? <Icon /> : null}
-              Continuar com {LABELS[p] ?? p}
+              {t("auth.social.continueWith", { provider: LABELS[p] ?? p })}
             </a>
           </Button>
         );

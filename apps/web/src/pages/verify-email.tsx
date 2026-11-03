@@ -12,6 +12,8 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { StatusCard } from "@/auth/status-card";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
+import { translateDetail } from "@/lib/app-errors";
 import { messageFor } from "@/lib/errors";
 
 type Phase =
@@ -26,6 +28,7 @@ type Phase =
  * O token sai da URL logo ao abrir e só trafega no corpo do POST. Funciona em outro navegador (sem sessão).
  */
 export function VerifyEmailPage() {
+  const { t } = useT();
   const { token: urlToken } = useSearch({ strict: false }) as { token?: string };
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -46,7 +49,8 @@ export function VerifyEmailPage() {
     } catch (e) {
       if (isApiError(e) && e.status === 410)
         setPhase({ kind: e.code === "token_expired" ? "expired" : "invalid" });
-      else if (isApiError(e) && e.status === 409) setPhase({ kind: "error", message: e.detail });
+      else if (isApiError(e) && e.status === 409)
+        setPhase({ kind: "error", message: translateDetail(e.detail) });
       else setPhase({ kind: "error", message: messageFor(e) });
     }
   };
@@ -59,21 +63,23 @@ export function VerifyEmailPage() {
   }, [urlToken, navigate]);
 
   if (phase.kind === "loading")
-    return <StatusCard busy title="Confirmando seu e-mail…" description="Só um instante." />;
+    return (
+      <StatusCard busy title={t("auth.verify.confirming")} description={t("auth.verify.moment")} />
+    );
   if (phase.kind === "verified")
     return (
       <StatusCard
         icon={CircleCheck}
         tone="success"
-        title={phase.changed ? "E-mail alterado" : "E-mail confirmado"}
+        title={phase.changed ? t("auth.verify.changedTitle") : t("auth.verify.verifiedTitle")}
         description={
           phase.changed
-            ? `A conta agora usa ${phase.email} para entrar.`
-            : `${phase.email} está verificado. Obrigado!`
+            ? t("auth.verify.changedBody", { email: phase.email })
+            : t("auth.verify.verifiedBody", { email: phase.email })
         }
         actions={
           <Button asChild size="lg">
-            <Link to="/">Abrir o Spook</Link>
+            <Link to="/">{t("auth.verify.open")}</Link>
           </Button>
         }
       />
@@ -83,11 +89,11 @@ export function VerifyEmailPage() {
       <StatusCard
         icon={MailWarning}
         tone="danger"
-        title="Não foi possível confirmar"
+        title={t("auth.verify.failTitle")}
         description={phase.message}
         actions={
           <Button size="lg" onClick={() => void run.current()}>
-            Tentar de novo
+            {t("common.retry")}
           </Button>
         }
       />
@@ -96,18 +102,15 @@ export function VerifyEmailPage() {
 }
 
 function ExpiredOrInvalid({ expired }: { expired: boolean }) {
+  const { t } = useT();
   const { data: me } = useGetMe({ query: { retry: false } });
   const resend = useResendVerificationEmail();
   return (
     <StatusCard
       icon={expired ? TimerOff : LinkIcon}
       tone="danger"
-      title={expired ? "Link expirado" : "Link inválido"}
-      description={
-        expired
-          ? "Este link já foi usado ou passou do prazo. Peça um novo para confirmar seu e-mail."
-          : "O link está incompleto ou não existe mais."
-      }
+      title={expired ? t("auth.reset.expiredTitle") : t("auth.reset.invalidTitle")}
+      description={expired ? t("auth.verify.expiredBody") : t("auth.verify.invalidBody")}
       actions={
         me ? (
           <Button
@@ -116,21 +119,21 @@ function ExpiredOrInvalid({ expired }: { expired: boolean }) {
             onClick={() =>
               void resend
                 .mutateAsync()
-                .then(() => toast.success("Enviamos um novo link para o seu e-mail."))
+                .then(() => toast.success(t("auth.verifyBanner.resent")))
                 .catch((e) =>
                   toast.error(
                     isApiError(e) && e.status === 409
-                      ? "Seu e-mail já está verificado."
+                      ? t("auth.verifyBanner.already")
                       : messageFor(e),
                   ),
                 )
             }
           >
-            Reenviar e-mail
+            {t("auth.verify.resendEmail")}
           </Button>
         ) : (
           <Button asChild size="lg">
-            <Link to="/login">Entrar para reenviar</Link>
+            <Link to="/login">{t("auth.verify.signInToResend")}</Link>
           </Button>
         )
       }

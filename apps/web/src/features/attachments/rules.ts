@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
 
 // Mesmas regras do servidor (server/internal/attachment/validate.go; SPEC 5.5, Fase 6a). O cliente
@@ -51,17 +52,20 @@ export function resolveContentType(file: FileLike): string {
   return generic || found === "text/plain" ? found : type;
 }
 
-/** Mensagem em pt-br do primeiro problema do arquivo, ou `null` se ele pode ser enviado. */
+/** Mensagem (no idioma ativo) do primeiro problema do arquivo, ou `null` se ele pode ser enviado. */
 export function validateFile(file: FileLike): string | null {
   const name = `"${file.name}"`;
-  if (file.size < 1) return `${name} está vazio.`;
+  if (file.size < 1) return t("chat.attach.empty", { name });
   if (file.size > MAX_FILE_SIZE)
-    return `${name} passa do limite de 25 MB (tem ${formatBytes(file.size)}).`;
-  if (file.name.length > MAX_FILENAME) return `${name}: o nome do arquivo é longo demais.`;
+    return t("chat.attach.tooBig", {
+      name,
+      limit: formatBytes(MAX_FILE_SIZE),
+      size: formatBytes(file.size),
+    });
+  if (file.name.length > MAX_FILENAME) return t("chat.attach.nameTooLong", { name });
   const type = resolveContentType(file);
   const exts = Object.hasOwn(ALLOWED_TYPES, type) ? ALLOWED_TYPES[type] : undefined;
-  if (!exts) return `${name}: este tipo de arquivo não é permitido.`;
-  if (!exts.includes(extOf(file.name)))
-    return `${name}: a extensão do nome não combina com o tipo do arquivo.`;
+  if (!exts) return t("chat.attach.typeNotAllowed", { name });
+  if (!exts.includes(extOf(file.name))) return t("chat.attach.extMismatch", { name });
   return null;
 }

@@ -8,6 +8,7 @@ import {
   updateVoiceState,
 } from "@spook/shared";
 import { toast } from "sonner";
+import { t } from "@/i18n";
 import { voiceMessage } from "@/lib/app-errors";
 import { playCallSound } from "./call-sounds";
 import {
@@ -114,9 +115,7 @@ function onAudioProcessingStatus(status: AudioProcessingStatus) {
   const saved = loadAudioProcessing();
   if (saved.noiseSuppression === "strong")
     saveAudioProcessing({ ...saved, noiseSuppression: status.level });
-  toast.warning(
-    status.reason ?? "A redução de ruído por IA foi desativada. Usando o filtro Padrão.",
-  );
+  toast.warning(status.reason ?? t("voice.toast.aiOff"));
 }
 
 /** Só para testes: solta a engine, os timers e o estado. */
@@ -153,7 +152,7 @@ export async function joinVoice(
   try {
     eng = ensureEngine();
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : "Voz indisponível neste aplicativo.");
+    toast.error(e instanceof Error ? e.message : t("voice.toast.unavailableApp"));
     return false;
   }
   // Pedir o token de outro canal já tira o usuário do anterior no servidor; o cliente sai da sala antiga.
@@ -197,7 +196,7 @@ async function connectWithToken(
       if (gen !== generation) return false;
       if (err instanceof VoiceConnectError && err.code === "token-rejected" && attempt === 0)
         continue;
-      toast.error("Não foi possível conectar à chamada de voz. Verifique sua conexão.");
+      toast.error(t("voice.toast.connectFailed"));
       return false;
     }
   }
@@ -276,7 +275,7 @@ export async function toggleMute() {
   const s = session();
   const mute = !s.selfMute;
   if (!mute && serverMuted && s.status !== "idle") {
-    toast.error("Um moderador mutou você nesta chamada. Peça para liberarem o seu microfone.");
+    toast.error(t("voice.toast.modMutedBlocked"));
     return;
   }
   if (s.status === "idle") {
@@ -622,14 +621,14 @@ export function listDevices(kind: DeviceKind) {
 
 function onDisconnected(reason: DisconnectReason) {
   if (reason === "client" || session().status === "idle") return;
-  if (reason === "removed") return forcedOut("Você foi desconectado da chamada de voz.");
+  if (reason === "removed") return forcedOut(t("voice.toast.disconnected"));
   void rejoin(generation, 0);
 }
 
 /** A lib desistiu de reconectar (rede, token vencido ao reconectar): tenta entrar de novo com outro token. */
 async function rejoin(gen: number, attempt: number) {
   const target = lastTarget;
-  if (!target) return forcedOut("A conexão de voz foi perdida.");
+  if (!target) return forcedOut(t("voice.toast.connectionLost"));
   // O webhook de saída da sala velha chega como "saí": sem confirmação ele é ignorado até a nova entrada.
   session().patch({
     status: "reconnecting",
@@ -638,7 +637,7 @@ async function rejoin(gen: number, attempt: number) {
     confirmed: false,
   });
   const delay = REJOIN_DELAYS_MS[attempt];
-  if (delay === undefined) return forcedOut("A conexão de voz foi perdida.");
+  if (delay === undefined) return forcedOut(t("voice.toast.connectionLost"));
   await new Promise<void>((resolve) => {
     rejoinTimer = setTimeout(resolve, delay);
   });
@@ -683,11 +682,7 @@ export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) 
     return;
   }
   if (!s.confirmed) return;
-  forcedOut(
-    u.channel_id
-      ? "Você entrou em outra chamada em outro dispositivo."
-      : "Você foi desconectado da chamada de voz.",
-  );
+  forcedOut(u.channel_id ? t("voice.toast.otherDevice") : t("voice.toast.disconnected"));
 }
 
 /** O servidor mutou (ou liberou) o MEU microfone: bloqueia/libera o botão, silencia a captura e avisa. */
@@ -698,9 +693,9 @@ function syncServerMute(muted: boolean) {
     session().patch({ selfMute: true, muteBeforeDeaf: true });
     void engine?.setMicrophoneEnabled(false).catch(() => {});
     void syncState();
-    toast.warning("Um moderador mutou você nesta chamada.");
+    toast.warning(t("voice.toast.modMuted"));
   } else {
-    toast.info("O moderador liberou o seu microfone. Use o botão de microfone para falar.");
+    toast.info(t("voice.toast.modUnmuted"));
   }
 }
 
@@ -733,7 +728,7 @@ export function reconcileVoiceSnapshot(myId: string | null, states: readonly Gat
     syncServerMute(!!mine.server_muted);
     return;
   }
-  if (s.confirmed) forcedOut("Você foi desconectado da chamada de voz.");
+  if (s.confirmed) forcedOut(t("voice.toast.disconnected"));
 }
 
 /** Aba fechando: desconecta e avisa o servidor sem esperar (a requisição sobrevive à página). */

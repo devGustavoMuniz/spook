@@ -1,14 +1,40 @@
 import { Avatar, StatusDot } from "@/components/ui/avatar";
 import { type DisplayStatus, usePresence } from "@/features/presence/store";
+import { type MessageKey, t, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
+const statusKey = {
+  online: "shell.status.online",
+  idle: "shell.status.idle",
+  dnd: "shell.status.dnd",
+  invisible: "shell.status.invisible",
+  offline: "shell.status.offline",
+} as const satisfies Record<DisplayStatus, MessageKey>;
+
+/** Rótulo de status no idioma ativo (lido a cada acesso). Em componentes prefira `useStatusLabel()`. */
 export const statusLabel: Record<DisplayStatus, string> = {
-  online: "Online",
-  idle: "Ausente",
-  dnd: "Não perturbar",
-  invisible: "Invisível",
-  offline: "Offline",
+  get online() {
+    return t(statusKey.online);
+  },
+  get idle() {
+    return t(statusKey.idle);
+  },
+  get dnd() {
+    return t(statusKey.dnd);
+  },
+  get invisible() {
+    return t(statusKey.invisible);
+  },
+  get offline() {
+    return t(statusKey.offline);
+  },
 };
+
+/** Hook: devolve o rótulo de um status e re-renderiza quando o idioma muda. */
+export function useStatusLabel(): (status: DisplayStatus) => string {
+  const { t: tt } = useT();
+  return (status) => tt(statusKey[status]);
+}
 
 /** Bolinha de status (online / ausente / offline), com texto para leitores de tela. */
 export function PresenceDot({
@@ -20,9 +46,8 @@ export function PresenceDot({
   size?: number;
   className?: string;
 }) {
-  return (
-    <StatusDot status={status} label={statusLabel[status]} size={size} className={className} />
-  );
+  const label = useStatusLabel();
+  return <StatusDot status={status} label={label(status)} size={size} className={className} />;
 }
 
 /** Avatar com a bolinha de status no canto inferior direito. */

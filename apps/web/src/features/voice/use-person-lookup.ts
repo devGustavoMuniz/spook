@@ -2,6 +2,7 @@ import { useGetMe } from "@spook/shared";
 import { useMemo } from "react";
 import { useDms } from "@/features/dms/use-dms";
 import { memberName, useGuildMembers } from "@/features/members/use-members";
+import { t } from "@/i18n";
 
 export type PersonInfo = { name: string; avatarUrl?: string };
 export type PersonLookup = (userId: string) => PersonInfo;
@@ -27,6 +28,6 @@ export function usePersonLookup(
     for (const r of dm?.recipients ?? [])
       if (r.id !== me?.id)
         map.set(r.id, { name: r.display_name || r.username, avatarUrl: r.avatar_url });
-    return (id) => map.get(id) ?? { name: "Usuário" };
+    return (id) => map.get(id) ?? { name: t("voice.user") };
   }, [me, members.data, dms.list, scope.dmId]);
 }

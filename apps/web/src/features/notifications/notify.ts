@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { sendNativeNotification } from "@/desktop/notifier";
 import { isTauri } from "@/desktop/runtime";
+import { t } from "@/i18n";
 import type { InAppNotification } from "./in-app";
 
 export type NotifyDeps = {
@@ -45,7 +46,7 @@ export const browserNotifyDeps: NotifyDeps = {
       id: `msg-${n.channelId}`,
       description: n.body || undefined,
       duration: 8000,
-      action: { label: "Abrir", onClick: open },
+      action: { label: t("settings.notify.open"), onClick: open },
     }),
 };
 

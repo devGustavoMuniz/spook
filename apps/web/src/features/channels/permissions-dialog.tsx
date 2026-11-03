@@ -23,6 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { memberName, useGuildMembers } from "@/features/members/use-members";
+import { type MessageKey, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { colorToHex } from "@/lib/colors";
 import { type Guild, myTopPosition, rolesOf, topPosition } from "@/lib/guild";
@@ -66,6 +67,7 @@ export function ChannelPermissionsDialog({
 }
 
 function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
+  const { t, locale } = useT();
   const qc = useQueryClient();
   const list = useListChannelOverwrites(channel.id);
   const set = useSetChannelOverwrite();
@@ -102,21 +104,21 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
       <DialogContent flush size="xl" className="h-[min(40rem,92svh)]">
         <DialogHead
           icon={ShieldCheck}
-          title={`Permissões de ${channel.name}`}
-          description="Quem pode ver e usar este canal."
+          title={t("channels.perms.title", { name: channel.name })}
+          description={t("channels.perms.desc")}
         />
         {list.isError ? (
           <div role="alert" className="flex items-center gap-3 p-6 text-sm">
             <span className="text-destructive-text">{appMessage(list.error)}</span>
             <Button size="sm" variant="outline" onClick={() => void list.refetch()}>
-              Tentar de novo
+              {t("channels.perms.retry")}
             </Button>
           </div>
         ) : (
           <output className="flex flex-col gap-3 p-6">
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-40 w-full" />
-            <span className="sr-only">Carregando…</span>
+            <span className="sr-only">{t("channels.perms.loading")}</span>
           </output>
         )}
       </DialogContent>
@@ -141,9 +143,11 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
   };
   const nameOf = (o: Pick<Overwrite, "type" | "id">): string => {
     if (o.type === "role")
-      return o.id === guild.id ? "@everyone" : (roleById.get(o.id)?.name ?? "Cargo");
+      return o.id === guild.id
+        ? "@everyone"
+        : (roleById.get(o.id)?.name ?? t("channels.perms.fallbackRole"));
     const m = memberById.get(o.id);
-    return m ? memberName(m) : "Membro";
+    return m ? memberName(m) : t("channels.perms.fallbackMember");
   };
 
   function update(o: Overwrite) {
@@ -180,13 +184,11 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
           data: { allow: o.allow, deny: o.deny },
         });
       }
-      toast.success("Permissões do canal salvas.");
+      toast.success(t("channels.perms.saved"));
       await qc.invalidateQueries({ queryKey: list.queryKey });
     } catch (e) {
       toast.error(
-        isApiError(e) && e.status === 403
-          ? "Você só pode editar cargos abaixo do seu e só permitir o que você mesmo tem neste canal."
-          : appMessage(e),
+        isApiError(e) && e.status === 403 ? t("channels.perms.forbidden") : appMessage(e),
       );
       await qc.invalidateQueries({ queryKey: list.queryKey });
     } finally {
@@ -196,7 +198,7 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
 
   const current = ensure(parseKey(selected));
   const entries = [...draft.values()].sort(
-    (a, b) => rank(a, guild.id) - rank(b, guild.id) || nameOf(a).localeCompare(nameOf(b), "pt-BR"),
+    (a, b) => rank(a, guild.id) - rank(b, guild.id) || nameOf(a).localeCompare(nameOf(b), locale),
   );
   const present = new Set(draft.keys());
   const addableRoles = roles.filter(
@@ -210,8 +212,8 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
     <DialogContent flush size="xl" className="h-[min(44rem,92svh)]">
       <DialogHead
         icon={ShieldCheck}
-        title={`Permissões de ${channel.name}`}
-        description="O dono e quem é administrador ignoram estas regras. Herdar usa o que o cargo já dá no servidor."
+        title={t("channels.perms.title", { name: channel.name })}
+        description={t("channels.perms.fullDesc")}
       />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="flex min-h-0 flex-col border-b md:w-72 md:shrink-0 md:border-r md:border-b-0">
@@ -228,11 +230,11 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
             onAddMember={(id) => toggleViewer({ type: "member", id }, true)}
           />
           <h3 className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Regras avançadas
+            {t("channels.perms.advanced")}
           </h3>
           <ScrollArea className="min-h-0 flex-1">
             <ul
-              aria-label="Cargos e pessoas com regras"
+              aria-label={t("channels.perms.listAria")}
               className="flex flex-col gap-0.5 px-2 pb-2"
             >
               {entries.map((o) => {
@@ -267,7 +269,7 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
                       {locked(o) ? (
                         <>
                           <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                          <span className="sr-only">Acima do seu cargo, somente leitura</span>
+                          <span className="sr-only">{t("channels.perms.readOnlySr")}</span>
                         </>
                       ) : null}
                     </button>
@@ -276,7 +278,7 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
                         variant="ghost"
                         size="icon-sm"
                         className="size-8 shrink-0"
-                        aria-label={`Remover as regras de ${nameOf(o)}`}
+                        aria-label={t("channels.perms.removeRules", { name: nameOf(o) })}
                         onClick={() => removeTarget(k)}
                       >
                         <X />
@@ -301,16 +303,17 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
           <div className="flex flex-col gap-1 p-4">
             <h3 className="text-sm font-semibold">{nameOf(current)}</h3>
             {locked(current) ? (
-              <p className="text-xs text-muted-foreground">
-                Este alvo está acima do seu cargo: você vê as regras, mas não pode alterá-las.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("channels.perms.lockedNote")}</p>
             ) : null}
-            <ul aria-label={`Permissões de ${nameOf(current)}`} className="mt-2 flex flex-col">
+            <ul
+              aria-label={t("channels.perms.title", { name: nameOf(current) })}
+              className="mt-2 flex flex-col"
+            >
               {permissionsForChannel(channel.type).map((p) => (
                 <PermissionRow
                   key={p.name}
-                  label={p.label}
-                  description={p.description}
+                  label={t(p.labelKey)}
+                  description={t(p.descKey)}
                   value={triOf(current, p.name)}
                   disabled={locked(current)}
                   onChange={(v) => update(withTri(current, p.name, v))}
@@ -326,14 +329,14 @@ function Editor({ guild, channel }: { guild: Guild; channel: ChannelPayload }) {
           disabled={!dirty || saving}
           onClick={() => setDraft(toDraft(original))}
         >
-          Descartar
+          {t("channels.perms.discard")}
         </Button>
         <Button onClick={() => void save()} loading={saving} disabled={!dirty}>
-          Salvar alterações
+          {t("channels.perms.save")}
         </Button>
       </DialogActions>
       <span className="sr-only" aria-live="polite">
-        {dirty ? "Há alterações não salvas." : ""}
+        {dirty ? t("channels.perms.unsavedSr") : ""}
       </span>
     </DialogContent>
   );
@@ -371,16 +374,17 @@ function PrivateSection({
   onAddRole: (id: string) => void;
   onAddMember: (id: string) => void;
 }) {
+  const { t } = useT();
   const id = useId();
   return (
-    <section aria-label="Canal privado" className="flex flex-col gap-2 border-b p-4">
+    <section aria-label={t("channels.perms.private")} className="flex flex-col gap-2 border-b p-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <label htmlFor={`${id}-priv`} className="text-sm font-medium">
-            Canal privado
+            {t("channels.perms.private")}
           </label>
           <p id={`${id}-desc`} className="text-xs text-pretty text-muted-foreground">
-            Só quem você liberar abaixo vê e entra. Dono e administradores sempre entram.
+            {t("channels.perms.privateDesc")}
           </p>
         </div>
         <Switch
@@ -392,9 +396,9 @@ function PrivateSection({
       </div>
       {priv ? (
         <>
-          <ul aria-label="Quem pode entrar" className="flex flex-wrap gap-1.5">
+          <ul aria-label={t("channels.perms.whoCanJoin")} className="flex flex-wrap gap-1.5">
             {viewers.length === 0 ? (
-              <li className="text-xs text-muted-foreground">Ninguém liberado ainda.</li>
+              <li className="text-xs text-muted-foreground">{t("channels.perms.nobody")}</li>
             ) : null}
             {viewers.map((o) => (
               <li
@@ -407,7 +411,7 @@ function PrivateSection({
                   size="icon-sm"
                   className="size-5 rounded-full"
                   disabled={lockedOf(o)}
-                  aria-label={`Tirar ${nameOf(o)} da lista de quem entra`}
+                  aria-label={t("channels.perms.removeViewer", { name: nameOf(o) })}
                   onClick={() => onToggle(o, false)}
                 >
                   <X className="size-3" />
@@ -417,12 +421,12 @@ function PrivateSection({
           </ul>
           <div className="grid grid-cols-2 gap-2">
             <PickOne
-              label="Liberar cargo"
+              label={t("channels.perms.allowRole")}
               options={addableRoles.map((r) => ({ value: r.id, label: r.name }))}
               onPick={onAddRole}
             />
             <PickOne
-              label="Liberar pessoa"
+              label={t("channels.perms.allowPerson")}
               options={addableMembers.map((m) => ({ value: m.user_id, label: memberName(m) }))}
               onPick={onAddMember}
             />
@@ -472,15 +476,16 @@ function AddTarget({
   onRole: (id: string) => void;
   onMember: (id: string) => void;
 }) {
+  const { t } = useT();
   return (
     <div className="grid grid-cols-2 gap-2">
       <PickOne
-        label="Adicionar cargo"
+        label={t("channels.perms.addRole")}
         options={roles.map((r) => ({ value: r.id, label: r.name }))}
         onPick={onRole}
       />
       <PickOne
-        label="Adicionar pessoa"
+        label={t("channels.perms.addPerson")}
         options={members.map((m) => ({ value: m.user_id, label: memberName(m) }))}
         onPick={onMember}
       />
@@ -488,10 +493,10 @@ function AddTarget({
   );
 }
 
-const TRI: { value: Tri; label: string; icon: typeof Check }[] = [
-  { value: "deny", label: "Negar", icon: X },
-  { value: "inherit", label: "Herdar", icon: Slash },
-  { value: "allow", label: "Permitir", icon: Check },
+const TRI: { value: Tri; labelKey: MessageKey; icon: typeof Check }[] = [
+  { value: "deny", labelKey: "channels.perms.tri.deny", icon: X },
+  { value: "inherit", labelKey: "channels.perms.tri.inherit", icon: Slash },
+  { value: "allow", labelKey: "channels.perms.tri.allow", icon: Check },
 ];
 
 function PermissionRow({
@@ -507,9 +512,10 @@ function PermissionRow({
   disabled?: boolean;
   onChange: (v: Tri) => void;
 }) {
+  const { t } = useT();
   const id = useId();
   function onKey(e: React.KeyboardEvent) {
-    const i = TRI.findIndex((t) => t.value === value);
+    const i = TRI.findIndex((x) => x.value === value);
     const next =
       e.key === "ArrowRight" || e.key === "ArrowDown"
         ? i + 1
@@ -535,29 +541,29 @@ function PermissionRow({
         onKeyDown={onKey}
         className="inline-flex shrink-0 overflow-hidden rounded-md border border-border"
       >
-        {TRI.map((t) => {
-          const on = value === t.value;
-          const Icon = t.icon;
+        {TRI.map((tri) => {
+          const on = value === tri.value;
+          const Icon = tri.icon;
           return (
             // biome-ignore lint/a11y/useSemanticElements: botão de rádio personalizado
             <button
-              key={t.value}
+              key={tri.value}
               type="button"
               role="radio"
               aria-checked={on}
               tabIndex={on ? 0 : -1}
               disabled={disabled}
-              onClick={() => onChange(t.value)}
+              onClick={() => onChange(tri.value)}
               className={cn(
                 "inline-flex min-h-9 min-w-24 cursor-pointer items-center justify-center gap-1.5 px-3 text-xs font-medium transition-colors focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60",
                 !on && "bg-field text-muted-foreground hover:bg-accent",
-                on && t.value === "allow" && "bg-success text-success-foreground",
-                on && t.value === "deny" && "bg-destructive text-destructive-foreground",
-                on && t.value === "inherit" && "bg-surface-3 text-foreground",
+                on && tri.value === "allow" && "bg-success text-success-foreground",
+                on && tri.value === "deny" && "bg-destructive text-destructive-foreground",
+                on && tri.value === "inherit" && "bg-surface-3 text-foreground",
               )}
             >
               <Icon className="size-3.5" aria-hidden />
-              {t.label}
+              {t(tri.labelKey)}
             </button>
           );
         })}

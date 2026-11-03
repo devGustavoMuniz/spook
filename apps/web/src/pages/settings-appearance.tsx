@@ -1,7 +1,8 @@
-import { Accessibility, Moon, Palette, Sun } from "lucide-react";
+import { Accessibility, Languages, Moon, Palette, Sun } from "lucide-react";
 import { useMediaQuery } from "@/components/shell";
 import { type Theme, useTheme } from "@/components/theme-provider";
-import { SettingsGroup } from "@/features/settings/ui";
+import { SettingsGroup, selectClass } from "@/features/settings/ui";
+import { isLocale, LOCALE_NAMES, LOCALES, type MessageKey, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 // A prévia mostra o tema ESCOLHIDO, não o atual: por isso usa as cores de packages/brand/tokens.css
@@ -25,10 +26,18 @@ const PALETTE = {
   },
 } as const;
 
-const OPTIONS: { value: Theme; label: string; hint: string }[] = [
-  { value: "light", label: "Claro", hint: "Fundo claro, ideal com bastante luz." },
-  { value: "dark", label: "Escuro", hint: "Fundo escuro, mais confortável à noite." },
-  { value: "system", label: "Sistema", hint: "Acompanha o tema do seu dispositivo." },
+const OPTIONS: { value: Theme; labelKey: MessageKey; hintKey: MessageKey }[] = [
+  {
+    value: "light",
+    labelKey: "settings.appearance.light",
+    hintKey: "settings.appearance.lightHint",
+  },
+  { value: "dark", labelKey: "settings.appearance.dark", hintKey: "settings.appearance.darkHint" },
+  {
+    value: "system",
+    labelKey: "settings.appearance.system",
+    hintKey: "settings.appearance.systemHint",
+  },
 ];
 
 function Half({ mode }: { mode: "light" | "dark" }) {
@@ -76,20 +85,46 @@ function Preview({ value }: { value: Theme }) {
 
 const ICON = { light: Sun, dark: Moon, system: Palette } as const;
 
-/** `/settings/appearance`: tema claro, escuro ou do sistema. */
+/** `/settings/appearance`: idioma e tema claro, escuro ou do sistema. */
 export function AppearancePage() {
+  const { t, locale, setLocale } = useT();
   const { theme, setTheme, resolved } = useTheme();
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   return (
     <div className="flex flex-col gap-6">
       <SettingsGroup
+        icon={Languages}
+        title={t("settings.appearance.language")}
+        description={t("settings.appearance.languageDescription")}
+      >
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="app-language" className="text-sm font-medium">
+            {t("settings.appearance.language")}
+          </label>
+          <select
+            id="app-language"
+            value={locale}
+            onChange={(e) => {
+              if (isLocale(e.target.value)) setLocale(e.target.value);
+            }}
+            className={selectClass}
+          >
+            {LOCALES.map((l) => (
+              <option key={l} value={l}>
+                {LOCALE_NAMES[l]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </SettingsGroup>
+      <SettingsGroup
         icon={Palette}
-        title="Tema"
-        description="A escolha fica salva neste navegador ou app."
+        title={t("settings.appearance.theme")}
+        description={t("settings.appearance.themeDescription")}
       >
         <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <legend className="sr-only">Tema do app</legend>
-          {OPTIONS.map(({ value, label, hint }) => {
+          <legend className="sr-only">{t("settings.appearance.themeLegend")}</legend>
+          {OPTIONS.map(({ value, labelKey, hintKey }) => {
             const Icon = ICON[value];
             const id = `theme-${value}`;
             return (
@@ -113,28 +148,28 @@ export function AppearancePage() {
                 <Preview value={value} />
                 <span className="flex items-center gap-2 px-0.5 text-sm font-medium">
                   <Icon className="size-4 text-muted-foreground" aria-hidden />
-                  {label}
+                  {t(labelKey)}
                 </span>
                 <span id={`${id}-hint`} className="px-0.5 text-xs text-muted-foreground">
-                  {hint}
+                  {t(hintKey)}
                 </span>
               </label>
             );
           })}
         </fieldset>
         <p className="text-xs text-muted-foreground" aria-live="polite">
-          Tema em uso agora: {resolved === "dark" ? "escuro" : "claro"}.
+          {resolved === "dark"
+            ? t("settings.appearance.currentDark")
+            : t("settings.appearance.currentLight")}
         </p>
       </SettingsGroup>
       <SettingsGroup
         icon={Accessibility}
-        title="Movimento"
-        description="O Spook segue a preferência de movimento reduzido do seu sistema: não há chave aqui para isso."
+        title={t("settings.appearance.motion")}
+        description={t("settings.appearance.motionDescription")}
       >
         <p className="rounded-lg bg-surface-1 px-3 py-2.5 text-sm">
-          {reduced
-            ? "Movimento reduzido está ligado no seu sistema: as animações do app ficam mínimas."
-            : "Movimento reduzido está desligado no seu sistema. Para reduzir as animações, ligue essa opção nas configurações de acessibilidade do sistema."}
+          {reduced ? t("settings.appearance.motionOn") : t("settings.appearance.motionOff")}
         </p>
       </SettingsGroup>
     </div>

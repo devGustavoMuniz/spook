@@ -21,10 +21,12 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { persistSessionToken } from "@/desktop/token";
+import { useT } from "@/i18n";
 import { applyServerError, messageFor } from "@/lib/errors";
 import { type RegisterForm, registerSchema } from "@/lib/schemas";
 
 export function RegisterPage() {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
@@ -62,10 +64,8 @@ export function RegisterPage() {
     <AuthLayout>
       <Card className="gap-5 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Criar conta</CardTitle>
-          <CardDescription>
-            Leva menos de um minuto. Depois é só entrar num servidor.
-          </CardDescription>
+          <CardTitle className="text-2xl">{t("auth.createAccount")}</CardTitle>
+          <CardDescription>{t("auth.register.subtitle")}</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit} noValidate aria-busy={busy || undefined}>
           <CardContent className="flex flex-col gap-4">
@@ -74,7 +74,7 @@ export function RegisterPage() {
             ) : null}
             {socialError ? <FormAlert>{socialError}</FormAlert> : null}
             {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
-            <Field id="email" label="E-mail" error={errors.email?.message}>
+            <Field id="email" label={t("common.email")} error={errors.email?.message}>
               <Input
                 id="email"
                 type="email"
@@ -89,9 +89,9 @@ export function RegisterPage() {
             </Field>
             <Field
               id="username"
-              label="Nome de usuário"
+              label={t("auth.register.username")}
               error={errors.username?.message}
-              hint="2 a 32 caracteres: a-z, 0-9, _ e ."
+              hint={t("auth.register.usernameHint")}
             >
               <Input
                 id="username"
@@ -107,9 +107,9 @@ export function RegisterPage() {
             </Field>
             <Field
               id="password"
-              label="Senha"
+              label={t("common.password")}
               error={errors.password?.message}
-              hint="Mínimo de 8 caracteres."
+              hint={t("auth.register.passwordHint")}
             >
               <PasswordInput
                 id="password"
@@ -124,17 +124,17 @@ export function RegisterPage() {
           </CardContent>
           <CardFooter className="mt-6 flex-col gap-4">
             <Button type="submit" size="xl" className="w-full" loading={busy}>
-              Criar conta
+              {t("auth.createAccount")}
             </Button>
             <SocialButtons redirect={redirect} />
             <p className="text-sm text-muted-foreground">
-              Já tem conta?{" "}
+              {t("auth.register.haveAccount")}{" "}
               <Link
                 to="/login"
                 search={{ redirect }}
                 className="font-medium text-brand-text underline-offset-4 hover:underline"
               >
-                Entrar
+                {t("auth.signIn")}
               </Link>
             </p>
           </CardFooter>

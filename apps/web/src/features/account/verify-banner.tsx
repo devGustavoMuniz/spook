@@ -3,6 +3,7 @@ import { MailWarning, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 
 const KEY = "spook:verify-banner-dismissed";
@@ -21,6 +22,7 @@ function dismissedBefore(): boolean {
  * o fim da aba.
  */
 export function VerifyEmailBanner() {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const { data: providers } = useAuthProviders({ query: { staleTime: 60_000 } });
   const resend = useResendVerificationEmail();
@@ -30,9 +32,9 @@ export function VerifyEmailBanner() {
   async function send() {
     try {
       await resend.mutateAsync();
-      toast.success("Enviamos um novo link para o seu e-mail.");
+      toast.success(t("auth.verifyBanner.resent"));
     } catch (e) {
-      if (isApiError(e) && e.status === 409) toast.info("Seu e-mail já está verificado.");
+      if (isApiError(e) && e.status === 409) toast.info(t("auth.verifyBanner.already"));
       else toast.error(messageFor(e));
     }
   }
@@ -41,16 +43,18 @@ export function VerifyEmailBanner() {
     <output className="flex items-center gap-3 border-b border-border bg-accent px-4 py-2 text-sm">
       <MailWarning className="size-4 shrink-0 text-brand-text" aria-hidden="true" />
       <p className="min-w-0 flex-1 text-pretty">
-        <strong className="font-semibold">Verifique seu e-mail.</strong>{" "}
-        <span className="text-muted-foreground">Enviamos um link para {me.email}.</span>
+        <strong className="font-semibold">{t("auth.verifyBanner.title")}</strong>{" "}
+        <span className="text-muted-foreground">
+          {t("auth.verifyBanner.body", { email: me.email })}
+        </span>
       </p>
       <Button size="sm" variant="soft" loading={resend.isPending} onClick={() => void send()}>
-        Reenviar
+        {t("auth.verifyBanner.resend")}
       </Button>
       <Button
         size="icon-sm"
         variant="ghost"
-        aria-label="Dispensar aviso"
+        aria-label={t("auth.verifyBanner.dismiss")}
         onClick={() => {
           try {
             sessionStorage.setItem(KEY, "1");

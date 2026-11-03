@@ -2,6 +2,7 @@
 // Regras: só depois de um gesto do usuário (política de autoplay), nada em "Não perturbar", um volume único e
 // interruptores por categoria (Configurações > Voz e vídeo).
 import { isDnd } from "@/features/presence/store";
+import type { MessageKey } from "@/i18n";
 
 export type CallSoundKind =
   | "join"
@@ -19,28 +20,12 @@ export type CallSoundKind =
 /** Categorias que o usuário liga/desliga. */
 export type CallSoundGroup = "self" | "toggles" | "peers" | "streams" | "ring";
 
-export const SOUND_GROUPS: { id: CallSoundGroup; label: string; hint: string }[] = [
-  { id: "self", label: "Entrar e sair da chamada", hint: "Quando você entra ou sai de uma sala." },
-  {
-    id: "toggles",
-    label: "Microfone e áudio",
-    hint: "Ao silenciar, ativar o microfone ou ensurdecer.",
-  },
-  {
-    id: "peers",
-    label: "Alguém entrou ou saiu",
-    hint: "Quando uma pessoa chega ou sai da sua sala.",
-  },
-  {
-    id: "streams",
-    label: "Transmissões",
-    hint: "Quando alguém começa ou termina de transmitir a tela.",
-  },
-  {
-    id: "ring",
-    label: "Toque de chamada",
-    hint: "Toque de chamada recebida (para as chamadas diretas).",
-  },
+export const SOUND_GROUPS: { id: CallSoundGroup; labelKey: MessageKey; hintKey: MessageKey }[] = [
+  { id: "self", labelKey: "voice.sounds.self.label", hintKey: "voice.sounds.self.hint" },
+  { id: "toggles", labelKey: "voice.sounds.toggles.label", hintKey: "voice.sounds.toggles.hint" },
+  { id: "peers", labelKey: "voice.sounds.peers.label", hintKey: "voice.sounds.peers.hint" },
+  { id: "streams", labelKey: "voice.sounds.streams.label", hintKey: "voice.sounds.streams.hint" },
+  { id: "ring", labelKey: "voice.sounds.ring.label", hintKey: "voice.sounds.ring.hint" },
 ];
 
 const GROUP_OF: Record<CallSoundKind, CallSoundGroup> = {

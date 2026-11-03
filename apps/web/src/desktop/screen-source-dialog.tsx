@@ -9,11 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useT } from "@/i18n";
 import { type ScreenSource, subscribeScreenPicker } from "./screen-picker";
 
 type Pending = { sources: ScreenSource[]; resolve: (id: string | null) => void };
 
 export function ScreenSourceDialog() {
+  const { t } = useT();
   const [pending, setPending] = useState<Pending | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const group = useId();
@@ -52,24 +54,22 @@ export function ScreenSourceDialog() {
     <Dialog open={!!pending} onOpenChange={(open) => !open && pending?.resolve(null)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>O que você quer compartilhar?</DialogTitle>
-          <DialogDescription>
-            Escolha uma tela ou uma janela. Quem estiver na chamada verá o que aparecer nela.
-          </DialogDescription>
+          <DialogTitle>{t("settings.screenPicker.title")}</DialogTitle>
+          <DialogDescription>{t("settings.screenPicker.description")}</DialogDescription>
         </DialogHeader>
         <div className="flex max-h-72 flex-col gap-3 overflow-y-auto">
-          {section("Telas", screens)}
-          {section("Janelas", windows)}
+          {section(t("settings.screenPicker.screens"), screens)}
+          {section(t("settings.screenPicker.windows"), windows)}
           {pending && pending.sources.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhuma tela ou janela disponível.</p>
+            <p className="text-sm text-muted-foreground">{t("settings.screenPicker.none")}</p>
           ) : null}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => pending?.resolve(null)}>
-            Cancelar
+            {t("settings.screenPicker.cancel")}
           </Button>
           <Button disabled={!chosen} onClick={() => chosen && pending?.resolve(chosen)}>
-            Compartilhar
+            {t("settings.screenPicker.share")}
           </Button>
         </div>
       </DialogContent>

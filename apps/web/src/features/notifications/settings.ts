@@ -5,6 +5,7 @@ import {
   putNotificationSetting,
 } from "@spook/shared";
 import { create } from "zustand";
+import type { MessageKey } from "@/i18n";
 
 /**
  * Silêncio e nível de notificação por servidor, canal ou DM (SPEC 5.5, adicional). Herança do nível:
@@ -16,18 +17,18 @@ export type Scope = "guild" | "channel";
 export type MuteChoice = number | "forever";
 
 /** Durações do submenu "Silenciar por…" (minutos). */
-export const MUTE_OPTIONS: readonly { label: string; value: MuteChoice }[] = [
-  { label: "Por 15 minutos", value: 15 },
-  { label: "Por 1 hora", value: 60 },
-  { label: "Por 8 horas", value: 8 * 60 },
-  { label: "Por 24 horas", value: 24 * 60 },
-  { label: "Até eu reativar", value: "forever" },
+export const MUTE_OPTIONS: readonly { labelKey: MessageKey; value: MuteChoice }[] = [
+  { labelKey: "settings.mute.15m", value: 15 },
+  { labelKey: "settings.mute.1h", value: 60 },
+  { labelKey: "settings.mute.8h", value: 8 * 60 },
+  { labelKey: "settings.mute.24h", value: 24 * 60 },
+  { labelKey: "settings.mute.forever", value: "forever" },
 ];
 
-export const LEVEL_OPTIONS: readonly { label: string; value: NotificationLevel }[] = [
-  { label: "Todas as mensagens", value: "all" },
-  { label: "Só menções", value: "mentions" },
-  { label: "Nada", value: "none" },
+export const LEVEL_OPTIONS: readonly { labelKey: MessageKey; value: NotificationLevel }[] = [
+  { labelKey: "settings.level.all", value: "all" },
+  { labelKey: "settings.level.mentions", value: "mentions" },
+  { labelKey: "settings.level.none", value: "none" },
 ];
 
 export const keyOf = (scope: Scope, id: string) => `${scope}:${id}`;

@@ -1,5 +1,6 @@
 import type { ChannelPayload, RecipientPayload } from "@spook/shared";
 import { shownName } from "@/features/account/removed-user";
+import { t } from "@/i18n";
 import { CHANNEL_GROUP_DM } from "@/lib/dm-cache";
 
 export const recipientName = (r: RecipientPayload) => shownName(r.display_name, r.username);
@@ -17,11 +18,11 @@ export function otherRecipient(c: ChannelPayload, myId: string): RecipientPayloa
 export function dmTitle(c: ChannelPayload, myId: string): string {
   if (!isGroupDm(c)) {
     const other = otherRecipient(c, myId);
-    return other ? recipientName(other) : "Conversa";
+    return other ? recipientName(other) : t("people.dm.fallbackDm");
   }
   if (c.name) return c.name;
   const others = recipientsOf(c)
     .filter((r) => r.id !== myId)
     .map(recipientName);
-  return others.length > 0 ? others.join(", ") : "Grupo";
+  return others.length > 0 ? others.join(", ") : t("people.dm.fallbackGroup");
 }

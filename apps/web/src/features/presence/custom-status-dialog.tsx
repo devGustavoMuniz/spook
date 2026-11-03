@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useT } from "@/i18n";
 import { EXPIRY_OPTIONS, type ExpiryChoice, expiryFor, updatePresence } from "./actions";
 import { liveCustom, usePresenceStore } from "./store";
 
@@ -24,6 +25,7 @@ export function CustomStatusDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useT();
   const [text, setText] = useState("");
   const [emoji, setEmoji] = useState("");
   const [expiry, setExpiry] = useState<ExpiryChoice>("never");
@@ -54,8 +56,8 @@ export function CustomStatusDialog({
       <DialogContent flush>
         <DialogHead
           icon={SmilePlus}
-          title="Status personalizado"
-          description="Aparece ao lado do seu nome na lista de membros e nas conversas."
+          title={t("settings.customStatus.title")}
+          description={t("settings.customStatus.description")}
         />
         <form
           className="flex min-h-0 flex-1 flex-col"
@@ -66,10 +68,10 @@ export function CustomStatusDialog({
         >
           <DialogBody>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="custom-status-text">O que você está fazendo?</Label>
+              <Label htmlFor="custom-status-text">{t("settings.customStatus.what")}</Label>
               <div className="flex gap-2">
                 <Input
-                  aria-label="Emoji"
+                  aria-label={t("settings.customStatus.emoji")}
                   value={emoji}
                   onChange={(e) => setEmoji(e.target.value)}
                   maxLength={8}
@@ -81,17 +83,17 @@ export function CustomStatusDialog({
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   maxLength={MAX_TEXT}
-                  placeholder="Ex.: em reunião"
+                  placeholder={t("settings.customStatus.placeholder")}
                 />
               </div>
               <fieldset className="flex flex-wrap gap-1">
-                <legend className="sr-only">Emojis sugeridos</legend>
+                <legend className="sr-only">{t("settings.customStatus.suggested")}</legend>
                 {SUGGESTED.map((s) => (
                   <button
                     key={s}
                     type="button"
                     className="rounded-md px-1.5 py-0.5 text-lg hover:bg-accent"
-                    aria-label={`Usar ${s}`}
+                    aria-label={t("settings.customStatus.use", { emoji: s })}
                     onClick={() => setEmoji(s)}
                   >
                     {s}
@@ -103,7 +105,9 @@ export function CustomStatusDialog({
               </span>
             </div>
             <fieldset className="flex flex-col gap-1.5">
-              <legend className="mb-1 text-sm font-medium">Limpar depois de</legend>
+              <legend className="mb-1 text-sm font-medium">
+                {t("settings.customStatus.clearAfter")}
+              </legend>
               {EXPIRY_OPTIONS.map((o) => (
                 <label key={o.value} className="flex items-center gap-2 text-sm">
                   <input
@@ -113,17 +117,17 @@ export function CustomStatusDialog({
                     checked={expiry === o.value}
                     onChange={() => setExpiry(o.value)}
                   />
-                  {o.label}
+                  {t(o.labelKey)}
                 </label>
               ))}
             </fieldset>
           </DialogBody>
           <DialogActions>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("settings.customStatus.cancel")}
             </Button>
             <Button type="submit" disabled={empty} loading={busy}>
-              Salvar
+              {t("settings.customStatus.save")}
             </Button>
           </DialogActions>
         </form>

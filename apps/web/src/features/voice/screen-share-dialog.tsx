@@ -9,6 +9,7 @@ import {
   DialogHead,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { useT } from "@/i18n";
 import { audioCapabilities, listDevices } from "./controller";
 import { loadDevicePrefs, loadScreenSharePrefs } from "./devices";
 import { outputLooksLikeHeadphones } from "./echo-risk";
@@ -30,6 +31,7 @@ export function ScreenShareDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: (opts: { audio: boolean; quality?: ScreenShareQuality; preview?: boolean }) => void;
 }) {
+  const { t } = useT();
   const [audio, setAudio] = useState(false);
   const [preview, setPreview] = useState(true);
   const [choice, setChoice] = useState(loadScreenChoice);
@@ -61,45 +63,36 @@ export function ScreenShareDialog({
       <DialogContent flush className="max-h-[min(40rem,92svh)]">
         <DialogHead
           icon={ScreenShare}
-          title="Compartilhar tela"
-          description="Escolha a qualidade e o que vai junto com a imagem."
+          title={t("voice.share.title")}
+          description={t("voice.share.description")}
         />
         <DialogBody>
           {canTuneQuality ? (
             <ScreenQualityFields idPrefix="screen-share" choice={choice} onChange={setChoice} />
           ) : (
-            <p className="text-xs text-muted-foreground">
-              A qualidade da imagem é automática neste app: ainda não dá para escolher resolução ou
-              quadros por segundo.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("voice.share.autoQuality")}</p>
           )}
           {noSystemAudio ? (
-            <p className="text-sm">
-              O app de computador ainda não envia o som do computador na tela compartilhada, só a
-              imagem. Por isso não há eco por compartilhar. Quem assiste não ouvirá o vídeo ou a
-              música que você mostrar.
-            </p>
+            <p className="text-sm">{t("voice.share.noSystemAudio")}</p>
           ) : (
             <>
               <div className="flex items-center justify-between gap-3">
                 <label htmlFor="screen-share-audio" className="flex flex-col text-sm">
-                  <span>Incluir áudio</span>
+                  <span>{t("voice.share.includeAudio")}</span>
                   <span className="text-xs text-muted-foreground">
-                    Desligado por padrão: o som do computador pode carregar a voz dos outros e eles
-                    se ouvirão de volta (eco).
+                    {t("voice.share.audioHint")}
                   </span>
                 </label>
                 <Switch id="screen-share-audio" checked={audio} onCheckedChange={setAudio} />
               </div>
               <p className="text-xs text-muted-foreground">
-                Para mostrar um vídeo ou uma música sem eco, compartilhe uma <strong>aba</strong> do
-                navegador com áudio: só o som daquela aba vai, sem a voz da chamada. Ao compartilhar
-                a tela inteira ou uma janela com áudio, use fones de ouvido.
+                {t("voice.share.tabTipBefore")}
+                <strong>{t("voice.share.tabTipStrong")}</strong>
+                {t("voice.share.tabTipAfter")}
               </p>
               {audio && headphones === false ? (
                 <output className="block rounded-md border border-destructive/40 px-3 py-2 text-xs">
-                  Sua saída de áudio parece ser uma caixa de som. Com áudio compartilhado, use fones
-                  para evitar eco.
+                  {t("voice.share.speakerWarning")}
                 </output>
               ) : null}
             </>
@@ -115,18 +108,16 @@ export function ScreenShareDialog({
               onChange={(e) => setPreview(e.target.checked)}
             />
             <div className="flex flex-col text-sm">
-              <label htmlFor="screen-share-preview">Mostrar prévia para o canal</label>
+              <label htmlFor="screen-share-preview">{t("voice.share.preview")}</label>
               <span id="screen-share-preview-hint" className="text-xs text-muted-foreground">
-                {canPreview
-                  ? "Quem está no servidor vê uma miniatura da sua tela antes de entrar na transmissão. Desligue para conteúdo sensível."
-                  : "Indisponível no app para computador."}
+                {canPreview ? t("voice.share.previewHint") : t("voice.share.previewUnavailable")}
               </span>
             </div>
           </div>
         </DialogBody>
         <DialogActions>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {t("voice.cancel")}
           </Button>
           <Button
             onClick={() => {
@@ -138,7 +129,7 @@ export function ScreenShareDialog({
               });
             }}
           >
-            Compartilhar
+            {t("voice.share.confirm")}
           </Button>
         </DialogActions>
       </DialogContent>

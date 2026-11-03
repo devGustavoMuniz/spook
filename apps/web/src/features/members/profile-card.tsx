@@ -13,6 +13,7 @@ import { shownName } from "@/features/account/removed-user";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
 import { PersonActions } from "@/features/social/person-actions";
+import { useT } from "@/i18n";
 import { colorToHex } from "@/lib/colors";
 import { formatDay } from "@/lib/format";
 import { canBan, canKick, canManageRole, canNickname, type Guild, rolesOf } from "@/lib/guild";
@@ -72,6 +73,7 @@ export function ProfileCard({
   onBan: (m: MemberPayload) => void;
   onNick: (m: MemberPayload, self: boolean) => void;
 }) {
+  const { t } = useT();
   const narrow = useMediaQuery(NARROW_QUERY);
   const { data: me } = useGetMe();
   const status = usePresence(person.id);
@@ -115,9 +117,9 @@ export function ProfileCard({
   async function copyId() {
     try {
       await navigator.clipboard.writeText(person.id);
-      toast.success("ID de usuário copiado.");
+      toast.success(t("people.members.idCopied"));
     } catch {
-      toast.error("Não foi possível copiar.");
+      toast.error(t("people.members.copyFailed"));
     }
   }
 
@@ -137,7 +139,9 @@ export function ProfileCard({
               : "fixed z-[var(--z-popover)] origin-top-left overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl outline-none data-[state=open]:animate-pop-in"
           }
         >
-          <DialogPrimitive.Title className="sr-only">Perfil de {name}</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="sr-only">
+            {t("people.profile.title", { name })}
+          </DialogPrimitive.Title>
           {narrow ? (
             <span aria-hidden className="mx-auto mt-2 block h-1 w-10 rounded-full bg-border" />
           ) : null}
@@ -180,15 +184,19 @@ export function ProfileCard({
             {bio ? (
               <>
                 <Separator className="my-3" />
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase">Sobre mim</h3>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase">
+                  {t("people.profile.about")}
+                </h3>
                 <p className="mt-1 text-sm break-words whitespace-pre-line">{bio}</p>
               </>
             ) : null}
             {roles.length > 0 ? (
               <>
                 <Separator className="my-3" />
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase">Cargos</h3>
-                <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Cargos">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase">
+                  {t("people.profile.roles")}
+                </h3>
+                <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={t("people.profile.roles")}>
                   {roles.map((r) => (
                     <li key={r.id}>
                       <RoleBadge name={r.name} color={colorToHex(r.color)} />
@@ -201,7 +209,7 @@ export function ProfileCard({
               <>
                 <Separator className="my-3" />
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase">
-                  Membro desde
+                  {t("people.profile.memberSince")}
                 </h3>
                 <p className="mt-1 text-sm">
                   <time dateTime={member.joined_at}>{formatDay(member.joined_at)}</time>
@@ -220,7 +228,7 @@ export function ProfileCard({
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button variant="secondary" size="sm" onClick={() => void copyId()}>
-                  <Copy /> Copiar ID de usuário
+                  <Copy /> {t("people.members.copyUserId")}
                 </Button>
                 {mayRoles && member ? (
                   <Button
@@ -231,7 +239,7 @@ export function ProfileCard({
                       onRoles(member);
                     }}
                   >
-                    <ShieldCheck /> Gerenciar cargos
+                    <ShieldCheck /> {t("people.members.manageRoles")}
                   </Button>
                 ) : null}
                 {mayNick && member ? (
@@ -243,7 +251,10 @@ export function ProfileCard({
                       onNick(member, isMe);
                     }}
                   >
-                    <Pencil /> {isMe ? "Alterar apelido" : "Mudar apelido"}
+                    <Pencil />{" "}
+                    {isMe
+                      ? t("people.profile.changeOwnNickname")
+                      : t("people.members.changeNickname")}
                   </Button>
                 ) : null}
                 {mayKick && member ? (
@@ -256,7 +267,7 @@ export function ProfileCard({
                       onKick(member);
                     }}
                   >
-                    <UserMinus /> Expulsar
+                    <UserMinus /> {t("people.members.kick")}
                   </Button>
                 ) : null}
                 {mayBan && member ? (
@@ -269,7 +280,7 @@ export function ProfileCard({
                       onBan(member);
                     }}
                   >
-                    <Gavel /> Banir
+                    <Gavel /> {t("people.members.ban")}
                   </Button>
                 ) : null}
               </div>

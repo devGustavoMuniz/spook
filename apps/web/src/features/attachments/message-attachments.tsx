@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
 import { Lightbox } from "./lightbox";
 import { fitSize, imagesOf, isAudio, isImage, isVideo } from "./media";
@@ -18,6 +19,7 @@ import { useImageViewer } from "./viewer-context";
 
 /** Anexos de uma mensagem: imagens (miniatura + visualizador), áudio/vídeo (player nativo) e cartões de arquivo. */
 export function MessageAttachments({ attachments }: { attachments: readonly AttachmentPayload[] }) {
+  const { t } = useT();
   const shared = useImageViewer();
   const [open, setOpen] = useState<number | null>(null);
   // Quem abriu o visualizador: o foco volta para lá ao fechar.
@@ -27,7 +29,7 @@ export function MessageAttachments({ attachments }: { attachments: readonly Atta
   return (
     <div className="mt-1.5 flex max-w-full flex-col items-start gap-2">
       {images.length > 0 ? (
-        <ul aria-label="Imagens" className="flex max-w-full flex-wrap gap-2">
+        <ul aria-label={t("chat.attach.images")} className="flex max-w-full flex-wrap gap-2">
           {images.map((a, i) => (
             <li key={a.id} className="max-w-full">
               <ImageThumb
@@ -79,6 +81,7 @@ export function ImageThumb({
   attachment: AttachmentPayload;
   onOpen: (trigger: HTMLElement) => void;
 }) {
+  const { t } = useT();
   // A miniatura pode falhar (link vencido ou arquivo removido): cai para o original; se esse também falhar, mostra o aviso.
   const [broken, setBroken] = useState<string[]>([]);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -90,14 +93,15 @@ export function ImageThumb({
   if (!src)
     return (
       <div className="flex items-center gap-2 rounded-xl border bg-surface-1 p-3 text-xs text-muted-foreground">
-        <ImageOff className="size-4" aria-hidden /> Não foi possível carregar {a.filename}
+        <ImageOff className="size-4" aria-hidden />{" "}
+        {t("chat.attach.loadFailed", { name: a.filename })}
       </div>
     );
   return (
     <button
       type="button"
       onClick={(e) => onOpen(e.currentTarget)}
-      aria-label={`Abrir imagem ${a.filename}`}
+      aria-label={t("chat.attach.openImage", { name: a.filename })}
       className="group/img relative block overflow-hidden rounded-xl border border-border bg-muted shadow-xs transition-shadow hover:shadow-md"
       style={{
         width: box.width,
@@ -182,6 +186,7 @@ function extensionOf(filename: string): string {
 
 /** Cartão de arquivo: ícone por tipo, nome, tipo/tamanho e baixar. */
 export function FileCard({ attachment: a }: { attachment: AttachmentPayload }) {
+  const { t } = useT();
   const Icon = iconFor(a);
   const ext = extensionOf(a.filename);
   return (
@@ -203,7 +208,7 @@ export function FileCard({ attachment: a }: { attachment: AttachmentPayload }) {
         download={a.filename}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={`Baixar ${a.filename}`}
+        aria-label={t("chat.attach.download", { name: a.filename })}
         className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
       >
         <Download className="size-4" />

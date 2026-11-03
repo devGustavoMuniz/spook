@@ -27,6 +27,7 @@ import { NotificationMenuItems } from "@/features/notifications/notification-men
 import { useIsMuted } from "@/features/notifications/settings";
 import { UserPanel } from "@/features/presence/user-panel";
 import { useIncomingCount } from "@/features/social/store";
+import { formatBadge, getLocale, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { shortListTime, snowflakeTime } from "@/lib/snowflake-time";
 import { dmTitle, isGroupDm, otherRecipient, recipientsOf } from "./dm-utils";
@@ -35,29 +36,30 @@ import { useDms } from "./use-dms";
 
 /** Lista de conversas (1:1 e em grupo) por atividade recente, com busca e o botão de nova conversa. */
 export function DmSidebar() {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const dms = useDms();
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
   const pendingRequests = useIncomingCount();
-  const q = query.trim().toLocaleLowerCase("pt-BR");
+  const q = query.trim().toLocaleLowerCase(getLocale());
   const shown =
     me && q
-      ? dms.list.filter((c) => dmTitle(c, me.id).toLocaleLowerCase("pt-BR").includes(q))
+      ? dms.list.filter((c) => dmTitle(c, me.id).toLocaleLowerCase(getLocale()).includes(q))
       : dms.list;
   return (
     <ShellSidebar>
       <aside
-        aria-label="Mensagens diretas"
+        aria-label={t("people.dmSidebar.title")}
         className="flex w-60 shrink-0 flex-col border-r bg-sidebar"
       >
         <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <h2 className="text-sm font-semibold">Mensagens diretas</h2>
+          <h2 className="text-sm font-semibold">{t("people.dmSidebar.title")}</h2>
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Nova conversa em grupo"
-            title="Nova conversa"
+            aria-label={t("people.dmSidebar.newGroup")}
+            title={t("people.dmSidebar.newConversation")}
             onClick={() => setCreating(true)}
           >
             <MessageSquarePlus />
@@ -69,10 +71,10 @@ export function DmSidebar() {
             className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[status=active]:bg-brand-500/15 data-[status=active]:font-medium data-[status=active]:text-foreground data-[status=active]:shadow-[inset_2px_0_0_var(--primary)]"
           >
             <UserRound className="size-5" aria-hidden />
-            <span className="flex-1">Amigos</span>
+            <span className="min-w-0 flex-1 truncate">{t("people.dmSidebar.friends")}</span>
             <CountBadge
               count={pendingRequests}
-              aria-label={`${pendingRequests} ${pendingRequests === 1 ? "pedido de amizade" : "pedidos de amizade"}`}
+              aria-label={t("people.dmSidebar.friendRequests", { count: pendingRequests })}
             />
           </Link>
         </div>
@@ -85,15 +87,18 @@ export function DmSidebar() {
             <Input
               type="search"
               size="sm"
-              aria-label="Buscar conversas"
-              placeholder="Buscar conversas"
+              aria-label={t("people.dmSidebar.search")}
+              placeholder={t("people.dmSidebar.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="pl-8"
             />
           </div>
         ) : null}
-        <nav aria-label="Conversas" className="min-h-0 flex-1 overflow-y-auto p-2">
+        <nav
+          aria-label={t("people.dmSidebar.conversations")}
+          className="min-h-0 flex-1 overflow-y-auto p-2"
+        >
           {dms.isPending ? (
             <ul aria-hidden className="flex flex-col gap-1">
               {[0, 1, 2, 3].map((i) => (
@@ -107,24 +112,24 @@ export function DmSidebar() {
             <div role="alert" className="flex flex-col items-start gap-2 px-2 text-sm">
               <p className="text-destructive-text">{appMessage(dms.error)}</p>
               <Button size="sm" variant="outline" onClick={() => void dms.refetch()}>
-                Tentar de novo
+                {t("people.dmSidebar.retry")}
               </Button>
             </div>
           ) : dms.list.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
               <EmptyChatIllustration className="h-24 w-auto" />
-              <p className="text-sm font-medium">Nenhuma conversa ainda</p>
+              <p className="text-sm font-medium">{t("people.dmSidebar.emptyTitle")}</p>
               <p className="text-xs text-muted-foreground text-pretty">
-                Abra o menu de um membro e escolha "Enviar mensagem".
+                {t("people.dmSidebar.emptyHint")}
               </p>
               <Button size="sm" variant="soft" onClick={() => setCreating(true)}>
-                <MessageSquarePlus /> Nova conversa
+                <MessageSquarePlus /> {t("people.dmSidebar.newConversation")}
               </Button>
             </div>
           ) : shown.length === 0 ? (
             <p className="flex flex-col items-center gap-1.5 px-3 py-6 text-center text-xs text-muted-foreground">
               <SearchX aria-hidden className="size-5" />
-              Nenhuma conversa com "{query.trim()}".
+              {t("people.dmSidebar.noMatch", { query: query.trim() })}
             </p>
           ) : (
             <ul className="flex flex-col gap-0.5">
@@ -146,6 +151,7 @@ export function DmSidebar() {
 }
 
 function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
+  const { t } = useT();
   const read = useChannelRead(channel.id);
   const unread = !!read && (read.unread > 0 || read.mentions > 0);
   const title = dmTitle(channel, myId);
@@ -189,23 +195,32 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
             {title}
           </span>
           {group ? (
-            <span className="truncate text-xs">{recipientsOf(channel).length} participantes</span>
+            <span className="truncate text-xs">
+              {t("people.dmPage.participantsCount", { count: recipientsOf(channel).length })}
+            </span>
           ) : null}
         </span>
         {muted ? (
-          <BellOff className="size-3.5 shrink-0" aria-label="Silenciado" role="img" />
+          <BellOff
+            className="size-3.5 shrink-0"
+            aria-label={t("people.dmSidebar.muted")}
+            role="img"
+          />
         ) : null}
         {read && read.mentions > 0 ? (
           <MentionBadge
             count={read.mentions}
-            label={`${read.mentions > 99 ? "99+" : read.mentions} mensagens novas`}
+            label={t("people.dmSidebar.newMessages", {
+              count: read.mentions,
+              badge: formatBadge(read.mentions),
+            })}
           />
         ) : unread ? (
-          <UnreadDot label="Mensagens novas" />
+          <UnreadDot label={t("people.dmSidebar.newMessagesDot")} />
         ) : last ? (
           <time
             dateTime={last.toISOString()}
-            title="Última mensagem"
+            title={t("people.dmSidebar.lastMessage")}
             className="shrink-0 text-2xs text-muted-foreground group-focus-within:hidden group-hover:hidden"
           >
             {shortListTime(last)}
@@ -218,7 +233,7 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
             variant="ghost"
             size="icon-sm"
             className="absolute top-1/2 right-1 -translate-y-1/2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-            aria-label={`Opções de ${title}`}
+            aria-label={t("people.dmSidebar.optionsOf", { name: title })}
           >
             <MoreVertical />
           </Button>
@@ -227,7 +242,7 @@ function DmItem({ channel, myId }: { channel: ChannelPayload; myId: string }) {
           <NotificationMenuItems
             scope="channel"
             targetId={channel.id}
-            what="esta conversa"
+            what={t("people.dmSidebar.thisConversation")}
             isGuildLike={false}
             withSeparator={false}
           />

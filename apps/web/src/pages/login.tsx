@@ -22,10 +22,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { BrowserLoginButton } from "@/desktop/browser-login-button";
 import { persistSessionToken } from "@/desktop/token";
+import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { type LoginForm, loginSchema } from "@/lib/schemas";
 
 export function LoginPage() {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
@@ -63,8 +65,8 @@ export function LoginPage() {
     <AuthLayout>
       <Card className="gap-5 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Entrar</CardTitle>
-          <CardDescription>Bem-vindo de volta. Entre para falar com a sua galera.</CardDescription>
+          <CardTitle className="text-2xl">{t("auth.signIn")}</CardTitle>
+          <CardDescription>{t("auth.login.subtitle")}</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit} noValidate aria-busy={busy || undefined}>
           <CardContent className="flex flex-col gap-4">
@@ -73,7 +75,7 @@ export function LoginPage() {
             ) : null}
             {socialError ? <FormAlert>{socialError}</FormAlert> : null}
             {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
-            <Field id="email" label="E-mail" error={errors.email?.message}>
+            <Field id="email" label={t("common.email")} error={errors.email?.message}>
               <Input
                 id="email"
                 type="email"
@@ -86,7 +88,7 @@ export function LoginPage() {
                 {...register("email")}
               />
             </Field>
-            <Field id="password" label="Senha" error={errors.password?.message}>
+            <Field id="password" label={t("common.password")} error={errors.password?.message}>
               <PasswordInput
                 id="password"
                 autoComplete="current-password"
@@ -101,23 +103,23 @@ export function LoginPage() {
               to="/forgot-password"
               className="self-start text-sm font-medium text-brand-text underline-offset-4 hover:underline"
             >
-              Esqueci minha senha
+              {t("auth.login.forgot")}
             </Link>
           </CardContent>
           <CardFooter className="mt-6 flex-col gap-4">
             <Button type="submit" size="xl" className="w-full" loading={busy}>
-              Entrar
+              {t("auth.signIn")}
             </Button>
             <SocialButtons redirect={redirect} />
             <BrowserLoginButton />
             <p className="text-sm text-muted-foreground">
-              Não tem conta?{" "}
+              {t("auth.login.noAccount")}{" "}
               <Link
                 to="/register"
                 search={{ redirect }}
                 className="font-medium text-brand-text underline-offset-4 hover:underline"
               >
-                Cadastre-se
+                {t("auth.login.signUp")}
               </Link>
             </p>
           </CardFooter>

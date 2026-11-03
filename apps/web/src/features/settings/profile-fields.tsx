@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SettingsGroup } from "@/features/settings/ui";
+import { useT } from "@/i18n";
 import { colorToHex, hexToColor } from "@/lib/colors";
 import { applyServerError, messageFor } from "@/lib/errors";
 import {
@@ -41,6 +42,7 @@ export function useSaveProfile() {
 
 /** Bio e pronomes. */
 export function AboutCard({ me }: { me: View }) {
+  const { t } = useT();
   const save = useSaveProfile();
   const {
     register,
@@ -57,7 +59,7 @@ export function AboutCard({ me }: { me: View }) {
   const onSubmit = handleSubmit(async ({ bio, pronouns }) => {
     try {
       await save({ bio, pronouns });
-      toast.success("Perfil atualizado.");
+      toast.success(t("settings.profile.updated"));
     } catch (e) {
       if (!applyServerError(e, setError)) toast.error(messageFor(e));
     }
@@ -66,14 +68,14 @@ export function AboutCard({ me }: { me: View }) {
   return (
     <SettingsGroup
       icon={TextCursorInput}
-      title="Sobre você"
-      description="Aparece no seu cartão de perfil, para quem clicar no seu nome."
+      title={t("settings.profile.aboutTitle")}
+      description={t("settings.profile.aboutDescription")}
     >
       <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
         <Field
           id="pronouns"
-          label="Pronomes"
-          hint="Por exemplo: ela/dela, ele/dele, elu/delu."
+          label={t("settings.profile.pronouns")}
+          hint={t("settings.profile.pronounsHint")}
           error={errors.pronouns?.message}
         >
           <Input
@@ -83,12 +85,12 @@ export function AboutCard({ me }: { me: View }) {
             aria-describedby={describedBy(
               "pronouns",
               errors.pronouns?.message,
-              "Por exemplo: ela/dela, ele/dele, elu/delu.",
+              t("settings.profile.pronounsHint"),
             )}
             {...register("pronouns")}
           />
         </Field>
-        <Field id="bio" label="Bio" error={errors.bio?.message}>
+        <Field id="bio" label={t("settings.profile.bio")} error={errors.bio?.message}>
           <Textarea
             id="bio"
             rows={4}
@@ -102,7 +104,7 @@ export function AboutCard({ me }: { me: View }) {
           </p>
         </Field>
         <Button type="submit" className="self-start" loading={isSubmitting}>
-          Salvar
+          {t("settings.profile.save")}
         </Button>
       </form>
     </SettingsGroup>
@@ -113,6 +115,7 @@ const DEFAULT_COLOR = "#5865f2";
 
 /** Banner do perfil: imagem (com prévia) OU cor sólida. */
 export function BannerCard({ me }: { me: View }) {
+  const { t } = useT();
   const save = useSaveProfile();
   const requestUpload = useRequestBannerUpload();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -142,12 +145,10 @@ export function BannerCard({ me }: { me: View }) {
       });
       await putWithProgress(upload_url, file, setProgress);
       await save({ banner_key: key });
-      toast.success("Banner atualizado.");
+      toast.success(t("settings.profile.bannerUpdated"));
     } catch (e) {
       toast.error(
-        e instanceof Error && !("status" in e)
-          ? "Não foi possível enviar a imagem."
-          : messageFor(e),
+        e instanceof Error && !("status" in e) ? t("settings.profile.uploadFailed") : messageFor(e),
       );
     } finally {
       setProgress(null);
@@ -170,13 +171,13 @@ export function BannerCard({ me }: { me: View }) {
   return (
     <SettingsGroup
       icon={ImageIcon}
-      title="Banner"
-      description="Uma imagem (PNG, JPEG, WebP ou GIF, até 5 MB) ou uma cor sólida no topo do seu cartão de perfil."
+      title={t("settings.profile.bannerTitle")}
+      description={t("settings.profile.bannerDescription")}
     >
       <div
         data-testid="banner-preview"
         role="img"
-        aria-label="Prévia do banner"
+        aria-label={t("settings.profile.bannerPreview")}
         className="h-24 w-full max-w-md overflow-hidden rounded-lg border border-border bg-cover bg-center"
         style={{
           background: me.banner_url
@@ -199,7 +200,7 @@ export function BannerCard({ me }: { me: View }) {
           className="sr-only"
           onChange={(e) => void onFile(e.target.files?.[0])}
           disabled={busy}
-          aria-label="Enviar imagem de banner"
+          aria-label={t("settings.profile.bannerUpload")}
         />
         <Button
           type="button"
@@ -207,10 +208,10 @@ export function BannerCard({ me }: { me: View }) {
           disabled={busy}
           onClick={() => fileInput.current?.click()}
         >
-          {progress !== null ? "Enviando…" : "Enviar imagem"}
+          {progress !== null ? t("settings.profile.uploading") : t("settings.profile.uploadImage")}
         </Button>
         <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Cor</span>
+          <span className="text-muted-foreground">{t("settings.profile.color")}</span>
           <input
             type="color"
             value={pickedColor}
@@ -219,7 +220,7 @@ export function BannerCard({ me }: { me: View }) {
               setPickedColor(e.target.value);
             }}
             disabled={busy}
-            aria-label="Cor do banner"
+            aria-label={t("settings.profile.bannerColor")}
             className="h-9 w-12 cursor-pointer rounded-md border border-input bg-field p-1 disabled:cursor-not-allowed"
           />
         </label>
@@ -227,18 +228,20 @@ export function BannerCard({ me }: { me: View }) {
           type="button"
           variant="outline"
           disabled={busy || (me.banner_color != null && savedHex === pickedColor && !me.banner_url)}
-          onClick={() => void act({ banner_color: hexToColor(pickedColor) }, "Banner atualizado.")}
+          onClick={() =>
+            void act({ banner_color: hexToColor(pickedColor) }, t("settings.profile.bannerUpdated"))
+          }
         >
-          Usar cor
+          {t("settings.profile.useColor")}
         </Button>
         {hasBanner ? (
           <Button
             type="button"
             variant="ghost"
             disabled={busy}
-            onClick={() => void act({ remove_banner: true }, "Banner removido.")}
+            onClick={() => void act({ remove_banner: true }, t("settings.profile.bannerRemoved"))}
           >
-            Remover
+            {t("settings.profile.remove")}
           </Button>
         ) : null}
       </div>
@@ -247,7 +250,7 @@ export function BannerCard({ me }: { me: View }) {
           className="h-2 w-48 accent-primary"
           max={100}
           value={progress}
-          aria-label="Progresso do envio do banner"
+          aria-label={t("settings.profile.uploadProgress")}
         />
       ) : null}
       {fileError ? (

@@ -4,7 +4,9 @@ import { ChevronLeft, ChevronRight, Download, X, ZoomIn, ZoomOut } from "lucide-
 import { type MouseEvent, type RefObject, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
+import { useT } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
+import { tRich } from "@/lib/t-rich";
 
 const ZOOM = 2.4;
 
@@ -28,6 +30,7 @@ export function Lightbox({
   /** Elemento que recebe o foco ao fechar (o botão da miniatura clicada). */
   returnFocusTo?: RefObject<HTMLElement | null>;
 }) {
+  const { t } = useT();
   const open = index !== null;
   const current = index !== null ? images[index] : undefined;
   const count = images.length;
@@ -78,15 +81,16 @@ export function Lightbox({
           onClick={(e) => e.target === e.currentTarget && onClose()}
         >
           <Dialog.Title className="sr-only">
-            {current ? `Imagem ${current.filename}` : "Visualizador de imagens"}
+            {current
+              ? t("chat.lightbox.image", { name: current.filename })
+              : t("chat.lightbox.viewer")}
           </Dialog.Title>
           {current ? (
             <>
               <div className="pointer-events-none flex max-h-[78svh] max-w-full min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl">
                 {failed ? (
                   <p className="max-w-sm rounded-xl border bg-popover p-6 text-sm text-popover-foreground">
-                    Não foi possível carregar a imagem. O link pode ter expirado: recarregue a
-                    conversa.
+                    {t("chat.lightbox.loadFailed")}
                   </p>
                 ) : (
                   // biome-ignore lint/a11y/useKeyWithClickEvents: o mesmo zoom tem botão com teclado ("Ampliar imagem")
@@ -120,7 +124,7 @@ export function Lightbox({
                   variant="ghost"
                   size="icon-sm"
                   className="size-8"
-                  aria-label={zoom ? "Reduzir imagem" : "Ampliar imagem"}
+                  aria-label={zoom ? t("chat.lightbox.zoomOut") : t("chat.lightbox.zoomIn")}
                   aria-pressed={!!zoom}
                   onClick={() => setZoom(zoom ? null : { x: 50, y: 50 })}
                 >
@@ -132,13 +136,13 @@ export function Lightbox({
                     download={current.filename}
                     target="_blank"
                     rel="noopener noreferrer"
-                    aria-label={`Baixar ${current.filename}`}
+                    aria-label={t("chat.attach.download", { name: current.filename })}
                   >
                     <Download />
                   </a>
                 </Button>
                 <span className="hidden items-center gap-1 text-xs text-muted-foreground md:flex">
-                  <Kbd>Esc</Kbd> fecha
+                  {tRich(t, "chat.lightbox.escCloses", "key", <Kbd>Esc</Kbd>)}
                 </span>
               </div>
             </>
@@ -149,7 +153,7 @@ export function Lightbox({
                 variant="secondary"
                 size="icon-lg"
                 className="absolute top-1/2 left-3 -translate-y-1/2 rounded-full shadow-lg"
-                aria-label="Imagem anterior"
+                aria-label={t("chat.lightbox.previous")}
                 onClick={() => go(-1)}
               >
                 <ChevronLeft />
@@ -158,7 +162,7 @@ export function Lightbox({
                 variant="secondary"
                 size="icon-lg"
                 className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full shadow-lg"
-                aria-label="Próxima imagem"
+                aria-label={t("chat.lightbox.next")}
                 onClick={() => go(1)}
               >
                 <ChevronRight />
@@ -170,7 +174,7 @@ export function Lightbox({
               variant="secondary"
               size="icon-lg"
               className="absolute top-3 right-3 rounded-full shadow-lg"
-              aria-label="Fechar visualizador"
+              aria-label={t("chat.lightbox.close")}
             >
               <X />
             </Button>

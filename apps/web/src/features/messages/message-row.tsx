@@ -36,9 +36,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { shownName } from "@/features/account/removed-user";
 import { MessageAttachments } from "@/features/attachments/message-attachments";
 import { useIsBlocked } from "@/features/social/store";
+import { t, useT } from "@/i18n";
 import { formatClock, formatFullDate, formatMessageTime } from "@/lib/format";
 import { bulkMentionsMe, type MentionContext } from "@/lib/mentions";
 import { useReadableRoleColor } from "@/lib/role-color";
+import { tRich } from "@/lib/t-rich";
 import { InviteCards } from "./invite-card";
 import { MAX_MESSAGE_LENGTH, runeCount } from "./limits";
 
@@ -88,11 +90,12 @@ async function copyText(text: string, done: string) {
     await navigator.clipboard.writeText(text);
     toast.success(done);
   } catch {
-    toast.error("Não foi possível copiar.");
+    toast.error(t("chat.row.copyFailed"));
   }
 }
 
 export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
+  const { t } = useT();
   const { message: m } = p;
   const name = p.nickname || shownName(m.author.display_name, m.author.username);
   const nameColor = useReadableRoleColor(p.color);
@@ -130,7 +133,7 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
     p.onOpenProfile ? (
       <button
         type="button"
-        aria-label={`Ver perfil de ${name}`}
+        aria-label={t("chat.row.viewProfile", { name })}
         onClick={(e) => p.onOpenProfile?.(m.author.id, e.currentTarget)}
         className={className}
       >
@@ -155,17 +158,17 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
         {p.marker ? <NewMessagesDivider /> : null}
         {p.day ? <DayDivider label={p.day} /> : null}
         <article
-          aria-label="Mensagem de usuário bloqueado"
+          aria-label={t("chat.row.blockedAria")}
           className="flex items-center gap-2 px-4 py-1.5 text-xs text-muted-foreground"
         >
           <Ban aria-hidden className="size-3.5 shrink-0" />
-          <span>Mensagem de usuário bloqueado —</span>
+          <span>{t("chat.row.blockedMessage")}</span>
           <button
             type="button"
             onClick={() => setRevealed(true)}
             className="rounded-sm font-medium text-brand-text underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
           >
-            mostrar
+            {t("chat.row.show")}
           </button>
         </article>
       </>
@@ -176,7 +179,7 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
       {p.marker ? <NewMessagesDivider /> : null}
       {p.day ? <DayDivider label={p.day} /> : null}
       <article
-        aria-label={`Mensagem de ${name}`}
+        aria-label={t("chat.row.messageFrom", { name })}
         aria-keyshortcuts="R P E"
         // biome-ignore lint/a11y/noNoninteractiveTabindex: a mensagem recebe foco para revelar as ações e aceitar os atalhos (R, P, E)
         tabIndex={0}
@@ -273,11 +276,11 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                             tabIndex={0}
                             className="ml-1 cursor-default rounded-sm text-2xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
-                            (editada)
+                            {t("chat.row.edited")}
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top">
-                          Editada em {formatFullDate(m.edited_at)}
+                          {t("chat.row.editedAt", { date: formatFullDate(m.edited_at) })}
                         </TooltipContent>
                       </Tooltip>
                     ) : null}
@@ -293,18 +296,18 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
           <>
             <div
               role="toolbar"
-              aria-label="Ações da mensagem"
+              aria-label={t("chat.row.actions")}
               className={`invisible pointer-events-none absolute -top-4 right-4 z-[var(--z-sticky)] flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 opacity-0 shadow-md transition-opacity duration-[var(--dur-fast)] group-focus-within/msg:visible group-focus-within/msg:pointer-events-auto group-focus-within/msg:opacity-100 group-hover/msg:visible group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 has-[[data-state=open]]:visible has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100 [@media(hover:none)]:hidden max-md:hidden`}
             >
               {p.canReply ? (
-                <ActionButton label="Responder" kbd="R" onClick={() => p.onReply(m)}>
+                <ActionButton label={t("chat.row.reply")} kbd="R" onClick={() => p.onReply(m)}>
                   <Reply />
                 </ActionButton>
               ) : null}
               {p.canPin ? (
                 <ActionButton
-                  label={m.pinned ? "Desafixar mensagem" : "Fixar mensagem"}
-                  tip={m.pinned ? "Desafixar" : "Fixar"}
+                  label={m.pinned ? t("chat.row.unpinMessage") : t("chat.row.pinMessage")}
+                  tip={m.pinned ? t("chat.row.unpin") : t("chat.row.pin")}
                   kbd="P"
                   onClick={() => p.onTogglePin(m)}
                 >
@@ -313,8 +316,8 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
               ) : null}
               {p.canEdit ? (
                 <ActionButton
-                  label="Editar mensagem"
-                  tip="Editar"
+                  label={t("chat.row.editMessage")}
+                  tip={t("chat.row.edit")}
                   kbd="E"
                   onClick={() => p.onStartEdit(m.id)}
                 >
@@ -323,8 +326,8 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
               ) : null}
               {p.canDelete ? (
                 <ActionButton
-                  label="Excluir mensagem"
-                  tip="Excluir"
+                  label={t("chat.row.deleteMessage")}
+                  tip={t("chat.row.delete")}
                   destructive
                   onClick={() => p.onDelete(m)}
                 >
@@ -339,13 +342,13 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                         variant="ghost"
                         size="icon-sm"
                         className="size-7"
-                        aria-label="Mais ações"
+                        aria-label={t("chat.row.moreActions")}
                       >
                         <MoreHorizontal />
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="top">Mais</TooltipContent>
+                  <TooltipContent side="top">{t("chat.row.more")}</TooltipContent>
                 </Tooltip>
                 <MessageMenu full={false} {...p} />
               </DropdownMenu>
@@ -360,7 +363,7 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                     variant="ghost"
                     size="icon"
                     className="size-9 text-muted-foreground"
-                    aria-label={`Ações da mensagem de ${name}`}
+                    aria-label={t("chat.row.actionsOf", { name })}
                   >
                     <MoreHorizontal />
                   </Button>
@@ -376,10 +379,11 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
 });
 
 function PinnedBadge() {
+  const { t } = useT();
   return (
     <Badge variant="brand" className="text-2xs">
-      <Pin role="img" aria-label="Mensagem fixada" />
-      Fixada
+      <Pin role="img" aria-label={t("chat.row.pinnedMessage")} />
+      {t("chat.row.pinned")}
     </Badge>
   );
 }
@@ -402,11 +406,12 @@ export function DayDivider({ label }: { label: string }) {
 
 /** "Novas mensagens": linha + pílula na cor de perigo suave (o mesmo vermelho dos contadores de menção). */
 export function NewMessagesDivider() {
+  const { t } = useT();
   return (
     <div className="flex items-center gap-3 px-4 pt-3 pb-1">
       <hr aria-hidden className="flex-1 border-destructive/60" />
       <span className="rounded-full bg-danger-soft px-3 py-0.5 text-xs font-semibold text-destructive-text">
-        Novas mensagens
+        {t("chat.row.newMessages")}
       </span>
       <hr aria-hidden className="flex-1 border-destructive/60" />
     </div>
@@ -457,36 +462,37 @@ function MessageMenu({
   full,
   ...p
 }: MessageRowProps & { message: MessagePayload; full: boolean }) {
+  const { t } = useT();
   return (
     <DropdownMenuContent align="end" className="min-w-52">
       {full && p.canReply ? (
         <DropdownMenuItem onSelect={() => p.onReply(m)}>
-          <Reply /> Responder
+          <Reply /> {t("chat.row.reply")}
         </DropdownMenuItem>
       ) : null}
       {full && p.canPin ? (
         <DropdownMenuItem onSelect={() => p.onTogglePin(m)}>
-          {m.pinned ? <PinOff /> : <Pin />} {m.pinned ? "Desafixar" : "Fixar"}
+          {m.pinned ? <PinOff /> : <Pin />} {m.pinned ? t("chat.row.unpin") : t("chat.row.pin")}
         </DropdownMenuItem>
       ) : null}
       {full && p.canEdit ? (
         <DropdownMenuItem onSelect={() => p.onStartEdit(m.id)}>
-          <Pencil /> Editar
+          <Pencil /> {t("chat.row.edit")}
         </DropdownMenuItem>
       ) : null}
       {m.content ? (
-        <DropdownMenuItem onSelect={() => void copyText(m.content, "Texto copiado.")}>
-          <Copy /> Copiar texto
+        <DropdownMenuItem onSelect={() => void copyText(m.content, t("chat.row.textCopied"))}>
+          <Copy /> {t("chat.row.copyText")}
         </DropdownMenuItem>
       ) : null}
-      <DropdownMenuItem onSelect={() => void copyText(m.id, "ID da mensagem copiado.")}>
-        <Hash /> Copiar ID da mensagem
+      <DropdownMenuItem onSelect={() => void copyText(m.id, t("chat.row.idCopied"))}>
+        <Hash /> {t("chat.row.copyId")}
       </DropdownMenuItem>
       {full && p.canDelete ? (
         <>
           <DropdownMenuSeparator />
           <DropdownMenuItem destructive onSelect={() => p.onDelete(m)}>
-            <Trash2 /> Excluir
+            <Trash2 /> {t("chat.row.delete")}
           </DropdownMenuItem>
         </>
       ) : null}
@@ -502,6 +508,7 @@ function ReplyQuote({
   reply: NonNullable<MessagePayload["reply_to"]>;
   onJumpTo: (messageId: string) => void;
 }) {
+  const { t } = useT();
   const author = shownName(reply.author.display_name, reply.author.username);
   const connector = (
     <span
@@ -513,7 +520,7 @@ function ReplyQuote({
     return (
       <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground italic">
         {connector}
-        <span>Mensagem original apagada</span>
+        <span>{t("chat.row.originalDeleted")}</span>
       </div>
     );
   }
@@ -522,15 +529,15 @@ function ReplyQuote({
       {connector}
       <button
         type="button"
-        aria-label={`Ir para a mensagem original de ${author}`}
+        aria-label={t("chat.row.jumpToOriginal", { name: author })}
         onClick={() => onJumpTo(reply.id)}
         className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:text-foreground"
       >
         <Avatar name={author} seed={reply.author.id} size={16} />
         <span className="shrink-0 font-medium text-foreground/80">@{author}</span>
         <span className="truncate">
-          {reply.content || (reply.has_attachments ? "Anexo" : "")}
-          {reply.content && reply.has_attachments ? " (com anexo)" : ""}
+          {reply.content || (reply.has_attachments ? t("chat.row.attachment") : "")}
+          {reply.content && reply.has_attachments ? ` ${t("chat.row.withAttachment")}` : ""}
         </span>
       </button>
     </div>
@@ -665,15 +672,21 @@ export function highlightMentions(
 
 /** Mensagem de sistema "fulano entrou no servidor": linha centralizada, sem avatar nem ações. */
 function JoinRow({ name, at }: { name: string; at: string }) {
+  const { t } = useT();
   return (
     <article
-      aria-label={`${name} entrou no servidor`}
+      aria-label={t("chat.row.joinedAria", { name })}
       data-system="member_join"
       className="flex items-center justify-center gap-2 px-4 py-2 text-sm text-muted-foreground"
     >
       <UserPlus className="size-4 shrink-0 text-brand-text" aria-hidden />
       <p className="min-w-0 text-center break-words">
-        <strong className="font-medium text-foreground">{name}</strong> entrou no servidor.
+        {tRich(
+          t,
+          "chat.row.joined",
+          "name",
+          <strong className="font-medium text-foreground">{name}</strong>,
+        )}
       </p>
       <time dateTime={at} title={formatFullDate(at)} className="shrink-0 text-2xs tabular">
         {formatMessageTime(at)}
@@ -691,6 +704,7 @@ function EditBox({
   onSave: (content: string) => Promise<void>;
   onCancel: () => void;
 }) {
+  const { t } = useT();
   const [value, setValue] = useState(initial);
   const [saving, setSaving] = useState(false);
   const length = runeCount(value);
@@ -711,7 +725,7 @@ function EditBox({
     <div className="flex flex-col gap-1.5 py-1">
       <Textarea
         autoFocus
-        aria-label="Editar mensagem"
+        aria-label={t("chat.row.editMessage")}
         value={value}
         maxLength={MAX_MESSAGE_LENGTH * 2}
         onChange={(e) => setValue(e.target.value)}
@@ -727,17 +741,19 @@ function EditBox({
         className="field-sizing-content max-h-48"
       />
       <p className="text-xs text-muted-foreground">
-        Enter para salvar, Esc para cancelar.{" "}
+        {t("chat.row.editHint")}{" "}
         {length > MAX_MESSAGE_LENGTH ? (
-          <span className="text-destructive-text">Passou de {MAX_MESSAGE_LENGTH} caracteres.</span>
+          <span className="text-destructive-text">
+            {t("chat.row.tooLong", { max: MAX_MESSAGE_LENGTH })}
+          </span>
         ) : null}
       </p>
       <div className="flex gap-2">
         <Button size="sm" onClick={() => void save()} loading={saving} disabled={invalid}>
-          Salvar
+          {t("chat.row.save")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancelar
+          {t("chat.row.cancel")}
         </Button>
       </div>
     </div>

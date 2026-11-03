@@ -1,78 +1,84 @@
 import { isApiError } from "@spook/shared";
+import { getLocale, t } from "@/i18n";
+import { SERVER_DETAILS } from "./server-details";
 
 /** O 403 de quem tenta entrar por convite num servidor em que foi banido (`code: "banned"`). */
-export const BANNED_MESSAGE = "Você foi banido deste servidor e não pode entrar por convite.";
+export const bannedMessage = () => t("system.error.banned");
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** Mensagem em pt-br para erros das telas de servidor/canal/mensagem (403, 404, 409, 410, 422, 429). */
+/**
+ * Texto de um `detail` do servidor (sempre em pt-BR): em inglês, traduz os conhecidos pela tabela
+ * `server-details.ts`; o que não estiver lá (ou em pt-BR) é exibido como veio.
+ */
+export function translateDetail(detail: string): string {
+  if (getLocale() === "pt-BR") return detail;
+  const key = SERVER_DETAILS.get(detail.trim().replace(/\.$/, "").toLowerCase());
+  return key ? t(key) : detail;
+}
+
+/** Mensagem para erros das telas de servidor/canal/mensagem (403, 404, 409, 410, 422, 429). */
 export function appMessage(err: unknown): string {
-  if (!isApiError(err)) return "Não foi possível conectar ao servidor. Verifique sua conexão.";
+  if (!isApiError(err)) return t("system.error.network");
   switch (err.status) {
     case 401:
-      return "Sua sessão expirou. Entre novamente.";
+      return t("system.error.sessionExpired");
     case 403:
-      return err.code === "banned" ? BANNED_MESSAGE : "Você não tem permissão para fazer isso.";
+      return err.code === "banned" ? bannedMessage() : t("system.error.forbidden");
     case 404:
-      return "Não encontramos isso. Pode ter sido removido.";
+      return t("system.error.notFound");
     case 409:
-      return capitalize(err.detail);
+      return capitalize(translateDetail(err.detail));
     case 410:
-      return "Este convite expirou ou atingiu o limite de usos.";
+      return t("system.error.inviteGone");
     case 422:
-      return "Alguns campos são inválidos. Confira e tente de novo.";
+      return t("system.error.invalidFields");
     case 429:
       return err.retryAfter
-        ? `Calma lá! Tente de novo em ${err.retryAfter} s.`
-        : "Muitas tentativas. Aguarde um instante.";
+        ? t("system.error.slowDownIn", { seconds: err.retryAfter })
+        : t("system.error.tooMany");
     default:
-      return err.status >= 500
-        ? "Erro no servidor. Tente novamente em instantes."
-        : capitalize(err.detail);
+      return err.status >= 500 ? t("system.error.server") : capitalize(translateDetail(err.detail));
   }
 }
 
 export type DmAction = "open" | "create" | "add" | "remove" | "leave" | "rename";
 
-/** Erros das DMs (SPEC 7.4) em pt-br; o mesmo status quer dizer coisas diferentes por ação. */
+/** Erros das DMs (SPEC 7.4); o mesmo status quer dizer coisas diferentes por ação. */
 export function dmMessage(err: unknown, action: DmAction): string {
   if (!isApiError(err)) return appMessage(err);
   switch (err.status) {
     case 403:
       return action === "open" || action === "create" || action === "add"
-        ? "Não foi possível abrir essa conversa. É preciso compartilhar um servidor com a pessoa ou ser amigo dela."
-        : "Só o dono da conversa pode fazer isso.";
+        ? t("system.error.dmOpen")
+        : t("system.error.dmOwnerOnly");
     case 404:
-      return "Você não participa mais desta conversa.";
+      return t("system.error.dmLeft");
     case 409:
-      return action === "add"
-        ? "A conversa já tem 10 participantes."
-        : "O dono da conversa não pode sair nem ser removido.";
+      return action === "add" ? t("system.error.dmFull") : t("system.error.dmOwnerStays");
     case 422:
-      return action === "rename"
-        ? "O nome da conversa precisa ter de 1 a 100 caracteres."
-        : "Escolha de 1 a 9 pessoas, sem incluir você.";
+      return action === "rename" ? t("system.error.dmRename") : t("system.error.dmPick");
     case 429:
       return err.retryAfter
-        ? `Você está criando conversas rápido demais. Tente de novo em ${err.retryAfter} s.`
-        : "Você está criando conversas rápido demais. Aguarde um instante.";
+        ? t("system.error.dmRateRetry", { seconds: err.retryAfter })
+        : t("system.error.dmRate");
     default:
       return appMessage(err);
   }
 }
 
-/** Erros de `POST /channels/{id}/voice/token` e do restante da voz (SPEC 7.7) em pt-br. */
+/** Erros de `POST /channels/{id}/voice/token` e do restante da voz (SPEC 7.7). */
 export function voiceMessage(err: unknown): string {
   if (!isApiError(err)) return appMessage(err);
   switch (err.status) {
     case 403:
-      return "Você não tem permissão para entrar neste canal de voz.";
+      return t("system.error.voiceForbidden");
     case 404:
-      return "Este canal de voz não está disponível para você.";
+      return t("system.error.voiceNotFound");
     case 422:
-      return "Só é possível entrar em canais de voz e em conversas privadas.";
+      return t("system.error.voiceType");
     case 503:
-      return "A voz está indisponível no momento. Tente novamente mais tarde.";
+      return t("system.error.voiceDown");
     default:
       return appMessage(err);
   }

@@ -25,12 +25,12 @@ import {
   loadSessionToken,
   persistSessionToken,
   sessionToken,
-  VOLATILE_TOKEN_WARNING,
+  volatileTokenWarning,
 } from "./token";
 import {
   desktopVoiceEngineFactory,
   registerNativeVoiceEngine,
-  VOICE_UNAVAILABLE_MESSAGE,
+  voiceUnavailableMessage,
 } from "./voice";
 
 const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
@@ -117,7 +117,7 @@ describe("token no chaveiro", () => {
     fakeKeyring({ persistent: false });
     await persistSessionToken("so-memoria");
     expect(sessionToken()).toBe("so-memoria");
-    expect(toasts.warning).toHaveBeenCalledWith(VOLATILE_TOKEN_WARNING, expect.anything());
+    expect(toasts.warning).toHaveBeenCalledWith(volatileTokenWarning(), expect.anything());
   });
 
   it("falha do comando Rust também cai para memória com aviso; leitura que falha = sem sessão", async () => {
@@ -319,7 +319,7 @@ describe("voz no desktop (RF12.2)", () => {
 
   it("sem engine registrada recusa com mensagem clara e nunca cai no WebRTC do WebView", () => {
     setVoiceEngineFactory(desktopVoiceEngineFactory);
-    expect(() => createVoiceEngine()).toThrow(VOICE_UNAVAILABLE_MESSAGE);
+    expect(() => createVoiceEngine()).toThrow(voiceUnavailableMessage());
     expect(() => desktopVoiceEngineFactory()).toThrow(
       "Voz no desktop ainda não disponível nesta versão",
     );
@@ -341,7 +341,7 @@ describe("voz no desktop (RF12.2)", () => {
       canSpeak: true,
     });
     expect(ok).toBe(false);
-    expect(toasts.error).toHaveBeenCalledWith(VOICE_UNAVAILABLE_MESSAGE);
+    expect(toasts.error).toHaveBeenCalledWith(voiceUnavailableMessage());
     expect(tokenRequests).toBe(0);
   });
 

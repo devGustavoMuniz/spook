@@ -35,53 +35,52 @@ import {
 } from "@/features/voice/screen-quality";
 import { ScreenQualityFields } from "@/features/voice/screen-share-fields";
 import { useAudioStatusStore, useVoiceStore } from "@/features/voice/store";
+import { type MessageKey, useT } from "@/i18n";
 
-const FIELDS: { kind: DeviceKind; label: string }[] = [
-  { kind: "audioinput", label: "Microfone" },
-  { kind: "audiooutput", label: "Alto-falante" },
-  { kind: "videoinput", label: "Câmera" },
+const FIELDS: { kind: DeviceKind; labelKey: MessageKey }[] = [
+  { kind: "audioinput", labelKey: "settings.voice.microphone" },
+  { kind: "audiooutput", labelKey: "settings.voice.speaker" },
+  { kind: "videoinput", labelKey: "settings.voice.camera" },
 ];
 
 const AUDIO_SWITCHES: {
   key: "echoCancellation" | "autoGainControl";
-  label: string;
-  hint: string;
+  labelKey: MessageKey;
+  hintKey: MessageKey;
 }[] = [
   {
     key: "echoCancellation",
-    label: "Cancelamento de eco",
-    hint: "Evita que os outros ouçam você de volta. Fones de ouvido evitam o eco de vez.",
+    labelKey: "settings.voice.echo",
+    hintKey: "settings.voice.echoHint",
   },
   {
     key: "autoGainControl",
-    label: "Ajuste automático de volume",
-    hint: "Mantém o volume da sua voz estável.",
+    labelKey: "settings.voice.agc",
+    hintKey: "settings.voice.agcHint",
   },
 ];
 
-const NOISE_LEVELS: { value: NoiseSuppressionLevel; label: string; hint: string }[] = [
-  {
-    value: "off",
-    label: "Desligada",
-    hint: "Sua voz vai sem filtro. Melhor com microfone de estúdio.",
-  },
-  {
-    value: "standard",
-    label: "Padrão",
-    hint: "Filtro embutido do navegador. Leve e bom para a maioria.",
-  },
-  {
-    value: "strong",
-    label: "Forte (IA)",
-    hint: "Modelo de IA gratuito que remove teclado, ventilador e TV ao fundo. Usa mais processador.",
-  },
-];
+const NOISE_LEVELS: { value: NoiseSuppressionLevel; labelKey: MessageKey; hintKey: MessageKey }[] =
+  [
+    { value: "off", labelKey: "settings.voice.noiseOff", hintKey: "settings.voice.noiseOffHint" },
+    {
+      value: "standard",
+      labelKey: "settings.voice.noiseStandard",
+      hintKey: "settings.voice.noiseStandardHint",
+    },
+    {
+      value: "strong",
+      labelKey: "settings.voice.noiseStrong",
+      hintKey: "settings.voice.noiseStrongHint",
+    },
+  ];
 
 /**
  * `/settings/voice`: as mesmas escolhas do diálogo "Dispositivos" da chamada (mesmos controladores e
  * preferências em `features/voice`), agora numa tela própria, com teste de microfone e qualidade da tela.
  */
 export function VoiceSettingsPage() {
+  const { t } = useT();
   const [devices, setDevices] = useState<Partial<Record<DeviceKind, DeviceInfo[]>>>({});
   const [chosen, setChosen] = useState(loadDevicePrefs);
   const [processing, setProcessing] = useState(loadAudioProcessing);
@@ -117,19 +116,19 @@ export function VoiceSettingsPage() {
     <div className="flex flex-col gap-6">
       <SettingsGroup
         icon={Headphones}
-        title="Dispositivos"
+        title={t("settings.voice.devices")}
         description={
           isTauri()
-            ? "A escolha fica salva neste computador e vale na chamada em curso."
-            : "A escolha fica salva neste navegador. Os nomes só aparecem depois que o navegador liberar o acesso ao microfone ou à câmera."
+            ? t("settings.voice.devicesDescriptionDesktop")
+            : t("settings.voice.devicesDescriptionWeb")
         }
       >
-        {FIELDS.map(({ kind, label }) => {
+        {FIELDS.map(({ kind, labelKey }) => {
           const id = `device-${kind}`;
           return (
             <div key={kind} className="flex flex-col gap-1.5">
               <label htmlFor={id} className="text-sm font-medium">
-                {label}
+                {t(labelKey)}
               </label>
               <select
                 id={id}
@@ -140,7 +139,7 @@ export function VoiceSettingsPage() {
                 }}
                 className={selectClass}
               >
-                <option value="">Padrão do sistema</option>
+                <option value="">{t("settings.voice.systemDefault")}</option>
                 {(devices[kind] ?? []).map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.label}
@@ -155,12 +154,14 @@ export function VoiceSettingsPage() {
       {canProcess ? (
         <SettingsGroup
           icon={AudioLines}
-          title="Qualidade do microfone"
-          description="Como o Spook trata a sua voz antes de enviá-la."
+          title={t("settings.voice.micQuality")}
+          description={t("settings.voice.micQualityDescription")}
         >
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-medium">Redução de ruído</legend>
-            {NOISE_LEVELS.map(({ value, label, hint }) => {
+            <legend className="mb-1 text-sm font-medium">
+              {t("settings.voice.noiseReduction")}
+            </legend>
+            {NOISE_LEVELS.map(({ value, labelKey, hintKey }) => {
               const unavailable = value === "strong" && !caps.strongNoiseSuppression;
               return (
                 <ChoiceCard
@@ -172,10 +173,10 @@ export function VoiceSettingsPage() {
                   onChange={() => update({ ...processing, noiseSuppression: value })}
                   title={
                     unavailable && caps.strongUnavailableReason
-                      ? `${label} (${caps.strongUnavailableReason})`
-                      : label
+                      ? `${t(labelKey)} (${caps.strongUnavailableReason})`
+                      : t(labelKey)
                   }
-                  hint={hint}
+                  hint={t(hintKey)}
                 />
               );
             })}
@@ -183,8 +184,13 @@ export function VoiceSettingsPage() {
               {noiseStatusText(processing.noiseSuppression, status)}
             </p>
           </fieldset>
-          {AUDIO_SWITCHES.map(({ key, label, hint }) => (
-            <SettingRow key={key} htmlFor={`audio-processing-${key}`} label={label} hint={hint}>
+          {AUDIO_SWITCHES.map(({ key, labelKey, hintKey }) => (
+            <SettingRow
+              key={key}
+              htmlFor={`audio-processing-${key}`}
+              label={t(labelKey)}
+              hint={t(hintKey)}
+            >
               <Switch
                 id={`audio-processing-${key}`}
                 checked={processing[key]}
@@ -201,8 +207,8 @@ export function VoiceSettingsPage() {
       {canProcess && (caps.inputSensitivity || caps.micTest) ? (
         <SettingsGroup
           icon={AudioLines}
-          title="Teste e sensibilidade"
-          description="Veja o nível da sua voz e ouça como os outros vão ouvir você."
+          title={t("settings.voice.testTitle")}
+          description={t("settings.voice.testDescription")}
         >
           <MicTestSection
             open
@@ -221,6 +227,7 @@ export function VoiceSettingsPage() {
 }
 
 function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
+  const { t } = useT();
   const [choice, setChoice] = useState(loadScreenChoice);
   const [audio, setAudio] = useState(() => loadScreenSharePrefs().audio);
   const [viewPreviews, setViewPreviews] = useState(loadViewStreamPreviews);
@@ -233,22 +240,19 @@ function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
   return (
     <SettingsGroup
       icon={MonitorUp}
-      title="Compartilhamento de tela"
-      description="Valores iniciais de quando você compartilhar a tela. Você ainda pode ajustar na hora."
+      title={t("settings.voice.screenShare")}
+      description={t("settings.voice.screenShareDescription")}
     >
       {canTune ? (
         <ScreenQualityFields idPrefix="settings-screen" choice={choice} onChange={pick} />
       ) : (
-        <Hint>
-          A qualidade da imagem é automática neste app: ainda não dá para escolher resolução ou
-          quadros por segundo.
-        </Hint>
+        <Hint>{t("settings.voice.screenAuto")}</Hint>
       )}
       {noSystemAudio ? null : (
         <SettingRow
           htmlFor="screen-share-audio-default"
-          label="Incluir áudio por padrão"
-          hint="Desligado por padrão: o som do computador pode carregar a voz dos outros e eles se ouvirão de volta (eco). Use fones se ligar."
+          label={t("settings.voice.screenAudio")}
+          hint={t("settings.voice.screenAudioHint")}
         >
           <Switch
             id="screen-share-audio-default"
@@ -262,8 +266,8 @@ function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
       )}
       <SettingRow
         htmlFor="view-stream-previews"
-        label="Mostrar prévias das transmissões"
-        hint="Mostra a miniatura da tela de quem está transmitindo ao passar o mouse sobre o ícone de tela, antes de entrar. Desligado, o cartão traz só o botão de assistir."
+        label={t("settings.voice.previews")}
+        hint={t("settings.voice.previewsHint")}
       >
         <Switch
           id="view-stream-previews"

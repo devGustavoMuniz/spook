@@ -2,6 +2,7 @@ import type { VoiceStatePayload } from "@spook/shared";
 import { Eye } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { PersonLookup } from "./use-person-lookup";
 
@@ -28,12 +29,13 @@ export function ViewersBadge({
   /** `onVideo`: sobre o vídeo/tile escuro (texto branco); `default`: sobre o fundo do cartão. */
   tone?: "default" | "onVideo";
 }) {
+  const { t } = useT();
   const count = viewerCountOf(state);
   if (!state || count <= 0) return null;
   const ids = state.viewers ?? [];
   const shown = ids.slice(0, VIEWER_AVATARS_SHOWN);
   const rest = Math.max(0, count - shown.length);
-  const names = ids.map((id) => lookup?.(id).name ?? "Usuário");
+  const names = ids.map((id) => lookup?.(id).name ?? t("voice.user"));
   return (
     <TooltipProvider delayDuration={150}>
       <span
@@ -45,10 +47,13 @@ export function ViewersBadge({
         )}
       >
         <Eye className="size-3.5 shrink-0" aria-hidden />
-        <span className="tabular shrink-0">Assistindo: {count}</span>
+        <span className="tabular shrink-0">{t("voice.viewers.watching", { count })}</span>
         {names.length > 0 ? <span className="sr-only">: {names.join(", ")}</span> : null}
         {shown.length > 0 ? (
-          <ul className="flex shrink-0 items-center -space-x-1.5" aria-label="Quem está assistindo">
+          <ul
+            className="flex shrink-0 items-center -space-x-1.5"
+            aria-label={t("voice.viewers.list")}
+          >
             {shown.map((id, i) => (
               <li key={id} className="flex">
                 <Tooltip>
@@ -63,7 +68,7 @@ export function ViewersBadge({
                     >
                       <Avatar
                         url={lookup?.(id).avatarUrl}
-                        name={names[i] ?? "Usuário"}
+                        name={names[i] ?? t("voice.user")}
                         size={18}
                         fallback="initials"
                         seed={id}

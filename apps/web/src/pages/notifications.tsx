@@ -8,6 +8,7 @@ import { NotificationDefaultsCard } from "@/features/notifications/settings-card
 import type { PushStatus } from "@/features/push/push";
 import { usePushSettings } from "@/features/push/use-push";
 import { SettingRow, SettingsGroup } from "@/features/settings/ui";
+import { type MessageKey, useT } from "@/i18n";
 
 /** `/settings/notifications`: silenciar avisos in-app e ativar o push neste dispositivo. */
 export function NotificationsPage() {
@@ -21,18 +22,19 @@ export function NotificationsPage() {
 }
 
 function InAppCard() {
+  const { t } = useT();
   const muted = useNotificationPrefs((s) => s.muted);
   const setMuted = useNotificationPrefs((s) => s.setMuted);
   return (
     <SettingsGroup
       icon={MessageSquareDot}
-      title="Avisos no app"
-      description="Enquanto o Spook está aberto, mostramos um aviso quando chega uma mensagem direta ou uma menção em um canal que você não está vendo."
+      title={t("shell.notifications.inAppTitle")}
+      description={t("shell.notifications.inAppDesc")}
     >
       <SettingRow
         htmlFor="mute-notifications"
-        label="Silenciar notificações"
-        hint="Vale só neste navegador ou app. As contagens de não lidas continuam aparecendo."
+        label={t("shell.notifications.mute")}
+        hint={t("shell.notifications.muteHint")}
       >
         <Switch id="mute-notifications" checked={muted} onCheckedChange={setMuted} />
       </SettingRow>
@@ -42,38 +44,38 @@ function InAppCard() {
 
 /** No app desktop não há Web Push: os avisos saem como notificações nativas do sistema. */
 function NativeCard() {
+  const { t } = useT();
   return (
     <SettingsGroup
       icon={MonitorSmartphone}
-      title="Notificações do sistema"
-      description="Este app usa notificações nativas do sistema. Quando o Spook não está em foco, mensagens diretas e menções aparecem como notificações do seu sistema operacional. Para ajustar ou bloquear, use as configurações de notificações do sistema. Ao clicar numa notificação, o Spook volta à frente e abre a conversa dela."
+      title={t("shell.notifications.nativeTitle")}
+      description={t("shell.notifications.nativeDesc")}
     >
       <Button asChild variant="outline" size="sm" className="self-start">
-        <Link to="/settings/app">Bandeja e início com o sistema</Link>
+        <Link to="/settings/app">{t("shell.notifications.trayLink")}</Link>
       </Button>
     </SettingsGroup>
   );
 }
 
-const STATUS_TEXT: Record<PushStatus, string> = {
-  checking: "Verificando…",
-  unsupported: "Este navegador não oferece notificações push.",
-  "needs-install":
-    'No iPhone e no iPad, as notificações só funcionam com o Spook instalado: toque em Compartilhar, escolha "Adicionar à Tela de Início" e abra o Spook pelo ícone.',
-  "server-off": "As notificações push estão desligadas neste servidor.",
-  blocked:
-    "As notificações estão bloqueadas para este site. Libere nas configurações do navegador (o cadeado ao lado do endereço) e volte aqui.",
-  inactive: "Desativadas neste dispositivo.",
-  active: "Ativas neste dispositivo.",
-};
+const STATUS_KEY = {
+  checking: "shell.notifications.status.checking",
+  unsupported: "shell.notifications.status.unsupported",
+  "needs-install": "shell.notifications.status.needsInstall",
+  "server-off": "shell.notifications.status.serverOff",
+  blocked: "shell.notifications.status.blocked",
+  inactive: "shell.notifications.status.inactive",
+  active: "shell.notifications.status.active",
+} as const satisfies Record<PushStatus, MessageKey>;
 
 function PushCard() {
+  const { t } = useT();
   const { status, busy, error, enable, disable } = usePushSettings();
   return (
     <SettingsGroup
       icon={BellRing}
-      title="Notificações push"
-      description="Receba mensagens diretas e menções mesmo com o Spook fechado. O aviso só chega quando você não está com o app aberto, e o navegador vai pedir sua permissão ao ativar."
+      title={t("shell.notifications.pushTitle")}
+      description={t("shell.notifications.pushDesc")}
     >
       <output
         className="flex items-start gap-2 rounded-lg bg-surface-1 px-3 py-2.5 text-sm"
@@ -84,17 +86,17 @@ function PushCard() {
         ) : (
           <BellOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
         )}
-        <span>{STATUS_TEXT[status]}</span>
+        <span>{t(STATUS_KEY[status])}</span>
       </output>
       <div className="flex gap-2">
         {status === "inactive" ? (
           <Button onClick={() => void enable()} loading={busy}>
-            Ativar notificações
+            {t("shell.notifications.enable")}
           </Button>
         ) : null}
         {status === "active" ? (
           <Button variant="outline" onClick={() => void disable()} loading={busy}>
-            Desativar notificações
+            {t("shell.notifications.disable")}
           </Button>
         ) : null}
       </div>

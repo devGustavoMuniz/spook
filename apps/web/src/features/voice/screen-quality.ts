@@ -1,6 +1,7 @@
 // Qualidade do compartilhamento de tela: resolução + taxa de quadros (como no Discord), estimativa de banda e
 // persistência. Sem dependência de livekit-client (o mapeamento para as opções da lib mora em `web-engine.ts`);
 // o desktop reutiliza a tabela.
+import { formatNumber } from "@/i18n";
 import type { ScreenShareQuality } from "./engine";
 
 export const SCREEN_HEIGHTS = [720, 1080, 1440] as const;
@@ -42,7 +43,7 @@ export function estimateUplinkKbps(q: ScreenShareQuality): number {
 /** "2,5 Mbps" / "800 kbps". */
 export function formatKbps(kbps: number): string {
   if (kbps < 1000) return `${Math.round(kbps)} kbps`;
-  return `${(kbps / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} Mbps`;
+  return `${formatNumber(kbps / 1000, { maximumFractionDigits: 1 })} Mbps`;
 }
 
 /** Escolhas que pesam em processador e banda (1440p ou 60 fps): o diálogo avisa. */

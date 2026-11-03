@@ -16,6 +16,7 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
   leaveCall,
@@ -35,11 +36,10 @@ import { useStageMountedStore, useVoiceStore } from "./store";
 /** Barras de sinal com latência, perda e jitter no tooltip (ver `network-indicator.tsx`). */
 export const QualityIndicator = NetworkIndicator;
 
-const statusText = {
-  connecting: "Conectando…",
-  connected: "Voz conectada",
-  reconnecting: "Reconectando…",
-  idle: "",
+const statusKey = {
+  connecting: "voice.status.connecting",
+  connected: "voice.status.connected",
+  reconnecting: "voice.status.reconnecting",
 } as const;
 
 /** Em chamada (conectando, conectada ou reconectando). */
@@ -60,9 +60,10 @@ function useCallPermissions() {
  * (cartão + linha do usuário); fora dela é um bloco comum.
  */
 export function VoiceDock({ children }: { children: React.ReactNode }) {
+  const { t } = useT();
   const inCall = useInCall();
   return inCall ? (
-    <section aria-label="Controles de voz" className="shrink-0 border-t bg-surface-2/60">
+    <section aria-label={t("voice.dock.label")} className="shrink-0 border-t bg-surface-2/60">
       {children}
     </section>
   ) : (
@@ -72,6 +73,7 @@ export function VoiceDock({ children }: { children: React.ReactNode }) {
 
 /** Cartão "Voz conectada" acima do painel do usuário: canal, sair, câmera e tela. */
 export function VoiceCallCard() {
+  const { t } = useT();
   const s = useVoiceStore();
   const perms = useCallPermissions();
   const guilds = useListGuilds();
@@ -110,7 +112,7 @@ export function VoiceCallCard() {
               live ? "text-success-text" : "text-warning-text",
             )}
           >
-            {statusText[s.status]}
+            {t(statusKey[s.status])}
           </output>
           {channelLink}
           {guild ? (
@@ -123,45 +125,45 @@ export function VoiceCallCard() {
               variant="destructive"
               size="icon"
               className="size-8 shrink-0"
-              aria-label="Sair da chamada"
+              aria-label={t("voice.leaveCall")}
               onClick={() => void leaveCall()}
             >
               <PhoneOff />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Sair da chamada</TooltipContent>
+          <TooltipContent>{t("voice.leaveCall")}</TooltipContent>
         </Tooltip>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {/* O palco já mostra este aviso quando está na tela: só um "Ativar áudio" por vez. */}
         {s.audioBlocked && !stageMounted ? (
           <Button variant="outline" size="sm" onClick={() => void resumeAudio()}>
-            <Volume2 /> Ativar áudio
+            <Volume2 /> {t("voice.enableAudio")}
           </Button>
         ) : null}
         <BarButton
-          label={s.camera ? "Desligar câmera" : "Ligar câmera"}
-          text="Câmera"
+          label={s.camera ? t("voice.cameraOff") : t("voice.cameraOn")}
+          text={t("voice.camera")}
           pressed={s.camera}
           tone="brand"
           disabled={videoBlocked || !live}
-          reason={videoBlocked ? "Você não tem permissão para usar vídeo neste canal." : undefined}
+          reason={videoBlocked ? t("voice.noVideoPermission") : undefined}
           onClick={() => void toggleCamera()}
         >
           {s.camera ? <Video /> : <VideoOff />}
         </BarButton>
         <BarButton
-          label={s.screen ? "Parar de compartilhar a tela" : "Compartilhar tela"}
-          text="Tela"
+          label={s.screen ? t("voice.screenStop") : t("voice.screenShare")}
+          text={t("voice.screen")}
           pressed={s.screen}
           tone="brand"
           disabled={videoBlocked || !live}
-          reason={videoBlocked ? "Você não tem permissão para usar vídeo neste canal." : undefined}
+          reason={videoBlocked ? t("voice.noVideoPermission") : undefined}
           onClick={() => (s.screen ? void toggleScreenShare() : setShareDialog(true))}
         >
           {s.screen ? <Monitor /> : <MonitorOff />}
         </BarButton>
-        <BarButton label="Dispositivos" onClick={() => setDevices(true)}>
+        <BarButton label={t("voice.devices")} onClick={() => setDevices(true)}>
           <Settings />
         </BarButton>
       </div>
@@ -180,6 +182,7 @@ export function VoiceCallCard() {
  * Fora da chamada só guardam a preferência, que vale na próxima entrada.
  */
 export function VoiceUserControls() {
+  const { t } = useT();
   const s = useVoiceStore();
   const perms = useCallPermissions();
   const inCall = s.status !== "idle" && !!s.channelId;
@@ -190,11 +193,11 @@ export function VoiceUserControls() {
     <>
       <DeviceMenu kind="audioinput">
         <BarButton
-          label={s.selfMute ? "Ativar microfone" : "Silenciar microfone"}
+          label={s.selfMute ? t("voice.micUnmute") : t("voice.micMute")}
           pressed={s.selfMute}
           tone="danger"
           disabled={micBlocked || (inCall && !live)}
-          reason={micBlocked ? "Você não tem permissão para falar neste canal." : undefined}
+          reason={micBlocked ? t("voice.noSpeakPermission") : undefined}
           onClick={() => void toggleMute()}
         >
           {s.selfMute ? <MicOff /> : <Mic />}
@@ -202,7 +205,7 @@ export function VoiceUserControls() {
       </DeviceMenu>
       <DeviceMenu kind="audiooutput">
         <BarButton
-          label={s.selfDeaf ? "Ativar áudio" : "Desativar áudio"}
+          label={s.selfDeaf ? t("voice.enableAudio") : t("voice.disableAudio")}
           pressed={s.selfDeaf}
           tone="danger"
           disabled={inCall && !live}

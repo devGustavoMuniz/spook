@@ -21,6 +21,7 @@ import {
   type TrackPublishOptions,
   type VideoTrack,
 } from "livekit-client";
+import { t } from "@/i18n";
 import { DEFAULT_AUDIO_PROCESSING, loadDevicePrefs } from "./devices";
 import {
   type AudioCapabilities,
@@ -304,7 +305,10 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   readonly audioCapabilities: AudioCapabilities = {
     ...(supportsStrongNoiseSuppression()
       ? { strongNoiseSuppression: true }
-      : { strongNoiseSuppression: false, strongUnavailableReason: "indisponível neste navegador" }),
+      : {
+          strongNoiseSuppression: false,
+          strongUnavailableReason: t("voice.engine.unavailableHere"),
+        }),
     participantVolume: { max: WEB_MAX_PARTICIPANT_VOLUME },
     inputSensitivity: supportsAudioGraph(),
     micTest: supportsAudioGraph() && typeof MediaRecorder !== "undefined",
@@ -494,7 +498,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   }
 
   private requireRoom(): Room {
-    if (!this.room) throw new VoiceConnectError("unknown", "sem sala de voz ativa");
+    if (!this.room) throw new VoiceConnectError("unknown", t("voice.engine.noRoom"));
     return this.room;
   }
 
@@ -527,7 +531,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
       this.setStatus({
         level: "standard",
         state: "degraded",
-        reason: "Este navegador não suporta a redução de ruído por IA. Usando o filtro Padrão.",
+        reason: t("voice.engine.aiUnsupported"),
       });
     else this.setStatus({ level: this.level, state: "idle" });
     const captureSame =
@@ -646,7 +650,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
 
   private reasonOf(err: unknown): string {
     const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
-    return `Não foi possível iniciar a redução de ruído por IA${detail}. Usando o filtro Padrão.`;
+    return t("voice.engine.aiFailed", { detail });
   }
 
   /** A porta de ruído não subiu (sem AudioWorklet, p.ex.): segue sem ela e avisa. */
@@ -660,7 +664,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     this.setStatus({
       level: this.level,
       state: "idle",
-      gateError: `Não foi possível iniciar a sensibilidade de entrada${detail}. Seguindo sem ela.`,
+      gateError: t("voice.engine.gateFailed", { detail }),
     });
     await this.micTrack()
       ?.stopProcessor()
@@ -791,7 +795,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     const lp = this.requireRoom().localParticipant;
     const pub = lp.getTrackPublication(Track.Source.ScreenShare);
     const track = pub?.videoTrack;
-    if (!pub || !track) throw new VoiceMediaError("unknown", "screen", "não há tela compartilhada");
+    if (!pub || !track) throw new VoiceMediaError("unknown", "screen", t("voice.engine.noScreen"));
     const q = track.mediaStreamTrack?.getSettings?.();
     const height = q?.height;
     try {

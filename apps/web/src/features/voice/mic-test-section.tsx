@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { type MessageKey, t, useT } from "@/i18n";
 import {
   cancelMicTest,
   micTestBlockedByCall,
@@ -17,43 +18,35 @@ import type {
 import { MicMeter } from "./mic-meter";
 import { useInputLevelStore, useMicTestStore } from "./store";
 
-const MODES: { value: InputSensitivity["mode"]; label: string; hint: string }[] = [
-  { value: "off", label: "Desligada", hint: "Todo som que o microfone captar vai para a chamada." },
-  {
-    value: "auto",
-    label: "Automática",
-    hint: "Aprende o ruído do ambiente e só abre quando você fala acima dele.",
-  },
-  {
-    value: "manual",
-    label: "Manual",
-    hint: "Você define o nível mínimo. A marca vermelha no medidor mostra o limiar.",
-  },
+const MODES: { value: InputSensitivity["mode"]; labelKey: MessageKey; hintKey: MessageKey }[] = [
+  { value: "off", labelKey: "voice.sens.off.label", hintKey: "voice.sens.off.hint" },
+  { value: "auto", labelKey: "voice.sens.auto.label", hintKey: "voice.sens.auto.hint" },
+  { value: "manual", labelKey: "voice.sens.manual.label", hintKey: "voice.sens.manual.hint" },
 ];
 
-/** Texto (pt-br) de cada fase do teste de gravação. Vai numa região `aria-live`. */
+/** Texto de cada fase do teste de gravação. Vai numa região `aria-live`. */
 export function micTestText(state: MicTestState | null): string {
-  if (!state) return "Grave 5 segundos e ouça como os outros ouvirão você.";
+  if (!state) return t("voice.mictest.idle");
   const secs = Math.ceil((state.remainingMs ?? 0) / 1000);
   switch (state.phase) {
     case "requesting":
-      return "Pedindo acesso ao microfone… permita no aviso do navegador.";
+      return t("voice.mictest.requesting");
     case "recording":
-      return `Gravando… fale agora (${secs} s).`;
+      return t("voice.mictest.recording", { secs });
     case "playing":
-      return `Reproduzindo sua gravação (${secs} s). Use fones para não gerar eco.`;
+      return t("voice.mictest.playing", { secs });
     case "done":
-      return "Teste concluído. Se você se ouviu bem, está tudo certo.";
+      return t("voice.mictest.done");
     case "error":
       switch (state.error) {
         case "permission-denied":
-          return "O navegador bloqueou o microfone. Permita o acesso nas configurações do site.";
+          return t("voice.mictest.denied");
         case "not-found":
-          return "Nenhum microfone encontrado.";
+          return t("voice.mictest.notFound");
         case "in-use":
-          return "Silencie o microfone da chamada para testar (a gravação tocaria para todos).";
+          return t("voice.mictest.inUse");
         default:
-          return "Não foi possível fazer o teste do microfone.";
+          return t("voice.mictest.failed");
       }
   }
 }
@@ -86,6 +79,7 @@ export function MicTestSection({
   inCall: boolean;
   onChange: (next: AudioProcessingOptions) => void;
 }) {
+  const { t } = useT();
   const [meterOn, setMeterOn] = useState(false);
   const level = useInputLevelStore((s) => s.level);
   const test = useMicTestStore((s) => s.state);
@@ -118,7 +112,7 @@ export function MicTestSection({
   return (
     <section aria-labelledby="mic-test-title" className="flex flex-col gap-3 border-t pt-3">
       <h3 id="mic-test-title" className="text-sm font-medium">
-        Teste do microfone
+        {t("voice.mictest.title")}
       </h3>
       {hasMeter ? (
         <>
@@ -138,12 +132,12 @@ export function MicTestSection({
                 void startInputMonitor();
               }}
             >
-              Ativar medidor de nível
+              {t("voice.mictest.enableMeter")}
             </Button>
           )}
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="mb-1 text-sm">Sensibilidade de entrada</legend>
-            {MODES.map(({ value, label, hint }) => {
+            <legend className="mb-1 text-sm">{t("voice.mictest.sensitivity")}</legend>
+            {MODES.map(({ value, labelKey, hintKey }) => {
               const id = `sensitivity-${value}`;
               return (
                 <label
@@ -162,9 +156,9 @@ export function MicTestSection({
                     onChange={() => setSens({ mode: value })}
                   />
                   <span className="flex flex-col">
-                    <span>{label}</span>
+                    <span>{t(labelKey)}</span>
                     <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-                      {hint}
+                      {t(hintKey)}
                     </span>
                   </span>
                 </label>
@@ -173,7 +167,7 @@ export function MicTestSection({
             {sens.mode === "manual" ? (
               <div className="flex flex-col gap-1">
                 <label htmlFor="sensitivity-threshold" className="text-sm">
-                  Limiar: {sens.thresholdDb} dB
+                  {t("voice.mictest.threshold", { db: sens.thresholdDb })}
                 </label>
                 <input
                   id="sensitivity-threshold"
@@ -182,13 +176,11 @@ export function MicTestSection({
                   max={SENSITIVITY_RANGE.max}
                   step={1}
                   value={sens.thresholdDb}
-                  aria-valuetext={`${sens.thresholdDb} decibéis`}
+                  aria-valuetext={t("voice.mictest.decibels", { db: sens.thresholdDb })}
                   onChange={(e) => setSens({ thresholdDb: Number(e.target.value) })}
                   className="accent-primary"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Mais à esquerda = mais sensível (capta sons baixos); mais à direita = só voz alta.
-                </p>
+                <p className="text-xs text-muted-foreground">{t("voice.mictest.thresholdHint")}</p>
               </div>
             ) : null}
           </fieldset>
@@ -199,7 +191,7 @@ export function MicTestSection({
           <div className="flex items-center gap-3">
             {testing ? (
               <Button variant="secondary" size="sm" onClick={() => cancelMicTest()}>
-                Cancelar teste
+                {t("voice.mictest.cancel")}
               </Button>
             ) : (
               <Button
@@ -208,14 +200,12 @@ export function MicTestSection({
                 disabled={inCall}
                 onClick={() => void runMicTest()}
               >
-                Testar
+                {t("voice.mictest.run")}
               </Button>
             )}
           </div>
           <p aria-live="polite" className="text-xs text-muted-foreground">
-            {inCall && !testing
-              ? "Silencie o microfone da chamada para testar (a gravação tocaria para todos)."
-              : micTestText(test)}
+            {inCall && !testing ? t("voice.mictest.inUse") : micTestText(test)}
           </p>
         </div>
       ) : null}

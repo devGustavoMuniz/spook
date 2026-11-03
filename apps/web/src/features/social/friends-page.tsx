@@ -33,6 +33,7 @@ import { shownName } from "@/features/account/removed-user";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence, usePresenceStore } from "@/features/presence/store";
 import { useVoiceStatesStore } from "@/features/voice/store";
+import { useT } from "@/i18n";
 import { channelsOf } from "@/lib/guild";
 import { type SocialConfirm, SocialConfirmDialog } from "./confirm";
 import { useDmActions } from "./dm-actions";
@@ -44,17 +45,18 @@ type TabKey = "online" | "all" | "pending" | "blocked" | "add";
 const nameOf = (r: Relationship) => shownName(r.user.display_name, r.user.username);
 
 /** "Em voz em #canal · Servidor": só quando a pessoa está numa sala de um servidor que eu também vejo. */
-function useVoiceActivity(userId: string): string | null {
+function useVoiceActivity(userId: string): { channel: string; guild: string } | null {
   const state = useVoiceStatesStore((s) => s.byUser[userId]);
   const guilds = useListGuilds();
   if (!state?.guild_id || !state.channel_id) return null;
   const guild = guilds.data?.find((g) => g.id === state.guild_id);
   const channel = guild ? channelsOf(guild).find((c) => c.id === state.channel_id) : undefined;
-  return guild && channel ? `Em voz em ${channel.name} · ${guild.name}` : null;
+  return guild && channel ? { channel: channel.name, guild: guild.name } : null;
 }
 
 /** `/channels/@me/friends`: abas Online, Todos, Pendentes, Bloqueados e "Adicionar amigo". */
 export function FriendsPage() {
+  const { t } = useT();
   const rels = useAllRelationships();
   const [tab, setTab] = useState<TabKey>("online");
   const statuses = usePresenceStore((s) => s.statuses);
@@ -79,8 +81,9 @@ export function FriendsPage() {
 
   async function confirmed(c: SocialConfirm) {
     setConfirm(null);
-    if (c.kind === "remove") await actions.remove(c.userId, `${c.name} foi removido dos amigos.`);
-    else await actions.block(c.userId, `${c.name} foi bloqueado.`);
+    if (c.kind === "remove")
+      await actions.remove(c.userId, t("people.person.removedFriend", { name: c.name }));
+    else await actions.block(c.userId, t("people.person.blocked", { name: c.name }));
   }
 
   const rowProps = {
@@ -93,7 +96,7 @@ export function FriendsPage() {
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-4">
         <NavToggle />
-        <h1 className="font-semibold">Amigos</h1>
+        <h1 className="font-semibold">{t("people.dmSidebar.friends")}</h1>
       </header>
       <Tabs
         value={tab}
@@ -102,29 +105,29 @@ export function FriendsPage() {
       >
         <TabsList
           variant="underline"
-          aria-label="Seções de amigos"
+          aria-label={t("people.friends.sections")}
           className="shrink-0 overflow-x-auto px-2"
         >
           <TabsTrigger variant="underline" value="online">
-            Online
+            {t("people.friends.tabOnline")}
           </TabsTrigger>
           <TabsTrigger variant="underline" value="all">
-            Todos
+            {t("people.friends.tabAll")}
           </TabsTrigger>
           <TabsTrigger variant="underline" value="pending">
-            Pendentes
+            {t("people.friends.tabPending")}
             {lists.incoming > 0 ? (
               <CountBadge
                 count={lists.incoming}
-                aria-label={`${lists.incoming} pedidos recebidos`}
+                aria-label={t("people.friends.incomingRequests", { count: lists.incoming })}
               />
             ) : null}
           </TabsTrigger>
           <TabsTrigger variant="underline" value="blocked">
-            Bloqueados
+            {t("people.friends.tabBlocked")}
           </TabsTrigger>
           <TabsTrigger variant="underline" value="add" className="ml-auto">
-            <UserPlus /> Adicionar amigo
+            <UserPlus /> {t("people.person.addFriend")}
           </TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -152,17 +155,17 @@ export function FriendsPage() {
               <TabsContent value="online">
                 <List
                   items={lists.online}
-                  label={`Amigos online, ${lists.online.length}`}
+                  label={t("people.friends.listOnline", { count: lists.online.length })}
                   empty={{
-                    title: "Ninguém online agora",
+                    title: t("people.friends.emptyOnlineTitle"),
                     description:
                       lists.friends.length === 0
-                        ? "Adicione amigos pelo nome de usuário para ver quem está online."
-                        : "Quando seus amigos entrarem, eles aparecem aqui.",
+                        ? t("people.friends.emptyOnlineNoFriends")
+                        : t("people.friends.emptyOnlineWaiting"),
                     action:
                       lists.friends.length === 0 ? (
                         <Button onClick={() => setTab("add")}>
-                          <UserPlus /> Adicionar amigo
+                          <UserPlus /> {t("people.person.addFriend")}
                         </Button>
                       ) : undefined,
                   }}
@@ -172,13 +175,13 @@ export function FriendsPage() {
               <TabsContent value="all">
                 <List
                   items={lists.friends}
-                  label={`Todos os amigos, ${lists.friends.length}`}
+                  label={t("people.friends.listAll", { count: lists.friends.length })}
                   empty={{
-                    title: "Você ainda não tem amigos por aqui",
-                    description: "Envie um pedido de amizade pelo nome de usuário.",
+                    title: t("people.friends.emptyAllTitle"),
+                    description: t("people.friends.emptyAllDescription"),
                     action: (
                       <Button onClick={() => setTab("add")}>
-                        <UserPlus /> Adicionar amigo
+                        <UserPlus /> {t("people.person.addFriend")}
                       </Button>
                     ),
                   }}
@@ -188,10 +191,10 @@ export function FriendsPage() {
               <TabsContent value="pending">
                 <List
                   items={lists.pending}
-                  label={`Pedidos pendentes, ${lists.pending.length}`}
+                  label={t("people.friends.listPending", { count: lists.pending.length })}
                   empty={{
-                    title: "Nenhum pedido pendente",
-                    description: "Pedidos que você enviar ou receber aparecem aqui.",
+                    title: t("people.friends.emptyPendingTitle"),
+                    description: t("people.friends.emptyPendingDescription"),
                   }}
                   {...rowProps}
                 />
@@ -199,11 +202,10 @@ export function FriendsPage() {
               <TabsContent value="blocked">
                 <List
                   items={lists.blocked}
-                  label={`Bloqueados, ${lists.blocked.length}`}
+                  label={t("people.friends.listBlocked", { count: lists.blocked.length })}
                   empty={{
-                    title: "Ninguém bloqueado",
-                    description:
-                      "Quem você bloquear fica aqui. Você pode desbloquear quando quiser.",
+                    title: t("people.friends.emptyBlockedTitle"),
+                    description: t("people.friends.emptyBlockedDescription"),
                   }}
                   {...rowProps}
                 />
@@ -269,6 +271,7 @@ function FriendRow({
   onConfirm: (c: SocialConfirm) => void;
   onInvite: (r: Relationship) => void;
 }) {
+  const { t } = useT();
   const name = nameOf(rel);
   const dms = useDmActions();
   const activity = useVoiceActivity(rel.user.id);
@@ -277,11 +280,11 @@ function FriendRow({
   const isFriend = rel.type === "friend";
   const subtitle =
     rel.type === "incoming"
-      ? "Pedido de amizade recebido"
+      ? t("people.friends.requestIncoming")
       : rel.type === "outgoing"
-        ? "Pedido de amizade enviado"
+        ? t("people.friends.requestOutgoing")
         : rel.type === "blocked"
-          ? "Bloqueado"
+          ? t("people.friends.blockedLabel")
           : null;
   const iconBtn = "text-muted-foreground hover:text-foreground";
   return (
@@ -301,7 +304,7 @@ function FriendRow({
               <PresenceDot status={status} size={8} className="mr-1 inline-block ring-0" />
               {statusLabel[status]}
               <CustomStatusText userId={rel.user.id} prefix=" · " />
-              {activity ? ` · ${activity}` : ""}
+              {activity ? ` · ${t("people.friends.inVoice", activity)}` : ""}
             </>
           ) : (
             subtitle
@@ -312,16 +315,16 @@ function FriendRow({
         {rel.type === "incoming" ? (
           <>
             <Button size="sm" loading={busy} onClick={() => void actions.accept(rel.user.id)}>
-              <Check /> Aceitar
+              <Check /> {t("people.friends.accept")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               disabled={busy}
-              aria-label={`Recusar pedido de ${name}`}
+              aria-label={t("people.friends.declineFrom", { name })}
               onClick={() => void actions.remove(rel.user.id)}
             >
-              <X /> Recusar
+              <X /> {t("people.person.decline")}
             </Button>
           </>
         ) : rel.type === "outgoing" ? (
@@ -329,19 +332,21 @@ function FriendRow({
             size="sm"
             variant="ghost"
             disabled={busy}
-            aria-label={`Cancelar pedido para ${name}`}
+            aria-label={t("people.friends.cancelTo", { name })}
             onClick={() => void actions.remove(rel.user.id)}
           >
-            <X /> Cancelar pedido
+            <X /> {t("people.person.cancelRequest")}
           </Button>
         ) : rel.type === "blocked" ? (
           <Button
             size="sm"
             variant="outline"
             loading={busy}
-            onClick={() => void actions.unblock(rel.user.id, `${name} foi desbloqueado.`)}
+            onClick={() =>
+              void actions.unblock(rel.user.id, t("people.person.unblocked", { name }))
+            }
           >
-            Desbloquear
+            {t("people.person.unblock")}
           </Button>
         ) : (
           <>
@@ -349,8 +354,8 @@ function FriendRow({
               variant="ghost"
               size="icon-sm"
               className={iconBtn}
-              aria-label={`Enviar mensagem para ${name}`}
-              title="Enviar mensagem"
+              aria-label={t("people.friends.messageAria", { name })}
+              title={t("people.members.sendMessage")}
               disabled={dms.pending}
               onClick={() => void dms.message(rel.user.id)}
             >
@@ -360,8 +365,8 @@ function FriendRow({
               variant="ghost"
               size="icon-sm"
               className={iconBtn}
-              aria-label={`Ligar para ${name}`}
-              title="Ligar"
+              aria-label={t("people.person.callAria", { name })}
+              title={t("people.person.call")}
               disabled={dms.pending}
               onClick={() => void dms.call(rel.user.id)}
             >
@@ -373,27 +378,27 @@ function FriendRow({
                   variant="ghost"
                   size="icon-sm"
                   className={iconBtn}
-                  aria-label={`Mais opções de ${name}`}
+                  aria-label={t("people.friends.moreOptions", { name })}
                 >
                   <MoreVertical />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => onInvite(rel)}>
-                  <Send /> Convidar para servidor
+                  <Send /> {t("people.person.inviteToServer")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive-text"
                   onSelect={() => onConfirm({ kind: "remove", userId: rel.user.id, name })}
                 >
-                  <UserMinus /> Remover amigo
+                  <UserMinus /> {t("people.person.removeFriend")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive-text"
                   onSelect={() => onConfirm({ kind: "block", userId: rel.user.id, name })}
                 >
-                  <Ban /> Bloquear
+                  <Ban /> {t("people.person.block")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -405,6 +410,7 @@ function FriendRow({
 }
 
 function AddFriend({ actions }: { actions: RowActions }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const [username, setUsername] = useState("");
   const name = username.trim().replace(/^@/, "");
@@ -418,20 +424,17 @@ function AddFriend({ actions }: { actions: RowActions }) {
   return (
     <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-3">
       <div>
-        <h2 className="text-lg font-semibold">Adicionar amigo</h2>
-        <p className="text-sm text-muted-foreground">
-          Digite o nome de usuário da pessoa. Se ela já tiver pedido a sua amizade, vocês viram
-          amigos na hora.
-        </p>
+        <h2 className="text-lg font-semibold">{t("people.person.addFriend")}</h2>
+        <p className="text-sm text-muted-foreground">{t("people.friends.addDescription")}</p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="friend-username">Nome de usuário</Label>
+        <Label htmlFor="friend-username">{t("people.friends.username")}</Label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
             id="friend-username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="ex.: maria_souza"
+            placeholder={t("people.friends.usernamePlaceholder")}
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
@@ -440,12 +443,12 @@ function AddFriend({ actions }: { actions: RowActions }) {
             className="sm:flex-1"
           />
           <Button type="submit" disabled={!name || self} loading={actions.pending === "request"}>
-            <UserPlus /> Enviar pedido
+            <UserPlus /> {t("people.friends.sendRequest")}
           </Button>
         </div>
         {self ? (
           <p id="friend-self-hint" role="alert" className="text-xs text-destructive-text">
-            Você não pode adicionar a si mesmo.
+            {t("people.friends.self")}
           </p>
         ) : null}
       </div>

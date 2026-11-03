@@ -1,12 +1,14 @@
 import { WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { useGatewayStore } from "./store";
 
 /** Quedas mais curtas que isso (troca de rede, resume rápido) passam sem aviso: nada de piscar. */
 export const RECONNECT_NOTICE_DELAY_MS = 2_500;
 
 export function ConnectionIndicator() {
+  const { t } = useT();
   const status = useGatewayStore((s) => s.status);
   const error = useGatewayStore((s) => s.lastError);
   const retry = useGatewayStore((s) => s.retry);
@@ -29,18 +31,18 @@ export function ConnectionIndicator() {
       <WifiOff className="size-3.5" aria-hidden />
       {takenOver ? (
         <>
-          <span>Sessão aberta em outro lugar.</span>
+          <span>{t("settings.gateway.takenOver")}</span>
           <Button
             size="sm"
             variant="outline"
             className="h-6 px-2 text-xs"
             onClick={() => retry?.()}
           >
-            Reconectar
+            {t("settings.gateway.reconnect")}
           </Button>
         </>
       ) : (
-        <span>Reconectando…</span>
+        <span>{t("settings.gateway.reconnecting")}</span>
       )}
     </output>
   );

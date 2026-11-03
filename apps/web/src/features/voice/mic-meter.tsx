@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { InputLevel } from "./engine";
 
@@ -27,19 +28,20 @@ export function MicMeter({
   gateOn: boolean;
   className?: string;
 }) {
+  const { t } = useT();
   const db = level?.db ?? METER_MIN_DB;
   const open = level?.gateOpen ?? false;
   const state = !level
-    ? "sem sinal"
+    ? t("voice.meter.noSignal")
     : !gateOn
-      ? `${Math.round(db)} dB`
-      : `${Math.round(db)} dB, porta ${open ? "aberta" : "fechada"}`;
+      ? t("voice.meter.db", { db: Math.round(db) })
+      : t(open ? "voice.meter.dbOpen" : "voice.meter.dbClosed", { db: Math.round(db) });
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       {/* biome-ignore lint/a11y/useSemanticElements: barra desenhada à mão (nível + marca do limiar); <meter> não permite isso */}
       <div
         role="meter"
-        aria-label="Nível do microfone"
+        aria-label={t("voice.meter.label")}
         aria-valuemin={METER_MIN_DB}
         aria-valuemax={METER_MAX_DB}
         aria-valuenow={Math.round(Math.min(METER_MAX_DB, Math.max(METER_MIN_DB, db)))}
@@ -64,9 +66,13 @@ export function MicMeter({
         ) : null}
       </div>
       <p className="flex justify-between text-xs text-muted-foreground">
-        <span>{level ? `${Math.round(db)} dB` : "Sem sinal"}</span>
+        <span>
+          {level ? t("voice.meter.db", { db: Math.round(db) }) : t("voice.meter.noSignalCap")}
+        </span>
         {gateOn && level ? (
-          <span data-testid="gate-state">{open ? "Porta aberta" : "Porta fechada"}</span>
+          <span data-testid="gate-state">
+            {open ? t("voice.meter.gateOpen") : t("voice.meter.gateClosed")}
+          </span>
         ) : null}
       </p>
     </div>

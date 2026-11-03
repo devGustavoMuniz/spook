@@ -10,6 +10,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { type MessageKey, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import {
   defaultLevel,
@@ -29,24 +30,27 @@ const INHERIT = "inherit";
 
 /**
  * Itens de menu "Silenciar por…" e "Configurações de notificação" (tudo, só menções, nada) de um
- * servidor, canal ou DM. Vão dentro de um `DropdownMenuContent`. `what` completa o texto ("o servidor",
- * "este canal", "esta conversa").
+ * servidor, canal ou DM. Vão dentro de um `DropdownMenuContent`. O alvo do texto ("o servidor", "este canal",
+ * "esta conversa") sai de `scope` e `isGuildLike`.
  */
 export function NotificationMenuItems({
   scope,
   targetId,
-  what,
   isGuildLike,
   withSeparator = true,
 }: {
   scope: Scope;
   targetId: string;
-  what: string;
+  /** @deprecated Ignorado: o texto do alvo vem de `scope` e `isGuildLike`. Pode ser removido dos chamadores. */
+  what?: string;
   /** Servidor ou canal de servidor (padrão "só menções"); falso em DMs (padrão "tudo"). */
   isGuildLike: boolean;
   withSeparator?: boolean;
 }) {
+  const { t } = useT();
   const setting = useSetting(scope, targetId);
+  const target: "guild" | "channel" | "dm" =
+    scope === "guild" ? "guild" : isGuildLike ? "channel" : "dm";
   useNotificationSettings((s) => s.tick); // reavalia quando um silêncio vence
   const muted = isMutedEntry(setting);
   const level = setting?.level ?? INHERIT;
@@ -64,12 +68,12 @@ export function NotificationMenuItems({
       {withSeparator ? <DropdownMenuSeparator /> : null}
       {muted ? (
         <DropdownMenuItem onSelect={() => void run(() => setMute(scope, targetId, null))}>
-          <Bell /> Reativar {what}
+          <Bell /> {t(UNMUTE_KEY[target])}
         </DropdownMenuItem>
       ) : (
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <BellOff /> Silenciar {what}
+            <BellOff /> {t(MUTE_KEY[target])}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             {MUTE_OPTIONS.map((o) => (
@@ -77,7 +81,7 @@ export function NotificationMenuItems({
                 key={String(o.value)}
                 onSelect={() => void run(() => setMute(scope, targetId, o.value as MuteChoice))}
               >
-                {o.label}
+                {t(o.labelKey)}
               </DropdownMenuItem>
             ))}
           </DropdownMenuSubContent>
@@ -85,7 +89,7 @@ export function NotificationMenuItems({
       )}
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>
-          <Bell /> Configurações de notificação
+          <Bell /> {t("settings.notifMenu.settings")}
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           <DropdownMenuRadioGroup
@@ -102,12 +106,14 @@ export function NotificationMenuItems({
           >
             <DropdownMenuRadioItem value={INHERIT}>
               {scope === "channel" && isGuildLike
-                ? "Herdar do servidor"
-                : `Padrão (${levelName(defaultLevel(isGuildLike))})`}
+                ? t("settings.notifMenu.inherit")
+                : t("settings.notifMenu.default", {
+                    level: t(levelKey(defaultLevel(isGuildLike))).toLowerCase(),
+                  })}
             </DropdownMenuRadioItem>
             {LEVEL_OPTIONS.map((o) => (
               <DropdownMenuRadioItem key={o.value} value={o.value}>
-                {o.label}
+                {t(o.labelKey)}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
@@ -118,7 +124,7 @@ export function NotificationMenuItems({
                 checked={setting?.suppress_everyone ?? false}
                 onCheckedChange={(v) => void run(() => setSuppressEveryone(targetId, v === true))}
               >
-                Suprimir @everyone e @here
+                {t("settings.notifMenu.suppressEveryone")}
               </DropdownMenuCheckboxItem>
             </>
           ) : null}
@@ -128,6 +134,18 @@ export function NotificationMenuItems({
   );
 }
 
-function levelName(level: "all" | "mentions" | "none") {
-  return LEVEL_OPTIONS.find((o) => o.value === level)?.label.toLowerCase() ?? level;
+const MUTE_KEY: Record<"guild" | "channel" | "dm", MessageKey> = {
+  guild: "settings.notifMenu.muteGuild",
+  channel: "settings.notifMenu.muteChannel",
+  dm: "settings.notifMenu.muteDm",
+};
+
+const UNMUTE_KEY: Record<"guild" | "channel" | "dm", MessageKey> = {
+  guild: "settings.notifMenu.unmuteGuild",
+  channel: "settings.notifMenu.unmuteChannel",
+  dm: "settings.notifMenu.unmuteDm",
+};
+
+function levelKey(level: "all" | "mentions" | "none"): MessageKey {
+  return (LEVEL_OPTIONS.find((o) => o.value === level) ?? LEVEL_OPTIONS[0]).labelKey;
 }

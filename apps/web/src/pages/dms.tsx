@@ -17,6 +17,7 @@ import { PinnedMessagesButton } from "@/features/messages/pins-panel";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
 import { DmCallButton, DmCallPanel } from "@/features/voice/call-panel";
+import { useT } from "@/i18n";
 
 /** `/channels/@me`: lista de conversas + a conversa aberta. */
 export function DmLayout() {
@@ -32,6 +33,7 @@ export function DmLayout() {
 
 /** `/channels/@me` sem conversa escolhida. */
 export function DmIndex() {
+  const { t } = useT();
   const dms = useDms();
   const [creating, setCreating] = useState(false);
   if (dms.isPending) return null;
@@ -40,15 +42,13 @@ export function DmIndex() {
     <>
       <StateScreen
         illustration={<EmptyChatIllustration className="h-44 w-auto" />}
-        title={empty ? "Você ainda não tem conversas" : "Escolha uma conversa"}
+        title={empty ? t("people.dmPage.emptyTitle") : t("people.dmPage.pickTitle")}
         description={
-          empty
-            ? 'Abra o menu de um membro de um servidor e escolha "Enviar mensagem", ou crie uma conversa em grupo.'
-            : "Selecione uma conversa na lista ao lado ou comece uma nova em grupo."
+          empty ? t("people.dmPage.emptyDescription") : t("people.dmPage.pickDescription")
         }
         actions={
           <Button onClick={() => setCreating(true)}>
-            {empty ? <MessageSquarePlus /> : <Users />} Criar conversa em grupo
+            {empty ? <MessageSquarePlus /> : <Users />} {t("people.dmPage.createGroup")}
           </Button>
         }
       />
@@ -60,6 +60,7 @@ export function DmIndex() {
 /** `/channels/@me/$channelId`: cabeçalho da DM e o painel de mensagens. */
 export function DmPage() {
   const { channelId } = useParams({ strict: false }) as { channelId: string };
+  const { t } = useT();
   const { data: me } = useGetMe();
   const dms = useDms();
   const [managing, setManaging] = useState(false);
@@ -73,12 +74,12 @@ export function DmPage() {
   if (!channel)
     return (
       <StateScreen
-        title="Conversa não encontrada"
-        description="Você pode ter saído dela, ou ela foi removida."
+        title={t("people.dmPage.notFoundTitle")}
+        description={t("people.dmPage.notFoundDescription")}
         actions={
           <Button asChild>
             <Link to="/channels/@me">
-              <ArrowLeft /> Voltar às conversas
+              <ArrowLeft /> {t("people.dmPage.backToDms")}
             </Link>
           </Button>
         }
@@ -106,7 +107,7 @@ export function DmPage() {
           <h1 className="truncate font-semibold">{title}</h1>
           {group ? (
             <p className="truncate text-xs text-muted-foreground">
-              {recipientsOf(channel).length} participantes
+              {t("people.dmPage.participantsCount", { count: recipientsOf(channel).length })}
             </p>
           ) : (
             <HeaderStatus userId={other?.id} />
@@ -115,7 +116,8 @@ export function DmPage() {
         <div className="ml-auto flex items-center gap-1">
           {group ? (
             <Button variant="ghost" size="sm" onClick={() => setManaging(true)}>
-              <Users /> Participantes ({recipientsOf(channel).length})
+              <Users />{" "}
+              {t("people.dmPage.participantsButton", { count: recipientsOf(channel).length })}
             </Button>
           ) : null}
           <PinnedMessagesButton channelId={channel.id} canUnpin />

@@ -1,4 +1,5 @@
 import type { MessagePayload, NotificationLevel } from "@spook/shared";
+import { t } from "@/i18n";
 
 /** Aviso in-app de uma mensagem nova (toast ou notificação do navegador). */
 export type InAppNotification = {
@@ -19,7 +20,7 @@ export function previewBody(m: Pick<MessagePayload, "content" | "attachments">):
     const first = m.attachments[0];
     if (!first) return "";
     return m.attachments.length > 1
-      ? `📎 ${m.attachments.length} arquivos`
+      ? t("settings.notify.attachments", { count: m.attachments.length })
       : `📎 ${first.filename}`;
   }
   const runes = [...text];

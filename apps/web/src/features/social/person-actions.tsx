@@ -2,6 +2,7 @@ import { useGetUserRelationship } from "@spook/shared";
 import { Ban, Check, MessageCircle, Phone, Send, UserMinus, UserPlus, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { type SocialConfirm, SocialConfirmDialog } from "./confirm";
 import { useDmActions } from "./dm-actions";
@@ -24,6 +25,7 @@ export function PersonActions({
   name: string;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const rel = useGetUserRelationship(userId, { query: { staleTime: 15_000 } });
   const actions = useSocialActions();
   const dms = useDmActions();
@@ -34,8 +36,9 @@ export function PersonActions({
 
   async function confirmed(c: SocialConfirm) {
     setConfirm(null);
-    if (c.kind === "remove") await actions.remove(c.userId, `${c.name} foi removido dos amigos.`);
-    else if (await actions.block(c.userId, `${c.name} foi bloqueado.`)) onClose();
+    if (c.kind === "remove")
+      await actions.remove(c.userId, t("people.person.removedFriend", { name: c.name }));
+    else if (await actions.block(c.userId, t("people.person.blocked", { name: c.name }))) onClose();
   }
 
   if (rel.isError)
@@ -43,14 +46,14 @@ export function PersonActions({
       <p role="alert" className="text-sm text-destructive-text">
         {appMessage(rel.error)}{" "}
         <button type="button" className="underline" onClick={() => void rel.refetch()}>
-          Tentar de novo
+          {t("people.common.retry")}
         </button>
       </p>
     );
   if (rel.isPending)
     return (
       <div aria-busy className="flex flex-col gap-2">
-        <span className="sr-only">Carregando relacionamento…</span>
+        <span className="sr-only">{t("people.person.loading")}</span>
         <div className="h-9 animate-pulse rounded-md bg-muted" />
       </div>
     );
@@ -59,15 +62,13 @@ export function PersonActions({
     <div className="flex flex-col gap-2">
       {type === "blocked" ? (
         <>
-          <p className="text-sm text-muted-foreground">
-            Você bloqueou {name}. Ele não pode te chamar nem você a ele.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("people.person.youBlocked", { name })}</p>
           <Button
             variant="outline"
             loading={actions.pending === `unblock:${userId}`}
-            onClick={() => void actions.unblock(userId, `${name} foi desbloqueado.`)}
+            onClick={() => void actions.unblock(userId, t("people.person.unblocked", { name }))}
           >
-            Desbloquear
+            {t("people.person.unblock")}
           </Button>
         </>
       ) : (
@@ -81,18 +82,18 @@ export function PersonActions({
                 void dms.message(userId);
               }}
             >
-              <MessageCircle /> Enviar mensagem
+              <MessageCircle /> {t("people.members.sendMessage")}
             </Button>
             <Button
               variant="outline"
-              aria-label={`Ligar para ${name}`}
+              aria-label={t("people.person.callAria", { name })}
               disabled={dms.pending}
               onClick={() => {
                 onClose();
                 void dms.call(userId);
               }}
             >
-              <Phone /> Ligar
+              <Phone /> {t("people.person.call")}
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -104,7 +105,7 @@ export function PersonActions({
                 disabled={busy}
                 onClick={() => void actions.request(username)}
               >
-                <UserPlus /> Adicionar amigo
+                <UserPlus /> {t("people.person.addFriend")}
               </Button>
             ) : null}
             {type === "incoming" ? (
@@ -115,7 +116,7 @@ export function PersonActions({
                   disabled={busy}
                   onClick={() => void actions.accept(userId)}
                 >
-                  <Check /> Aceitar pedido
+                  <Check /> {t("people.person.acceptRequest")}
                 </Button>
                 <Button
                   variant="ghost"
@@ -123,7 +124,7 @@ export function PersonActions({
                   disabled={busy}
                   onClick={() => void actions.remove(userId)}
                 >
-                  <X /> Recusar
+                  <X /> {t("people.person.decline")}
                 </Button>
               </>
             ) : null}
@@ -132,15 +133,15 @@ export function PersonActions({
                 variant="secondary"
                 size="sm"
                 disabled={busy}
-                onClick={() => void actions.remove(userId, "Pedido cancelado.")}
+                onClick={() => void actions.remove(userId, t("people.person.requestCanceled"))}
               >
-                <X /> Cancelar pedido
+                <X /> {t("people.person.cancelRequest")}
               </Button>
             ) : null}
             {type === "friend" ? (
               <>
                 <Button variant="secondary" size="sm" onClick={() => setInviting(true)}>
-                  <Send /> Convidar para servidor
+                  <Send /> {t("people.person.inviteToServer")}
                 </Button>
                 <Button
                   variant="ghost"
@@ -148,7 +149,7 @@ export function PersonActions({
                   className="text-destructive-text hover:bg-danger-soft"
                   onClick={() => setConfirm({ kind: "remove", userId, name })}
                 >
-                  <UserMinus /> Remover amigo
+                  <UserMinus /> {t("people.person.removeFriend")}
                 </Button>
               </>
             ) : null}
@@ -158,7 +159,7 @@ export function PersonActions({
               className="text-destructive-text hover:bg-danger-soft"
               onClick={() => setConfirm({ kind: "block", userId, name })}
             >
-              <Ban /> Bloquear
+              <Ban /> {t("people.person.block")}
             </Button>
           </div>
         </>

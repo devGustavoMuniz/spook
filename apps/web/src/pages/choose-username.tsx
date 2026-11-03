@@ -23,6 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useT } from "@/i18n";
 import { applyServerError, messageFor } from "@/lib/errors";
 import { type ChooseUsernameForm, chooseUsernameSchema } from "@/lib/schemas";
 
@@ -30,6 +31,7 @@ const PROVIDERS: Record<string, string> = { google: "Google", discord: "Discord"
 
 /** "Escolha seu username": conclui o cadastro social (conta sem senha, e-mail já verificado pelo provedor). */
 export function ChooseUsernamePage() {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
@@ -58,23 +60,23 @@ export function ChooseUsernamePage() {
     } catch (e) {
       if (isApiError(e) && e.status === 410) void pending.refetch();
       else if (isApiError(e) && e.status === 422)
-        setError("username", { message: "Esse nome não pode ser usado. Escolha outro." });
+        setError("username", { message: t("auth.choose.taken") });
       else if (!applyServerError(e, setError)) setError("root", { message: messageFor(e) });
     }
   });
 
   if (pending.isPending)
-    return <StatusCard busy title="Carregando…" description="Só um instante." />;
+    return <StatusCard busy title={t("common.loading")} description={t("auth.verify.moment")} />;
   if (pending.isError)
     return (
       <StatusCard
         icon={TimerOff}
         tone="danger"
-        title="Cadastro expirado"
-        description="O cadastro com o provedor expirou (vale 15 minutos). Entre com ele de novo para continuar."
+        title={t("auth.choose.expiredTitle")}
+        description={t("auth.choose.expiredBody")}
         actions={
           <Button asChild size="lg">
-            <Link to="/login">Voltar para entrar</Link>
+            <Link to="/login">{t("auth.forgot.backToSignIn")}</Link>
           </Button>
         }
       />
@@ -86,10 +88,9 @@ export function ChooseUsernamePage() {
     <AuthLayout>
       <Card className="gap-5 shadow-lg">
         <CardHeader>
-          <CardTitle className="text-2xl">Escolha seu username</CardTitle>
+          <CardTitle className="text-2xl">{t("auth.choose.title")}</CardTitle>
           <CardDescription>
-            Você entrou com o {provider} como {pending.data.email}. Falta só escolher como as
-            pessoas vão te encontrar.
+            {t("auth.choose.body", { provider, email: pending.data.email })}
           </CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit} noValidate aria-busy={busy || undefined}>
@@ -97,9 +98,9 @@ export function ChooseUsernamePage() {
             {errors.root ? <FormAlert>{errors.root.message}</FormAlert> : null}
             <Field
               id="username"
-              label="Nome de usuário"
+              label={t("auth.register.username")}
               error={errors.username?.message}
-              hint="2 a 32 caracteres: a-z, 0-9, _ e ."
+              hint={t("auth.register.usernameHint")}
             >
               <Input
                 id="username"
@@ -116,11 +117,10 @@ export function ChooseUsernamePage() {
           </CardContent>
           <CardFooter className="mt-6 flex-col gap-4">
             <Button type="submit" size="xl" className="w-full" loading={busy}>
-              Concluir cadastro
+              {t("auth.choose.submit")}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Sua conta não terá senha: você entra pelo {provider}. Dá para definir uma senha depois
-              em Configurações.
+              {t("auth.choose.noPassword", { provider })}
             </p>
           </CardFooter>
         </form>

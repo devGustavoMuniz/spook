@@ -1,4 +1,5 @@
 import { isApiError, type UploadBody, type UploadPayload } from "@spook/shared";
+import { t } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
 import { type PutOptions, UploadAbortError, UploadError } from "@/lib/upload";
 import { MAX_ATTACHMENTS, resolveContentType, validateFile } from "./rules";
@@ -45,26 +46,28 @@ export type AddResult = {
 export function uploadErrorMessage(e: unknown): string {
   if (e instanceof UploadError)
     return e.status === 0
-      ? "Falha de rede ao enviar o arquivo."
-      : `O armazenamento recusou o arquivo (código ${e.status}).`;
-  if (!isApiError(e)) return "Não foi possível enviar o arquivo. Verifique sua conexão.";
+      ? t("chat.upload.networkFail")
+      : t("chat.upload.storageRefused", { status: e.status });
+  if (!isApiError(e)) return t("chat.upload.generic");
   switch (e.status) {
     case 403:
-      return "Você não tem permissão para anexar arquivos neste canal.";
+      return t("chat.upload.forbidden");
     case 404:
-      return "Este canal não está mais disponível.";
+      return t("chat.upload.channelGone");
     case 409:
-      return "Há anexos demais aguardando. Envie a mensagem ou espere um pouco.";
+      return t("chat.upload.tooManyPending");
     case 422:
-      return e.detail ? e.detail.charAt(0).toUpperCase() + e.detail.slice(1) : "Arquivo inválido.";
+      return e.detail
+        ? e.detail.charAt(0).toUpperCase() + e.detail.slice(1)
+        : t("chat.upload.invalidFile");
     case 429:
       return e.retryAfter
-        ? `Muitos envios seguidos. Tente de novo em ${e.retryAfter} s.`
-        : "Muitos envios seguidos. Aguarde um instante.";
+        ? t("chat.upload.rateLimitedIn", { seconds: e.retryAfter })
+        : t("chat.upload.rateLimited");
     case 503:
-      return "O envio de arquivos está indisponível no momento.";
+      return t("chat.upload.unavailable");
     default:
-      return e.status >= 500 ? "Erro no servidor. Tente novamente." : e.detail;
+      return e.status >= 500 ? t("chat.upload.serverError") : e.detail;
   }
 }
 
@@ -116,7 +119,7 @@ export class UploadQueue {
     const rejected: string[] = [];
     for (const file of files) {
       if (this.items.length >= MAX_ATTACHMENTS) {
-        rejected.push(`Você pode anexar no máximo ${MAX_ATTACHMENTS} arquivos por mensagem.`);
+        rejected.push(t("chat.upload.maxFiles", { max: MAX_ATTACHMENTS }));
         break;
       }
       const problem = validateFile(file);

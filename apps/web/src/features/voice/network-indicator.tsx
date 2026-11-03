@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatNumber, type MessageKey, t, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { readConnectionStats } from "./controller";
 import type { ConnectionStats, LinkQuality } from "./engine";
@@ -37,28 +38,34 @@ export function rateNetwork(stats: ConnectionStats | null, quality: LinkQuality)
   return r;
 }
 
-const LABEL: Record<NetworkRating, string> = {
-  good: "Conexão boa",
-  medium: "Conexão instável",
-  bad: "Conexão ruim",
-  unknown: "Conexão sem medição",
-};
-const QUALITY_LABEL: Record<LinkQuality, string> = {
-  excellent: "Conexão excelente",
-  good: "Conexão boa",
-  poor: "Conexão ruim",
-  lost: "Conexão perdida",
-  unknown: "Conexão sem medição",
-};
+const LABEL_KEY = {
+  good: "voice.net.good",
+  medium: "voice.net.medium",
+  bad: "voice.net.bad",
+  unknown: "voice.net.unknown",
+} as const satisfies Record<NetworkRating, MessageKey>;
+const QUALITY_LABEL_KEY = {
+  excellent: "voice.net.excellent",
+  good: "voice.net.good",
+  poor: "voice.net.bad",
+  lost: "voice.net.lost",
+  unknown: "voice.net.unknown",
+} as const satisfies Record<LinkQuality, MessageKey>;
 const BARS: Record<NetworkRating, number> = { good: 3, medium: 2, bad: 1, unknown: 0 };
 
 const fmt = (v: number | null, unit: string) =>
-  v === null ? "sem medição" : `${String(v).replace(".", ",")} ${unit}`;
+  v === null
+    ? t("voice.net.unmeasured")
+    : `${formatNumber(v, { maximumFractionDigits: 20, useGrouping: false })} ${unit}`;
 
 /** Texto com os números (tooltip e leitor de tela). */
 export function statsText(stats: ConnectionStats | null): string {
-  if (!stats) return "Sem números de rede neste app.";
-  return `Latência ${fmt(stats.rttMs, "ms")} · Perda ${fmt(stats.lossPct, "%")} · Jitter ${fmt(stats.jitterMs, "ms")}`;
+  if (!stats) return t("voice.net.noStats");
+  return t("voice.net.stats", {
+    rtt: fmt(stats.rttMs, "ms"),
+    loss: fmt(stats.lossPct, "%"),
+    jitter: fmt(stats.jitterMs, "ms"),
+  });
 }
 
 /** Mede a rede a cada `ms` enquanto conectado e com a aba visível. */
@@ -99,11 +106,14 @@ export function NetworkIndicator({
   className?: string;
   showLabel?: boolean;
 }) {
+  const { t } = useT();
   const stats = useConnectionStats();
   const rating = rateNetwork(stats, quality);
   const bars = BARS[rating];
   // Sem números da engine, o nome é o da qualidade do enlace (como era antes do indicador completo).
-  const text = stats ? `${LABEL[rating]}. ${statsText(stats)}` : QUALITY_LABEL[quality];
+  const text = stats
+    ? t("voice.net.withStats", { label: t(LABEL_KEY[rating]), stats: statsText(stats) })
+    : t(QUALITY_LABEL_KEY[quality]);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -137,11 +147,13 @@ export function NetworkIndicator({
               />
             ))}
           </span>
-          {showLabel ? <span className="text-xs">{LABEL[rating]}</span> : null}
+          {showLabel ? <span className="text-xs">{t(LABEL_KEY[rating])}</span> : null}
         </span>
       </TooltipTrigger>
       <TooltipContent className="flex flex-col gap-0.5">
-        <span className="font-medium">{stats ? LABEL[rating] : QUALITY_LABEL[quality]}</span>
+        <span className="font-medium">
+          {stats ? t(LABEL_KEY[rating]) : t(QUALITY_LABEL_KEY[quality])}
+        </span>
         {stats ? <span>{statsText(stats)}</span> : null}
       </TooltipContent>
     </Tooltip>

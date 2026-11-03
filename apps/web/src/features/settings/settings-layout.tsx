@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { isTauri } from "@/desktop/runtime";
 import { DownloadAppButton } from "@/features/download/download-link";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { returnPath } from "./return-path";
 import { SECTIONS, sectionOf } from "./sections";
@@ -35,6 +36,7 @@ function overlayOpen() {
  * Fechar (botão ou Esc) volta para a tela em que a pessoa estava.
  */
 export function SettingsLayout() {
+  const { t } = useT();
   const compact = useMediaQuery(NAV_COMPACT_QUERY);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const router = useRouter();
@@ -84,8 +86,8 @@ export function SettingsLayout() {
           {compact ? (
             <div className="flex items-center justify-between gap-2 border-b px-2 py-2">
               <Button asChild variant="ghost" size="sm">
-                <Link to="/settings" aria-label="Voltar às configurações">
-                  <ArrowLeft aria-hidden /> Configurações
+                <Link to="/settings" aria-label={t("settings.layout.backToSettings")}>
+                  <ArrowLeft aria-hidden /> {t("settings.layout.title")}
                 </Link>
               </Button>
               <CloseButton onClose={close} compact />
@@ -109,10 +111,10 @@ export function SettingsLayout() {
                     tabIndex={-1}
                     className="text-2xl leading-tight font-semibold tracking-tight outline-none"
                   >
-                    {section.label}
+                    {t(section.labelKey)}
                   </h1>
                   <p className="mt-1 text-sm text-pretty text-muted-foreground">
-                    {section.description}
+                    {t(section.descriptionKey)}
                   </p>
                 </div>
               </header>
@@ -126,12 +128,13 @@ export function SettingsLayout() {
 }
 
 function CloseButton({ onClose, compact }: { onClose: () => void; compact?: boolean }) {
+  const { t } = useT();
   return (
     <Button
       variant="outline"
       size={compact ? "icon-sm" : "icon-lg"}
       className={compact ? undefined : "rounded-full"}
-      aria-label="Fechar configurações"
+      aria-label={t("settings.layout.close")}
       onClick={onClose}
     >
       <X className={compact ? undefined : "size-5"} aria-hidden />
@@ -148,6 +151,7 @@ function SettingsNav({
   onClose: () => void;
   heading?: React.RefObject<HTMLHeadingElement | null>;
 }) {
+  const { t } = useT();
   const { data: me } = useGetMe();
   const { signOut, pending } = useSignOut();
   const name = me ? me.display_name || me.username : "";
@@ -166,7 +170,7 @@ function SettingsNav({
             tabIndex={-1}
             className="text-2xl font-semibold tracking-tight outline-none"
           >
-            Configurações
+            {t("settings.layout.title")}
           </h1>
           <CloseButton onClose={onClose} compact />
         </div>
@@ -181,7 +185,7 @@ function SettingsNav({
         </div>
       ) : null}
       <nav
-        aria-label="Seções das configurações"
+        aria-label={t("settings.layout.navLabel")}
         className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
       >
         <ul className="flex flex-col gap-0.5">
@@ -195,7 +199,7 @@ function SettingsNav({
                   className="size-[18px] group-aria-[current=page]:text-brand-text"
                   aria-hidden
                 />
-                <span className="flex-1">{s.label}</span>
+                <span className="flex-1">{t(s.labelKey)}</span>
                 {compact ? <ChevronRight className="size-4" aria-hidden /> : null}
               </Link>
             </li>
@@ -214,7 +218,7 @@ function SettingsNav({
           onClick={signOut}
           disabled={pending}
         >
-          <LogOut className="size-[18px]" aria-hidden /> Sair
+          <LogOut className="size-[18px]" aria-hidden /> {t("settings.layout.signOut")}
         </Button>
       </div>
     </div>

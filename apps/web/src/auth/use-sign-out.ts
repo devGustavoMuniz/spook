@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { isTauri } from "@/desktop/runtime";
 import { clearSessionToken } from "@/desktop/token";
 import { detachPushFromAccount } from "@/features/push/push";
+import { t } from "@/i18n";
 
 export function useSignOut() {
   const qc = useQueryClient();
@@ -22,7 +23,7 @@ export function useSignOut() {
     } catch (e) {
       // 401 = a sessão já tinha caído; o resultado desejado (deslogado) é o mesmo.
       if (!isApiError(e) || e.status !== 401) {
-        toast.error("Não foi possível sair. Tente novamente.");
+        toast.error(t("auth.signOutFailed"));
         return;
       }
     }

@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { chooseDevice, listDevices } from "./controller";
 import { loadDevicePrefs } from "./devices";
@@ -20,8 +21,8 @@ import { useStageHold } from "./stage/use-auto-hide";
 export const LONG_PRESS_MS = 500;
 
 const COPY = {
-  audioinput: { title: "Microfone", aria: "Escolher microfone" },
-  audiooutput: { title: "Alto-falante", aria: "Escolher alto-falante" },
+  audioinput: { title: "voice.devmenu.mic.title", aria: "voice.devmenu.mic.aria" },
+  audiooutput: { title: "voice.devmenu.speaker.title", aria: "voice.devmenu.speaker.aria" },
 } as const;
 
 /**
@@ -40,6 +41,7 @@ export function DeviceMenu({
   children: ReactNode;
   className?: string;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
   const [chosen, setChosen] = useState("");
@@ -95,8 +97,8 @@ export function DeviceMenu({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={copy.aria}
-            title={copy.aria}
+            aria-label={t(copy.aria)}
+            title={t(copy.aria)}
             className={cn(
               "absolute -right-1.5 -bottom-1.5 z-10 flex size-5 cursor-pointer items-center justify-center rounded-full border border-border bg-popover text-muted-foreground opacity-0 shadow-xs transition-opacity duration-[var(--dur-fast)] hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring group-focus-within/dev:opacity-100 group-hover/dev:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:hidden",
             )}
@@ -105,9 +107,9 @@ export function DeviceMenu({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="top" align="start" className="max-h-80 w-64 overflow-y-auto">
-          <DropdownMenuLabel>{copy.title}</DropdownMenuLabel>
+          <DropdownMenuLabel>{t(copy.title)}</DropdownMenuLabel>
           {devices === null ? (
-            <DropdownMenuItem disabled>Carregando…</DropdownMenuItem>
+            <DropdownMenuItem disabled>{t("voice.devmenu.loading")}</DropdownMenuItem>
           ) : (
             <DropdownMenuRadioGroup
               value={chosen}
@@ -116,7 +118,7 @@ export function DeviceMenu({
                 void chooseDevice(kind, id);
               }}
             >
-              <DropdownMenuRadioItem value="">Padrão do sistema</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="">{t("voice.device.default")}</DropdownMenuRadioItem>
               {devices.map((d) => (
                 <DropdownMenuRadioItem key={d.id} value={d.id}>
                   <span className="truncate">{d.label}</span>
@@ -125,7 +127,7 @@ export function DeviceMenu({
             </DropdownMenuRadioGroup>
           )}
           {devices?.length === 0 ? (
-            <DropdownMenuItem disabled>Nenhum dispositivo encontrado</DropdownMenuItem>
+            <DropdownMenuItem disabled>{t("voice.devmenu.none")}</DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -134,7 +136,7 @@ export function DeviceMenu({
               else window.location.assign("/settings/voice");
             }}
           >
-            <Settings /> Configurações de voz
+            <Settings /> {t("voice.devmenu.settings")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -1,9 +1,11 @@
 import type { CSSProperties } from "react";
 import { Toaster as Sonner } from "sonner";
 import { useTheme } from "@/components/theme-provider";
+import { useT } from "@/i18n";
 
 /** Toasts no estilo do app: superfície elevada, borda, raio e cores semânticas (sonner lê as variáveis `--normal-*`). */
 export function Toaster() {
+  const { t } = useT();
   const { resolved } = useTheme();
   return (
     <Sonner
@@ -11,6 +13,7 @@ export function Toaster() {
       position="top-center"
       richColors
       closeButton
+      containerAriaLabel={t("shell.toast.region")}
       style={
         {
           "--normal-bg": "var(--popover)",
@@ -33,6 +36,7 @@ export function Toaster() {
         } as CSSProperties
       }
       toastOptions={{
+        closeButtonAriaLabel: t("shell.toast.close"),
         classNames: {
           toast: "!shadow-lg !font-sans",
           title: "!font-medium",

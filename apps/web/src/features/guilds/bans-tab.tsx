@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { DialogBody } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { shownName } from "@/features/account/removed-user";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import type { Guild } from "@/lib/guild";
@@ -25,6 +26,7 @@ const PAGE = 1000;
 
 /** Banimentos do servidor: quem, motivo, quem baniu e quando; desbanir com confirmação (BAN_MEMBERS). */
 export function BansTab({ guild }: { guild: Guild }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const list = useListGuildBans(guild.id, { limit: PAGE });
   const unban = useUnbanGuildMember();
@@ -36,7 +38,9 @@ export function BansTab({ guild }: { guild: Guild }) {
     try {
       await unban.mutateAsync({ guildId: guild.id, userId: target.user_id });
       await qc.invalidateQueries({ queryKey: list.queryKey });
-      toast.success(`${shownName(target.display_name, target.username)} foi desbanido.`);
+      toast.success(
+        t("guilds.bans.unbanned", { name: shownName(target.display_name, target.username) }),
+      );
     } catch (e) {
       toast.error(appMessage(e));
       await qc.invalidateQueries({ queryKey: list.queryKey });
@@ -47,16 +51,13 @@ export function BansTab({ guild }: { guild: Guild }) {
 
   return (
     <DialogBody className="gap-4">
-      <p className="text-sm text-pretty text-muted-foreground">
-        Quem está banido não entra por convite. Desbanir não traz a pessoa de volta: ela precisa de
-        um novo convite.
-      </p>
-      <section aria-label="Banimentos" className="flex flex-col gap-2">
+      <p className="text-sm text-pretty text-muted-foreground">{t("guilds.bans.intro")}</p>
+      <section aria-label={t("guilds.bans.section")} className="flex flex-col gap-2">
         {list.isPending ? (
           <output className="flex flex-col gap-2">
             <Skeleton className="h-16 w-full rounded-xl" />
             <Skeleton className="h-16 w-full rounded-xl" />
-            <span className="sr-only">Carregando…</span>
+            <span className="sr-only">{t("guilds.common.loading")}</span>
           </output>
         ) : list.isError ? (
           <div
@@ -65,13 +66,13 @@ export function BansTab({ guild }: { guild: Guild }) {
           >
             <span className="text-destructive-text">{appMessage(list.error)}</span>
             <Button size="sm" variant="outline" onClick={() => void list.refetch()}>
-              Tentar de novo
+              {t("guilds.common.retry")}
             </Button>
           </div>
         ) : bans.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-4 py-8 text-center">
             <Gavel aria-hidden className="size-7 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Ninguém está banido deste servidor.</p>
+            <p className="text-sm text-muted-foreground">{t("guilds.bans.empty")}</p>
           </div>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -81,21 +82,24 @@ export function BansTab({ guild }: { guild: Guild }) {
           </ul>
         )}
         {list.data?.has_more ? (
-          <p className="text-xs text-muted-foreground">Mostrando os primeiros {PAGE} banimentos.</p>
+          <p className="text-xs text-muted-foreground">
+            {t("guilds.bans.showingFirst", { count: PAGE })}
+          </p>
         ) : null}
       </section>
       <AlertDialog open={!!target} onOpenChange={(o) => !o && setTarget(null)}>
         <AlertDialogContent>
           <AlertDialogTitle>
-            Desbanir {target ? shownName(target.display_name, target.username) : ""}?
+            {t("guilds.bans.unbanTitle", {
+              name: target ? shownName(target.display_name, target.username) : "",
+            })}
           </AlertDialogTitle>
-          <AlertDialogDescription>
-            A pessoa poderá entrar de novo com um convite. O banimento sai do histórico, mas o
-            registro de auditoria continua.
-          </AlertDialogDescription>
+          <AlertDialogDescription>{t("guilds.bans.unbanBody")}</AlertDialogDescription>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirm()}>Desbanir</AlertDialogAction>
+            <AlertDialogCancel>{t("guilds.common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirm()}>
+              {t("guilds.bans.unban")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -104,6 +108,7 @@ export function BansTab({ guild }: { guild: Guild }) {
 }
 
 function BanRow({ ban, onUnban }: { ban: BanPayload; onUnban: () => void }) {
+  const { t } = useT();
   const name = shownName(ban.display_name, ban.username);
   return (
     <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3.5 shadow-xs sm:flex-row sm:items-center">
@@ -113,10 +118,12 @@ function BanRow({ ban, onUnban }: { ban: BanPayload; onUnban: () => void }) {
           {name} <span className="font-normal text-muted-foreground">@{ban.username}</span>
         </p>
         <p className="text-xs break-words text-muted-foreground">
-          {ban.reason ? <>Motivo: {ban.reason}</> : "Sem motivo informado."}
+          {ban.reason ? t("guilds.bans.reason", { reason: ban.reason }) : t("guilds.bans.noReason")}
         </p>
         <p className="text-xs text-muted-foreground">
-          {ban.banned_by_username ? `Por @${ban.banned_by_username} · ` : ""}
+          {ban.banned_by_username
+            ? `${t("guilds.bans.by", { username: ban.banned_by_username })} · `
+            : ""}
           <time dateTime={ban.created_at} title={formatDateTime(ban.created_at)}>
             {formatRelative(ban.created_at)}
           </time>
@@ -126,10 +133,10 @@ function BanRow({ ban, onUnban }: { ban: BanPayload; onUnban: () => void }) {
         variant="outline"
         size="sm"
         className="shrink-0"
-        aria-label={`Desbanir ${name}`}
+        aria-label={t("guilds.bans.unbanAria", { name })}
         onClick={onUnban}
       >
-        <Undo2 /> Desbanir
+        <Undo2 /> {t("guilds.bans.unban")}
       </Button>
     </li>
   );

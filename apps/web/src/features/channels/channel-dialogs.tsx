@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_CATEGORY, CHANNEL_TEXT, channelsOf, type Guild } from "@/lib/guild";
 import { refreshGuilds } from "@/lib/guild-cache";
@@ -63,6 +64,7 @@ export function CreateChannelDialog({
   parentId?: string;
   initialType?: number;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const create = useCreateChannel();
@@ -108,52 +110,59 @@ export function CreateChannelDialog({
       <DialogContent flush>
         <DialogHead
           icon={type === "1" ? Volume2 : Hash}
-          title="Criar canal"
-          description="Escolha o tipo e o nome. Categorias agrupam canais na lista."
+          title={t("channels.dialog.createTitle")}
+          description={t("channels.dialog.createDesc")}
         />
         <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
           <DialogBody>
-            <Field id="channel-type" label="Tipo">
+            <Field id="channel-type" label={t("channels.dialog.type")}>
               <Controller
                 control={control}
                 name="type"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="channel-type" aria-label="Tipo do canal">
+                    <SelectTrigger id="channel-type" aria-label={t("channels.dialog.typeAria")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="0">Texto</SelectItem>
-                      <SelectItem value="1">Voz</SelectItem>
-                      <SelectItem value="2">Categoria</SelectItem>
+                      <SelectItem value="0">{t("channels.dialog.typeText")}</SelectItem>
+                      <SelectItem value="1">{t("channels.dialog.typeVoice")}</SelectItem>
+                      <SelectItem value="2">{t("channels.dialog.typeCategory")}</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
               />
             </Field>
-            <Field id="channel-name" label="Nome" error={errors.name?.message}>
+            <Field id="channel-name" label={t("channels.dialog.name")} error={errors.name?.message}>
               <Input
                 id="channel-name"
                 autoFocus
                 maxLength={100}
-                placeholder={type === "2" ? "nova categoria" : "novo-canal"}
+                placeholder={
+                  type === "2" ? t("channels.dialog.phCategory") : t("channels.dialog.phChannel")
+                }
                 aria-invalid={!!errors.name}
                 aria-describedby={describedBy("channel-name", errors.name?.message)}
                 {...register("name")}
               />
             </Field>
             {type !== "2" && categories.length > 0 ? (
-              <Field id="channel-parent" label="Categoria">
+              <Field id="channel-parent" label={t("channels.dialog.category")}>
                 <Controller
                   control={control}
                   name="parent_id"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="channel-parent" aria-label="Categoria do canal">
+                      <SelectTrigger
+                        id="channel-parent"
+                        aria-label={t("channels.dialog.categoryAria")}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NO_CATEGORY}>Sem categoria</SelectItem>
+                        <SelectItem value={NO_CATEGORY}>
+                          {t("channels.dialog.noCategory")}
+                        </SelectItem>
                         {categories.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.name}
@@ -168,10 +177,10 @@ export function CreateChannelDialog({
           </DialogBody>
           <DialogActions>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancelar
+              {t("channels.dialog.cancel")}
             </Button>
             <Button type="submit" loading={isSubmitting}>
-              Criar
+              {t("channels.dialog.create")}
             </Button>
           </DialogActions>
         </form>
@@ -188,6 +197,7 @@ export function RenameChannelDialog({
   channel: ChannelPayload | null;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const update = useUpdateChannel();
   const hasTopic = channel?.type === CHANNEL_TEXT;
@@ -221,11 +231,19 @@ export function RenameChannelDialog({
       <DialogContent flush size="sm">
         <DialogHead
           icon={Pencil}
-          title={channel?.type === CHANNEL_CATEGORY ? "Renomear categoria" : "Editar canal"}
+          title={
+            channel?.type === CHANNEL_CATEGORY
+              ? t("channels.dialog.renameCategory")
+              : t("channels.dialog.editChannel")
+          }
         />
         <form onSubmit={onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
           <DialogBody>
-            <Field id="rename-channel" label="Nome" error={errors.name?.message}>
+            <Field
+              id="rename-channel"
+              label={t("channels.dialog.name")}
+              error={errors.name?.message}
+            >
               <Input
                 id="rename-channel"
                 autoFocus
@@ -238,14 +256,14 @@ export function RenameChannelDialog({
             {hasTopic ? (
               <Field
                 id="channel-topic"
-                label="Tópico"
-                hint={`${topicLength}/1024 · aparece no cabeçalho do canal`}
+                label={t("channels.dialog.topic")}
+                hint={t("channels.dialog.topicHint", { count: topicLength })}
                 error={errors.topic?.message}
               >
                 <Textarea
                   id="channel-topic"
                   rows={3}
-                  placeholder="Sobre o que é este canal?"
+                  placeholder={t("channels.dialog.topicPh")}
                   aria-invalid={!!errors.topic}
                   aria-describedby={describedBy("channel-topic", errors.topic?.message)}
                   {...register("topic")}
@@ -255,10 +273,10 @@ export function RenameChannelDialog({
           </DialogBody>
           <DialogActions>
             <Button type="button" variant="ghost" onClick={onClose}>
-              Cancelar
+              {t("channels.dialog.cancel")}
             </Button>
             <Button type="submit" loading={isSubmitting}>
-              Salvar
+              {t("channels.dialog.save")}
             </Button>
           </DialogActions>
         </form>
@@ -278,6 +296,7 @@ export function DeleteChannelDialog({
   activeChannelId?: string;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const del = useDeleteChannel();
@@ -302,16 +321,20 @@ export function DeleteChannelDialog({
     <AlertDialog open={!!channel} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent>
         <AlertDialogTitle>
-          Excluir {isCategory ? "categoria" : "canal"} “{channel?.name}”?
+          {isCategory
+            ? t("channels.dialog.deleteCategoryTitle", { name: channel?.name ?? "" })
+            : t("channels.dialog.deleteChannelTitle", { name: channel?.name ?? "" })}
         </AlertDialogTitle>
         <AlertDialogDescription>
           {isCategory
-            ? "Os canais dentro dela ficam sem categoria."
-            : "As mensagens do canal serão apagadas. Esta ação não pode ser desfeita."}
+            ? t("channels.dialog.deleteCategoryBody")
+            : t("channels.dialog.deleteChannelBody")}
         </AlertDialogDescription>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction onClick={() => void confirm()}>Excluir</AlertDialogAction>
+          <AlertDialogCancel>{t("channels.dialog.cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => void confirm()}>
+            {t("channels.dialog.delete")}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

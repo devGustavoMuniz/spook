@@ -71,7 +71,7 @@ export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 export async function serviceWorkerRegistration(timeoutMs = 5000) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("service worker indisponível")), timeoutMs);
+    timer = setTimeout(() => reject(new Error("service worker unavailable")), timeoutMs);
   });
   try {
     return await Promise.race([navigator.serviceWorker.ready, timeout]);

@@ -5,6 +5,7 @@ import { ArrowRight, LinkIcon, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { initials } from "@/lib/guild";
 import { appendGuild } from "@/lib/guild-cache";
@@ -19,6 +20,7 @@ const STALE_MS = 5 * 60_000;
  * `preview` (composer): só mostra o servidor, sem ação.
  */
 export function InviteCard({ code, preview = false }: { code: string; preview?: boolean }) {
+  const { t } = useT();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const invite = useGetInvite(code, { query: { retry: false, staleTime: STALE_MS } });
@@ -36,7 +38,7 @@ export function InviteCard({ code, preview = false }: { code: string; preview?: 
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-3 w-20" />
         </div>
-        <span className="sr-only">Carregando convite…</span>
+        <span className="sr-only">{t("chat.invite.loading")}</span>
       </output>
     );
 
@@ -51,14 +53,18 @@ export function InviteCard({ code, preview = false }: { code: string; preview?: 
         </span>
         <div className="min-w-0">
           <p className="text-sm font-semibold">
-            {expired ? "Convite expirado" : invalid ? "Convite inválido" : "Convite indisponível"}
+            {expired
+              ? t("chat.invite.expired")
+              : invalid
+                ? t("chat.invite.invalid")
+                : t("chat.invite.unavailable")}
           </p>
           <p className="text-xs text-muted-foreground">
             {expired
-              ? "Peça um novo link a quem convidou você."
+              ? t("chat.invite.expiredHint")
               : invalid
-                ? "Esse convite não existe ou foi revogado."
-                : "Não foi possível carregar este convite agora."}
+                ? t("chat.invite.invalidHint")
+                : t("chat.invite.unavailableHint")}
           </p>
         </div>
       </div>
@@ -88,18 +94,18 @@ export function InviteCard({ code, preview = false }: { code: string; preview?: 
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-2xs font-medium tracking-wide text-muted-foreground uppercase">
-          Convite para um servidor
+          {t("chat.invite.title")}
         </p>
         <p className="truncate text-sm font-semibold">{p.guild_name}</p>
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <Users className="size-3" aria-hidden />
-          {p.member_count} {p.member_count === 1 ? "membro" : "membros"}
+          {t("chat.invite.members", { count: p.member_count })}
         </p>
       </div>
       {preview ? null : mine ? (
         <Button asChild size="sm" variant="secondary" className="shrink-0">
           <Link to="/channels/$guildId" params={{ guildId: mine.id }}>
-            Abrir servidor <ArrowRight />
+            {t("chat.invite.open")} <ArrowRight />
           </Link>
         </Button>
       ) : (
@@ -107,10 +113,10 @@ export function InviteCard({ code, preview = false }: { code: string; preview?: 
           size="sm"
           className="shrink-0"
           loading={join.isPending}
-          aria-label={`Entrar em ${p.guild_name}`}
+          aria-label={t("chat.invite.joinAria", { name: p.guild_name })}
           onClick={() => void accept()}
         >
-          Entrar
+          {t("chat.invite.join")}
         </Button>
       )}
     </div>

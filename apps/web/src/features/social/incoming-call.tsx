@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { shownName } from "@/features/account/removed-user";
 import { dmTitle } from "@/features/dms/dm-utils";
 import { useDms } from "@/features/dms/use-dms";
+import { useT } from "@/i18n";
 import { startRing, stopRing } from "../voice/call-sounds";
 import { answerCall, declineCall } from "./call-actions";
 import { firstIncoming, useCallStore } from "./call-store";
@@ -53,12 +54,15 @@ function CallCard({
   others: number;
   answerRef: React.RefObject<HTMLButtonElement | null>;
 }) {
+  const { t } = useT();
   const router = useRouter();
   const { data: me } = useGetMe();
   const dms = useDms();
   const channel = dms.list.find((c) => c.id === call.channel_id);
   const caller = call.caller;
-  const callerName = caller ? shownName(caller.display_name, caller.username) : "Alguém";
+  const callerName = caller
+    ? shownName(caller.display_name, caller.username)
+    : t("people.call.someone");
   const title = channel && me ? dmTitle(channel, me.id) : callerName;
 
   async function accept() {
@@ -92,23 +96,23 @@ function CallCard({
               {call.group && call.channel_name ? call.channel_name : callerName}
             </p>
             <p id="incoming-call-desc" className="text-sm text-muted-foreground">
-              {call.group ? `${callerName} está ligando…` : "Chamada de voz recebida…"}
-              {others > 0
-                ? ` (+${others} ${others === 1 ? "outra chamada" : "outras chamadas"})`
-                : ""}
+              {call.group
+                ? t("people.call.groupRinging", { name: callerName })
+                : t("people.call.incoming")}
+              {others > 0 ? ` ${t("people.call.others", { count: others })}` : ""}
             </p>
           </div>
         </div>
         <div className="flex gap-2">
           <Button ref={answerRef} className="flex-1" onClick={() => void accept()}>
-            <Phone /> Atender
+            <Phone /> {t("people.call.answer")}
           </Button>
           <Button
             variant="destructive"
             className="flex-1"
             onClick={() => void declineCall(call.channel_id)}
           >
-            <PhoneOff /> Recusar
+            <PhoneOff /> {t("people.person.decline")}
           </Button>
         </div>
       </div>

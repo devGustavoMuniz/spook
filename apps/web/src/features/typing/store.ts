@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { t } from "@/i18n";
 
 /** "Digitando…" expira 8 s depois do último evento (SPEC 7.6); o servidor não manda o fim. */
 export const TYPING_TTL_MS = 8_000;
@@ -58,10 +59,11 @@ const NONE: readonly string[] = [];
 export const useTypingUsers = (channelId: string): readonly string[] =>
   useTypingStore((s) => s.byChannel[channelId] ?? NONE);
 
-/** Texto do indicador (pt-br): 1, 2 ou "várias pessoas". `names` já exclui o próprio usuário. */
+/** Texto do indicador: 1, 2 ou "várias pessoas". `names` já exclui o próprio usuário. */
 export function typingText(names: readonly string[]): string | null {
   if (names.length === 0) return null;
-  if (names.length === 1) return `${names[0]} está digitando…`;
-  if (names.length === 2) return `${names[0]} e ${names[1]} estão digitando…`;
-  return "Várias pessoas estão digitando…";
+  if (names.length === 1) return t("settings.typing.one", { name: names[0] ?? "" });
+  if (names.length === 2)
+    return t("settings.typing.two", { first: names[0] ?? "", second: names[1] ?? "" });
+  return t("settings.typing.many");
 }

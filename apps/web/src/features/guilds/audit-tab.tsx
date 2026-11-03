@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { shownName } from "@/features/account/removed-user";
 import { memberName, useGuildMembers } from "@/features/members/use-members";
+import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { formatFullDate, formatRelative } from "@/lib/format";
 import type { Guild } from "@/lib/guild";
@@ -27,6 +28,7 @@ const PAGE = 30;
 
 /** Registro de auditoria (VIEW_AUDIT_LOG): quem fez o quê, com filtros por ação e autor e "Carregar mais". */
 export function AuditTab({ guild }: { guild: Guild }) {
+  const { t, locale } = useT();
   const [action, setAction] = useState(ALL);
   const [actor, setActor] = useState(ALL);
   const members = useGuildMembers(guild.id);
@@ -50,36 +52,36 @@ export function AuditTab({ guild }: { guild: Guild }) {
   });
   const entries = q.data?.pages.flatMap((p) => p.entries ?? []) ?? [];
   const people = [...(members.data?.members ?? [])].sort((a: MemberPayload, b: MemberPayload) =>
-    memberName(a).localeCompare(memberName(b), "pt-BR"),
+    memberName(a).localeCompare(memberName(b), locale),
   );
 
   return (
     <DialogBody className="gap-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-action`}>Ação</Label>
+          <Label htmlFor={`${id}-action`}>{t("guilds.audit.action")}</Label>
           <Select value={action} onValueChange={setAction}>
-            <SelectTrigger id={`${id}-action`} aria-label="Filtrar por ação">
+            <SelectTrigger id={`${id}-action`} aria-label={t("guilds.audit.filterAction")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>Todas as ações</SelectItem>
+              <SelectItem value={ALL}>{t("guilds.audit.allActions")}</SelectItem>
               {AUDIT_ACTIONS.map((a) => (
                 <SelectItem key={a.value} value={a.value}>
-                  {a.label}
+                  {t(a.labelKey)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor={`${id}-actor`}>Autor</Label>
+          <Label htmlFor={`${id}-actor`}>{t("guilds.audit.actor")}</Label>
           <Select value={actor} onValueChange={setActor}>
-            <SelectTrigger id={`${id}-actor`} aria-label="Filtrar por autor">
+            <SelectTrigger id={`${id}-actor`} aria-label={t("guilds.audit.filterActor")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>Todas as pessoas</SelectItem>
+              <SelectItem value={ALL}>{t("guilds.audit.allPeople")}</SelectItem>
               {people.map((m) => (
                 <SelectItem key={m.user_id} value={m.user_id}>
                   {memberName(m)}
@@ -90,13 +92,13 @@ export function AuditTab({ guild }: { guild: Guild }) {
         </div>
       </div>
 
-      <section aria-label="Registro de auditoria" className="flex flex-col gap-2">
+      <section aria-label={t("guilds.audit.section")} className="flex flex-col gap-2">
         {q.isPending ? (
           <output className="flex flex-col gap-2">
             <Skeleton className="h-14 w-full rounded-xl" />
             <Skeleton className="h-14 w-full rounded-xl" />
             <Skeleton className="h-14 w-full rounded-xl" />
-            <span className="sr-only">Carregando…</span>
+            <span className="sr-only">{t("guilds.common.loading")}</span>
           </output>
         ) : q.isError ? (
           <div
@@ -105,7 +107,7 @@ export function AuditTab({ guild }: { guild: Guild }) {
           >
             <span className="text-destructive-text">{appMessage(q.error)}</span>
             <Button size="sm" variant="outline" onClick={() => void q.refetch()}>
-              Tentar de novo
+              {t("guilds.common.retry")}
             </Button>
           </div>
         ) : entries.length === 0 ? (
@@ -113,8 +115,8 @@ export function AuditTab({ guild }: { guild: Guild }) {
             <ScrollText aria-hidden className="size-7 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               {action !== ALL || actor !== ALL
-                ? "Nada encontrado com esses filtros."
-                : "Nada registrado ainda. As ações de moderação e de configuração aparecem aqui."}
+                ? t("guilds.audit.noMatch")
+                : t("guilds.audit.empty")}
             </p>
           </div>
         ) : (
@@ -132,7 +134,7 @@ export function AuditTab({ guild }: { guild: Guild }) {
             loading={q.isFetchingNextPage}
             onClick={() => void q.fetchNextPage()}
           >
-            Carregar mais
+            {t("guilds.audit.loadMore")}
           </Button>
         ) : null}
       </section>
@@ -141,9 +143,10 @@ export function AuditTab({ guild }: { guild: Guild }) {
 }
 
 function AuditRow({ entry }: { entry: AuditEntryPayload }) {
+  const { t } = useT();
   const who = entry.actor
     ? shownName(entry.actor.display_name, entry.actor.username)
-    : "Conta excluída";
+    : t("guilds.audit.deletedAccount");
   return (
     <li className="flex items-start gap-3 rounded-xl border border-border bg-card p-3 shadow-xs">
       <Avatar
@@ -154,10 +157,12 @@ function AuditRow({ entry }: { entry: AuditEntryPayload }) {
       />
       <div className="min-w-0 flex-1">
         <p className="text-sm break-words">
-          <span className="font-medium">{who}</span> {auditSentence(entry)}
+          <span className="font-medium">{who}</span> {auditSentence(entry, t)}
         </p>
         {entry.reason ? (
-          <p className="mt-0.5 text-xs break-words text-muted-foreground">Motivo: {entry.reason}</p>
+          <p className="mt-0.5 text-xs break-words text-muted-foreground">
+            {t("guilds.audit.reason", { reason: entry.reason })}
+          </p>
         ) : null}
       </div>
       <Tooltip>

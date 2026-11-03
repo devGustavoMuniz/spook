@@ -3,6 +3,7 @@ import { UserPlus } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import { VoiceInviteIllustration } from "@/components/illustrations";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { can, type Guild } from "@/lib/guild";
 import { useStageHold } from "./use-auto-hide";
 
@@ -13,6 +14,7 @@ const GuildSettingsDialog = lazy(() =>
 
 /** Tile de convite: aparece ao lado do seu enquanto você está sozinho na chamada. */
 export function InviteTile({ guild, width }: { guild: Guild; width?: number }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   useStageHold(open);
   const allowed = can(guild, Permission.CREATE_INVITE);
@@ -24,23 +26,19 @@ export function InviteTile({ guild, width }: { guild: Guild; width?: number }) {
     >
       <VoiceInviteIllustration className="h-[38%] max-h-32 w-auto min-h-0" aria-hidden="true" />
       <div className="flex flex-col items-center gap-0.5">
-        <p className="text-sm font-semibold">Está silencioso por aqui</p>
-        <p className="text-xs text-muted-foreground text-pretty">
-          Chame alguém para conversar neste canal.
-        </p>
+        <p className="text-sm font-semibold">{t("voice.invite.title")}</p>
+        <p className="text-xs text-muted-foreground text-pretty">{t("voice.invite.desc")}</p>
       </div>
       <Button
         size="sm"
         disabled={!allowed}
-        title={allowed ? undefined : "Você não tem permissão para criar convites neste servidor."}
+        title={allowed ? undefined : t("voice.invite.noPermission")}
         onClick={() => setOpen(true)}
       >
-        <UserPlus /> Convidar para voz
+        <UserPlus /> {t("voice.invite.button")}
       </Button>
       {allowed ? null : (
-        <p className="text-xs text-muted-foreground">
-          Você não tem permissão para criar convites neste servidor.
-        </p>
+        <p className="text-xs text-muted-foreground">{t("voice.invite.noPermission")}</p>
       )}
       {open ? (
         <Suspense fallback={null}>

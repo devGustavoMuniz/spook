@@ -1,11 +1,12 @@
 import { MessageSquare, Mic, MonitorUp, Video } from "lucide-react";
 import { Lettering, LogoMark } from "@/components/brand";
+import { useT } from "@/i18n";
 
 const features = [
-  { label: "Chat", icon: MessageSquare },
-  { label: "Voz", icon: Mic },
-  { label: "Vídeo", icon: Video },
-  { label: "Compartilhar tela", icon: MonitorUp },
+  { key: "shell.brand.chat", icon: MessageSquare },
+  { key: "shell.brand.voice", icon: Mic },
+  { key: "shell.brand.video", icon: Video },
+  { key: "shell.brand.screenShare", icon: MonitorUp },
 ] as const;
 
 /**
@@ -13,6 +14,7 @@ const features = [
  * O halo e a flutuação só usam transform/opacity e param com movimento reduzido (CSS base).
  */
 export function BrandHero({ className }: { className?: string }) {
+  const { t } = useT();
   return (
     <div
       className={`flex flex-col items-center gap-3 text-center lg:gap-4 lg:items-start lg:text-left ${className ?? ""}`}
@@ -29,19 +31,19 @@ export function BrandHero({ className }: { className?: string }) {
       {/* Lettering ~2x o anterior: na largura do fantasma ou um pouco mais (o asset tem folga de brilho nas pontas). */}
       <Lettering width={240} className="-mt-1 w-44 lg:-mt-2 lg:-ml-3 lg:w-60" />
       <p className="max-w-md text-xl font-semibold tracking-tight text-balance lg:text-3xl">
-        Seus servidores, sua galera, num só lugar.
+        {t("shell.brand.tagline")}
       </p>
       <ul
-        aria-label="Chat, Voz, Vídeo e Compartilhar tela"
+        aria-label={t("shell.brand.featuresAria")}
         className="flex flex-wrap justify-center gap-2 lg:justify-start"
       >
-        {features.map(({ label, icon: Icon }) => (
+        {features.map(({ key, icon: Icon }) => (
           <li
-            key={label}
+            key={key}
             className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2/70 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur-sm"
           >
             <Icon className="size-3.5 text-brand-text" aria-hidden="true" />
-            {label}
+            {t(key)}
           </li>
         ))}
       </ul>

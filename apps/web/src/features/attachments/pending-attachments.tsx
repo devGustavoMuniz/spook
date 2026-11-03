@@ -1,5 +1,6 @@
 import { FileText, Loader2, RotateCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
 import type { PendingFile } from "./upload-queue";
 
@@ -13,9 +14,13 @@ export function PendingAttachments({
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
 }) {
+  const { t } = useT();
   if (items.length === 0) return null;
   return (
-    <ul aria-label="Anexos pendentes" className="flex flex-wrap gap-2 border-b border-border p-2">
+    <ul
+      aria-label={t("chat.pending.title")}
+      className="flex flex-wrap gap-2 border-b border-border p-2"
+    >
       {items.map((p) => (
         <li
           key={p.id}
@@ -40,13 +45,13 @@ export function PendingAttachments({
                 <progress
                   value={p.progress}
                   max={100}
-                  aria-label={`Enviando ${p.name}`}
+                  aria-label={t("chat.pending.uploading", { name: p.name })}
                   className="h-1.5 min-w-0 flex-1 [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded [&::-webkit-progress-bar]:bg-secondary [&::-webkit-progress-value]:rounded [&::-webkit-progress-value]:bg-primary"
                 />
                 <span className="tabular-nums text-muted-foreground">{p.progress}%</span>
               </div>
             ) : p.status === "done" ? (
-              <p className="text-success-text">Pronto</p>
+              <p className="text-success-text">{t("chat.pending.done")}</p>
             ) : (
               <p role="alert" className="text-destructive-text">
                 {p.error}
@@ -60,7 +65,7 @@ export function PendingAttachments({
                 variant="ghost"
                 size="icon"
                 className="size-6"
-                aria-label={`Tentar enviar ${p.name} de novo`}
+                aria-label={t("chat.pending.retry", { name: p.name })}
                 onClick={() => onRetry(p.id)}
               >
                 <RotateCw />
@@ -74,7 +79,9 @@ export function PendingAttachments({
               size="icon"
               className="size-6"
               aria-label={
-                p.status === "uploading" ? `Cancelar envio de ${p.name}` : `Remover ${p.name}`
+                p.status === "uploading"
+                  ? t("chat.pending.cancel", { name: p.name })
+                  : t("chat.pending.remove", { name: p.name })
               }
               onClick={() => onRemove(p.id)}
             >

@@ -7,6 +7,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useT } from "@/i18n";
 
 export type SocialConfirm =
   | { kind: "remove"; userId: string; name: string }
@@ -22,22 +23,23 @@ export function SocialConfirmDialog({
   onCancel: () => void;
   onConfirm: (c: SocialConfirm) => void;
 }) {
+  const { t } = useT();
   const block = confirm?.kind === "block";
   return (
     <AlertDialog open={!!confirm} onOpenChange={(o) => !o && onCancel()}>
       <AlertDialogContent>
         <AlertDialogTitle>
-          {block ? `Bloquear ${confirm?.name}?` : `Remover ${confirm?.name} dos amigos?`}
+          {block
+            ? t("people.confirm.blockTitle", { name: confirm?.name ?? "" })
+            : t("people.confirm.removeTitle", { name: confirm?.name ?? "" })}
         </AlertDialogTitle>
         <AlertDialogDescription>
-          {block
-            ? "Vocês deixam de ser amigos e nenhum dos dois poderá iniciar conversas privadas ou ligar um para o outro. As mensagens dessa pessoa ficam recolhidas para você, e as menções dela não geram aviso. Ela não é avisada do bloqueio."
-            : "Vocês deixam de ser amigos. As conversas continuam existindo enquanto compartilharem um servidor."}
+          {block ? t("people.confirm.blockDescription") : t("people.confirm.removeDescription")}
         </AlertDialogDescription>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogCancel>{t("people.common.cancel")}</AlertDialogCancel>
           <AlertDialogAction onClick={() => confirm && onConfirm(confirm)}>
-            {block ? "Bloquear" : "Remover amigo"}
+            {block ? t("people.person.block") : t("people.person.removeFriend")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

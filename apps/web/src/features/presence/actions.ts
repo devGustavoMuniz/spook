@@ -1,5 +1,6 @@
 import { type PresenceUpdateBody, updateMyPresence } from "@spook/shared";
 import { toast } from "sonner";
+import type { MessageKey } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { usePresenceStore } from "./store";
 
@@ -21,12 +22,12 @@ export async function updatePresence(body: PresenceUpdateBody): Promise<boolean>
 
 /** Opções de expiração do status personalizado. `null` = não limpar. */
 export const EXPIRY_OPTIONS = [
-  { value: "never", label: "Não limpar" },
-  { value: "30m", label: "30 minutos" },
-  { value: "1h", label: "1 hora" },
-  { value: "4h", label: "4 horas" },
-  { value: "today", label: "Hoje" },
-] as const;
+  { value: "never", labelKey: "settings.expiry.never" },
+  { value: "30m", labelKey: "settings.expiry.30m" },
+  { value: "1h", labelKey: "settings.expiry.1h" },
+  { value: "4h", labelKey: "settings.expiry.4h" },
+  { value: "today", labelKey: "settings.expiry.today" },
+] as const satisfies readonly { value: string; labelKey: MessageKey }[];
 export type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number]["value"];
 
 /** Instante (ISO) da expiração; "hoje" = meia-noite local, no máximo 24 h à frente. */
