@@ -239,6 +239,19 @@ export interface VoiceEngine {
   /** Sai da sala (emite `disconnected` com `client`). Idempotente. */
   disconnect(): Promise<void>;
 
+  /**
+   * Começa a abrir o microfone ANTES de a sala conectar (captura, processador de ruído/porta e módulos), em paralelo
+   * com o token e a conexão. Fire-and-forget: o resultado (ou o erro) é entregue pelo `setMicrophoneEnabled(true)`
+   * seguinte, que publica o que já está pronto. Opcional: sem ele a captura só começa depois de conectar.
+   */
+  prepareMicrophone?(): void;
+  /** Descarta o microfone preparado e solta o dispositivo (a entrada foi cancelada ou falhou). Idempotente. */
+  discardPreparedMicrophone?(): void;
+  /**
+   * Pré-aquece o que a entrada vai precisar (DNS/TLS do servidor de mídia, se `url` é conhecida; módulos do
+   * processador de ruído/porta). Sem sala, sem microfone e sem efeito visível. Opcional.
+   */
+  prewarm?(url?: string): void;
   /** Rejeitam com `VoiceMediaError` (permissão negada, sem dispositivo, seleção de tela cancelada). */
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
   setCameraEnabled(enabled: boolean): Promise<void>;
@@ -276,8 +289,12 @@ export interface VoiceEngine {
    * Liga/desliga o medidor de nível do microfone (evento `input-level`). Em chamada com o microfone aberto mede a
    * faixa real publicada; fora dela (ou mudo) usa uma captura de teste separada, com o MESMO processamento
    * (`setAudioProcessing`). Rejeita com `VoiceMediaError` se o microfone não abre.
+   *
+   * `callOnly`: medição SÓ da faixa publicada na chamada (para acender o anel de "falando" do próprio usuário na
+   * hora). Independe do medidor do diálogo, nunca abre uma captura de teste (com o microfone mudo ou fora da
+   * chamada não emite nada) e não precisa ser desligada ao sair: vale enquanto houver faixa.
    */
-  setInputLevelMonitor?(enabled: boolean): Promise<void>;
+  setInputLevelMonitor?(enabled: boolean, opts?: { callOnly?: boolean }): Promise<void>;
   /**
    * Teste de microfone: grava ~5 s do microfone já processado e reproduz no alto-falante escolhido (nunca ao vivo:
    * evita realimentação). O andamento sai pelo evento `mic-test`. Não faz nada se já houver um teste em curso.

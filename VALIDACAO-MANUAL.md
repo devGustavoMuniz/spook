@@ -325,6 +325,14 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 - [ ] **Mapa de calor e ranking:** as horas são UTC (conferir contra o horário do servidor: mensagens enviadas agora caem na coluna da hora UTC atual); o ranking mostra os 10 servidores com mais mensagens em 7 dias, sem DMs.
 - [ ] **Rate limits:** criar 6 servidores em sequência na web: o 6º mostra uma mensagem de erro clara (429) e, depois do `Retry-After`, volta a funcionar; o mesmo para convites (21 seguidos) e `RATELIMIT_SERVERS_CREATE_PER_MIN` baixo no ambiente. Conferir `spook.ratelimit.blocked{name}` no Grafana.
 
+### Latência da voz: anel de fala e entrada no canal (web e desktop)
+
+- [ ] Em chamada com duas pessoas: falar e ver o anel verde do próprio tile acender quase na hora (< ~0,15 s) e o da outra pessoa em ~0,3 a 0,5 s; parar de falar e ver apagar sem piscar (hold de 250 ms). Conferir também com "Forte" e com a porta de ruído em Auto/Manual.
+- [ ] Mudo: o anel do próprio tile nunca acende (mesmo batendo na mesa) e apaga na hora ao silenciar.
+- [ ] Depois do deploy: o LiveKit foi recriado (chamadas caem por segundos e voltam sozinhas); conferir o log do container e uma chamada de teste.
+- [ ] Entrada: clicar no canal de voz e medir a percepção (palco e item na lista aparecem de imediato; microfone pronto logo após conectar). No desktop, ver os `voz: ... levou N ms` no log do app (Room::connect, microfone, publicação). Com microfone USB/Bluetooth lento, conferir que a luz de microfone do SO acende ao clicar e apaga se a entrada falhar.
+- [ ] Desktop (Rust compilado só no CI): entrar mudo, entrar com microfone ausente (entra mudo e explica) e sair no meio da conexão (o microfone solta).
+
 ## Pendências gerais de configuração
 
 - [ ] **Cache da Cloudflare no `/sw.js` (opcional):** o servidor manda `Cache-Control: no-cache`, mas a Cloudflare reescreve para `max-age=14400` nos arquivos `.js` por causa do *Browser Cache TTL* da zona. Para service workers isso não impede a atualização (os navegadores buscam o script principal ignorando o cache HTTP), então não é urgente. **Não mude a configuração global da zona** (ela vale para outros sites). Se quiser ajustar, crie uma **Cache Rule só para este host**: *Caching > Cache Rules > Create rule*, nome "spook: sem cache em sw e manifest"; condição `(http.host eq "spook.dottadigital.com" and (http.request.uri.path eq "/sw.js" or http.request.uri.path eq "/manifest.webmanifest"))`; ação *Bypass cache*. Conferir depois com `curl -sI https://spook.dottadigital.com/sw.js | grep -i cache-control` (deve vir `no-cache` e `cf-cache-status: DYNAMIC`).

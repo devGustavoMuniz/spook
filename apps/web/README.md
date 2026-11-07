@@ -111,6 +111,10 @@ O navegador do container precisa alcançar o LiveKit e o backend pela rede do Co
    O projeto usa `channel: "chromium"` e `--unsafely-treat-insecure-origin-as-secure=$E2E_BASE_URL`: `http://server:8090` não é um contexto seguro e, sem isso, o navegador esconde `getUserMedia`.
 4. Ao terminar, volte o backend ao normal (`docker compose --env-file .env -f deploy/docker-compose.yml up -d server`) ou pare-o: `docker compose --env-file .env -f deploy/docker-compose.yml stop server`.
 
+### Latência da entrada na voz
+
+`JOIN_PERF_OUT=/repo/apps/web/e2e/lat.json pnpm --filter @spook/web e2e voice-join-perf` (mesmo ambiente do E2E de voz acima, projeto `voice`) entra e sai do canal 10 vezes por cenário (Padrão e Forte) e imprime a mediana de cada fase (`src/features/voice/join-perf.ts`); `JOIN_PERF_SIM=1` simula token e microfone lentos. Cada entrada gasta um token: o teste espera 2,3 s entre elas por causa do limite `voice.token` (30/min). As marcas também ficam na linha do tempo do navegador (`voice:*`) e em `window.__voiceJoinPerf`.
+
 ## Ruído e eco no microfone (voz, web)
 
 O diálogo "Dispositivos de áudio e vídeo" tem a seção "Qualidade do microfone": redução de ruído em três níveis (Desligada, Padrão, Forte com IA), cancelamento de eco e ajuste automático de volume. Decisões e comparação em `SPEC.md` 5.5 ("Adicional: ruído e eco (web)").

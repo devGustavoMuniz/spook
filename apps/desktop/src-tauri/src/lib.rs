@@ -123,6 +123,8 @@ pub fn run() {
             vc::voice_connect,
             vc::voice_disconnect,
             vc::voice_set_microphone,
+            vc::voice_prepare_microphone,
+            vc::voice_discard_prepared_microphone,
             vc::voice_set_deafened,
             vc::voice_set_audio_processing,
             vc::voice_get_audio_processing,

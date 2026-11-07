@@ -87,6 +87,18 @@ async function loadWasm(): Promise<ArrayBuffer> {
   return wasmBinary;
 }
 
+/**
+ * Aquece o que o processador vai usar (WASM do RNNoise em cache de módulo; worklets no cache HTTP) para a entrada
+ * seguinte não esperar o download. Seguro de chamar várias vezes; erros são ignorados (a entrada baixa de novo).
+ */
+export async function preloadNoiseAssets(strong: boolean): Promise<void> {
+  const urls = strong ? [rnnoiseWorkletUrl, gateWorkletUrl] : [gateWorkletUrl];
+  await Promise.allSettled([
+    ...(strong ? [loadWasm()] : []),
+    ...urls.map((u) => fetch(u).then((r) => r.arrayBuffer())),
+  ]);
+}
+
 /** Só para testes. */
 export function resetNoiseProcessorCache() {
   wasmBinary = null;

@@ -37,6 +37,11 @@ const lk = vi.hoisted(() => {
       processor: undefined as undefined | { name: string },
       failSetProcessor: null as Error | null,
       failRestart: null as Error | null,
+      stopped: false,
+      captureOpts: undefined as unknown,
+      stop() {
+        this.stopped = true;
+      },
       async restartTrack(opts: unknown) {
         if (this.failRestart) throw this.failRestart;
         this.restarts.push(opts);
@@ -66,8 +71,26 @@ const lk = vi.hoisted(() => {
     }[],
     timeout: 20_000,
   };
+  const capture = {
+    tracks: [] as ReturnType<typeof fakeAudioTrack>[],
+    fail: null as Error | null,
+    /** Libera a captura pendente (a captura "demora" até o teste soltar). */
+    gate: null as null | Promise<void>,
+  };
+  async function createLocalAudioTrack(o?: unknown) {
+    if (capture.gate) await capture.gate;
+    if (capture.fail) throw capture.fail;
+    const t = fakeAudioTrack();
+    t.captureOpts = o;
+    capture.tracks.push(t);
+    return t;
+  }
   class FakeRoom {
     static last: FakeRoom;
+    static prepared: string[] = [];
+    async prepareConnection(url: string) {
+      FakeRoom.prepared.push(url);
+    }
     static seed: string[] = [];
     static devices = [{ deviceId: "d1", label: "" }];
     handlers = new Map<string, ((...a: unknown[]) => void)[]>();
@@ -93,6 +116,13 @@ const lk = vi.hoisted(() => {
         audioTrack: ReturnType<typeof fakeAudioTrack>;
       },
       unpublished: [] as unknown[],
+      published: [] as [unknown, unknown][],
+      async publishTrack(track: ReturnType<typeof fakeAudioTrack>, o: unknown) {
+        this.published.push([track, o]);
+        this.isMicrophoneEnabled = true;
+        this.micPub = { source: "microphone", isMuted: false, audioTrack: track };
+        return this.micPub;
+      },
       async setMicrophoneEnabled(on: boolean, opts?: unknown) {
         if (this.fail) throw this.fail;
         this.micCalls.push([on, opts]);
@@ -158,6 +188,8 @@ const lk = vi.hoisted(() => {
   }
   return {
     noise,
+    capture,
+    createLocalAudioTrack,
     Room: FakeRoom,
     RoomEvent,
     ConnectionError,
@@ -1035,5 +1067,94 @@ describe("compartilhamento de tela: qualidade", () => {
     ]);
     expect(calls[0]).toMatchObject(["screen", true, { contentHint: "detail" }]);
     expect(calls[2]?.[2]).not.toHaveProperty("contentHint");
+  });
+});
+
+describe("microfone preparado antes de conectar", () => {
+  beforeEach(() => {
+    lk.capture.tracks.length = 0;
+    lk.capture.fail = null;
+    lk.capture.gate = null;
+    localStorage.clear();
+  });
+
+  it("captura sem sala, com as opções vigentes e o microfone salvo, e publica o mesmo track depois", async () => {
+    localStorage.setItem("spook:voice-devices", JSON.stringify({ audioinput: "mic9" }));
+    const e = createWebVoiceEngine();
+    await e.setAudioProcessing?.(opts({ echoCancellation: false }));
+    e.prepareMicrophone?.();
+    await e.connect(URL);
+    await e.setMicrophoneEnabled(true);
+    const [cap] = lk.capture.tracks;
+    expect(lk.capture.tracks).toHaveLength(1);
+    expect(cap?.captureOpts).toMatchObject({
+      echoCancellation: false,
+      noiseSuppression: true,
+      deviceId: { ideal: "mic9" },
+    });
+    // publicou o track já aberto (não pediu outra captura à lib)
+    expect(room().localParticipant.published).toEqual([[cap, { source: "microphone" }]]);
+    expect(room().localParticipant.micCalls).toEqual([]);
+  });
+
+  it("a captura demorada não atrasa a conexão: connect conclui antes de ela terminar", async () => {
+    let release = () => {};
+    lk.capture.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const e = createWebVoiceEngine();
+    e.prepareMicrophone?.();
+    await e.connect(URL); // não espera o microfone
+    expect(e.state).toBe("connected");
+    const pending = e.setMicrophoneEnabled(true);
+    release();
+    await pending;
+    expect(room().localParticipant.published).toHaveLength(1);
+  });
+
+  it("erro de captura só aparece ao publicar, como VoiceMediaError", async () => {
+    lk.capture.fail = Object.assign(new Error("negado"), { name: "NotAllowedError" });
+    const e = createWebVoiceEngine();
+    e.prepareMicrophone?.();
+    await e.connect(URL);
+    await expect(e.setMicrophoneEnabled(true)).rejects.toBeInstanceOf(VoiceMediaError);
+  });
+
+  it("descartar solta o dispositivo (para o track) e a publicação seguinte captura de novo", async () => {
+    const e = createWebVoiceEngine();
+    e.prepareMicrophone?.();
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    e.discardPreparedMicrophone?.();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(lk.capture.tracks[0]?.stopped).toBe(true);
+    await e.connect(URL);
+    await e.setMicrophoneEnabled(true);
+    expect(room().localParticipant.micCalls).toHaveLength(1);
+    expect(room().localParticipant.published).toEqual([]);
+  });
+
+  it("prewarm aquece a URL do servidor de mídia", async () => {
+    lk.Room.prepared.length = 0;
+    createWebVoiceEngine().prewarm?.("wss://voz.exemplo");
+    expect(lk.Room.prepared).toEqual(["wss://voz.exemplo"]);
+  });
+});
+
+describe("medição da chamada (callOnly) para o anel de falando", () => {
+  it("emite input-level com a faixa publicada, sem abrir captura de teste", async () => {
+    const e = createWebVoiceEngine();
+    const levels: unknown[] = [];
+    e.on("input-level", (l) => levels.push(l));
+    await e.connect(URL);
+    await e.setMicrophoneEnabled(true);
+    await e.setInputLevelMonitor?.(true, { callOnly: true });
+    const created = lk.noise.created.at(-1);
+    expect(created).toBeDefined();
+    created?.hooks.onLevel?.({ db: -30, gateOpen: true });
+    expect(levels).toEqual([{ db: -30, gateOpen: true }]);
+    // desligar tira o processador (nada mais emite)
+    await e.setInputLevelMonitor?.(false, { callOnly: true });
+    expect(room().localParticipant.micPub?.audioTrack.processor).toBeUndefined();
   });
 });

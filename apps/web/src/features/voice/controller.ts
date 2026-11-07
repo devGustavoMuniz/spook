@@ -26,6 +26,7 @@ import {
   type ConnectionStats,
   type DeviceKind,
   type DisconnectReason,
+  type InputLevel,
   type ScreenShareQuality,
   type Unsubscribe,
   VoiceConnectError,
@@ -33,11 +34,13 @@ import {
   VoiceMediaError,
 } from "./engine";
 import { createVoiceEngine } from "./engine-provider";
+import { markJoin } from "./join-perf";
 import { mediaMessage } from "./media-errors";
 import { effectiveVolume, personVolumeOf, useParticipantVolumeStore } from "./participant-volume";
 import { startScreenPreview } from "./screen-preview";
 import { loadScreenQuality, saveScreenQuality } from "./screen-quality";
 import { startScreenWatchNotifier } from "./screen-watch";
+import { LocalSpeakingDetector, mergeSpeaking, SpeakerHold, sameSet } from "./speaking";
 import {
   useAudioStatusStore,
   useInputLevelStore,
@@ -74,14 +77,61 @@ let serverMuted = false;
 
 const session = () => useVoiceStore.getState();
 
+// ---- Indicador de "falando": servidor (com hold anti-pisca) OU leitura local do meu microfone ----
+
+const remoteSpeakers = new SpeakerHold();
+const localSpeaker = new LocalSpeakingDetector({ gate: false });
+let speakingTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Recalcula `speaking` (servidor com hold + eu pela leitura local, sem mudo) e agenda o próximo apagar. */
+function publishSpeaking() {
+  const now = Date.now();
+  clearTimeout(speakingTimer);
+  const s = session();
+  const next = mergeSpeaking(
+    remoteSpeakers.active(now),
+    localSpeaker.tick(now),
+    knownMyId,
+    s.selfMute,
+  );
+  if (!sameSet(next, s.speaking)) s.patch({ speaking: next });
+  const expiries = [remoteSpeakers.nextExpiry(), localSpeaker.nextExpiry()].filter(
+    (x): x is number => x !== null,
+  );
+  if (expiries.length > 0)
+    speakingTimer = setTimeout(publishSpeaking, Math.max(0, Math.min(...expiries) - now) + 1);
+}
+
+/** Leitura do meu microfone (~20/s): só vale na chamada e com o microfone aberto. */
+function onLocalLevel(l: InputLevel) {
+  const s = session();
+  if (s.status !== "connected" || s.selfMute) return;
+  localSpeaker.setGate(loadAudioProcessing().inputSensitivity.mode !== "off");
+  localSpeaker.update(l, Date.now());
+  publishSpeaking();
+}
+
+/** Zera o indicador (entrada nova, saída, reconexão). */
+function resetSpeaking() {
+  clearTimeout(speakingTimer);
+  remoteSpeakers.clear();
+  localSpeaker.reset();
+}
+
+/** Liga/desliga a medição do microfone DA CHAMADA que alimenta o meu anel (`callOnly`: nunca abre captura de teste). */
+function setCallMeter(eng: VoiceEngine | null, on: boolean) {
+  void eng?.setInputLevelMonitor?.(on, { callOnly: true }).catch(() => {});
+}
+
 function ensureEngine(): VoiceEngine {
   if (engine) return engine;
   const e = createVoiceEngine();
   engine = e;
   unsubs = [
-    e.on("speakers-changed", ({ identities }) =>
-      session().patch({ speaking: new Set(identities) }),
-    ),
+    e.on("speakers-changed", ({ identities }) => {
+      remoteSpeakers.push(identities, Date.now());
+      publishSpeaking();
+    }),
     e.on("video-track-added", (t) => session().addTrack(t)),
     e.on("video-track-removed", ({ id }) => session().removeTrack(id)),
     e.on("connection-state", ({ state }) => {
@@ -97,7 +147,10 @@ function ensureEngine(): VoiceEngine {
     e.on("audio-blocked", ({ blocked }) => session().patch({ audioBlocked: blocked })),
     e.on("audio-processing-status", onAudioProcessingStatus),
     e.on("participant-joined", ({ identity }) => applyPersonVolume(e, identity)),
-    e.on("input-level", (l) => useInputLevelStore.getState().set(l)),
+    e.on("input-level", (l) => {
+      useInputLevelStore.getState().set(l);
+      onLocalLevel(l);
+    }),
     e.on("mic-test", (s) => useMicTestStore.getState().set(s)),
     e.on("disconnected", ({ reason }) => onDisconnected(reason)),
     useVoiceStore.subscribe(syncScreenPreview),
@@ -125,6 +178,7 @@ export function resetVoiceController() {
   useMicTestStore.getState().set(null);
   generation++;
   clearTimeout(rejoinTimer);
+  resetSpeaking();
   for (const u of unsubs) u();
   unsubs = [];
   stopScreenPreview(false);
@@ -145,6 +199,7 @@ export async function joinVoice(
 ): Promise<boolean> {
   const s = session();
   if (s.channelId === target.channelId && s.status !== "idle") return true;
+  markJoin("click");
   const gen = ++generation;
   clearTimeout(rejoinTimer);
   lastTarget = target;
@@ -158,15 +213,39 @@ export async function joinVoice(
   // Pedir o token de outro canal já tira o usuário do anterior no servidor; o cliente sai da sala antiga.
   if (s.status !== "idle") await eng.disconnect();
   session().begin(target);
+  resetSpeaking();
+  // O microfone abre (e o RNNoise/porta carregam) EM PARALELO com o token e a conexão, não depois delas.
+  const micPrepared = prepareMic(eng, target);
+  setCallMeter(eng, true);
   const ok = await connectWithToken(eng, target, gen, prefetched);
   if (gen !== generation) return false;
   if (!ok) {
+    eng.discardPreparedMicrophone?.();
+    setCallMeter(eng, false);
     session().clear();
     return false;
   }
-  await afterConnect(eng, target, gen);
-  if (gen === generation) playCallSound("join");
+  await afterConnect(eng, target, gen, micPrepared);
+  if (gen === generation) {
+    markJoin("ready");
+    playCallSound("join");
+  }
   return gen === generation;
+}
+
+/**
+ * Começa a abrir o microfone antes de a sala conectar, se a engine sabe e se a pessoa vai falar (não está mudo,
+ * surdo nem sem permissão de falar). Sempre descarta um preparo anterior que tenha sobrado. `true` = preparado.
+ */
+function prepareMic(eng: VoiceEngine, target: JoinTarget): boolean {
+  eng.discardPreparedMicrophone?.();
+  const { selfMute, selfDeaf } = session();
+  if (!eng.prepareMicrophone || selfMute || selfDeaf || !target.canSpeak || serverMuted)
+    return false;
+  // O processamento (eco/ruído/ganho/porta) vale para a captura que vai abrir já.
+  void eng.setAudioProcessing?.(loadAudioProcessing()).catch(() => {});
+  eng.prepareMicrophone();
+  return true;
 }
 
 /** Token + conexão; com token recusado (vencido) pede outro uma vez. */
@@ -179,7 +258,9 @@ async function connectWithToken(
   for (let attempt = 0; attempt < 2; attempt++) {
     let token: { url: string; token: string };
     try {
+      markJoin("token:start");
       token = attempt === 0 && prefetched ? prefetched : await fetchToken(target.channelId);
+      markJoin("token:end");
     } catch (err) {
       if (gen === generation) {
         toast.error(voiceMessage(err));
@@ -189,7 +270,10 @@ async function connectWithToken(
     }
     if (gen !== generation) return false;
     try {
+      rememberVoiceUrl(token.url);
+      markJoin("connect:start");
       await eng.connect({ url: token.url, token: token.token });
+      markJoin("connect:end");
       useVoiceAvailabilityStore.getState().set(false);
       return gen === generation;
     } catch (err) {
@@ -201,6 +285,44 @@ async function connectWithToken(
     }
   }
   return false;
+}
+
+const VOICE_URL_KEY = "spook:voice-url";
+const PREWARM_EVERY_MS = 30_000;
+let lastVoiceUrl: string | null = null;
+let lastPrewarm = 0;
+
+/** Guarda o endereço do servidor de mídia da última entrada (só o host: sem token), para pré-aquecer o próximo clique. */
+function rememberVoiceUrl(url: string) {
+  lastVoiceUrl = url;
+  try {
+    localStorage.setItem(VOICE_URL_KEY, url);
+  } catch {
+    // sem localStorage: vale só nesta sessão
+  }
+}
+
+/**
+ * O ponteiro passou (ou o foco chegou) num botão de entrar na voz: pré-aquece DNS/TLS do servidor de mídia e os
+ * módulos do ruído/porta. NÃO pede token: emitir token tem efeito no servidor (tira o usuário do canal em que
+ * está e marca a intenção de entrar, SPEC 7.7), então só se pede no clique. No máximo uma vez a cada 30 s.
+ */
+export function prewarmVoice() {
+  const s = session();
+  if (s.status !== "idle") return;
+  const now = Date.now();
+  if (now - lastPrewarm < PREWARM_EVERY_MS) return;
+  lastPrewarm = now;
+  try {
+    lastVoiceUrl ??= localStorage.getItem(VOICE_URL_KEY);
+  } catch {
+    // ignora
+  }
+  try {
+    ensureEngine().prewarm?.(lastVoiceUrl ?? undefined);
+  } catch {
+    // engine indisponível: nada a aquecer
+  }
 }
 
 let knownMyId: string | null = null;
@@ -215,29 +337,47 @@ function ensureWatchNotifier() {
   });
 }
 
-async function afterConnect(eng: VoiceEngine, target: JoinTarget, gen: number) {
+async function afterConnect(
+  eng: VoiceEngine,
+  target: JoinTarget,
+  gen: number,
+  /** O microfone já foi aberto em paralelo com a conexão (`prepareMic`): só falta publicá-lo. */
+  micPrepared = false,
+) {
   session().patch({ status: "connected" });
   ensureWatchNotifier();
   // Reaplica as telas que o usuário escolheu assistir (a engine começa sem assinar nenhuma).
   for (const id of session().watching) eng.setScreenWatching?.(id, true);
   const prefs = loadDevicePrefs();
-  for (const kind of Object.keys(prefs) as DeviceKind[]) {
-    const id = prefs[kind];
-    if (id) await eng.setDevice(kind, id).catch(() => {});
-  }
-  await eng.setAudioProcessing?.(loadAudioProcessing()).catch(() => {});
   const { selfMute, selfDeaf } = session();
   eng.setDeafened(selfDeaf);
-  if (!selfMute && !selfDeaf && target.canSpeak) {
+  const micOn = !selfMute && !selfDeaf && target.canSpeak;
+  if (!micOn) eng.discardPreparedMicrophone?.();
+
+  // Microfone: dispositivo -> processamento -> publicação (o dispositivo e o processamento já valeram na captura
+  // preparada). Corre em paralelo com a escolha do alto-falante e da câmera, que não dependem dele.
+  const mic = (async () => {
+    if (!micPrepared) {
+      if (prefs.audioinput) await eng.setDevice("audioinput", prefs.audioinput).catch(() => {});
+      await eng.setAudioProcessing?.(loadAudioProcessing()).catch(() => {});
+    }
+    if (!micOn) return;
     try {
+      markJoin("mic:start");
       await eng.setMicrophoneEnabled(true);
+      markJoin("mic:end");
     } catch (err) {
       if (gen !== generation) return;
       // Sem microfone: entra mudo (como ouvinte) e explica.
       reportMediaIssue(err);
       session().patch({ selfMute: true, muteBeforeDeaf: true });
     }
-  }
+  })();
+  const others = (["audiooutput", "videoinput"] as const).map(async (kind) => {
+    const id = prefs[kind];
+    if (id) await eng.setDevice(kind, id).catch(() => {});
+  });
+  await Promise.all([mic, ...others]);
   if (gen !== generation) return;
   // O servidor começa sem mudo/surdo: só avisa quando a intenção local difere (ex.: veio mudo da chamada anterior).
   if (session().selfMute || session().selfDeaf) await syncState();
@@ -263,6 +403,9 @@ export async function leaveCall() {
   session().clear();
   useAudioStatusStore.getState().set(null);
   playCallSound("leave");
+  eng?.discardPreparedMicrophone?.();
+  setCallMeter(eng ?? null, false);
+  resetSpeaking();
   await eng?.disconnect();
   try {
     await leaveVoice();
@@ -296,6 +439,7 @@ export async function toggleMute() {
   });
   if (undeaf) engine?.setDeafened(false);
   playCallSound(mute ? "mute" : "unmute");
+  publishSpeaking(); // mudo apaga o meu anel na hora
   await applyMic(!mute);
   await syncState();
 }
@@ -310,6 +454,7 @@ export async function toggleDeafen() {
   if (!s.selfDeaf) {
     session().patch({ selfDeaf: true, selfMute: true, muteBeforeDeaf: s.selfMute });
     playCallSound("deafen");
+    publishSpeaking();
     engine?.setDeafened(true);
     await applyMic(false);
   } else {
@@ -636,6 +781,7 @@ async function rejoin(gen: number, attempt: number) {
     videoTracks: [],
     confirmed: false,
   });
+  resetSpeaking();
   const delay = REJOIN_DELAYS_MS[attempt];
   if (delay === undefined) return forcedOut(t("voice.toast.connectionLost"));
   await new Promise<void>((resolve) => {
@@ -656,6 +802,9 @@ function forcedOut(message: string) {
   session().clear();
   useAudioStatusStore.getState().set(null);
   playCallSound("leave");
+  engine?.discardPreparedMicrophone?.();
+  setCallMeter(engine, false);
+  resetSpeaking();
   void engine?.disconnect();
   toast.info(message);
 }
@@ -677,7 +826,10 @@ export function reconcileVoiceUpdate(myId: string | null, u: GatewayVoiceState) 
   const s = session();
   if (s.status === "idle") return;
   if (u.channel_id === s.channelId) {
-    if (!s.confirmed) s.patch({ confirmed: true });
+    if (!s.confirmed) {
+      s.patch({ confirmed: true });
+      markJoin("confirmed");
+    }
     syncServerMute(!!u.server_muted);
     return;
   }
@@ -691,6 +843,7 @@ function syncServerMute(muted: boolean) {
   serverMuted = muted;
   if (muted) {
     session().patch({ selfMute: true, muteBeforeDeaf: true });
+    publishSpeaking();
     void engine?.setMicrophoneEnabled(false).catch(() => {});
     void syncState();
     toast.warning(t("voice.toast.modMuted"));
@@ -747,6 +900,9 @@ export function shutdownVoice() {
   serverMuted = false;
   generation++;
   clearTimeout(rejoinTimer);
+  engine?.discardPreparedMicrophone?.();
+  setCallMeter(engine, false);
+  resetSpeaking();
   void engine?.disconnect();
   useVoiceStore.getState().reset();
   useVoiceStatesStore.getState().reset();

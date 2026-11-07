@@ -688,6 +688,43 @@ describe("NativeVoiceEngine: porta de ruído e medidor", () => {
     expect(rust.channels).toHaveLength(1);
   });
 
+  it("medição só da chamada (callOnly) usa o mesmo canal e avisa o Rust para não abrir prévia", async () => {
+    const { rust, engine } = setup();
+    await engine.setInputLevelMonitor(true, { callOnly: true });
+    const call = rust.named("voice_set_input_level_monitor")[0];
+    expect(call?.args).toMatchObject({ enabled: true, callOnly: true });
+    await engine.setInputLevelMonitor(false, { callOnly: true });
+    expect(rust.named("voice_set_input_level_monitor")[1]?.args).toEqual({
+      enabled: false,
+      callOnly: true,
+    });
+  });
+
+  it("prepara o microfone em paralelo (dispositivo salvo primeiro) e o publica depois de conectar", async () => {
+    localStorage.setItem("spook:voice-devices", JSON.stringify({ audioinput: "mic9" }));
+    const { rust, engine } = setup();
+    engine.prepareMicrophone();
+    await engine.connect(params);
+    await engine.setMicrophoneEnabled(true);
+    const order = rust.calls.map((c) => c.cmd);
+    expect(order.indexOf("voice_set_device")).toBeLessThan(
+      order.indexOf("voice_prepare_microphone"),
+    );
+    expect(order.indexOf("voice_prepare_microphone")).toBeLessThan(
+      order.indexOf("voice_set_microphone"),
+    );
+    expect(rust.named("voice_set_device")[0]?.args).toEqual({ kind: "audioinput", id: "mic9" });
+    localStorage.clear();
+  });
+
+  it("descartar o preparo chama o Rust (solta o dispositivo)", async () => {
+    const { rust, engine } = setup();
+    engine.prepareMicrophone();
+    engine.discardPreparedMicrophone();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(rust.named("voice_discard_prepared_microphone")).toHaveLength(1);
+  });
+
   it("o mesmo canal serve ao medidor e ao teste, e continua valendo depois de entrar na chamada", async () => {
     const { rust, engine, seen } = setup();
     await engine.setInputLevelMonitor(true);

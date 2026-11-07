@@ -107,10 +107,22 @@ describe("entrar", () => {
     expect(fake.calls).not.toContain("mic:true");
   });
 
-  it("aplica os dispositivos salvos ao conectar", async () => {
+  it("aplica os dispositivos salvos ao conectar (o microfone preparado já abriu com o dele)", async () => {
+    localStorage.setItem(
+      "spook:voice-devices",
+      JSON.stringify({ audioinput: "mic9", audiooutput: "spk9" }),
+    );
+    await joinVoice(A);
+    expect(fake.setDevices).toEqual([["audiooutput", "spk9"]]);
+  });
+
+  it("sem microfone preparado (engine sem o recurso) o microfone salvo vale antes de publicar", async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: tira o recurso opcional do dublê
+    (fake as any).prepareMicrophone = undefined;
     localStorage.setItem("spook:voice-devices", JSON.stringify({ audioinput: "mic9" }));
     await joinVoice(A);
     expect(fake.setDevices).toEqual([["audioinput", "mic9"]]);
+    expect(fake.calls.indexOf("mic:true")).toBeGreaterThan(-1);
   });
 
   it("trocar de canal desconecta a sala antiga antes de pedir o novo token", async () => {
@@ -771,5 +783,119 @@ describe("medidor e teste de microfone (controlador)", () => {
     expect(micTestBlockedByCall()).toBe(true);
     await toggleMute();
     expect(micTestBlockedByCall()).toBe(false);
+  });
+});
+
+describe("entrada em paralelo (microfone preparado)", () => {
+  it("abre o microfone ANTES de a sala conectar e publica depois", async () => {
+    await joinVoice(A);
+    expect(fake.calls.indexOf("prepare-mic")).toBeGreaterThanOrEqual(0);
+    expect(fake.calls.indexOf("prepare-mic")).toBeLessThan(fake.calls.indexOf("connect"));
+    expect(fake.calls.indexOf("connect")).toBeLessThan(fake.calls.indexOf("mic:true"));
+  });
+
+  it("não prepara o microfone mudo, ensurdecido ou sem permissão de falar", async () => {
+    await toggleMute();
+    await joinVoice(A);
+    expect(fake.prepares).toBe(0);
+    await leaveCall();
+    await toggleMute();
+    await joinVoice({ ...A, canSpeak: false });
+    expect(fake.prepares).toBe(0);
+  });
+
+  it("token recusado descarta o microfone preparado (solta o dispositivo)", async () => {
+    backend.state.voice.tokenError = { status: 403, detail: "x" };
+    expect(await joinVoice(A)).toBe(false);
+    expect(fake.prepares).toBe(1);
+    expect(fake.discards).toBeGreaterThanOrEqual(1);
+    expect(fake.callMeterCalls.at(-1)).toBe(false);
+  });
+
+  it("sair e ser removido também descartam o preparo", async () => {
+    await joined(A);
+    const before = fake.discards;
+    await leaveCall();
+    expect(fake.discards).toBeGreaterThan(before);
+    expect(fake.callMeterCalls).toEqual([true, false]);
+  });
+
+  it("falha ao abrir o microfone entra mudo e explica (mesmo caminho de antes)", async () => {
+    fake.failMic = new VoiceMediaError("permission-denied", "microphone");
+    await joinVoice(A);
+    expect(s().selfMute).toBe(true);
+    expect(s().mediaIssue).toBeTruthy();
+  });
+});
+
+describe("indicador de falando", () => {
+  const speakers = (ids: string[]) => fake.fire("speakers-changed", { identities: ids });
+  const level = (db: number, gateOpen = true) => fake.fire("input-level", { db, gateOpen });
+
+  it("o servidor acende na hora e só apaga 250 ms depois (hold anti-pisca)", async () => {
+    await joined(A);
+    vi.useFakeTimers();
+    try {
+      speakers(["2"]);
+      expect([...s().speaking]).toEqual(["2"]);
+      speakers([]); // a atualização seguinte não traz "2": segura
+      expect([...s().speaking]).toEqual(["2"]);
+      vi.advanceTimersByTime(200);
+      expect([...s().speaking]).toEqual(["2"]);
+      vi.advanceTimersByTime(100);
+      expect([...s().speaking]).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("eu acendo pela leitura local, sem esperar o servidor, e apago com o hold", async () => {
+    await joined(A);
+    vi.useFakeTimers();
+    try {
+      level(-30);
+      expect(s().speaking.has(ME)).toBe(false); // < 60 ms: ainda não
+      vi.advanceTimersByTime(50);
+      level(-30);
+      vi.advanceTimersByTime(50);
+      level(-30);
+      expect(s().speaking.has(ME)).toBe(true);
+      vi.advanceTimersByTime(50);
+      level(-80, false);
+      expect(s().speaking.has(ME)).toBe(true); // hold
+      vi.advanceTimersByTime(300);
+      expect(s().speaking.has(ME)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("mesclagem (OU): o anel do servidor para mim continua aceso mesmo com a leitura local silenciosa", async () => {
+    await joined(A);
+    speakers([ME, "2"]);
+    expect([...s().speaking].sort()).toEqual([ME, "2"]);
+  });
+
+  it("mudo nunca acende e apaga o anel do servidor na hora", async () => {
+    await joined(A);
+    speakers([ME]);
+    expect(s().speaking.has(ME)).toBe(true);
+    await toggleMute();
+    expect(s().speaking.has(ME)).toBe(false);
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 4; i++) {
+        level(-20);
+        vi.advanceTimersByTime(50);
+      }
+      expect(s().speaking.has(ME)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leituras fora da chamada não acendem nada", async () => {
+    level(-20);
+    expect(s().speaking.size).toBe(0);
   });
 });

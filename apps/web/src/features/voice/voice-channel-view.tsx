@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useT } from "@/i18n";
 import type { Guild } from "@/lib/guild";
 import { useStageParticipants } from "./call-panel";
-import { joinVoice } from "./controller";
+import { joinVoice, prewarmVoice } from "./controller";
 import { voicePermissions } from "./permissions";
 import { VoiceStage } from "./stage/voice-stage";
 import { useVoiceAvailabilityStore, useVoiceStore } from "./store";
@@ -43,6 +43,8 @@ export function VoiceChannelView({ guild, channel }: { guild: Guild; channel: Ch
               size="sm"
               disabled={!perms.connect || connecting}
               title={perms.connect ? undefined : t("voice.channel.noConnectTitle")}
+              onPointerEnter={prewarmVoice}
+              onFocus={prewarmVoice}
               onClick={() =>
                 void joinVoice({
                   channelId: channel.id,

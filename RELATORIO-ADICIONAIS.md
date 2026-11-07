@@ -366,3 +366,26 @@ Pedido do dono. Decisões em 5.5 ("Adicional: backups"); questão em aberto 3 do
 - **Verificação:** `deploy/backup-selftest.sh` (contêineres descartáveis) e shellcheck limpo; o resultado está no relatório da entrega.
 - **Pendências do dono:** instalar o timer no VPS e, se quiser, criar o bucket/token do R2 (`PENDENCIAS-DONO.md`, B8). Não testado: instalação do timer e execução no VPS real.
 
+
+## Latência da voz: anel de fala e entrada no canal (07/11/2026)
+
+Pedido do dono (2 melhorias de latência percebida). Decisões em 5.5 ("Adicional: latência da voz (fala e entrada)"). Sem mudança de API, Go ou migrations.
+
+- **A. Indicador de fala.** LiveKit com `audio: { update_interval: 200, smooth_intervals: 1 }` (dev e prod; o deploy recria o LiveKit e as chamadas em andamento caem por segundos). Cliente: hold anti-pisca de 250 ms nas identidades do servidor e anel do próprio usuário pela leitura local do microfone (nível pós-ruído/porta, ~60 ms para acender, histerese de 4 dB, hold de 250 ms), mesclado (OU) com o servidor; mudo nunca acende. Web e desktop (Rust: `callOnly` no medidor, não compilado localmente).
+- **B. Entrada.** Medida por fase (`voice-join-perf.spec.ts`), depois: microfone + RNNoise/porta abertos em paralelo com token e conexão; `afterConnect` paralelo; item do próprio usuário já na lista do canal; pré-aquecimento (DNS/TLS do LiveKit e módulos) no hover; no Rust, mesmo preparo (`voice_prepare_microphone`) e logs de duração das fases.
+- **Tempos (mediana de 10 entradas, ms desde o clique; LiveKit local no Docker, Chromium com mídia falsa).** "Pronto" = microfone publicado. "Simulado" = +120 ms no token e +250 ms para abrir o microfone (a rede local não mostra o que o usuário sente).
+
+| Fase | Antes (local) | Depois (local) | Antes (simulado) | Depois (simulado) |
+|---|---|---|---|---|
+| token pedido -> recebido | 15 | 16 | 137 | 137 |
+| sinalização (WebSocket) aberta | 36 | 37 | 152 | 151 |
+| conectado (ICE/mídia) | 86 | 88 | 203 | 202 |
+| captura + processador (RNNoise/porta) | dentro de "mic" | 35 (em paralelo) | dentro de "mic" | 254 (em paralelo) |
+| microfone publicado = pronto (Padrão) | 129 | 128 | 517 | 291 |
+| pronto (Forte + porta) | 141 | 132 | 529 | 291 |
+| confirmação do gateway (webhook) | 54 | 57 | 166 | 166 |
+| `voice.token` no servidor (Server-Timing) | 1 | 1 | 1 | 1 |
+
+  Ganho real = o que a abertura do dispositivo custa, que passa a sobrepor o token e a conexão (-226 ms a -238 ms no cenário simulado); na rede local, sem custo de dispositivo, nada muda (esperado). A 1ª entrada de uma sessão fria (baixar RNNoise/worklet) não entra na mediana e é coberta só em parte pelo pré-aquecimento do hover.
+- **Não feito (de propósito).** Pré-buscar o token: emissão tem efeito no servidor (7.7) e gastaria o limite de 30/min.
+- **Pontos de atenção.** (1) Toda chamada com microfone aberto passa a ter o grafo de áudio da web (~10 ms de lookahead + CPU baixa), para medir o nível; (2) o preparo abre o microfone no clique, antes de saber se a conexão dará certo (descartado se falhar); (3) latência real do anel em chamada com duas pessoas e o preparo do desktop só se validam à mão (`VALIDACAO-MANUAL.md`).

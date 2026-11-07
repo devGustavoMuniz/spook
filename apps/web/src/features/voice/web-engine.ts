@@ -4,6 +4,7 @@ import {
   type AudioProcessorOptions,
   ConnectionError,
   ConnectionQuality,
+  createLocalAudioTrack,
   ConnectionState as LkConnectionState,
   DisconnectReason as LkDisconnectReason,
   type LocalAudioTrack,
@@ -22,7 +23,7 @@ import {
   type VideoTrack,
 } from "livekit-client";
 import { t } from "@/i18n";
-import { DEFAULT_AUDIO_PROCESSING, loadDevicePrefs } from "./devices";
+import { DEFAULT_AUDIO_PROCESSING, loadAudioProcessing, loadDevicePrefs } from "./devices";
 import {
   type AudioCapabilities,
   type AudioProcessingOptions,
@@ -48,6 +49,7 @@ import {
   type VoiceEngineEvents,
   VoiceMediaError,
 } from "./engine";
+import { markJoin } from "./join-perf";
 import { MIC_TEST_DURATION_MS, MicPipeline, MicTester, type PipelineOptions } from "./mic-test";
 import type { MicTrackProcessor } from "./noise-processor";
 import { estimateUplinkKbps } from "./screen-quality";
@@ -299,6 +301,8 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
   private micProcessor: MicTrackProcessor | null = null;
   /** O medidor de nível está ligado (evento `input-level`). */
   private monitorOn = false;
+  /** Medição só da faixa da chamada ligada pelo controlador (anel de "falando" do próprio usuário). */
+  private callMeter = false;
   /** Captura de teste separada (medidor fora da chamada, ou com o microfone mudo). */
   private monitor: MicPipeline | null = null;
   private tester = new MicTester();
@@ -403,6 +407,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
       .on(RoomEvent.ParticipantDisconnected, (p) =>
         this.emit("participant-left", { identity: p.identity }),
       )
+      .on(RoomEvent.SignalConnected, () => markJoin("signal"))
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) =>
         this.emit("speakers-changed", { identities: speakers.map((s) => s.identity) }),
       )
@@ -502,14 +507,78 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     return this.room;
   }
 
+  /** Microfone aberto antes de a sala conectar (ver `prepareMicrophone`); consumido por `setMicrophoneEnabled(true)`. */
+  private prepared: Promise<LocalAudioTrack> | null = null;
+
+  prepareMicrophone(): void {
+    this.discardPreparedMicrophone();
+    markJoin("prep:start");
+    const job = this.capturePrepared();
+    // O erro só é reportado quando (e se) alguém consumir o preparo; sem isso seria "unhandled rejection".
+    job.catch(() => {});
+    this.prepared = job;
+  }
+
+  discardPreparedMicrophone(): void {
+    const old = this.prepared;
+    this.prepared = null;
+    // Solta o dispositivo (a luz de "microfone em uso" apaga) mesmo se a captura ainda estava terminando.
+    void old?.then((track) => track.stop()).catch(() => {});
+  }
+
+  prewarm(url?: string): void {
+    if (url) void new Room().prepareConnection(url);
+    const ap = loadAudioProcessing();
+    if (
+      supportsAudioGraph() &&
+      (ap.noiseSuppression === "strong" || ap.inputSensitivity.mode !== "off")
+    )
+      void import("./noise-processor")
+        .then((m) => m.preloadNoiseAssets(ap.noiseSuppression === "strong"))
+        .catch(() => {});
+  }
+
+  /** Captura o microfone com as opções vigentes e já põe o processador (RNNoise/porta), sem sala. */
+  private async capturePrepared(): Promise<LocalAudioTrack> {
+    const deviceId = loadDevicePrefs().audioinput;
+    const levelAtStart = this.level;
+    const track = await createLocalAudioTrack({
+      ...micConstraints(this.audio, this.level),
+      ...(deviceId && deviceId !== "default" ? { deviceId: { ideal: deviceId } } : {}),
+    });
+    try {
+      await this.syncProcessor(track);
+      // A IA foi rebaixada durante o preparo: a captura precisa das constraints do nível novo.
+      if (this.level !== levelAtStart)
+        await track.restartTrack(micConstraints(this.audio, this.level));
+    } catch (err) {
+      track.stop();
+      throw err;
+    }
+    markJoin("prep:end");
+    return track;
+  }
+
   async setMicrophoneEnabled(enabled: boolean) {
     const lp = this.requireRoom().localParticipant;
+    const prepared = enabled ? this.prepared : null;
+    if (prepared) this.prepared = null;
     try {
-      const pub = await lp.setMicrophoneEnabled(
-        enabled,
-        enabled ? micConstraints(this.audio, this.level) : undefined,
-      );
-      if (enabled) await this.syncProcessor(pub?.audioTrack as LocalAudioTrack | undefined);
+      if (prepared) {
+        const track = await prepared;
+        try {
+          await lp.publishTrack(track, { source: Track.Source.Microphone });
+        } catch (err) {
+          track.stop();
+          throw err;
+        }
+      } else {
+        const pub = await lp.setMicrophoneEnabled(
+          enabled,
+          enabled ? micConstraints(this.audio, this.level) : undefined,
+        );
+        if (enabled) await this.syncProcessor(pub?.audioTrack as LocalAudioTrack | undefined);
+      }
     } catch (err) {
       throw toMediaError(err, "microphone");
     }
@@ -606,7 +675,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     if (!track) return;
     const strong = this.level === "strong";
     const sensitivity = this.audio.inputSensitivity;
-    const wanted = strong || sensitivity.mode !== "off" || this.monitorOn;
+    const wanted = strong || sensitivity.mode !== "off" || this.monitorOn || this.callMeter;
     if (!wanted) {
       if (track.getProcessor()) await track.stopProcessor();
       this.micProcessor = null;
@@ -619,13 +688,14 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     if (track.getProcessor()) await track.stopProcessor();
     this.micProcessor = null;
     if (strong) this.setStatus({ level: "strong", state: "loading" });
+    markJoin("proc:start");
     try {
       const { MicTrackProcessor, LOAD_TIMEOUT_MS } = await import("./noise-processor");
       const processor = new MicTrackProcessor({
         strong,
         sensitivity,
         onLevel: (l) => {
-          if (this.monitorOn) this.emit("input-level", l);
+          if (this.monitorOn || this.callMeter) this.emit("input-level", l);
         },
         onLoad: (load) => this.setStatus({ level: "strong", state: "active", load }),
         onSlow: () =>
@@ -641,6 +711,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
         "tempo esgotado ao carregar o modelo de IA",
       );
       this.micProcessor = processor;
+      markJoin("proc:end");
       if (strong) this.setStatus({ level: "strong", state: "active", load: "ok" });
     } catch (err) {
       if (strong) await this.degrade(this.reasonOf(err));
@@ -697,7 +768,14 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
 
   // ---- Medidor de nível e teste de microfone ----
 
-  async setInputLevelMonitor(enabled: boolean): Promise<void> {
+  async setInputLevelMonitor(enabled: boolean, opts?: { callOnly?: boolean }): Promise<void> {
+    if (opts?.callOnly) {
+      if (this.callMeter === enabled) return;
+      this.callMeter = enabled;
+      // Só reconfigura a faixa que já existe; a que for publicada depois já nasce com (ou sem) o medidor.
+      await this.enqueueMic(() => this.syncProcessor(this.liveMicTrack() ?? this.micTrack()));
+      return;
+    }
     this.monitorOn = enabled;
     if (!enabled) {
       this.monitor?.stop();

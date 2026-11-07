@@ -2,6 +2,8 @@
 // (LiveKit Rust SDK + cpal + scap + nokhwa) por comandos e canais do Tauri. O WebView NUNCA usa
 // `getUserMedia`, `getDisplayMedia` nem `RTCPeerConnection`: o áudio é capturado/tocado no Rust, e o vídeo
 // remoto chega como JPEG que desenhamos num `<canvas>`.
+
+import { loadDevicePrefs } from "@/features/voice/devices";
 import {
   type AudioCapabilities,
   type AudioProcessingOptions,
@@ -234,8 +236,39 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     if (!this.active) throw new VoiceConnectError("unknown", "sem sala de voz ativa");
   }
 
+  /**
+   * Abre o microfone no Rust em paralelo com a conexão. O dispositivo escolhido vai antes (o Rust só guarda a
+   * preferência sem sala) e o `voice_prepare_microphone` não bloqueia: `setMicrophoneEnabled(true)` usa a captura.
+   */
+  prepareMicrophone(): void {
+    const id = loadDevicePrefs().audioinput;
+    this.preparing = (async () => {
+      if (id)
+        await this.deps
+          .invoke("voice_set_device", { kind: "audioinput", id: id === "default" ? "" : id })
+          .catch(() => {});
+      await this.deps.invoke("voice_prepare_microphone").catch(() => {});
+    })();
+  }
+
+  /** O pedido de preparo em andamento: `setMicrophoneEnabled(true)` espera por ele (a ordem dos comandos importa). */
+  private preparing: Promise<void> | null = null;
+
+  discardPreparedMicrophone(): void {
+    const pending = this.preparing;
+    this.preparing = null;
+    void (pending ?? Promise.resolve()).then(() =>
+      this.deps.invoke("voice_discard_prepared_microphone").catch(() => {}),
+    );
+  }
+
   async setMicrophoneEnabled(enabled: boolean) {
     this.requireRoom();
+    if (enabled && this.preparing) {
+      const pending = this.preparing;
+      this.preparing = null;
+      await pending;
+    }
     try {
       await this.deps.invoke("voice_set_microphone", { enabled });
     } catch (err) {
@@ -337,10 +370,11 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     return this.aux;
   }
 
-  async setInputLevelMonitor(enabled: boolean): Promise<void> {
+  async setInputLevelMonitor(enabled: boolean, opts?: { callOnly?: boolean }): Promise<void> {
     try {
       await this.deps.invoke("voice_set_input_level_monitor", {
         enabled,
+        ...(opts?.callOnly ? { callOnly: true } : {}),
         ...(enabled ? { events: await this.auxChannel() } : {}),
       });
     } catch (err) {

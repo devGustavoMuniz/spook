@@ -1,4 +1,4 @@
-import { type ChannelPayload, useGetMe, type VoiceStatePayload } from "@spook/shared";
+import { type ChannelPayload, useGetMe } from "@spook/shared";
 import { Phone, PhoneOff } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { useCallStore } from "@/features/social/call-store";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { joinVoice, leaveCall, watchStream } from "./controller";
+import { withProvisionalSelf } from "./provisional";
 import { VoiceStage } from "./stage/voice-stage";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "./store";
 import { usePersonLookup } from "./use-person-lookup";
@@ -26,20 +27,20 @@ export function useCallParticipants(channelId: string) {
 export function useStageParticipants(channelId: string, guildId: string | null, inCall: boolean) {
   const { data: me } = useGetMe();
   const list = useCallParticipants(channelId);
-  return useMemo(() => {
-    if (!inCall || !me || list.some((p) => p.user_id === me.id)) return list;
-    const mine: VoiceStatePayload = {
-      guild_id: guildId,
-      channel_id: channelId,
-      user_id: me.id,
-      self_mute: false,
-      self_deaf: false,
-      self_video: false,
-      self_screen: false,
-      screen_preview: false,
-    };
-    return [mine, ...list];
-  }, [list, me, inCall, channelId, guildId]);
+  const selfMute = useVoiceStore((s) => s.selfMute);
+  const selfDeaf = useVoiceStore((s) => s.selfDeaf);
+  return useMemo(
+    () =>
+      withProvisionalSelf(list, {
+        meId: me?.id,
+        channelId,
+        guildId,
+        active: inCall,
+        selfMute,
+        selfDeaf,
+      }),
+    [list, me?.id, inCall, channelId, guildId, selfMute, selfDeaf],
+  );
 }
 
 /**

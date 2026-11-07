@@ -124,6 +124,13 @@ enum MicInput {
     Synthetic(ToneTask),
 }
 
+/// Microfone aberto ANTES de a sala conectar (em paralelo com o token e o `Room::connect`): a captura e o canal de
+/// quadros. `start_mic_locked` o consome em vez de abrir o dispositivo de novo; soltar = parar a captura.
+struct PreparedMic {
+    capture: MicInput,
+    rx: mpsc::Receiver<Vec<i16>>,
+}
+
 /// Captura de PRÉVIA do microfone (medidor de nível fora da chamada): passa pela mesma cadeia AEC/NS/porta, mas o
 /// áudio nunca é publicado nem tocado. Soltar = parar.
 struct Preview {
@@ -201,6 +208,10 @@ pub struct VoiceCore {
     /// Canal de eventos do medidor e do teste de microfone (independente do da sala: valem fora de chamada).
     aux_emit: Arc<Mutex<Option<Emit>>>,
     monitor_on: AtomicBool,
+    /// Medição só da captura da chamada (anel de "falando" do próprio usuário): nunca abre prévia.
+    call_meter: AtomicBool,
+    /// Abertura do microfone em andamento/pronta antes da conexão (`prepare_microphone`).
+    prepared: Mutex<Option<JoinHandle<Result<PreparedMic, VoiceError>>>>,
     meter: Mutex<Option<JoinHandle<()>>>,
     preview: Mutex<Option<Preview>>,
     mic_test: Mutex<Option<JoinHandle<()>>>,
@@ -225,6 +236,8 @@ impl VoiceCore {
             apm: Arc::new(ApmBridge::new(AudioProcessingSettings::default())),
             aux_emit: Arc::new(Mutex::new(None)),
             monitor_on: AtomicBool::new(false),
+            call_meter: AtomicBool::new(false),
+            prepared: Mutex::new(None),
             meter: Mutex::new(None),
             preview: Mutex::new(None),
             mic_test: Mutex::new(None),
@@ -269,6 +282,7 @@ impl VoiceCore {
         options.auto_subscribe = true;
         options.adaptive_stream = false;
         options.dynacast = true;
+        let connect_started = Instant::now();
         let (room, rx) = Room::connect(url, token, options).await.map_err(|e| {
             // Nunca registre a URL com token nem o token.
             let raw = e.to_string();
@@ -276,6 +290,10 @@ impl VoiceCore {
             let code = classify_connect_message(&raw);
             VoiceError::connect(code, connect_message(code))
         })?;
+        log::info!(
+            "voz: Room::connect levou {} ms",
+            connect_started.elapsed().as_millis()
+        );
         let room = Arc::new(room);
 
         let shared = Arc::new(Shared {
@@ -302,12 +320,19 @@ impl VoiceCore {
             }
         }
 
+        let playback_started = Instant::now();
         let playback = match audio::start_playback(
             self.prefs().output,
             self.mixer.clone(),
             Some(self.apm.clone()),
         ) {
-            Ok(p) => Some(p),
+            Ok(p) => {
+                log::info!(
+                    "voz: abrir a reprodução levou {} ms",
+                    playback_started.elapsed().as_millis()
+                );
+                Some(p)
+            }
             Err(e) => {
                 // Sem alto-falante a pessoa ainda pode falar; só não ouve.
                 log::warn!("reprodução de áudio indisponível: {e}");
@@ -405,6 +430,50 @@ impl VoiceCore {
 
     // ----- áudio local -----
 
+    /// Abre o microfone em segundo plano ANTES de a sala conectar. Não bloqueia: o resultado (ou o erro) é entregue
+    /// pelo `set_microphone(true)` seguinte, que usa a captura pronta. Um preparo anterior é descartado.
+    pub fn prepare_microphone(&self) {
+        self.discard_prepared_microphone();
+        let device = self.prefs().input;
+        let probe = self.apm.probe();
+        let synthetic = self.synthetic();
+        let handle = tokio::spawn(async move {
+            let started = Instant::now();
+            let (tx, rx) = mpsc::channel::<Vec<i16>>(50);
+            let capture = match synthetic {
+                Some(syn) => MicInput::Synthetic(synth::start_tone(syn.tone_hz, tx)),
+                None => MicInput::Device(
+                    tokio::task::spawn_blocking(move || audio::start_mic(device, tx, Some(probe)))
+                        .await
+                        .map_err(|e| VoiceError::other(e.to_string()))??,
+                ),
+            };
+            log::info!(
+                "voz: microfone preparado em {} ms",
+                started.elapsed().as_millis()
+            );
+            Ok::<PreparedMic, VoiceError>(PreparedMic { capture, rx })
+        });
+        *lock(&self.prepared) = Some(handle);
+    }
+
+    /// Descarta o microfone preparado e solta o dispositivo (a entrada falhou ou foi cancelada). Idempotente.
+    pub fn discard_prepared_microphone(&self) {
+        let old = lock(&self.prepared).take();
+        if let Some(h) = old {
+            h.abort();
+        }
+    }
+
+    async fn take_prepared(&self) -> Option<Result<PreparedMic, VoiceError>> {
+        let handle = { lock(&self.prepared).take() };
+        let handle = handle?;
+        Some(match handle.await {
+            Ok(r) => r,
+            Err(e) => Err(VoiceError::other(e.to_string())),
+        })
+    }
+
     pub async fn set_microphone(&self, enabled: bool) -> Result<(), VoiceError> {
         let mut guard = self.session.lock().await;
         let s = guard.as_mut().ok_or_else(VoiceError::no_room)?;
@@ -432,19 +501,38 @@ impl VoiceCore {
         // A captura da chamada passa a alimentar o medidor: a prévia e o teste de microfone cedem o dispositivo.
         self.abort_mic_test();
         self.stop_preview();
-        let device = self.prefs().input;
-        let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
-        let probe = self.apm.probe();
-        let capture = match self.synthetic() {
-            Some(syn) => MicInput::Synthetic(synth::start_tone(syn.tone_hz, tx)),
-            // A abertura do dispositivo é bloqueante (CoreAudio pode mostrar o diálogo de permissão).
-            None => MicInput::Device(
-                tokio::task::spawn_blocking(move || audio::start_mic(device, tx, Some(probe)))
-                    .await
-                    .map_err(|e| VoiceError::other(e.to_string()))??,
-            ),
+        let mic_started = Instant::now();
+        let (capture, mut rx) = match self.take_prepared().await {
+            // Já aberto em paralelo com a conexão: descarta o que se acumulou até aqui (seria áudio velho).
+            Some(Ok(mut p)) => {
+                while p.rx.try_recv().is_ok() {}
+                (p.capture, p.rx)
+            }
+            Some(Err(e)) => return Err(e),
+            None => {
+                let device = self.prefs().input;
+                let (tx, rx) = mpsc::channel::<Vec<i16>>(50);
+                let probe = self.apm.probe();
+                let capture = match self.synthetic() {
+                    Some(syn) => MicInput::Synthetic(synth::start_tone(syn.tone_hz, tx)),
+                    // A abertura do dispositivo é bloqueante (CoreAudio pode mostrar o diálogo de permissão).
+                    None => MicInput::Device(
+                        tokio::task::spawn_blocking(move || {
+                            audio::start_mic(device, tx, Some(probe))
+                        })
+                        .await
+                        .map_err(|e| VoiceError::other(e.to_string()))??,
+                    ),
+                };
+                (capture, rx)
+            }
         };
+        log::info!(
+            "voz: abrir o microfone (esperar/abrir) levou {} ms",
+            mic_started.elapsed().as_millis()
+        );
 
+        let publish_started = Instant::now();
         if s.mic.is_none() {
             let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, 1, 100);
             let track = LocalAudioTrack::create_audio_track(
@@ -464,6 +552,10 @@ impl VoiceCore {
                     log::warn!("falha ao publicar o microfone: {e}");
                     VoiceError::media(MediaCode::Unknown, MediaDevice::Microphone)
                 })?;
+            log::info!(
+                "voz: publicar o microfone levou {} ms",
+                publish_started.elapsed().as_millis()
+            );
             s.mic = Some(MicState {
                 track,
                 source,
@@ -523,9 +615,17 @@ impl VoiceCore {
         &self,
         enabled: bool,
         events: Option<Emit>,
+        call_only: bool,
     ) -> Result<(), VoiceError> {
         if let Some(e) = events {
             *lock(&self.aux_emit) = Some(e);
+        }
+        if call_only {
+            // Só mede a captura da chamada: sem prévia, então com o microfone mudo não abre dispositivo nenhum
+            // (sem quadros novos o medidor não emite nada).
+            self.call_meter.store(enabled, Ordering::SeqCst);
+            self.update_meter();
+            return Ok(());
         }
         self.monitor_on.store(enabled, Ordering::SeqCst);
         if !enabled {
@@ -604,7 +704,9 @@ impl VoiceCore {
 
     /// Mantém a tarefa do medidor viva só enquanto há medidor ligado ou teste de microfone em curso.
     fn update_meter(&self) {
-        let wanted = self.monitor_on.load(Ordering::SeqCst) || self.mic_test_running();
+        let wanted = self.monitor_on.load(Ordering::SeqCst)
+            || self.call_meter.load(Ordering::SeqCst)
+            || self.mic_test_running();
         let mut slot = lock(&self.meter);
         if !wanted {
             if let Some(h) = slot.take() {

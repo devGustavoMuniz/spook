@@ -86,6 +86,18 @@ pub async fn voice_set_microphone(
     state.0.set_microphone(enabled).await
 }
 
+/// Abre o microfone em paralelo com a conexão (não bloqueia; o `voice_set_microphone(true)` seguinte o usa).
+#[tauri::command]
+pub fn voice_prepare_microphone(state: State<'_, VoiceState>) {
+    state.0.prepare_microphone();
+}
+
+/// Descarta o microfone preparado (entrada cancelada ou falha). Idempotente.
+#[tauri::command]
+pub fn voice_discard_prepared_microphone(state: State<'_, VoiceState>) {
+    state.0.discard_prepared_microphone();
+}
+
 #[tauri::command]
 pub fn voice_set_deafened(state: State<'_, VoiceState>, deafened: bool) {
     state.0.set_deafened(deafened);
@@ -129,10 +141,15 @@ pub async fn voice_set_input_level_monitor(
     webview: tauri::Webview,
     enabled: bool,
     events: Option<JavaScriptChannelId>,
+    // Só a captura da chamada (anel de "falando"): nunca abre a prévia do microfone.
+    call_only: Option<bool>,
 ) -> Result<(), VoiceError> {
     // `Channel` só vira argumento obrigatório; opcional, recebemos o id e montamos o canal na janela que chamou.
     let emit = events.map(|id| emitter(id.channel_on(webview)));
-    state.0.set_input_level_monitor(enabled, emit).await
+    state
+        .0
+        .set_input_level_monitor(enabled, emit, call_only.unwrap_or(false))
+        .await
 }
 
 /// Teste de microfone: grava ~5 s e toca no alto-falante escolhido. Recusa (`in-use`) com o microfone aberto na

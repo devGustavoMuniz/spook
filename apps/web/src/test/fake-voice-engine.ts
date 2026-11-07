@@ -108,8 +108,25 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
   setParticipantVolume(identity: string, source: AudioSource, volume: number) {
     this.volumes.push([identity, source, volume]);
   }
-  async setInputLevelMonitor(enabled: boolean) {
-    this.monitorCalls.push(enabled);
+  async setInputLevelMonitor(enabled: boolean, opts?: { callOnly?: boolean }) {
+    if (opts?.callOnly) this.callMeterCalls.push(enabled);
+    else this.monitorCalls.push(enabled);
+  }
+  /** Microfone preparado antes de conectar (`prepareMicrophone`), descartes e pré-aquecimentos. */
+  prepares = 0;
+  discards = 0;
+  prewarms: (string | undefined)[] = [];
+  /** `setInputLevelMonitor(_, { callOnly: true })`, em ordem. */
+  callMeterCalls: boolean[] = [];
+  prepareMicrophone() {
+    this.prepares++;
+    this.calls.push("prepare-mic");
+  }
+  discardPreparedMicrophone() {
+    this.discards++;
+  }
+  prewarm(url?: string) {
+    this.prewarms.push(url);
   }
   async startMicTest() {
     this.micTests++;

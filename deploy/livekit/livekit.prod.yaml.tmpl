@@ -9,6 +9,13 @@ rtc:
   tcp_port: 7891
   udp_port: 7892
   use_external_ip: false
+# Indicador de "falando" (anel verde): o servidor reavalia quem fala a cada `update_interval` ms e suaviza por
+# `smooth_intervals` intervalos (padrão do LiveKit: intervalos maiores, ~0,4 a 1,2 s de atraso). 200 ms e 1 intervalo
+# dão ~0,2 a 0,4 s; o cliente aplica um "hold" de 250 ms para o anel não piscar. `active_level` e `min_percentile`
+# ficam no padrão. Mudar isto recria o container (o deploy.sh hasheia a config): chamadas em andamento caem por segundos.
+audio:
+  update_interval: 200
+  smooth_intervals: 1
 # Métricas Prometheus (lidas pelo painel /admin). A porta 6789 NÃO é publicada no host: só o backend a alcança,
 # pela rede interna do Compose (LIVEKIT_METRICS_URL, padrão http://livekit:6789/metrics).
 prometheus:

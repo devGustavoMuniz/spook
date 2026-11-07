@@ -28,7 +28,7 @@ export default defineConfig({
     ? [
         {
           name: "voice",
-          testMatch: /voice\.spec\.ts/,
+          testMatch: /voice(-join-perf)?\.spec\.ts/,
           use: {
             ...devices["Desktop Chrome"],
             // Chromium completo (novo headless): o headless shell padrão ignora a flag de origem insegura abaixo.
@@ -50,7 +50,7 @@ export default defineConfig({
     : [
         {
           name: "chromium",
-          testIgnore: /voice\.spec\.ts/,
+          testIgnore: /voice(-join-perf)?\.spec\.ts/,
           use: { ...devices["Desktop Chrome"] },
         },
       ],

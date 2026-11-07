@@ -1,4 +1,4 @@
-import { type ChannelPayload, Permission, useReorderChannels } from "@spook/shared";
+import { type ChannelPayload, Permission, useGetMe, useReorderChannels } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
@@ -32,8 +32,9 @@ import { NotificationMenuItems } from "@/features/notifications/notification-men
 import { useReadStateStore } from "@/features/notifications/read-state";
 import { effective, useNotificationSettings } from "@/features/notifications/settings";
 import { UserPanel } from "@/features/presence/user-panel";
-import { joinVoice, watchStream } from "@/features/voice/controller";
+import { joinVoice, prewarmVoice, watchStream } from "@/features/voice/controller";
 import { voicePermissions } from "@/features/voice/permissions";
+import { withProvisionalSelf } from "@/features/voice/provisional";
 import { participantsOf, useVoiceStatesStore, useVoiceStore } from "@/features/voice/store";
 import { usePersonLookup } from "@/features/voice/use-person-lookup";
 import { VoiceParticipants } from "@/features/voice/voice-participants";
@@ -107,7 +108,10 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
   const myChannelId = useVoiceStore((s) => s.channelId);
   const myStatus = useVoiceStore((s) => s.status);
   const speaking = useVoiceStore((s) => s.speaking);
-  const mine = { channelId: myChannelId, status: myStatus, speaking };
+  const selfMute = useVoiceStore((s) => s.selfMute);
+  const selfDeaf = useVoiceStore((s) => s.selfDeaf);
+  const mine = { channelId: myChannelId, status: myStatus, speaking, selfMute, selfDeaf };
+  const { data: me } = useGetMe();
   const perms = voicePermissions(guild);
   const anyoneInVoice = Object.values(voiceStates).some((v) => v.guild_id === guild.id);
   const lookup = usePersonLookup({ guildId: guild.id }, anyoneInVoice);
@@ -234,6 +238,8 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
               type="button"
               disabled={!perms.connect}
               onClick={() => enterVoice(c)}
+              onPointerEnter={prewarmVoice}
+              onFocus={prewarmVoice}
               title={
                 perms.connect ? t("channels.sidebar.joinVoice") : t("channels.sidebar.noVoicePerm")
               }
@@ -282,7 +288,14 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
         </div>
         {c.type === CHANNEL_VOICE ? (
           <VoiceParticipants
-            participants={participantsOf(voiceStates, c.id)}
+            participants={withProvisionalSelf(participantsOf(voiceStates, c.id), {
+              meId: me?.id,
+              channelId: c.id,
+              guildId: guild.id,
+              active: mine.channelId === c.id && mine.status !== "idle",
+              selfMute: mine.selfMute,
+              selfDeaf: mine.selfDeaf,
+            })}
             lookup={lookup}
             speaking={mine.channelId === c.id ? mine.speaking : undefined}
             watch={{
@@ -317,7 +330,9 @@ export function ChannelSidebar({ guild }: { guild: Guild }) {
           (c) =>
             c.id === params.channelId ||
             isUnread(c.id) ||
-            (c.type === CHANNEL_VOICE && participantsOf(voiceStates, c.id).length > 0),
+            (c.type === CHANNEL_VOICE &&
+              (participantsOf(voiceStates, c.id).length > 0 ||
+                (mine.channelId === c.id && mine.status !== "idle"))),
         )
       : children;
 
