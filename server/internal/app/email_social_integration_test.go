@@ -753,26 +753,6 @@ func mustState(t *testing.T, loc string) string {
 	return u.Query().Get("state")
 }
 
-func TestSocialDoesNotAutoLinkExistingEmail(t *testing.T) {
-	g, d := newFake("google"), newFake("discord")
-	e := socialEnv(t, g, d)
-	victim := e.newActor(t, "vitima")
-	email := e.emailOf(t, victim)
-	// um atacante controla uma conta do provedor com o MESMO e-mail (verificado pelo provedor)
-	g.codes["atk"] = social.Profile{ID: "g-atacante", Email: email, EmailVerified: true, Name: "Atacante"}
-	a := e.rawActor()
-	if l := e.socialFlow(t, a, "google", "", "atk"); l != "/login?social_error=email_in_use" {
-		t.Fatalf("deveria recusar sem vincular: %s", l)
-	}
-	a.call(t, "GET", "/api/users/me", nil, 401)
-	var n int
-	_ = e.pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM social_accounts WHERE provider_user_id='g-atacante') + (SELECT count(*) FROM social_signups WHERE provider_user_id='g-atacante')`).Scan(&n)
-	if n != 0 {
-		t.Fatal("nada deve ser criado quando o e-mail já tem conta")
-	}
-	// com a conta logada, vincular é um ato explícito (abaixo)
-}
-
 func TestSocialLinkUnlinkAndLastMethod(t *testing.T) {
 	g, d := newFake("google"), newFake("discord")
 	e := socialEnv(t, g, d)

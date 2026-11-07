@@ -20,7 +20,7 @@ func TestPKCEChallengeMatchesRFC7636Vector(t *testing.T) {
 func TestDesktopCodeSingleUseTTLAndVerifier(t *testing.T) {
 	ctx := context.Background()
 	svc, st := newSvc(t)
-	u, _, err := svc.Register(ctx, "d@b.com", "desk", "senha-forte-1", nil)
+	u, _, err := svc.Register(ctx, "d@b.com", "desk", "senha-forte-1", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +78,10 @@ func TestDesktopCodeSingleUseTTLAndVerifier(t *testing.T) {
 func TestNoPasswordAccountCannotLoginOrConfirm(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newSvc(t)
-	u, _, _ := svc.Register(ctx, "n@b.com", "nopw", "senha-forte-1", nil)
+	u, _, _ := svc.Register(ctx, "n@b.com", "nopw", "senha-forte-1", nil, true)
 	fu := svc.users.(*fakeUsers)
 	fu.hashes["n@b.com"] = "!"
-	if _, _, err := svc.Login(ctx, "n@b.com", "!", nil); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := svc.Login(ctx, "n@b.com", "!", nil, true); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("login sem senha: %v", err)
 	}
 	if err := svc.VerifyPassword(ctx, u.ID, "!"); !errors.Is(err, ErrWrongPassword) {
@@ -90,7 +90,7 @@ func TestNoPasswordAccountCannotLoginOrConfirm(t *testing.T) {
 	if has, _ := svc.HasPassword(ctx, u.ID); has {
 		t.Fatal("HasPassword deveria ser falso")
 	}
-	_, tok, _ := svc.Login(ctx, "n@b.com", "x", nil)
+	_, tok, _ := svc.Login(ctx, "n@b.com", "x", nil, true)
 	_ = tok
 	// SetInitialPassword: fraca, ok, e só uma vez
 	sess, err := svc.NewSession(ctx, u.ID, nil)
@@ -106,7 +106,7 @@ func TestNoPasswordAccountCannotLoginOrConfirm(t *testing.T) {
 	if err := svc.SetInitialPassword(ctx, u.ID, sess, "primeira-senha-2"); !errors.Is(err, ErrHasPassword) {
 		t.Fatalf("segunda vez: %v", err)
 	}
-	if _, _, err := svc.Login(ctx, "n@b.com", "primeira-senha-1", nil); err != nil {
+	if _, _, err := svc.Login(ctx, "n@b.com", "primeira-senha-1", nil, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -120,8 +120,8 @@ func TestResetPasswordEndsAllSessions(t *testing.T) {
 			revoked = uid
 		}
 	})
-	u, t1, _ := svc.Register(ctx, "r@b.com", "reset", "senha-forte-1", nil)
-	_, t2, _ := svc.Login(ctx, "r@b.com", "senha-forte-1", nil)
+	u, t1, _ := svc.Register(ctx, "r@b.com", "reset", "senha-forte-1", nil, true)
+	_, t2, _ := svc.Login(ctx, "r@b.com", "senha-forte-1", nil, true)
 	if err := svc.ResetPassword(ctx, u.ID, "curta"); !errors.Is(err, ErrWeakPassword) {
 		t.Fatalf("fraca: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestResetPasswordEndsAllSessions(t *testing.T) {
 	if revoked != u.ID {
 		t.Fatal("o gateway deveria ser avisado")
 	}
-	if _, _, err := svc.Login(ctx, "r@b.com", "nova-senha-123", nil); err != nil {
+	if _, _, err := svc.Login(ctx, "r@b.com", "nova-senha-123", nil, true); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -8,7 +8,6 @@ const KEYS: Record<string, MessageKey> = {
   provider_off: "auth.social.providerOff",
   no_email: "auth.social.noEmail",
   email_unverified: "auth.social.emailUnverified",
-  email_in_use: "auth.social.emailInUse",
   already_linked: "auth.social.alreadyLinked",
   provider_linked: "auth.social.providerLinked",
   wrong_account: "auth.social.wrongAccount",

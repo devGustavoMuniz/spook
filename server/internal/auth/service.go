@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -40,7 +41,42 @@ func ValidatePassword(pw string) error {
 	return nil
 }
 
-const SessionTTL = 30 * 24 * time.Hour
+// Validade das sessões (SPEC 7.1). A validade DESLIZA: cada uso renova o prazo ocioso, no máximo 1 vez por
+// SlideEvery (o banco não é escrito a cada requisição), até o teto absoluto contado da criação.
+//
+//	"Manter conectado" marcado:   90 dias de ociosidade, teto de 365 dias; cookie persistente (Max-Age).
+//	"Manter conectado" desmarcado: 24 horas de ociosidade, teto de 7 dias; cookie de sessão (some ao fechar).
+const (
+	RememberIdleTTL = 90 * 24 * time.Hour
+	RememberMaxTTL  = 365 * 24 * time.Hour
+	ShortIdleTTL    = 24 * time.Hour
+	ShortMaxTTL     = 7 * 24 * time.Hour
+	SlideEvery      = time.Hour
+)
+
+// SessionTTL é a validade ociosa da sessão lembrada (login social e desktop sempre usam esta).
+const SessionTTL = RememberIdleTTL
+
+// lifetimes devolve a ociosidade e o teto absoluto da sessão.
+func lifetimes(remember bool) (idle, max time.Duration) {
+	if remember {
+		return RememberIdleTTL, RememberMaxTTL
+	}
+	return ShortIdleTTL, ShortMaxTTL
+}
+
+// expiryFor calcula o vencimento de uma sessão usada em now: ociosidade a partir de agora, limitada ao teto.
+func expiryFor(remember bool, created, now time.Time) time.Time {
+	idle, max := lifetimes(remember)
+	exp, cap := now.Add(idle), created.Add(max)
+	if exp.After(cap) {
+		return cap
+	}
+	return exp
+}
+
+// ErrSessionNotFound: a sessão não existe ou é de outro usuário.
+var ErrSessionNotFound = errors.New("sessão não encontrada")
 
 // Users é o que auth precisa do pacote user.
 type Users interface {
@@ -57,10 +93,29 @@ type SessionInfo struct {
 	UserID      int64
 	Expires     time.Time
 	ConfirmedAt *time.Time // última confirmação de senha ("modo sudo")
+	Remember    bool
+	LastSeen    time.Time
+	CreatedAt   time.Time
+}
+
+// SessionRow é uma sessão ativa na lista de Configurações → Segurança.
+type SessionRow struct {
+	ID        int64
+	TokenHash []byte
+	UserAgent *string
+	Remember  bool
+	CreatedAt time.Time
+	LastSeen  time.Time
+	Expires   time.Time
 }
 
 type Store interface {
-	CreateSession(ctx context.Context, id, userID int64, tokenHash []byte, userAgent *string, expires time.Time) error
+	CreateSession(ctx context.Context, id, userID int64, tokenHash []byte, userAgent *string, remember bool, now, expires time.Time) error
+	// SlideSession renova o vencimento se o último uso for anterior a staleBefore; devolve se gravou.
+	SlideSession(ctx context.Context, tokenHash []byte, seen, expires, staleBefore time.Time) (bool, error)
+	ListSessions(ctx context.Context, userID int64) ([]SessionRow, error)
+	// DeleteSessionByID encerra uma sessão do usuário e devolve o hash do token (a chave do gateway).
+	DeleteSessionByID(ctx context.Context, userID, id int64) ([]byte, error)
 	Session(ctx context.Context, tokenHash []byte) (SessionInfo, error)
 	ConfirmSession(ctx context.Context, tokenHash []byte, at time.Time) error
 	DeleteOtherSessions(ctx context.Context, userID int64, keepHash []byte) (int64, error)
@@ -82,6 +137,8 @@ type Service struct {
 	now    func() time.Time
 	// onRevoke avisa o gateway para derrubar as conexões das sessões encerradas (nil = ninguém a avisar).
 	onRevoke func(userID int64, keepKey string)
+	// onRevokeKey avisa o gateway para derrubar as conexões de uma única sessão encerrada.
+	onRevokeKey func(userID int64, key string)
 	// onRegistered roda depois de um cadastro com senha (ex.: enviar o e-mail de verificação); erros só viram log.
 	onRegistered func(ctx context.Context, u user.User)
 	// dummyHash é verificado quando o e-mail não existe, para o tempo de resposta não revelar contas.
@@ -96,7 +153,7 @@ func NewService(ctx context.Context, users Users, store Store, hasher *Hasher, i
 	return &Service{users: users, store: store, hasher: hasher, ids: ids, now: time.Now, dummyHash: dummy}, nil
 }
 
-func (s *Service) Register(ctx context.Context, email, username, password string, userAgent *string) (user.User, string, error) {
+func (s *Service) Register(ctx context.Context, email, username, password string, userAgent *string, remember bool) (user.User, string, error) {
 	if user.IsReservedUsername(username) {
 		return user.User{}, "", user.ErrReservedUsername
 	}
@@ -111,7 +168,7 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 	if err != nil {
 		return user.User{}, "", err
 	}
-	token, err := s.newSession(ctx, u.ID, userAgent)
+	token, err := s.newSession(ctx, u.ID, userAgent, remember)
 	if err == nil && s.onRegistered != nil {
 		s.onRegistered(ctx, u)
 	}
@@ -121,7 +178,7 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 // OnRegistered registra o gancho pós-cadastro (nil desliga).
 func (s *Service) OnRegistered(fn func(ctx context.Context, u user.User)) { s.onRegistered = fn }
 
-func (s *Service) Login(ctx context.Context, email, password string, userAgent *string) (user.User, string, error) {
+func (s *Service) Login(ctx context.Context, email, password string, userAgent *string, remember bool) (user.User, string, error) {
 	u, hash, err := s.users.Credentials(ctx, email)
 	if errors.Is(err, user.ErrNotFound) {
 		_, _ = s.hasher.Verify(ctx, password, s.dummyHash)
@@ -141,7 +198,7 @@ func (s *Service) Login(ctx context.Context, email, password string, userAgent *
 	if !ok {
 		return user.User{}, "", ErrUnauthorized
 	}
-	token, err := s.newSession(ctx, u.ID, userAgent)
+	token, err := s.newSession(ctx, u.ID, userAgent, remember)
 	return u, token, err
 }
 
@@ -149,19 +206,60 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	return s.store.DeleteSession(ctx, hashToken(token))
 }
 
-// Authenticate valida o token e devolve o ID do usuário.
+// Authenticate valida o token e devolve o ID do usuário (renovando a validade, ver Resolve).
 func (s *Service) Authenticate(ctx context.Context, token string) (int64, error) {
+	a, err := s.Resolve(ctx, token)
+	return a.UserID, err
+}
+
+// Authed é o resultado de Resolve.
+type Authed struct {
+	UserID   int64
+	Remember bool
+	// RefreshCookieMaxAge > 0 quando a validade foi renovada agora numa sessão lembrada: o cookie persistente
+	// precisa ser reenviado com este Max-Age (segundos) para o navegador acompanhar o servidor.
+	RefreshCookieMaxAge int
+}
+
+// Resolve valida o token e aplica a renovação deslizante: se o último uso passou de SlideEvery, o vencimento
+// é recalculado (ociosidade a partir de agora, limitada ao teto). Falha ao gravar a renovação só vira log:
+// a requisição continua válida.
+func (s *Service) Resolve(ctx context.Context, token string) (Authed, error) {
 	if token == "" {
-		return 0, ErrUnauthorized
+		return Authed{}, ErrUnauthorized
 	}
-	info, err := s.store.Session(ctx, hashToken(token))
+	h := hashToken(token)
+	info, err := s.store.Session(ctx, h)
 	if err != nil {
-		return 0, err
+		return Authed{}, err
 	}
-	if !info.Expires.After(s.now()) {
-		return 0, ErrUnauthorized
+	now := s.now()
+	if !info.Expires.After(now) {
+		return Authed{}, ErrUnauthorized
 	}
-	return info.UserID, nil
+	out := Authed{UserID: info.UserID, Remember: info.Remember}
+	if now.Sub(info.LastSeen) >= SlideEvery {
+		exp := expiryFor(info.Remember, info.CreatedAt, now)
+		if exp.After(info.Expires) {
+			ok, err := s.store.SlideSession(ctx, h, now, exp, now.Add(-SlideEvery))
+			switch {
+			case err != nil:
+				slog.Warn("renovar sessão", "err", err)
+			case ok && info.Remember:
+				out.RefreshCookieMaxAge = int(exp.Sub(now).Seconds())
+			}
+		}
+	}
+	return out, nil
+}
+
+// CookieMaxAge é o Max-Age do cookie de uma sessão nova: persistente (segundos) se lembrada, 0 = cookie de
+// sessão do navegador (sem Max-Age) se não.
+func CookieMaxAge(remember bool) int {
+	if remember {
+		return int(RememberIdleTTL.Seconds())
+	}
+	return 0
 }
 
 // StartJanitor remove sessões expiradas periodicamente até ctx ser cancelado.
@@ -184,19 +282,21 @@ func (s *Service) StartJanitor(ctx context.Context, every time.Duration) {
 	}()
 }
 
-// NewSession abre uma sessão para o usuário (login social e handoff do desktop); devolve o token em claro.
+// NewSession abre uma sessão LONGA ("lembrada") para o usuário (login social e handoff do desktop); devolve o
+// token em claro.
 func (s *Service) NewSession(ctx context.Context, userID int64, userAgent *string) (string, error) {
-	return s.newSession(ctx, userID, userAgent)
+	return s.newSession(ctx, userID, userAgent, true)
 }
 
-func (s *Service) newSession(ctx context.Context, userID int64, userAgent *string) (string, error) {
+func (s *Service) newSession(ctx context.Context, userID int64, userAgent *string, remember bool) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("gerar token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	// Só o hash é salvo: um vazamento do banco não entrega sessões válidas.
-	if err := s.store.CreateSession(ctx, s.ids.Next(), userID, hashToken(token), userAgent, s.now().Add(SessionTTL)); err != nil {
+	now := s.now()
+	if err := s.store.CreateSession(ctx, s.ids.Next(), userID, hashToken(token), userAgent, remember, now, expiryFor(remember, now, now)); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -356,3 +456,46 @@ func (s *Service) SetInitialPassword(ctx context.Context, userID int64, token, n
 func (s *Service) ConfirmRecent(ctx context.Context, token string) error {
 	return s.store.ConfirmSession(ctx, hashToken(token), s.now())
 }
+
+// ListSessions devolve as sessões ativas do usuário; current marca a do token informado.
+func (s *Service) ListSessions(ctx context.Context, userID int64, token string) ([]SessionRow, []bool, error) {
+	rows, err := s.store.ListSessions(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	cur := hashToken(token)
+	flags := make([]bool, len(rows))
+	for i, r := range rows {
+		flags[i] = bytes.Equal(r.TokenHash, cur)
+	}
+	return rows, flags, nil
+}
+
+// RevokeSession encerra uma sessão do usuário (inclusive a atual: equivale a sair) e derruba as conexões dela
+// no gateway. ErrSessionNotFound se não existir ou for de outro usuário.
+func (s *Service) RevokeSession(ctx context.Context, userID, id int64) error {
+	h, err := s.store.DeleteSessionByID(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	if s.onRevokeKey != nil {
+		s.onRevokeKey(userID, hex.EncodeToString(h))
+	}
+	return nil
+}
+
+// RevokeOthers encerra todas as sessões do usuário menos a do token informado ("Encerrar todas as outras") e
+// derruba as conexões delas no gateway. Devolve quantas foram encerradas.
+func (s *Service) RevokeOthers(ctx context.Context, userID int64, token string) (int64, error) {
+	n, err := s.store.DeleteOtherSessions(ctx, userID, hashToken(token))
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		s.NotifyRevoked(userID, TokenKey(token))
+	}
+	return n, nil
+}
+
+// OnRevokeKey registra quem deve derrubar as conexões de UMA sessão encerrada (chave = TokenKey).
+func (s *Service) OnRevokeKey(fn func(userID int64, key string)) { s.onRevokeKey = fn }

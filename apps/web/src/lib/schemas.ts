@@ -26,6 +26,7 @@ export const loginSchema = z.object({
     .string()
     .min(1, { error: () => t("auth.validation.passwordRequired") })
     .max(128),
+  remember: z.boolean(),
 });
 export type LoginForm = z.infer<typeof loginSchema>;
 
@@ -33,6 +34,7 @@ export const registerSchema = z.object({
   email: emailSchema,
   username: usernameSchema,
   password: passwordSchema,
+  remember: z.boolean(),
 });
 export type RegisterForm = z.infer<typeof registerSchema>;
 

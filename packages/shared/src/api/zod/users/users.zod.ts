@@ -273,3 +273,50 @@ export const SetInitialPasswordBody = zod.object({
 });
 
 export const SetInitialPasswordResponse = zod.void();
+
+/**
+ * Só sessões não expiradas, da mais recente para a mais antiga em uso. `current` marca a sessão que fez a chamada. O IP não é guardado.
+ * @summary Sessões ativas da conta (dispositivo aproximado, criada em, último uso)
+ */
+export const ListSessionsResponse = zod.object({
+  sessions: zod
+    .array(
+      zod.object({
+        browser: zod
+          .string()
+          .optional()
+          .describe("Navegador aproximado pelo User-Agent (vazio = desconhecido)"),
+        created_at: zod.iso.datetime({ offset: true }),
+        current: zod.boolean().describe("É a sessão que fez esta chamada"),
+        expires_at: zod.iso.datetime({ offset: true }),
+        id: zod.string().describe("ID Snowflake (string)"),
+        last_seen_at: zod.iso
+          .datetime({ offset: true })
+          .describe("Último uso; atualizado no máximo 1 vez por hora"),
+        os: zod
+          .string()
+          .optional()
+          .describe("Sistema aproximado pelo User-Agent (vazio = desconhecido)"),
+        remember: zod.boolean().describe('Sessão longa ("Manter conectado")'),
+      }),
+    )
+    .nullable(),
+});
+
+/**
+ * Derruba também as conexões do gateway das sessões encerradas. Sem confirmação recente: 403 `password_confirmation_required`.
+ * @summary Encerra todas as outras sessões, mantendo a atual (exige a senha confirmada há pouco)
+ */
+export const RevokeOtherSessionsResponse = zod.object({
+  revoked: zod.int().describe("Quantas sessões foram encerradas"),
+});
+
+/**
+ * Derruba também as conexões do gateway dessa sessão. A sessão atual não pode ser encerrada aqui (use o logout): 422. Sem confirmação recente: 403 `password_confirmation_required`.
+ * @summary Encerra uma sessão (exige a senha confirmada há pouco)
+ */
+export const RevokeSessionParams = zod.object({
+  id: zod.string().describe("ID da sessão"),
+});
+
+export const RevokeSessionResponse = zod.void();

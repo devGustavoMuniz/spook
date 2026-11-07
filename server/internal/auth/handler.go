@@ -92,13 +92,13 @@ func NewHandler(svc *Service, secure bool, view func(context.Context, user.User)
 // Middleware exige sessão válida (cookie ou Authorization: Bearer) e coloca usuário e token no contexto.
 func (h *Handler) Middleware(api huma.API) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
-		tok := ""
+		tok, viaCookie := "", false
 		if a := ctx.Header("Authorization"); strings.HasPrefix(a, "Bearer ") {
 			tok = strings.TrimPrefix(a, "Bearer ")
 		} else if c, err := huma.ReadCookie(ctx, CookieName); err == nil {
-			tok = c.Value
+			tok, viaCookie = c.Value, true
 		}
-		uid, err := h.svc.Authenticate(ctx.Context(), tok)
+		au, err := h.svc.Resolve(ctx.Context(), tok)
 		if err != nil {
 			if errors.Is(err, ErrUnauthorized) {
 				_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "autenticação necessária")
@@ -107,7 +107,12 @@ func (h *Handler) Middleware(api huma.API) func(huma.Context, func(huma.Context)
 			}
 			return
 		}
-		next(huma.WithValue(huma.WithValue(ctx, userIDKey, uid), tokenKey, tok))
+		// Validade renovada numa sessão lembrada: reenvia o cookie persistente com o Max-Age novo.
+		if viaCookie && au.RefreshCookieMaxAge > 0 {
+			c := h.cookie(tok, au.RefreshCookieMaxAge)
+			ctx.AppendHeader("Set-Cookie", c.String())
+		}
+		next(huma.WithValue(huma.WithValue(ctx, userIDKey, au.UserID), tokenKey, tok))
 	}
 }
 
@@ -132,6 +137,7 @@ type RegisterInput struct {
 		Email    string `json:"email" format:"email" maxLength:"254"`
 		Username string `json:"username" pattern:"^[a-z0-9_.]{2,32}$" patternDescription:"2 a 32 caracteres: a-z, 0-9, _ e ." minLength:"2" maxLength:"32"`
 		Password string `json:"password" minLength:"8" maxLength:"128"`
+		Remember *bool  `json:"remember,omitempty" default:"true" doc:"\"Manter conectado\": true (padrão) = sessão longa (90 dias deslizantes, cookie persistente); false = 24 h deslizantes e cookie de sessão (some ao fechar o navegador)"`
 	}
 }
 
@@ -140,6 +146,7 @@ type LoginInput struct {
 	Body struct {
 		Email    string `json:"email" format:"email" maxLength:"254"`
 		Password string `json:"password" minLength:"1" maxLength:"128"`
+		Remember *bool  `json:"remember,omitempty" default:"true" doc:"\"Manter conectado\": true (padrão) = sessão longa (90 dias deslizantes, cookie persistente); false = 24 h deslizantes e cookie de sessão (some ao fechar o navegador)"`
 	}
 }
 
@@ -208,22 +215,23 @@ func SessionCookie(value string, secure bool, maxAge int) http.Cookie {
 	}
 }
 
-func (h *Handler) session(ctx context.Context, in ClientHeaders, u user.User, tok string) *SessionOutput {
-	out := &SessionOutput{SetCookie: h.cookie(tok, int(SessionTTL.Seconds())), Body: SessionBody{User: h.view(ctx, u)}}
+func (h *Handler) session(ctx context.Context, in ClientHeaders, u user.User, tok string, remember bool) *SessionOutput {
+	out := &SessionOutput{SetCookie: h.cookie(tok, CookieMaxAge(remember)), Body: SessionBody{User: h.view(ctx, u)}}
 	if in.Client == desktopValue {
 		out.Body.Token = tok
 	}
 	return out
 }
 
-func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
+func (h *Handler) Register(api huma.API, authed, sensitive huma.Middlewares) {
+	h.registerSessions(api, authed, sensitive)
 	huma.Register(api, huma.Operation{
 		OperationID: "register", Method: http.MethodPost, Path: "/api/auth/register",
 		Summary: "Cadastro (já abre a sessão)", Tags: []string{"auth"}, DefaultStatus: http.StatusCreated,
 		Errors: []int{http.StatusConflict, http.StatusUnprocessableEntity},
 	}, func(ctx context.Context, in *RegisterInput) (*SessionOutput, error) {
 		ua := optional(in.UserAgent)
-		u, tok, err := h.svc.Register(ctx, in.Body.Email, in.Body.Username, in.Body.Password, ua)
+		u, tok, err := h.svc.Register(ctx, in.Body.Email, in.Body.Username, in.Body.Password, ua, rememberOf(in.Body.Remember))
 		switch {
 		case errors.Is(err, user.ErrEmailTaken):
 			return nil, huma.Error409Conflict("e-mail já cadastrado")
@@ -236,21 +244,21 @@ func (h *Handler) Register(api huma.API, authed huma.Middlewares) {
 		case err != nil:
 			return nil, err
 		}
-		return h.session(ctx, in.ClientHeaders, u, tok), nil
+		return h.session(ctx, in.ClientHeaders, u, tok, rememberOf(in.Body.Remember)), nil
 	})
 
 	huma.Register(api, huma.Operation{
 		OperationID: "login", Method: http.MethodPost, Path: "/api/auth/login",
 		Summary: "Login", Tags: []string{"auth"}, Errors: []int{http.StatusUnauthorized},
 	}, func(ctx context.Context, in *LoginInput) (*SessionOutput, error) {
-		u, tok, err := h.svc.Login(ctx, in.Body.Email, in.Body.Password, optional(in.UserAgent))
+		u, tok, err := h.svc.Login(ctx, in.Body.Email, in.Body.Password, optional(in.UserAgent), rememberOf(in.Body.Remember))
 		if errors.Is(err, ErrUnauthorized) {
 			return nil, huma.Error401Unauthorized("e-mail ou senha incorretos")
 		}
 		if err != nil {
 			return nil, err
 		}
-		return h.session(ctx, in.ClientHeaders, u, tok), nil
+		return h.session(ctx, in.ClientHeaders, u, tok, rememberOf(in.Body.Remember)), nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -399,3 +407,7 @@ func optional(s string) *string {
 	}
 	return &s
 }
+
+// rememberOf aplica o padrão do contrato: ausente = true. (É ponteiro porque o huma trata `false` como
+// "campo vazio" e o trocaria pelo padrão; com ponteiro um `false` explícito chega como false.)
+func rememberOf(r *bool) bool { return r == nil || *r }

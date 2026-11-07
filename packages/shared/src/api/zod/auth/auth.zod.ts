@@ -160,9 +160,17 @@ export const loginBodyEmailMax = 254;
 
 export const loginBodyPasswordMax = 128;
 
+export const loginBodyRememberDefault = true;
+
 export const LoginBody = zod.object({
   email: zod.email().max(loginBodyEmailMax),
   password: zod.string().min(1).max(loginBodyPasswordMax),
+  remember: zod
+    .boolean()
+    .default(loginBodyRememberDefault)
+    .describe(
+      '"Manter conectado": true (padrão) = sessão longa (90 dias deslizantes, cookie persistente); false = 24 h deslizantes e cookie de sessão (some ao fechar o navegador)',
+    ),
 });
 
 export const LoginResponse = zod.object({
@@ -280,6 +288,7 @@ export const registerBodyEmailMax = 254;
 export const registerBodyPasswordMin = 8;
 export const registerBodyPasswordMax = 128;
 
+export const registerBodyRememberDefault = true;
 export const registerBodyUsernameMin = 2;
 export const registerBodyUsernameMax = 32;
 
@@ -288,6 +297,12 @@ export const registerBodyUsernameRegExp = /^[a-z0-9_.]{2,32}$/;
 export const RegisterBody = zod.object({
   email: zod.email().max(registerBodyEmailMax),
   password: zod.string().min(registerBodyPasswordMin).max(registerBodyPasswordMax),
+  remember: zod
+    .boolean()
+    .default(registerBodyRememberDefault)
+    .describe(
+      '"Manter conectado": true (padrão) = sessão longa (90 dias deslizantes, cookie persistente); false = 24 h deslizantes e cookie de sessão (some ao fechar o navegador)',
+    ),
   username: zod
     .string()
     .min(registerBodyUsernameMin)

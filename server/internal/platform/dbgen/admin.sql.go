@@ -369,7 +369,7 @@ SELECT t.id, t.username, t.email, t.created_at, t.guilds_member, t.guilds_owned,
            (SELECT count(*) FROM guild_members gm WHERE gm.user_id = u.id)::bigint AS guilds_member,
            (SELECT count(*) FROM guilds g WHERE g.owner_id = u.id)::bigint AS guilds_owned,
            (SELECT count(*) FROM messages m WHERE m.author_id = u.id AND m.deleted_at IS NULL)::bigint AS messages_sent,
-           (SELECT max(s.created_at) FROM sessions s WHERE s.user_id = u.id)::timestamptz AS last_active_at
+           (SELECT max(s.last_seen_at) FROM sessions s WHERE s.user_id = u.id)::timestamptz AS last_active_at
     FROM users u
     WHERE $1::text = ''
        OR strpos(lower(u.username::text), lower($1::text)) > 0

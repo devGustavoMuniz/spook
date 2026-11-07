@@ -4,6 +4,9 @@ export const auth = {
   "auth.invite.banner.label": "Convite recebido",
   "auth.invite.banner.title": "Você recebeu um convite para um servidor.",
   "auth.invite.banner.body": "Entre ou crie uma conta para ver o servidor e aceitar.",
+  "auth.keepSignedIn": "Manter conectado",
+  "auth.keepSignedInHint":
+    "Desmarque em computadores compartilhados. A sessão dura até 24 h sem uso.",
   "auth.signIn": "Entrar",
   "auth.createAccount": "Criar conta",
   "auth.password.show": "Mostrar senha",
@@ -125,8 +128,6 @@ export const auth = {
     "O provedor não informou um e-mail para a sua conta, então não dá para criar o cadastro.",
   "auth.social.emailUnverified":
     "O e-mail da sua conta no provedor não está verificado. Verifique-o lá e tente de novo.",
-  "auth.social.emailInUse":
-    "Já existe uma conta com esse e-mail. Entre com a sua senha e vincule o provedor em Configurações > Perfil.",
   "auth.social.alreadyLinked": "Essa conta do provedor já está vinculada a outro usuário.",
   "auth.social.providerLinked": "Sua conta já tem esse provedor vinculado.",
   "auth.social.wrongAccount":

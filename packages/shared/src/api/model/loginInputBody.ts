@@ -13,4 +13,6 @@ export interface LoginInputBody {
    * @maxLength 128
    */
   password: string;
+  /** "Manter conectado": true (padrão) = sessão longa (90 dias deslizantes, cookie persistente); false = 24 h deslizantes e cookie de sessão (some ao fechar o navegador) */
+  remember?: boolean;
 }

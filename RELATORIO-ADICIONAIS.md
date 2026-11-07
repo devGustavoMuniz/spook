@@ -290,11 +290,11 @@ aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevoke
 | Verificação de e-mail (token de uso único, reenvio com limite, faixa e página `/verify-email`) | Feito |
 | Troca de e-mail confirmada no endereço novo (`EmailChangeVerifier`), com aviso ao antigo | Feito |
 | Esqueci/redefinir senha (resposta idêntica, piso de duração, limites, encerra todas as sessões) + `spook admin reset-password` | Feito |
-| Login social Google e Discord (OAuth2 + PKCE, sem vínculo automático por e-mail, escolher username, vincular/desvincular, último método, definir senha) | Feito (falta criar os apps OAuth) |
+| Login social Google e Discord (OAuth2 + PKCE, vínculo por e-mail verificado do provedor [atualizado, ver "Login social em conta existente e sessão persistente"], escolher username, vincular/desvincular, último método, definir senha) | Feito (falta criar os apps OAuth) |
 | Login do desktop pelo navegador (backend, páginas web, módulo `browser-login.ts` atrás da capability `browserLogin`) | Backend e web feitos; **deep link `spook://` no Rust pendente** |
 | Modo degradado sem SMTP (documentado) e `REQUIRE_EMAIL_VERIFICATION` | Feito |
 
-- **Decisões:** contas antigas "não verificadas" sem bloquear nada (padrão); sem `SMTP_HOST` o app sobe com o driver `log` e os fluxos por e-mail ficam desligados; token cifrado nos args do job (nunca em claro no banco); Google lido por `userinfo`, não por JWKS; nunca vincular por e-mail automaticamente; contas sociais nascem sem senha (`password_hash = '!'`) e definem uma depois com reautenticação social; `SPOOK_SECRET_KEY` opcional (chave efêmera por processo se faltar). Detalhes e modelo de ameaça em SPEC 5.5 ("Adicional: e-mail e login social"), RF24, 6 e 7.11.
+- **Decisões:** contas antigas "não verificadas" sem bloquear nada (padrão); sem `SMTP_HOST` o app sobe com o driver `log` e os fluxos por e-mail ficam desligados; token cifrado nos args do job (nunca em claro no banco); Google lido por `userinfo`, não por JWKS; vínculo por e-mail só quando o provedor o verificou (regra original "nunca vincular" substituída em 07/11/2026); contas sociais nascem sem senha (`password_hash = '!'`) e definem uma depois com reautenticação social; `SPOOK_SECRET_KEY` opcional (chave efêmera por processo se faltar). Detalhes e modelo de ameaça em SPEC 5.5 ("Adicional: e-mail e login social"), RF24, 6 e 7.11.
 - **Pontos de atenção:** `GET /api/users/me` e login/cadastro ganharam `email_verified`, `has_password` e `pending_email`; `PUT /users/me/email` pode responder 202; o River agora sobe sempre (antes só com storage ou push); o teste `TestFullAccountFlow` deixou de proibir a palavra "password" (agora proíbe o campo `"password"`, `password_hash` e `argon2`); sem `SPOOK_SECRET_KEY` em produção, reinícios derrubam fluxos OAuth em andamento.
 - **Verificação:** Go (unitários, `golangci-lint` v2, integração completa), Vitest, E2E `e2e/email-recovery.spec.ts`; ver o SPEC 5.5 e `VALIDACAO-MANUAL.md`.
 
@@ -345,3 +345,14 @@ Itens 4.6 e 4.13 e 7.1 a 7.4 do `PLANO-ADICIONAIS-2.md`. Migration `00015_voice_
 - Erros do servidor traduzidos por tabela de `detail` (~100) e `code`; push segue em pt-BR; bandeja do Tauri traduzida via `app_set_locale` (Rust não compilado).
 - Testes: paridade de chaves/placeholders, varredor de literais pt-BR, módulo i18n, E2E `i18n.spec.ts`. Glossário no `apps/web/README.md`.
 - Pendências: `PENDENCIAS-DONO.md` e `VALIDACAO-MANUAL.md` ("Idiomas pt-BR e inglês").
+
+## Login social em conta existente e sessão persistente (07/11/2026)
+
+Pedido do dono (2 mudanças). Migration `00016_session_persistence` (aditiva: `sessions.remember`, `sessions.last_seen_at`); requisitos em RF30, regras em 7.16 e decisões em 5.5 ("Adicional: login social em conta existente e sessão persistente").
+
+- **Login social em conta existente.** Antes recusava (`email_in_use`). Agora, com e-mail **verificado pelo provedor** e igual ao da conta (sem diferença de caixa), vincula e entra; se o e-mail da conta não estava verificado, passa a estar e todas as outras sessões caem (mais a troca de e-mail pendente e os tokens de e-mail abertos), tudo numa transação, com log estruturado. Sem e-mail ou não verificado: recusa como antes. A regra "sem vínculo automático" do modelo de ameaça foi substituída; risco residual (a senha do invasor segue valendo) documentado e levado a `PENDENCIAS-DONO.md` (B10).
+- **Sessão persistente.** Causa do "expira": prazo fixo de 30 dias sem renovação. Agora "Manter conectado" (padrão marcado): 90 dias deslizantes (teto de 365), cookie persistente; desmarcado: 24 h deslizantes (teto de 7 dias), cookie de sessão. Renovação no máximo 1 vez por hora (sem escrever a cada requisição), reenviando o cookie. Login social e desktop sempre usam sessão longa.
+- **Sessões ativas** (Configurações > Perfil): lista com dispositivo aproximado (sem IP), criada em, último uso, "Esta sessão"; encerrar uma ou todas as outras exige a senha recente e derruba o gateway da sessão.
+- **Decisões:** `remember` é `*bool` no contrato (o huma trocaria um `false` pelo padrão com `bool`); IP não guardado; sessões antigas viram "lembradas"; nenhum e-mail de aviso ao vincular (ideia futura).
+- **Pontos de atenção:** o admin passou a mostrar "última atividade" pelo `last_seen_at` (antes, a criação da sessão); `Register` e `Login` do `auth.Service` ganharam o parâmetro `remember`.
+- **Verificação:** ver o relatório da entrega (Go unitário, integração completa, Vitest, E2E curto).

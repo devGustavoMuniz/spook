@@ -85,6 +85,22 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       initialPasswords: [] as string[],
       initialPasswordStatus: 204,
       desktopChallenges: [] as string[],
+      /** Corpos enviados a `POST /auth/login` e `/auth/register` (confere o `remember`). */
+      loginBodies: [] as { email: string; password: string; remember?: boolean }[],
+      registerBodies: [] as { email: string; remember?: boolean }[],
+      /** Sessões ativas (`GET /users/me/sessions`); revogar exige `account.confirmed`. */
+      sessions: [] as {
+        id: string;
+        browser?: string;
+        os?: string;
+        remember: boolean;
+        current: boolean;
+        created_at: string;
+        last_seen_at: string;
+        expires_at: string;
+      }[],
+      sessionRevokes: [] as string[],
+      revokeOthers: 0,
       /** Troca de e-mail com verificação: o servidor responde 202 com `pending_email`. */
       emailChangePending: false,
     },
@@ -207,13 +223,15 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       state.signedIn ? HttpResponse.json(state.user) : problem(401, "autenticação necessária"),
     ),
     http.post("*/api/auth/login", async ({ request }) => {
-      const b = (await request.json()) as { email: string; password: string };
+      const b = (await request.json()) as { email: string; password: string; remember?: boolean };
+      state.auth.loginBodies.push(b);
       if (b.password !== "senha-correta-1") return problem(401, "e-mail ou senha incorretos");
       state.signedIn = true;
       return HttpResponse.json({ user: state.user });
     }),
     http.post("*/api/auth/register", async ({ request }) => {
-      const b = (await request.json()) as { email: string; username: string };
+      const b = (await request.json()) as { email: string; username: string; remember?: boolean };
+      state.auth.registerBodies.push(b);
       if (b.email === sampleUser.email) return problem(409, "e-mail já cadastrado");
       if (b.username === "ocupado") return problem(409, "nome de usuário já em uso");
       state.signedIn = true;
@@ -356,6 +374,26 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
       state.signedIn = true;
       state.user = { ...sampleUser, username: b.username, has_password: false };
       return HttpResponse.json({ user: state.user }, { status: 201 });
+    }),
+    http.get("*/api/users/me/sessions", () => HttpResponse.json({ sessions: state.auth.sessions })),
+    http.delete("*/api/users/me/sessions/:id", ({ params }) => {
+      if (!state.account.confirmed)
+        return problem(403, "confirme sua senha para continuar", [], {
+          code: "password_confirmation_required",
+        });
+      state.auth.sessionRevokes.push(String(params.id));
+      state.auth.sessions = state.auth.sessions.filter((x) => x.id !== params.id);
+      return new HttpResponse(null, { status: 204 });
+    }),
+    http.post("*/api/users/me/sessions/revoke-others", () => {
+      if (!state.account.confirmed)
+        return problem(403, "confirme sua senha para continuar", [], {
+          code: "password_confirmation_required",
+        });
+      state.auth.revokeOthers++;
+      const n = state.auth.sessions.filter((x) => !x.current).length;
+      state.auth.sessions = state.auth.sessions.filter((x) => x.current);
+      return HttpResponse.json({ revoked: n });
     }),
     http.get("*/api/users/me/login-methods", () => HttpResponse.json(state.auth.methods)),
     http.delete("*/api/auth/social/:provider", ({ params }) => {

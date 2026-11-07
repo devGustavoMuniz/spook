@@ -52,6 +52,18 @@ func (q *Queries) CreateSocialUser(ctx context.Context, arg CreateSocialUserPara
 	return i, err
 }
 
+const deleteAllUserSessionsForLink = `-- name: DeleteAllUserSessionsForLink :execrows
+DELETE FROM sessions WHERE user_id = $1
+`
+
+func (q *Queries) DeleteAllUserSessionsForLink(ctx context.Context, userID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAllUserSessionsForLink, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteExpiredSocialSignups = `-- name: DeleteExpiredSocialSignups :execrows
 DELETE FROM social_signups WHERE expires_at < now()
 `
@@ -201,6 +213,15 @@ func (q *Queries) InsertSocialSignup(ctx context.Context, arg InsertSocialSignup
 	return err
 }
 
+const invalidateOpenEmailTokens = `-- name: InvalidateOpenEmailTokens :exec
+UPDATE email_tokens SET used_at = now() WHERE user_id = $1 AND used_at IS NULL
+`
+
+func (q *Queries) InvalidateOpenEmailTokens(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, invalidateOpenEmailTokens, userID)
+	return err
+}
+
 const listSocialAccountsByUser = `-- name: ListSocialAccountsByUser :many
 SELECT id, user_id, provider, provider_user_id, email, created_at
 FROM social_accounts WHERE user_id = $1 ORDER BY created_at
@@ -233,15 +254,31 @@ func (q *Queries) ListSocialAccountsByUser(ctx context.Context, userID int64) ([
 	return items, nil
 }
 
-const userExistsByEmail = `-- name: UserExistsByEmail :one
-SELECT EXISTS (SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL)
+const lockUserByEmailForLink = `-- name: LockUserByEmailForLink :one
+SELECT id, email_verified_at FROM users WHERE email = $1 AND deleted_at IS NULL FOR UPDATE
 `
 
-func (q *Queries) UserExistsByEmail(ctx context.Context, email string) (bool, error) {
-	row := q.db.QueryRow(ctx, userExistsByEmail, email)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
+type LockUserByEmailForLinkRow struct {
+	ID              int64
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+// Vínculo automático pelo e-mail verificado do provedor (SPEC 7.4): trava a conta do e-mail (sem diferença de
+// caixa: a coluna é citext) para vincular e, se o e-mail ainda não estava verificado, verificar na mesma transação.
+func (q *Queries) LockUserByEmailForLink(ctx context.Context, email string) (LockUserByEmailForLinkRow, error) {
+	row := q.db.QueryRow(ctx, lockUserByEmailForLink, email)
+	var i LockUserByEmailForLinkRow
+	err := row.Scan(&i.ID, &i.EmailVerifiedAt)
+	return i, err
+}
+
+const markUserEmailVerifiedForLink = `-- name: MarkUserEmailVerifiedForLink :exec
+UPDATE users SET email_verified_at = now(), pending_email = NULL WHERE id = $1
+`
+
+func (q *Queries) MarkUserEmailVerifiedForLink(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markUserEmailVerifiedForLink, id)
+	return err
 }
 
 const userHasPassword = `-- name: UserHasPassword :one

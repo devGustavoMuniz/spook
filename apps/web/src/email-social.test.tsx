@@ -42,7 +42,7 @@ describe("login: esqueci a senha e login social", () => {
   });
 
   it("repassa o destino (redirect) ao início do fluxo e mostra os erros do retorno", async () => {
-    await renderApp("/login?redirect=/invite/abc12345&social_error=email_in_use", {
+    await renderApp("/login?redirect=/invite/abc12345&social_error=email_unverified", {
       seed: (s) => {
         s.auth.providers = ["google"];
       },
@@ -52,7 +52,7 @@ describe("login: esqueci a senha e login social", () => {
       "/api/auth/social/google/start?redirect=%2Finvite%2Fabc12345",
     );
     expect(
-      screen.getByText(/Já existe uma conta com esse e-mail\. Entre com a sua senha/),
+      screen.getByText(/O e-mail da sua conta no provedor não está verificado/),
     ).toBeInTheDocument();
   });
 

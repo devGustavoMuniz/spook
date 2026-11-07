@@ -4,6 +4,8 @@ export const auth = {
   "auth.invite.banner.label": "Invite received",
   "auth.invite.banner.title": "You received an invite to a server.",
   "auth.invite.banner.body": "Sign in or create an account to see the server and accept.",
+  "auth.keepSignedIn": "Keep me signed in",
+  "auth.keepSignedInHint": "Uncheck on shared computers. The session lasts up to 24 h without use.",
   "auth.signIn": "Sign in",
   "auth.createAccount": "Create account",
   "auth.password.show": "Show password",
@@ -125,8 +127,6 @@ export const auth = {
     "The provider didn't share an email for your account, so we can't create your sign-up.",
   "auth.social.emailUnverified":
     "The email on your provider account isn't verified. Verify it there and try again.",
-  "auth.social.emailInUse":
-    "An account with this email already exists. Sign in with your password and link the provider in Settings > Profile.",
   "auth.social.alreadyLinked": "This provider account is already linked to another user.",
   "auth.social.providerLinked": "Your account already has this provider linked.",
   "auth.social.wrongAccount":

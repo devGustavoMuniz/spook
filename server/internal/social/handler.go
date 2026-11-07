@@ -101,7 +101,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	clear := h.cookie(FlowCookie, "", -1)
 	http.SetCookie(w, &clear)
 	if out.SessionToken != "" {
-		c := auth.SessionCookie(out.SessionToken, h.secure, int(auth.SessionTTL.Seconds()))
+		c := auth.SessionCookie(out.SessionToken, h.secure, auth.CookieMaxAge(true))
 		http.SetCookie(w, &c)
 	}
 	if out.PendingToken != "" {
@@ -222,7 +222,7 @@ func (h *Handler) Register(api huma.API, authed, sensitive huma.Middlewares) {
 		case err != nil:
 			return nil, err
 		}
-		sess := auth.SessionCookie(tok, h.secure, int(auth.SessionTTL.Seconds()))
+		sess := auth.SessionCookie(tok, h.secure, auth.CookieMaxAge(true))
 		gone := h.cookie(PendingCookie, "", -1)
 		out := &CompleteOutput{SetCookie: []string{sess.String(), gone.String()}, Body: auth.SessionBody{User: h.view(ctx, u)}}
 		if in.Client == "desktop" {

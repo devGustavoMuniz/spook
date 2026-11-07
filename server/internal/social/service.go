@@ -31,9 +31,8 @@ const (
 	ErrCodeProvider     = "provider_error"   // falha ao falar com o provedor
 	ErrCodeNoEmail      = "no_email"         // o provedor não devolveu e-mail
 	ErrCodeUnverified   = "email_unverified" // o e-mail do provedor não é verificado
-	ErrCodeEmailInUse   = "email_in_use"     // já existe conta com esse e-mail (sem vínculo automático)
 	ErrCodeAlreadyLinks = "already_linked"   // essa conta do provedor já pertence a outro usuário
-	ErrCodeHasProvider  = "provider_linked"  // a conta já tem esse provedor
+	ErrCodeHasProvider  = "provider_linked"  // a conta com esse e-mail já tem OUTRA conta desse provedor vinculada
 	ErrCodeWrongAccount = "wrong_account"    // reautenticou com outra conta do provedor
 	ErrCodeNeedSession  = "need_session"     // vincular/reautenticar exige estar logado
 	ErrCodeNeedConfirm  = "need_confirm"     // vincular exige a senha confirmada há pouco
@@ -56,7 +55,8 @@ type Store interface {
 	Link(ctx context.Context, id, userID int64, provider, providerID, email string) error
 	Unlink(ctx context.Context, userID int64, provider string) error
 	HasPassword(ctx context.Context, userID int64) (bool, error)
-	EmailInUse(ctx context.Context, email string) (bool, error)
+	// LinkByEmail vincula a conta do provedor à conta que tem esse e-mail (ErrNoUserForEmail se não houver).
+	LinkByEmail(ctx context.Context, accountID int64, provider, providerID, email string) (LinkedUser, error)
 	CreatePending(ctx context.Context, hash []byte, p Pending) error
 	GetPending(ctx context.Context, hash []byte) (Pending, error)
 	Complete(ctx context.Context, hash []byte, userID, accountID int64, username string) (user.User, error)
@@ -68,6 +68,8 @@ type Sessions interface {
 	RecentlyConfirmed(ctx context.Context, token string) (bool, error)
 	ConfirmRecent(ctx context.Context, token string) error
 	NewSession(ctx context.Context, userID int64, userAgent *string) (string, error)
+	// NotifyRevoked derruba as conexões do gateway do usuário (keepKey vazio = todas).
+	NotifyRevoked(userID int64, keepKey string)
 }
 
 type IDGenerator interface{ Next() int64 }
@@ -228,20 +230,25 @@ func (s *Service) login(ctx context.Context, f flow, prof Profile, ua *string) O
 	case !errors.Is(err, ErrNotFound):
 		return s.internal(f, err)
 	}
-	// Conta nova. Só com e-mail verificado pelo provedor; e SEM vincular automaticamente a uma conta que já
-	// use o mesmo e-mail (tomada de conta): a pessoa entra com a senha e vincula em Configurações.
+	// Sem conta social vinculada. Só segue com e-mail verificado PELO PROVEDOR (Google `email_verified`, Discord
+	// `verified`): é isso que prova que a pessoa controla o endereço.
 	if prof.Email == "" {
 		return s.fail(&f, ErrCodeNoEmail)
 	}
 	if !prof.EmailVerified {
 		return s.fail(&f, ErrCodeUnverified)
 	}
-	inUse, err := s.d.Store.EmailInUse(ctx, prof.Email)
-	if err != nil {
+	// Já existe conta com esse e-mail (sem diferença de caixa)? Então vincula e entra (SPEC 7.4).
+	linked, err := s.d.Store.LinkByEmail(ctx, s.d.IDs.Next(), f.Provider, prof.ID, prof.Email)
+	switch {
+	case err == nil:
+		return s.loginLinked(ctx, f, linked, ua)
+	case errors.Is(err, ErrAlreadyLinked):
+		return s.fail(&f, ErrCodeHasProvider)
+	case errors.Is(err, ErrLinkedElsewhere):
+		return s.fail(&f, ErrCodeAlreadyLinks)
+	case !errors.Is(err, ErrNoUserForEmail):
 		return s.internal(f, err)
-	}
-	if inUse {
-		return s.fail(&f, ErrCodeEmailInUse)
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -264,6 +271,27 @@ func (s *Service) login(ctx context.Context, f flow, prof Profile, ua *string) O
 		dest = withParam(dest, "redirect", f.Redirect)
 	}
 	return Outcome{Redirect: dest, PendingToken: token}
+}
+
+// loginLinked abre a sessão (longa) de uma conta que acabou de ganhar o vínculo social pelo e-mail. Se o e-mail
+// da conta ainda NÃO estava verificado, ele passou a ser e TODAS as sessões antigas caíram (tudo na transação
+// do vínculo): quem cadastrou o e-mail alheio com senha antes ("pre-hijacking") perde o acesso que já tinha
+// aberto. Aqui só se derrubam as conexões do gateway delas e abre-se a sessão nova.
+func (s *Service) loginLinked(ctx context.Context, f flow, l LinkedUser, ua *string) Outcome {
+	if l.WasUnverified {
+		s.d.Sessions.NotifyRevoked(l.UserID, "")
+	}
+	level := slog.LevelInfo
+	if l.WasUnverified {
+		level = slog.LevelWarn // vínculo que verificou o e-mail e derrubou sessões: merece atenção na auditoria
+	}
+	slog.Log(ctx, level, "login social: conta existente vinculada pelo e-mail verificado do provedor",
+		"user", l.UserID, "provider", f.Provider, "email_was_unverified", l.WasUnverified, "sessions_revoked", l.Revoked)
+	tok, err := s.d.Sessions.NewSession(ctx, l.UserID, ua)
+	if err != nil {
+		return s.internal(f, err)
+	}
+	return Outcome{Redirect: f.Redirect, SessionToken: tok}
 }
 
 // sessionUser confere que a sessão atual é a do usuário que iniciou o fluxo.

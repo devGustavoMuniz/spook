@@ -413,7 +413,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		gwLimiter = ratelimit.New(50, 200)
 	}
 	gwLimiter.Named("gateway.handshake")
-	authSvc.OnRevoke(hub.RevokeAuth) // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
+	authSvc.OnRevokeKey(hub.RevokeAuthKey) // encerrar uma sessão na lista derruba só as conexões dela
+	authSvc.OnRevoke(hub.RevokeAuth)       // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
 	actionByOp, actionAll := named.actionLimiters(d.ActionLimiters)
 	named.warnUnknown(allLimiterNames())
 	startCleanup(ctx, append(actionAll, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter, friendReqLimiter, socialLimiter, callLimiter)...)
@@ -623,7 +624,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	// sensitive: sessão + confirmação de senha nos últimos 10 min (ver auth.Handler.RequireRecentPassword).
 	// Outras features aplicam o mesmo valor às suas ações sensíveis (ex.: excluir servidor).
 	sensitive := huma.Middlewares{authed[0], limit, authH.RequireRecentPassword(api)}
-	authH.Register(api, authed)
+	authH.Register(api, authed, sensitive)
 	mailH.Register(api, authed)
 	socialH.Register(api, authed, sensitive)
 	// Criar servidor e convidar exigem e-mail verificado quando REQUIRE_EMAIL_VERIFICATION=true (o gate não faz

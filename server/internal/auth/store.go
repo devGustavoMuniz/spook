@@ -16,10 +16,11 @@ type PGStore struct{ q *dbgen.Queries }
 
 func NewStore(db dbgen.DBTX) *PGStore { return &PGStore{q: dbgen.New(db)} }
 
-func (s *PGStore) CreateSession(ctx context.Context, id, userID int64, tokenHash []byte, userAgent *string, expires time.Time) error {
+func (s *PGStore) CreateSession(ctx context.Context, id, userID int64, tokenHash []byte, userAgent *string, remember bool, now, expires time.Time) error {
 	err := s.q.CreateSession(ctx, dbgen.CreateSessionParams{
-		ID: id, UserID: userID, TokenHash: tokenHash, UserAgent: userAgent,
-		ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true},
+		ID: id, UserID: userID, TokenHash: tokenHash, UserAgent: userAgent, Remember: remember,
+		LastSeenAt: pgtype.Timestamptz{Time: now, Valid: true},
+		ExpiresAt:  pgtype.Timestamptz{Time: expires, Valid: true},
 	})
 	if err != nil {
 		return fmt.Errorf("criar sessão: %w", err)
@@ -35,7 +36,7 @@ func (s *PGStore) Session(ctx context.Context, tokenHash []byte) (SessionInfo, e
 	if err != nil {
 		return SessionInfo{}, fmt.Errorf("buscar sessão: %w", err)
 	}
-	info := SessionInfo{ID: row.ID, UserID: row.UserID, Expires: row.ExpiresAt.Time}
+	info := SessionInfo{ID: row.ID, UserID: row.UserID, Expires: row.ExpiresAt.Time, Remember: row.Remember, LastSeen: row.LastSeenAt.Time, CreatedAt: row.CreatedAt.Time}
 	if row.PasswordConfirmedAt.Valid {
 		t := row.PasswordConfirmedAt.Time
 		info.ConfirmedAt = &t
@@ -103,4 +104,39 @@ func (s *PGStore) ConsumeDesktopCode(ctx context.Context, codeHash []byte) (int6
 		return 0, "", fmt.Errorf("consumir código do desktop: %w", err)
 	}
 	return row.UserID, row.CodeChallenge, nil
+}
+
+func (s *PGStore) SlideSession(ctx context.Context, tokenHash []byte, seen, expires, staleBefore time.Time) (bool, error) {
+	n, err := s.q.SlideSession(ctx, dbgen.SlideSessionParams{
+		TokenHash: tokenHash, LastSeenAt: pgtype.Timestamptz{Time: seen, Valid: true},
+		ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}, StaleBefore: pgtype.Timestamptz{Time: staleBefore, Valid: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("renovar sessão: %w", err)
+	}
+	return n > 0, nil
+}
+
+func (s *PGStore) ListSessions(ctx context.Context, userID int64) ([]SessionRow, error) {
+	rows, err := s.q.ListActiveSessions(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("listar sessões: %w", err)
+	}
+	out := make([]SessionRow, len(rows))
+	for i, r := range rows {
+		out[i] = SessionRow{ID: r.ID, TokenHash: r.TokenHash, UserAgent: r.UserAgent, Remember: r.Remember,
+			CreatedAt: r.CreatedAt.Time, LastSeen: r.LastSeenAt.Time, Expires: r.ExpiresAt.Time}
+	}
+	return out, nil
+}
+
+func (s *PGStore) DeleteSessionByID(ctx context.Context, userID, id int64) ([]byte, error) {
+	h, err := s.q.DeleteSessionByID(ctx, dbgen.DeleteSessionByIDParams{ID: id, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrSessionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("encerrar sessão: %w", err)
+	}
+	return h, nil
 }

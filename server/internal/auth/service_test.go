@@ -80,6 +80,11 @@ type fakeSession struct {
 	userID    int64
 	expires   time.Time
 	confirmed *time.Time
+	remember  bool
+	lastSeen  time.Time
+	created   time.Time
+	ua        *string
+	slides    int
 }
 
 type fakeStore struct {
@@ -88,13 +93,13 @@ type fakeStore struct {
 	codes    map[string]*fakeCode
 }
 
-func (f *fakeStore) CreateSession(_ context.Context, id, userID int64, hash []byte, _ *string, exp time.Time) error {
+func (f *fakeStore) CreateSession(_ context.Context, id, userID int64, hash []byte, ua *string, remember bool, now, exp time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.sessions == nil {
 		f.sessions = map[string]*fakeSession{}
 	}
-	f.sessions[string(hash)] = &fakeSession{id: id, userID: userID, expires: exp}
+	f.sessions[string(hash)] = &fakeSession{id: id, userID: userID, expires: exp, remember: remember, lastSeen: now, created: now, ua: ua}
 	return nil
 }
 
@@ -105,7 +110,43 @@ func (f *fakeStore) Session(_ context.Context, hash []byte) (SessionInfo, error)
 	if !ok {
 		return SessionInfo{}, ErrUnauthorized
 	}
-	return SessionInfo{ID: s.id, UserID: s.userID, Expires: s.expires, ConfirmedAt: s.confirmed}, nil
+	return SessionInfo{ID: s.id, UserID: s.userID, Expires: s.expires, ConfirmedAt: s.confirmed, Remember: s.remember, LastSeen: s.lastSeen, CreatedAt: s.created}, nil
+}
+
+func (f *fakeStore) SlideSession(_ context.Context, hash []byte, seen, exp, stale time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s, ok := f.sessions[string(hash)]
+	if !ok || s.lastSeen.After(stale) {
+		return false, nil
+	}
+	s.lastSeen, s.expires = seen, exp
+	s.slides++
+	return true, nil
+}
+
+func (f *fakeStore) ListSessions(_ context.Context, userID int64) ([]SessionRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []SessionRow
+	for k, s := range f.sessions {
+		if s.userID == userID {
+			out = append(out, SessionRow{ID: s.id, TokenHash: []byte(k), UserAgent: s.ua, Remember: s.remember, CreatedAt: s.created, LastSeen: s.lastSeen, Expires: s.expires})
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) DeleteSessionByID(_ context.Context, userID, id int64) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for k, s := range f.sessions {
+		if s.id == id && s.userID == userID {
+			delete(f.sessions, k)
+			return []byte(k), nil
+		}
+	}
+	return nil, ErrSessionNotFound
 }
 
 func (f *fakeStore) ConfirmSession(_ context.Context, hash []byte, at time.Time) error {
@@ -196,7 +237,7 @@ func TestRegisterLoginLogoutFlow(t *testing.T) {
 	ctx := context.Background()
 	svc, st := newSvc(t)
 
-	u, tok, err := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil)
+	u, tok, err := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,13 +250,13 @@ func TestRegisterLoginLogoutFlow(t *testing.T) {
 		}
 	}
 
-	if _, _, err := svc.Login(ctx, "a@b.com", "errada", nil); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := svc.Login(ctx, "a@b.com", "errada", nil, true); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("senha errada: %v", err)
 	}
-	if _, _, err := svc.Login(ctx, "naoexiste@b.com", "qualquer", nil); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := svc.Login(ctx, "naoexiste@b.com", "qualquer", nil, true); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("e-mail inexistente deve dar o mesmo erro: %v", err)
 	}
-	_, tok2, err := svc.Login(ctx, "a@b.com", "senha-forte-1", nil)
+	_, tok2, err := svc.Login(ctx, "a@b.com", "senha-forte-1", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,10 +277,10 @@ func TestRegisterLoginLogoutFlow(t *testing.T) {
 
 func TestRegisterDuplicateEmail(t *testing.T) {
 	svc, _ := newSvc(t)
-	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana", "senha-forte-1", nil); err != nil {
+	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana", "senha-forte-1", nil, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana2", "senha-forte-1", nil); !errors.Is(err, user.ErrEmailTaken) {
+	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana2", "senha-forte-1", nil, true); !errors.Is(err, user.ErrEmailTaken) {
 		t.Fatalf("esperava ErrEmailTaken, veio %v", err)
 	}
 }
@@ -247,7 +288,7 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 func TestAuthenticateRejectsExpiredAndEmpty(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newSvc(t)
-	_, tok, _ := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil)
+	_, tok, _ := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil, true)
 
 	svc.now = func() time.Time { return time.Now().Add(SessionTTL + time.Minute) }
 	if _, err := svc.Authenticate(ctx, tok); !errors.Is(err, ErrUnauthorized) {
@@ -261,11 +302,11 @@ func TestAuthenticateRejectsExpiredAndEmpty(t *testing.T) {
 func TestChangePasswordKeepsCurrentSessionAndDropsOthers(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newSvc(t)
-	u, tok, err := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil)
+	u, tok, err := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, other, _ := svc.Login(ctx, "a@b.com", "senha-forte-1", nil)
+	_, other, _ := svc.Login(ctx, "a@b.com", "senha-forte-1", nil, true)
 	var gotUser int64
 	var gotKeep string
 	svc.OnRevoke(func(uid int64, keep string) { gotUser, gotKeep = uid, keep })
@@ -291,10 +332,10 @@ func TestChangePasswordKeepsCurrentSessionAndDropsOthers(t *testing.T) {
 	if gotUser != u.ID || gotKeep != TokenKey(tok) {
 		t.Fatalf("gateway deveria ser avisado mantendo só a sessão atual: %d %q", gotUser, gotKeep)
 	}
-	if _, _, err := svc.Login(ctx, "a@b.com", "outra-senha-2", nil); err != nil {
+	if _, _, err := svc.Login(ctx, "a@b.com", "outra-senha-2", nil, true); err != nil {
 		t.Fatalf("login com a senha nova: %v", err)
 	}
-	if _, _, err := svc.Login(ctx, "a@b.com", "senha-forte-1", nil); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err := svc.Login(ctx, "a@b.com", "senha-forte-1", nil, true); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("a senha antiga não pode mais valer: %v", err)
 	}
 }
@@ -302,7 +343,7 @@ func TestChangePasswordKeepsCurrentSessionAndDropsOthers(t *testing.T) {
 func TestConfirmPasswordWindow(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newSvc(t)
-	u, tok, _ := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil)
+	u, tok, _ := svc.Register(ctx, "a@b.com", "ana", "senha-forte-1", nil, true)
 	if ok, _ := svc.RecentlyConfirmed(ctx, tok); ok {
 		t.Fatal("sessão nova não está confirmada")
 	}
@@ -325,11 +366,11 @@ func TestConfirmPasswordWindow(t *testing.T) {
 func TestRegisterRejectsReservedUsernameAndShortPassword(t *testing.T) {
 	svc, _ := newSvc(t)
 	for _, name := range []string{"admin", "ADMIN", "Spook", "everyone", "removido_5"} {
-		if _, _, err := svc.Register(context.Background(), name+"@b.com", name, "senha-forte-1", nil); !errors.Is(err, user.ErrReservedUsername) {
+		if _, _, err := svc.Register(context.Background(), name+"@b.com", name, "senha-forte-1", nil, true); !errors.Is(err, user.ErrReservedUsername) {
 			t.Fatalf("%q deveria ser reservado: %v", name, err)
 		}
 	}
-	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana", "curta", nil); !errors.Is(err, ErrWeakPassword) {
+	if _, _, err := svc.Register(context.Background(), "a@b.com", "ana", "curta", nil, true); !errors.Is(err, ErrWeakPassword) {
 		t.Fatalf("senha curta: %v", err)
 	}
 }

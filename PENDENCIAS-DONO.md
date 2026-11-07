@@ -23,6 +23,7 @@ Consolidado em 03/11/2026 a partir de `deploy/README.md`, `apps/desktop/README.m
 | B6 | Certificados de assinatura de código (Apple, Windows) | aviso do Gatekeeper/SmartScreen na primeira abertura | G (conta paga) |
 | B7 | Grafana Cloud e `SPOOK_OTLP_ENDPOINT` | traces e métricas em produção | 1 h |
 | B8 | Backup do Postgres e do Garage | recuperação de desastre | M |
+| B10 | Login social em conta existente e sessão persistente (conhecer o risco residual) | nada (já ativo) | 5 min |
 | C1 | Fase B: benchmarks contra produção | números finais do SPEC (RNF) | 1 a 2 dias |
 | C2 | Decisões de produto e de limites | nada (valem os padrões atuais) | 30 min |
 | D1 | Validação manual (ver `VALIDACAO-MANUAL.md`) | fechar os `[ ]` das fases e dos adicionais | 1 a 2 dias |
@@ -92,7 +93,7 @@ Não troque depois sem necessidade (invalida estados e e-mails pendentes). Refa�
    gh variable set GOOGLE_CLIENT_ID --body '<id>.apps.googleusercontent.com'
    gh secret set GOOGLE_CLIENT_SECRET < arquivo-com-o-segredo
    ```
-5. Refaça o deploy e teste "Entrar com Google" em `/login` e "Vincular" em Configurações > Perfil > Contas vinculadas. Exige A4 e `PUBLIC_URL` correto (A7).
+5. Refaça o deploy e teste "Entrar com Google" em `/login` e "Vincular" em Configurações > Perfil > Contas vinculadas. Exige A4 e `PUBLIC_URL` correto (A7). Se o e-mail do Google (verificado) for o mesmo de uma conta que já existe, o login **vincula e entra** nessa conta (ver B10).
 
 ### A6. App OAuth do Discord
 1. discord.com/developers/applications > **New Application** (nome "Spook") > **OAuth2**.
@@ -171,6 +172,13 @@ SPEC 10, questão 3: não há rotina. Postgres por `pg_dump` agendado; dados em 
 - Sons de chamada sintetizados: ouça em Configurações > Voz e vídeo; para outro timbre ajuste as receitas em `apps/web/src/features/voice/call-sounds.ts`.
 - Desktop (Rust) pendente: assinatura por faixa, troca de fonte da tela e estatísticas de rede, para ligar "Assistir", "Trocar janela/tela" e o indicador completo no app desktop. O comando `app_set_locale` (menu da bandeja em inglês) ainda não foi compilado localmente (sem `cargo`); o job Desktop do CI compila, e se falhar o app segue em pt-BR na bandeja.
 - Disco do Docker local: se aparecer `No space left on device`, rode `docker system df`, `docker builder prune` e remova imagens/volumes de projetos antigos.
+
+### B10. Login social em conta existente e "Manter conectado" (nada a configurar)
+Entrou como adicional (RF30; SPEC 5.5, bloco "login social em conta existente e sessão persistente"); a **regra anterior "sem vínculo automático por e-mail" foi substituída**. O que mudou para você:
+- Se o Google/Discord informa o e-mail como **verificado** e ele é igual ao de uma conta do Spook, a pessoa **entra nessa conta** e a conta social é vinculada (antes: "Já existe uma conta com esse e-mail..."). Se o e-mail da conta do Spook não estava verificado, ele passa a estar e **todas as outras sessões dela caem** (proteção contra quem cadastrou o e-mail alheio com senha antes). O log do servidor registra `login social: conta existente vinculada pelo e-mail verificado do provedor` (nível WARN nesse caso).
+- **Risco residual que você deve conhecer:** nesse caso especial a senha que o invasor definiu continua valendo; o dono real pode trocá-la em "Esqueci minha senha" (precisa do SMTP, A3) ou em Configurações. Se quiser endurecer, a alternativa é apagar a senha da conta quando ela não estava verificada (a pessoa passaria a entrar só pelo provedor e definiria uma senha de novo); não fiz para não surpreender quem se cadastrou legitimamente com senha. Decida se quer isso.
+- Sessões agora duram **90 dias deslizantes** (cada uso renova) com "Manter conectado" marcado, que é o padrão; desmarcado, 24 h e some ao fechar o navegador. A causa de "o login expira" era o prazo fixo de 30 dias sem renovação. Sessões já existentes viram "lembradas" (migration `00016`, aditiva) e passam a deslizar no primeiro uso. Para revogar: Configurações > Perfil > "Sessões ativas".
+- Nenhum segredo, variável ou passo de deploy novo.
 
 ---
 

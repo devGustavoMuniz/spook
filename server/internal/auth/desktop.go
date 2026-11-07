@@ -74,6 +74,6 @@ func (s *Service) DesktopExchange(ctx context.Context, code, verifier string, us
 	if err != nil {
 		return user.User{}, "", err
 	}
-	tok, err := s.newSession(ctx, uid, userAgent)
+	tok, err := s.newSession(ctx, uid, userAgent, true) // o desktop sempre usa sessão longa
 	return u, tok, err
 }

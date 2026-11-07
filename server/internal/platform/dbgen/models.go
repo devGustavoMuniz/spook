@@ -224,6 +224,8 @@ type Session struct {
 	ExpiresAt           pgtype.Timestamptz
 	CreatedAt           pgtype.Timestamptz
 	PasswordConfirmedAt pgtype.Timestamptz
+	Remember            bool
+	LastSeenAt          pgtype.Timestamptz
 }
 
 type SocialAccount struct {

@@ -21,7 +21,16 @@ var (
 	ErrAlreadyLinked   = errors.New("sua conta já tem esse provedor vinculado")
 	ErrLastMethod      = errors.New("não é possível remover o último método de login")
 	ErrSignupExpired   = errors.New("cadastro social expirado")
+	// ErrNoUserForEmail: nenhuma conta ativa usa esse e-mail.
+	ErrNoUserForEmail = errors.New("nenhuma conta com esse e-mail")
 )
+
+// LinkedUser é a conta que ganhou o vínculo pelo e-mail.
+type LinkedUser struct {
+	UserID        int64
+	WasUnverified bool  // o e-mail da conta ainda não estava verificado (agora está)
+	Revoked       int64 // sessões encerradas na mesma transação (só quando WasUnverified)
+}
 
 // Account é uma conta social vinculada.
 type Account struct {
@@ -140,12 +149,52 @@ func (s *PGStore) HasPassword(ctx context.Context, userID int64) (bool, error) {
 	return has, nil
 }
 
-func (s *PGStore) EmailInUse(ctx context.Context, email string) (bool, error) {
-	ok, err := s.q.UserExistsByEmail(ctx, email)
+// LinkByEmail vincula a conta do provedor à conta que tem o e-mail (a coluna é citext: sem diferença de caixa),
+// numa transação com a conta travada. Se o e-mail da conta não estava verificado, passa a estar (o provedor o
+// verificou), descarta a troca de e-mail pendente e invalida os tokens de e-mail em aberto (nada emitido antes
+// por quem não controlava o endereço continua valendo) e encerra TODAS as sessões da conta.
+func (s *PGStore) LinkByEmail(ctx context.Context, accountID int64, provider, providerID, email string) (LinkedUser, error) {
+	tx, err := s.d.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("buscar e-mail: %w", err)
+		return LinkedUser{}, fmt.Errorf("iniciar vínculo por e-mail: %w", err)
 	}
-	return ok, nil
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := dbgen.New(tx)
+	u, err := q.LockUserByEmailForLink(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return LinkedUser{}, ErrNoUserForEmail
+	}
+	if err != nil {
+		return LinkedUser{}, fmt.Errorf("buscar conta pelo e-mail: %w", err)
+	}
+	err = q.InsertSocialAccount(ctx, dbgen.InsertSocialAccountParams{ID: accountID, UserID: u.ID, Provider: provider, ProviderUserID: providerID, Email: ptr(email)})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgErr.ConstraintName == "social_accounts_user_id_provider_key" {
+			return LinkedUser{}, ErrAlreadyLinked
+		}
+		return LinkedUser{}, ErrLinkedElsewhere
+	}
+	if err != nil {
+		return LinkedUser{}, fmt.Errorf("vincular conta social: %w", err)
+	}
+	res := LinkedUser{UserID: u.ID, WasUnverified: !u.EmailVerifiedAt.Valid}
+	if res.WasUnverified {
+		if err := q.MarkUserEmailVerifiedForLink(ctx, u.ID); err != nil {
+			return LinkedUser{}, fmt.Errorf("verificar e-mail: %w", err)
+		}
+		if err := q.InvalidateOpenEmailTokens(ctx, u.ID); err != nil {
+			return LinkedUser{}, fmt.Errorf("invalidar tokens de e-mail: %w", err)
+		}
+		// Todas as sessões existentes caem junto com a verificação, atomicamente: nada fica pela metade.
+		if res.Revoked, err = q.DeleteAllUserSessionsForLink(ctx, u.ID); err != nil {
+			return LinkedUser{}, fmt.Errorf("encerrar sessões: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return LinkedUser{}, fmt.Errorf("confirmar vínculo por e-mail: %w", err)
+	}
+	return res, nil
 }
 
 func (s *PGStore) CreatePending(ctx context.Context, hash []byte, p Pending) error {

@@ -29,6 +29,8 @@ import type {
   EmailInputBody,
   ErrorModel,
   MethodsOutputBody,
+  RevokeOthersOutputBody,
+  SessionsOutputBody,
   SetPasswordInputBody,
   UpdateProfileInputBody,
   View,
@@ -984,4 +986,269 @@ export const useSetInitialPassword = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getSetInitialPasswordMutationOptions(options), queryClient);
+};
+export const getListSessionsUrl = () => {
+  return `/api/users/me/sessions`;
+};
+
+/**
+ * Só sessões não expiradas, da mais recente para a mais antiga em uso. `current` marca a sessão que fez a chamada. O IP não é guardado.
+ * @summary Sessões ativas da conta (dispositivo aproximado, criada em, último uso)
+ */
+export const listSessions = async (
+  options?: Parameters<typeof http>[1],
+): Promise<SessionsOutputBody> => {
+  return http<SessionsOutputBody>(getListSessionsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSessionsQueryKey = () => {
+  return [`/api/users/me/sessions`] as const;
+};
+
+export const getListSessionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSessions>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessions>>, TError, TData>>;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSessionsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSessions>>> = ({ signal }) =>
+    listSessions({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSessions>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListSessionsQueryResult = NonNullable<Awaited<ReturnType<typeof listSessions>>>;
+export type ListSessionsQueryError = ErrorModel;
+
+export function useListSessions<
+  TData = Awaited<ReturnType<typeof listSessions>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessions>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSessions>>,
+          TError,
+          Awaited<ReturnType<typeof listSessions>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSessions<
+  TData = Awaited<ReturnType<typeof listSessions>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessions>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSessions>>,
+          TError,
+          Awaited<ReturnType<typeof listSessions>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSessions<
+  TData = Awaited<ReturnType<typeof listSessions>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessions>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Sessões ativas da conta (dispositivo aproximado, criada em, último uso)
+ */
+
+export function useListSessions<
+  TData = Awaited<ReturnType<typeof listSessions>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSessions>>, TError, TData>>;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListSessionsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getRevokeOtherSessionsUrl = () => {
+  return `/api/users/me/sessions/revoke-others`;
+};
+
+/**
+ * Derruba também as conexões do gateway das sessões encerradas. Sem confirmação recente: 403 `password_confirmation_required`.
+ * @summary Encerra todas as outras sessões, mantendo a atual (exige a senha confirmada há pouco)
+ */
+export const revokeOtherSessions = async (
+  options?: Parameters<typeof http>[1],
+): Promise<RevokeOthersOutputBody> => {
+  return http<RevokeOthersOutputBody>(getRevokeOtherSessionsUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRevokeOtherSessionsMutationKey = () => ["revokeOtherSessions"] as const;
+
+export const getRevokeOtherSessionsMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeOtherSessions>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<Awaited<ReturnType<typeof revokeOtherSessions>>, TError, void, TContext> => {
+  const mutationKey = getRevokeOtherSessionsMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeOtherSessions>>,
+    void
+  > = () => {
+    return revokeOtherSessions(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeOtherSessionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeOtherSessions>>
+>;
+
+export type RevokeOtherSessionsMutationError = ErrorModel;
+
+/**
+ * @summary Encerra todas as outras sessões, mantendo a atual (exige a senha confirmada há pouco)
+ */
+export const useRevokeOtherSessions = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof revokeOtherSessions>>,
+      TError,
+      void,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof revokeOtherSessions>>, TError, void, TContext> => {
+  return useMutation(getRevokeOtherSessionsMutationOptions(options), queryClient);
+};
+export const getRevokeSessionUrl = (id: string) => {
+  return `/api/users/me/sessions/${id}`;
+};
+
+/**
+ * Derruba também as conexões do gateway dessa sessão. A sessão atual não pode ser encerrada aqui (use o logout): 422. Sem confirmação recente: 403 `password_confirmation_required`.
+ * @summary Encerra uma sessão (exige a senha confirmada há pouco)
+ */
+export const revokeSession = async (
+  id: string,
+  options?: Parameters<typeof http>[1],
+): Promise<void> => {
+  return http<void>(getRevokeSessionUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeSessionMutationKey = () => ["revokeSession"] as const;
+
+export const getRevokeSessionMutationOptions = <TError = ErrorModel, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeSession>>,
+    TError,
+    RevokeSessionMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeSession>>,
+  TError,
+  RevokeSessionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRevokeSessionMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeSession>>,
+    RevokeSessionMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return revokeSession(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeSessionMutationResult = NonNullable<Awaited<ReturnType<typeof revokeSession>>>;
+
+export type RevokeSessionMutationError = ErrorModel;
+export type RevokeSessionMutationVariables = { id: string };
+
+/**
+ * @summary Encerra uma sessão (exige a senha confirmada há pouco)
+ */
+export const useRevokeSession = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof revokeSession>>,
+      TError,
+      RevokeSessionMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof revokeSession>>,
+  TError,
+  RevokeSessionMutationVariables,
+  TContext
+> => {
+  return useMutation(getRevokeSessionMutationOptions(options), queryClient);
 };

@@ -37,6 +37,7 @@ import {
   needsPasswordConfirmation,
   useConfirmPassword,
 } from "@/features/account/confirm-password";
+import { SessionsCard } from "@/features/settings/sessions";
 import { SettingsGroup } from "@/features/settings/ui";
 import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
@@ -58,6 +59,7 @@ export function SecuritySection({ me }: { me: View }) {
     <>
       {me.has_password ? <ChangePasswordCard /> : <SetPasswordCard />}
       <LoginMethodsCard me={me} />
+      <SessionsCard me={me} />
       <ChangeEmailCard me={me} />
       <DeleteAccountCard me={me} />
     </>

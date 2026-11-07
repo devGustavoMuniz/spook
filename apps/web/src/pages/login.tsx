@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { FormAlert } from "@/auth/form-alert";
 import { InviteBanner, inviteCodeOf } from "@/auth/invite-banner";
 import { PasswordInput } from "@/auth/password-input";
+import { RememberMe } from "@/auth/remember-me";
 import { SocialButtons } from "@/auth/social-buttons";
 import { socialErrorMessage } from "@/auth/social-errors";
 import { AuthLayout } from "@/components/auth-layout";
@@ -45,7 +46,7 @@ export function LoginPage() {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     mode: "onTouched",
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: "", password: "", remember: true },
   });
 
   const onSubmit = handleSubmit(async (data) => {
@@ -99,6 +100,7 @@ export function LoginPage() {
                 {...register("password")}
               />
             </Field>
+            <RememberMe disabled={busy} {...register("remember")} />
             <Link
               to="/forgot-password"
               className="self-start text-sm font-medium text-brand-text underline-offset-4 hover:underline"

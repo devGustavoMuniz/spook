@@ -313,10 +313,23 @@ const CloseSessionRevoked = 4010
 // RevokeAuth derruba as conexões e sessões do gateway de userID cuja sessão de login não seja keepKey
 // (keepKey vazio = todas). Chamado quando sessões de login são encerradas no banco.
 func (h *Hub) RevokeAuth(userID int64, keepKey string) {
+	h.revoke(userID, func(key string) bool { return keepKey == "" || key != keepKey })
+}
+
+// RevokeAuthKey derruba as conexões e sessões do gateway de userID que vieram da sessão de login `key`
+// (auth.TokenKey): usado ao encerrar uma única sessão na lista de Configurações → Segurança.
+func (h *Hub) RevokeAuthKey(userID int64, key string) {
+	if key == "" {
+		return
+	}
+	h.revoke(userID, func(k string) bool { return k == key })
+}
+
+func (h *Hub) revoke(userID int64, match func(authKey string) bool) {
 	h.mu.Lock()
 	var drop []*Session
 	for s := range h.byUser[userID] {
-		if keepKey == "" || s.authKey != keepKey {
+		if match(s.authKey) {
 			drop = append(drop, s)
 		}
 	}
@@ -330,7 +343,7 @@ func (h *Hub) RevokeAuth(userID int64, keepKey string) {
 		h.removeSessionLocked(s)
 	}
 	for c := range h.conns { // conexões ainda sem sessão (antes do IDENTIFY)
-		if c.userID == userID && (keepKey == "" || c.authKey != keepKey) {
+		if c.userID == userID && match(c.authKey) {
 			conns = append(conns, c)
 		}
 	}

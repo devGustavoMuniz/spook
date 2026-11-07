@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { FormAlert } from "@/auth/form-alert";
 import { InviteBanner, inviteCodeOf } from "@/auth/invite-banner";
 import { PasswordInput } from "@/auth/password-input";
+import { RememberMe } from "@/auth/remember-me";
 import { SocialButtons } from "@/auth/social-buttons";
 import { socialErrorMessage } from "@/auth/social-errors";
 import { AuthLayout } from "@/components/auth-layout";
@@ -44,7 +45,7 @@ export function RegisterPage() {
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
     mode: "onTouched",
-    defaultValues: { email: "", username: "", password: "" },
+    defaultValues: { email: "", username: "", password: "", remember: true },
   });
 
   const onSubmit = handleSubmit(async (data) => {
@@ -121,6 +122,7 @@ export function RegisterPage() {
                 {...register("password")}
               />
             </Field>
+            <RememberMe disabled={busy} {...register("remember")} />
           </CardContent>
           <CardFooter className="mt-6 flex-col gap-4">
             <Button type="submit" size="xl" className="w-full" loading={busy}>

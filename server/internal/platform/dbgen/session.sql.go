@@ -26,16 +26,18 @@ func (q *Queries) ConfirmSessionPassword(ctx context.Context, arg ConfirmSession
 }
 
 const createSession = `-- name: CreateSession :exec
-INSERT INTO sessions (id, user_id, token_hash, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO sessions (id, user_id, token_hash, user_agent, expires_at, remember, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type CreateSessionParams struct {
-	ID        int64
-	UserID    int64
-	TokenHash []byte
-	UserAgent *string
-	ExpiresAt pgtype.Timestamptz
+	ID         int64
+	UserID     int64
+	TokenHash  []byte
+	UserAgent  *string
+	ExpiresAt  pgtype.Timestamptz
+	Remember   bool
+	LastSeenAt pgtype.Timestamptz
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
@@ -45,6 +47,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 		arg.TokenHash,
 		arg.UserAgent,
 		arg.ExpiresAt,
+		arg.Remember,
+		arg.LastSeenAt,
 	)
 	return err
 }
@@ -78,6 +82,22 @@ func (q *Queries) DeleteOtherSessions(ctx context.Context, arg DeleteOtherSessio
 	return result.RowsAffected(), nil
 }
 
+const deleteSessionByID = `-- name: DeleteSessionByID :one
+DELETE FROM sessions WHERE id = $1 AND user_id = $2 RETURNING token_hash
+`
+
+type DeleteSessionByIDParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) DeleteSessionByID(ctx context.Context, arg DeleteSessionByIDParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, deleteSessionByID, arg.ID, arg.UserID)
+	var token_hash []byte
+	err := row.Scan(&token_hash)
+	return token_hash, err
+}
+
 const deleteSessionByTokenHash = `-- name: DeleteSessionByTokenHash :exec
 DELETE FROM sessions WHERE token_hash = $1
 `
@@ -88,7 +108,8 @@ func (q *Queries) DeleteSessionByTokenHash(ctx context.Context, tokenHash []byte
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT id, user_id, expires_at, password_confirmed_at FROM sessions WHERE token_hash = $1
+SELECT id, user_id, expires_at, password_confirmed_at, remember, last_seen_at, created_at
+FROM sessions WHERE token_hash = $1
 `
 
 type GetSessionByTokenHashRow struct {
@@ -96,6 +117,9 @@ type GetSessionByTokenHashRow struct {
 	UserID              int64
 	ExpiresAt           pgtype.Timestamptz
 	PasswordConfirmedAt pgtype.Timestamptz
+	Remember            bool
+	LastSeenAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
 }
 
 func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error) {
@@ -106,6 +130,78 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (
 		&i.UserID,
 		&i.ExpiresAt,
 		&i.PasswordConfirmedAt,
+		&i.Remember,
+		&i.LastSeenAt,
+		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listActiveSessions = `-- name: ListActiveSessions :many
+SELECT id, token_hash, user_agent, remember, created_at, last_seen_at, expires_at
+FROM sessions WHERE user_id = $1 AND expires_at > now() ORDER BY last_seen_at DESC, id DESC
+`
+
+type ListActiveSessionsRow struct {
+	ID         int64
+	TokenHash  []byte
+	UserAgent  *string
+	Remember   bool
+	CreatedAt  pgtype.Timestamptz
+	LastSeenAt pgtype.Timestamptz
+	ExpiresAt  pgtype.Timestamptz
+}
+
+func (q *Queries) ListActiveSessions(ctx context.Context, userID int64) ([]ListActiveSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveSessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveSessionsRow
+	for rows.Next() {
+		var i ListActiveSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TokenHash,
+			&i.UserAgent,
+			&i.Remember,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const slideSession = `-- name: SlideSession :execrows
+UPDATE sessions SET last_seen_at = $2, expires_at = $3
+WHERE token_hash = $1 AND last_seen_at <= $4
+`
+
+type SlideSessionParams struct {
+	TokenHash   []byte
+	LastSeenAt  pgtype.Timestamptz
+	ExpiresAt   pgtype.Timestamptz
+	StaleBefore pgtype.Timestamptz
+}
+
+// Renovação deslizante: só grava se o último uso for mais velho que o limite (evita escrever a cada requisição).
+func (q *Queries) SlideSession(ctx context.Context, arg SlideSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, slideSession,
+		arg.TokenHash,
+		arg.LastSeenAt,
+		arg.ExpiresAt,
+		arg.StaleBefore,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
