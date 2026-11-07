@@ -132,6 +132,37 @@ docker run --rm --network spook_default -e LIVEKIT_URL=ws://livekit:7880 -v "$PW
 **Sem chaveiro** (por exemplo, Linux sem `gnome-keyring`/KWallet): o token fica **só em memória** e o app avisa que será
 preciso entrar de novo ao reabrir. O token nunca é gravado em arquivo, `localStorage` nem cookie.
 
+## Login pelo navegador (deep link `spook://`)
+
+Na tela de login do desktop, "Entrar pelo navegador" abre `PUBLIC_URL/desktop-login`; depois da confirmação, a página abre
+`spook://auth?code=...` e o app troca o código (60 s, uso único, PKCE) por um token Bearer. A capability web
+`VITE_DESKTOP_BROWSER_LOGIN=true` está em `apps/web/.env.desktop` (só o build do desktop).
+
+- **Rust:** `tauri-plugin-deep-link` (esquema `spook` em `tauri.conf.json`) + a feature `deep-link` do `tauri-plugin-single-instance`
+  (abrir o link com o app rodando entrega a URL à instância existente e traz a janela). Lógica de validação em `src/deeplink.rs`
+  (`cargo test --lib deeplink::`): só `spook://auth?code=` com código `[A-Za-z0-9_-]{20,128}`; o resto é ignorado. O Rust nunca navega o
+  webview: emite o evento `spook-auth-code` só com o código. O webview não recebe permissão do plugin (`capabilities/default.json` não
+  mudou).
+- **Registro do esquema:** instalado pelo instalador (macOS `Info.plist` do bundle, Windows NSIS, Linux `.desktop` do `.deb`) e, no
+  Windows e no Linux, também em runtime (`register_all()`: chave `HKCU\Software\Classes\spook`; `~/.local/share/applications/<bin>-handler.desktop`
+  + `xdg-mime`, por isso o `.deb` depende de `xdg-utils`). **No macOS não há registro em runtime:** em `tauri dev` o `spook://` NÃO abre o
+  app em desenvolvimento (o esquema só existe no bundle `.app`); para testar no macOS use o `.app` do `tauri build` (de preferência em
+  `/Applications`). No Windows/Linux em dev o `register_all()` aponta o esquema para o binário de debug, e vale até outro app registrar.
+- **Testar** (com o app rodando, depois de clicar em "Entrar pelo navegador"; o código de teste precisa ter 20+ caracteres, e a troca falha com
+  "expirou ou já foi usado", o que já prova que o link chegou):
+
+  | SO | Comando |
+  | --- | --- |
+  | macOS | `open "spook://auth?code=codigo-de-teste-123456789"` |
+  | Linux | `xdg-open "spook://auth?code=codigo-de-teste-123456789"` |
+  | Windows (cmd) | `start "" "spook://auth?code=codigo-de-teste-123456789"` |
+
+  Links que devem ser ignorados (a janela nem aparece): `spook://outra?code=...`, `spook://auth`, `spook://auth?code=curto`.
+  Início a frio: com o app fechado o SO o inicia (Windows/Linux passam a URL no argumento; macOS por evento), mas o login só conclui
+  se o fluxo foi iniciado nesta execução (o verificador PKCE fica na memória).
+- **Linux AppImage/binário solto:** o primeiro start registra o esquema apontando para o AppImage (variável `APPIMAGE`); se mover o
+  arquivo, abra-o uma vez para reregistrar.
+
 ## O que a CI gera
 
 Workflow [`desktop.yml`](../../.github/workflows/desktop.yml) (`workflow_dispatch`, push na `main` que toque `apps/desktop`,
@@ -247,6 +278,7 @@ src-tauri/
   icons/                      gerados com `tauri icon`
   src/lib.rs                  plugins, comandos e montagem do app
   src/token.rs                TokenVault + trait TokenStore (chaveiro com fallback em memória) e testes
+  src/deeplink.rs             validação pura de spook://auth?code= (login pelo navegador) e testes
   src/nav.rs                  guarda de navegação (links externos) e testes
   src/shell.rs                bandeja, fechar para a bandeja, autostart, contador no ícone, sair (voz desconectada)
   src/settings.rs  src/badge.rs   configurações em JSON e ícone/rótulo do contador (puros, testados)

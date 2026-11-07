@@ -15,7 +15,7 @@ Desde o checkpoint `checkpoint-spec-completo` (`e39b794`, 31/10/2026) entraram *
 | Contas e perfil | trocar senha, confirmar senha, excluir conta, usernames reservados, bio, pronomes, banner, avatar animado | `779aa38` |
 | Desktop | auto-update assinado, splash, página `/download`, aviso de nova versão do web | `ad5fb77` |
 | Admin | biblioteca de gráficos (séries, barras, medidores, sparklines, heatmap), histórico do LiveKit, disco e plano | `d42460e`, `38364bb` |
-| E-mail e login social | verificação, troca de e-mail confirmada, recuperação de senha, Google/Discord, login do desktop por navegador (sem o deep link Rust) | `5d7f7ee`, `c21a42e` |
+| E-mail e login social | verificação, troca de e-mail confirmada, recuperação de senha, Google/Discord, login do desktop por navegador (inclui o deep link `spook://` no Rust; compilação conferida pelo workflow Desktop) | `5d7f7ee`, `c21a42e` |
 | Moderação | banir/desbanir, permissões por canal, apelido, mutar/desconectar na voz, registro de auditoria | `66bfd26` |
 | Menções e limites | `@everyone`/`@here`/cargo, mensagem de entrada, tópico, `LIMIT_*`, exclusão de servidor com senha | `e30ee5b` |
 | Social | amizades, bloqueio, presença de amigos, convite pela DM, chamada em DM com toque | `20fed91` |
@@ -26,7 +26,7 @@ Desde o checkpoint `checkpoint-spec-completo` (`e39b794`, 31/10/2026) entraram *
 
 **Decisões que merecem seu olho:** DM 1:1 segue aberta a quem compartilha servidor e também a amigos (SPEC 7.4 atualizado); bloqueio é silencioso para quem foi bloqueado; mensagens de conta excluída ficam como "Usuário removido"; contas sociais nunca se vinculam por e-mail automaticamente; contas antigas ficam "não verificadas" sem perder acesso; canais não herdam permissões da categoria; banir não revoga convites; padrão 1080p/30 fps no compartilhamento de tela; idioma só no navegador; limites de domínio e de taxa são valores meus (listados em `PENDENCIAS-DONO.md`, seção C2); estado de voz em memória assume uma única instância do backend.
 
-**Limitações:** falta o deep link `spook://` no Rust (login do desktop por navegador) e, no desktop, assinatura por faixa, troca de fonte e estatísticas de rede; Rust do idioma da bandeja não foi compilado localmente; inglês não revisado por nativo; push em pt-BR; `/admin` só em pt-BR; Fase B (benchmarks) e observabilidade em produção não executadas; SMTP, apps OAuth e certificados de assinatura dependem de você.
+**Limitações:** o deep link `spook://` (login do desktop por navegador) só foi validado por testes de lógica e type-check em Linux, falta o teste nos três SOs (`VALIDACAO-MANUAL.md`); no desktop também faltam assinatura por faixa, troca de fonte e estatísticas de rede; Rust do idioma da bandeja não foi compilado localmente; inglês não revisado por nativo; push em pt-BR; `/admin` só em pt-BR; Fase B (benchmarks) e observabilidade em produção não executadas; SMTP, apps OAuth e certificados de assinatura dependem de você.
 
 **Fora por decisão do dono:** soundboard, 2FA, código de cadastro e mobile (Expo); push-to-talk, Ctrl+K e rascunho por canal (1a leva).
 
@@ -291,7 +291,7 @@ aceita o username com ou sem `@`. Teste de integração `TestAdminCLIGrantRevoke
 | Troca de e-mail confirmada no endereço novo (`EmailChangeVerifier`), com aviso ao antigo | Feito |
 | Esqueci/redefinir senha (resposta idêntica, piso de duração, limites, encerra todas as sessões) + `spook admin reset-password` | Feito |
 | Login social Google e Discord (OAuth2 + PKCE, vínculo por e-mail verificado do provedor [atualizado, ver "Login social em conta existente e sessão persistente"], escolher username, vincular/desvincular, último método, definir senha) | Feito (falta criar os apps OAuth) |
-| Login do desktop pelo navegador (backend, páginas web, módulo `browser-login.ts` atrás da capability `browserLogin`) | Backend e web feitos; **deep link `spook://` no Rust pendente** |
+| Login do desktop pelo navegador (backend, páginas web, módulo `browser-login.ts` atrás da capability `browserLogin`, ligada só no build do desktop) | Feito: backend, páginas web, `tauri-plugin-deep-link` (esquema `spook`, instância única, validação em Rust), botão com estados e `VITE_DESKTOP_BROWSER_LOGIN=true` no build do desktop; **falta validar nos 3 SOs** |
 | Modo degradado sem SMTP (documentado) e `REQUIRE_EMAIL_VERIFICATION` | Feito |
 
 - **Decisões:** contas antigas "não verificadas" sem bloquear nada (padrão); sem `SMTP_HOST` o app sobe com o driver `log` e os fluxos por e-mail ficam desligados; token cifrado nos args do job (nunca em claro no banco); Google lido por `userinfo`, não por JWKS; vínculo por e-mail só quando o provedor o verificou (regra original "nunca vincular" substituída em 07/11/2026); contas sociais nascem sem senha (`password_hash = '!'`) e definem uma depois com reautenticação social; `SPOOK_SECRET_KEY` opcional (chave efêmera por processo se faltar). Detalhes e modelo de ameaça em SPEC 5.5 ("Adicional: e-mail e login social"), RF24, 6 e 7.11.

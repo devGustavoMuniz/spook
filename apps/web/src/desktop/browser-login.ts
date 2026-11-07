@@ -5,14 +5,16 @@
 // página abre o deep link `spook://auth?code=...`; o app troca `POST /api/auth/desktop/exchange {code,
 // code_verifier}` por um token Bearer. O login por e-mail/senha do desktop continua como está.
 //
-// LADO RUST PENDENTE: o plugin de deep link (`tauri-plugin-deep-link`, esquema `spook://`, também como instância
-// única no Windows/Linux) ainda não está no `src-tauri`. Por isso o fluxo fica atrás da capability
-// `browserLogin`, DESLIGADA por padrão (ver PENDENCIAS-DONO.md e SPEC 5.5, "Adicional: e-mail e login social").
+// Lado Rust: `tauri-plugin-deep-link` (esquema `spook://`, também como instância única) em `src-tauri`. O Rust
+// valida a URL (só `spook://auth?code=` com código bem formado), traz a janela à frente e emite o evento
+// `spook-auth-code` com o código; este módulo escuta esse evento (nunca a URL crua do plugin) e revalida o formato.
+// A capability `browserLogin` liga com `VITE_DESKTOP_BROWSER_LOGIN=true`, definido em `apps/web/.env.desktop`
+// (só o build do desktop); fora disso fica desligada (SPEC 5.5, "Adicional: deep link spook:// e login do desktop").
 import { t } from "@/i18n";
 import { invoke } from "./ipc";
 import { isTauri } from "./runtime";
 
-/** Capability do login por navegador: só liga com `VITE_DESKTOP_BROWSER_LOGIN=true` (depois do lado Rust). */
+/** Capability do login por navegador: só liga no Tauri com `VITE_DESKTOP_BROWSER_LOGIN=true` (build do desktop). */
 export const browserLoginEnabled = (): boolean =>
   isTauri() && import.meta.env.VITE_DESKTOP_BROWSER_LOGIN === "true";
 
@@ -32,35 +34,28 @@ export async function createPkce(): Promise<Pkce> {
   return { verifier, challenge: b64url(new Uint8Array(digest)) };
 }
 
-/** Extrai o código de `spook://auth?code=...` (qualquer outra URL é ignorada). */
-export function parseDeepLink(raw: string): string | null {
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== "spook:" || u.hostname !== "auth") return null;
-    const code = u.searchParams.get("code");
-    return code && /^[A-Za-z0-9_-]{20,128}$/.test(code) ? code : null;
-  } catch {
-    return null;
-  }
-}
+/** Formato do código do deep link (base64url, 20 a 128 caracteres); a mesma regra do Rust (`deeplink.rs`). */
+export const isAuthCode = (code: unknown): code is string =>
+  typeof code === "string" && /^[A-Za-z0-9_-]{20,128}$/.test(code);
+
+/** Evento emitido pelo Rust com o código já validado de `spook://auth?code=...`. */
+export const AUTH_CODE_EVENT = "spook-auth-code";
 
 export type BrowserLoginPorts = {
   /** Abre uma URL no navegador do sistema. */
   openUrl: (url: string) => Promise<void>;
-  /** Escuta os deep links recebidos; devolve a função que para de escutar. */
-  onDeepLink: (cb: (urls: string[]) => void) => Promise<() => void>;
+  /** Escuta o código recebido pelo deep link; devolve a função que para de escutar. */
+  onAuthCode: (cb: (code: string) => void) => Promise<() => void>;
   /** Troca o código por um token (POST /api/auth/desktop/exchange). */
   exchange: (code: string, verifier: string) => Promise<{ token?: string; user: unknown }>;
 };
 
-/** Portas reais: o plugin opener (já registrado no Rust) e o evento do plugin de deep link. */
+/** Portas reais: o plugin opener (já registrado no Rust) e o evento `spook-auth-code` emitido pelo Rust. */
 export const tauriPorts = (exchange: BrowserLoginPorts["exchange"]): BrowserLoginPorts => ({
   openUrl: (url) => invoke("plugin:opener|open_url", { url }),
-  onDeepLink: async (cb) => {
+  onAuthCode: async (cb) => {
     const { listen } = await import("@tauri-apps/api/event");
-    return listen<string[] | string>("deep-link://new-url", (e) =>
-      cb(Array.isArray(e.payload) ? e.payload : [e.payload]),
-    );
+    return listen<string>(AUTH_CODE_EVENT, (e) => cb(e.payload));
   },
   exchange,
 });
@@ -106,14 +101,8 @@ export async function loginViaBrowser(opts: {
       rejectCode(new BrowserLoginError("cancelled", t("settings.browserLogin.cancelled"))),
     );
     // Escuta ANTES de abrir o navegador: o deep link pode chegar imediatamente.
-    unlisten = await ports.onDeepLink((urls) => {
-      for (const u of urls) {
-        const code = parseDeepLink(u);
-        if (code) {
-          resolveCode(code);
-          return;
-        }
-      }
+    unlisten = await ports.onAuthCode((code) => {
+      if (isAuthCode(code)) resolveCode(code);
     });
     const url = `${opts.baseUrl.replace(/\/+$/, "")}/desktop-login?code_challenge=${pkce.challenge}`;
     await ports.openUrl(url);

@@ -13,7 +13,6 @@ Consolidado em 03/11/2026 a partir de `deploy/README.md`, `apps/desktop/README.m
 | A5 | App OAuth do Google | "Entrar com Google" e vincular conta | 20 min |
 | A6 | App OAuth do Discord | "Entrar com Discord" e vincular conta | 15 min |
 | A7 | `PUBLIC_URL` conferida | "Convidar para servidor" pela DM (503 sem ela), links de e-mail e callbacks | 2 min |
-| A8 | Deep link `spook://` no Rust | "Entrar pelo navegador" no desktop | M (código Rust) |
 | A9 | Conceder permissões novas aos cargos | Banir, Mutar, Desconectar, Gerenciar apelidos, Ver auditoria e `@everyone` nos servidores existentes | 5 min por servidor |
 | B1 | Limites (`LIMIT_*`, `EVERYONE_PUSH_MAX`, `AUDIT_RETENTION_DAYS`, `ADMIN_DISK_PATH`, `RATELIMIT_*`) | nada (têm padrão) | 2 min cada |
 | B2 | `LIVEKIT_MONTHLY_TRAFFIC_GB` e `LIVEKIT_SAMPLES_RETENTION_DAYS` | barra de uso mensal no `/admin` | 2 min |
@@ -107,9 +106,6 @@ Não troque depois sem necessidade (invalida estados e e-mails pendentes). Refa�
 
 ### A7. `PUBLIC_URL` em produção
 Base dos links dos e-mails, dos callbacks OAuth e de "Convidar para servidor" pela DM (`<PUBLIC_URL>/invite/<código>`; sem ela esse endpoint responde 503). O padrão do compose de produção já é `https://spook.dottadigital.com`; só confirme que é o mesmo domínio que o app serve (o cartão de convite inline só reconhece links do próprio host). Para trocar: `gh variable set PUBLIC_URL --body https://...` e refaça o deploy (o `write-env` grava; o `deploy.yml` também usa a variável na conferência do `/healthz`).
-
-### A8. Deep link `spook://` no desktop (Rust)
-O backend e o módulo `apps/web/src/desktop/browser-login.ts` do "Entrar pelo navegador" estão prontos, mas o app ainda não recebe `spook://auth?code=...`. Falta, em `apps/desktop/src-tauri`: adicionar `tauri-plugin-deep-link` (esquema `spook`) e `tauri-plugin-single-instance` (Windows/Linux, para o link chegar ao app já aberto); a permissão `deep-link:default` em `capabilities/default.json`; o esquema em `tauri.conf.json`. Depois ligue `VITE_DESKTOP_BROWSER_LOGIN=true` no build do desktop (capability `browserLogin`, desligada por padrão) e teste nos 3 SOs. Depende de A5/A6 para fazer sentido.
 
 ### A9. Conceder as permissões novas aos cargos dos servidores existentes
 As migrações `00012` e `00013` **não concedem** nenhuma permissão nova a cargo algum (só o "mudar o próprio apelido" ao `@everyone`). Para cada servidor existente:

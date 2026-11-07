@@ -4,8 +4,8 @@ import {
   type BrowserLoginPorts,
   browserLoginEnabled,
   createPkce,
+  isAuthCode,
   loginViaBrowser,
-  parseDeepLink,
 } from "./browser-login";
 
 const CODE = "codigo-de-uso-unico-123456";
@@ -35,14 +35,16 @@ describe("PKCE", () => {
   });
 });
 
-describe("parseDeepLink", () => {
-  it("aceita só spook://auth?code= com um código bem formado", () => {
-    expect(parseDeepLink(`spook://auth?code=${CODE}`)).toBe(CODE);
-    expect(parseDeepLink(`https://spook.test/auth?code=${CODE}`)).toBeNull();
-    expect(parseDeepLink(`spook://outra?code=${CODE}`)).toBeNull();
-    expect(parseDeepLink("spook://auth?code=curto")).toBeNull();
-    expect(parseDeepLink("spook://auth")).toBeNull();
-    expect(parseDeepLink("lixo")).toBeNull();
+describe("isAuthCode", () => {
+  it("aceita só base64url de 20 a 128 caracteres", () => {
+    expect(isAuthCode(CODE)).toBe(true);
+    expect(isAuthCode("a".repeat(128))).toBe(true);
+    expect(isAuthCode("a".repeat(129))).toBe(false);
+    expect(isAuthCode("curto")).toBe(false);
+    expect(isAuthCode(`${CODE}!`)).toBe(false);
+    expect(isAuthCode(`spook://auth?code=${CODE}`)).toBe(false);
+    expect(isAuthCode(null)).toBe(false);
+    expect(isAuthCode(42)).toBe(false);
   });
 });
 
@@ -55,13 +57,13 @@ describe("capability browserLogin", () => {
 });
 
 function ports(over: Partial<BrowserLoginPorts> = {}) {
-  let emit: (urls: string[]) => void = () => {};
+  let emit: (code: string) => void = () => {};
   const calls = { opened: [] as string[], exchanged: [] as [string, string][], unlistened: 0 };
   const p: BrowserLoginPorts = {
     openUrl: async (u) => {
       calls.opened.push(u);
     },
-    onDeepLink: async (cb) => {
+    onAuthCode: async (cb) => {
       emit = cb;
       return () => {
         calls.unlistened++;
@@ -73,7 +75,7 @@ function ports(over: Partial<BrowserLoginPorts> = {}) {
     },
     ...over,
   };
-  return { p, calls, emit: (u: string[]) => emit(u) };
+  return { p, calls, emit: (c: string) => emit(c) };
 }
 
 describe("loginViaBrowser", () => {
@@ -86,8 +88,9 @@ describe("loginViaBrowser", () => {
     const challenge = url.searchParams.get("code_challenge") as string;
     expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
-    emit(["spook://auth?code=curto", "https://x.test"]); // ignorados
-    emit([`spook://auth?code=${CODE}`]);
+    emit("curto"); // ignorado
+    emit(`spook://auth?code=${CODE}`); // URL crua: ignorada
+    emit(CODE);
     await expect(run).resolves.toEqual({ token: "tok", user: { id: "1" } });
     const [code, verifier] = calls.exchanged[0] as [string, string];
     expect(code).toBe(CODE);
@@ -107,7 +110,7 @@ describe("loginViaBrowser", () => {
       openUrl: async () => {
         order.push("open");
       },
-      onDeepLink: async () => {
+      onAuthCode: async () => {
         order.push("listen");
         return () => {};
       },
@@ -135,7 +138,7 @@ describe("loginViaBrowser", () => {
     });
     const run = loginViaBrowser({ baseUrl: "https://s.test", ports: p });
     await vi.waitFor(() => expect(calls.opened).toHaveLength(1));
-    emit([`spook://auth?code=${CODE}`]);
+    emit(CODE);
     const err = await run.catch((e) => e);
     expect(err).toBeInstanceOf(BrowserLoginError);
     expect(err.reason).toBe("exchange");

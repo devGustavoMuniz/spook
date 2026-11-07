@@ -28,6 +28,11 @@ export const auth = {
   "auth.verifyBanner.resend": "Reenviar",
   "auth.verifyBanner.dismiss": "Dispensar aviso",
   "auth.browserLogin": "Entrar pelo navegador",
+  "auth.browserLogin.waiting": "Aguardando a confirmação no navegador…",
+  "auth.browserLogin.hint":
+    'Na página que abriu, confirme "Entrar no app do computador". O código vale 60 segundos depois da confirmação.',
+  "auth.browserLogin.cancel": "Cancelar",
+  "auth.browserLogin.error": "Não foi possível entrar pelo navegador. Tente de novo.",
   "auth.login.subtitle": "Bem-vindo de volta. Entre para falar com a sua galera.",
   "auth.login.forgot": "Esqueci minha senha",
   "auth.login.noAccount": "Não tem conta?",

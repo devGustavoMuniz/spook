@@ -11,6 +11,7 @@
 //! nokhwa, sem WebRTC no WebView.
 
 mod badge;
+mod deeplink;
 mod nav;
 mod settings;
 mod shell;
@@ -91,6 +92,10 @@ pub fn run() {
                 .arg(settings::AUTOSTART_ARG)
                 .build(),
         )
+        // Esquema `spook://` (login pelo navegador). Depois do single-instance: com a feature `deep-link` dele, abrir
+        // `spook://...` com o app rodando entrega a URL a este plugin na instância existente. Sem permissão no
+        // webview (capabilities): o tratamento é todo em Rust (`deeplink`), que só repassa o código validado.
+        .plugin(tauri_plugin_deep_link::init())
         // Atualizações assinadas (chave pública e endpoint em `tauri.conf.json`); o webview só chama
         // `check`/`download`/`install` (capabilities) e reinicia com o plugin de processo.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -100,7 +105,12 @@ pub fn run() {
         .plugin(navigation_guard())
         .manage(TokenVault::new(Box::new(KeyringStore)))
         .manage(voice::VoiceState::new())
-        .setup(shell::setup)
+        .setup(|app| {
+            shell::setup(app)?;
+            // Depois do `shell::setup`: um deep link no início a frio traz a janela mesmo com "iniciar minimizado".
+            shell::deep_link_setup(app);
+            Ok(())
+        })
         .on_window_event(shell::on_window_event)
         .invoke_handler(tauri::generate_handler![
             auth_get_token,

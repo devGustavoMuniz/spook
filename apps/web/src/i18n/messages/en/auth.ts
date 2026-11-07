@@ -27,6 +27,11 @@ export const auth = {
   "auth.verifyBanner.resend": "Resend",
   "auth.verifyBanner.dismiss": "Dismiss notice",
   "auth.browserLogin": "Sign in with browser",
+  "auth.browserLogin.waiting": "Waiting for you to confirm in the browser…",
+  "auth.browserLogin.hint":
+    'On the page that opened, confirm "Sign in to the desktop app". The code is valid for 60 seconds after you confirm.',
+  "auth.browserLogin.cancel": "Cancel",
+  "auth.browserLogin.error": "Could not sign in with the browser. Try again.",
   "auth.login.subtitle": "Welcome back. Sign in to talk to your crew.",
   "auth.login.forgot": "Forgot my password",
   "auth.login.noAccount": "Don't have an account?",

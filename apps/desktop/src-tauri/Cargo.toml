@@ -23,7 +23,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # `tray-icon`: bandeja do sistema (menu "Abrir Spook"/"Sair", fechar para a bandeja).
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-single-instance = "2"
+# Com `deep-link`, abrir `spook://...` com o app já rodando (Windows/Linux) entrega a URL à instância existente.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Esquema `spook://` (login pelo navegador): registro no instalador (tauri.conf.json) e em runtime (Windows/Linux).
+tauri-plugin-deep-link = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"

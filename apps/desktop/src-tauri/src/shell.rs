@@ -19,6 +19,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 
 use crate::badge;
+use crate::deeplink;
 use crate::settings::{self, AppSettings, SettingsStore};
 use crate::voice::VoiceState;
 
@@ -133,6 +134,46 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Valida as URLs recebidas; se houver um código, traz a janela à frente e o entrega ao webview.
+fn dispatch_deep_link<R: Runtime, S: AsRef<str>>(app: &AppHandle<R>, urls: &[S]) {
+    let Some(code) = deeplink::first_auth_code(urls) else {
+        log::debug!("deep link ignorado (não é spook://auth com código válido)");
+        return;
+    };
+    show_main(app);
+    let _ = app.emit(deeplink::AUTH_CODE_EVENT, code);
+}
+
+/// Registra o tratamento dos deep links: início a frio (Windows/Linux: argv; macOS: evento) e com o app aberto.
+pub fn deep_link_setup(app: &tauri::App) {
+    use tauri_plugin_deep_link::DeepLinkExt;
+
+    let deep_link = app.deep_link();
+    // Windows/Linux: garante o registro do esquema mesmo sem instalador (AppImage, `tauri dev`, binário solto).
+    // No macOS vale só o Info.plist do bundle (o plugin devolve "não suportado", e ignoramos).
+    #[cfg(any(windows, target_os = "linux"))]
+    if let Err(e) = deep_link.register_all() {
+        log::warn!("não foi possível registrar o esquema spook:// em runtime: {e}");
+    }
+
+    // Início a frio por deep link: o plugin já leu o argv (Windows/Linux) ou o evento `Opened` (macOS) antes de
+    // existir ouvinte, então consulta o que ele guardou.
+    if let Ok(Some(urls)) = deep_link.get_current() {
+        let urls: Vec<String> = urls.iter().map(|u| u.as_str().to_string()).collect();
+        dispatch_deep_link(app.handle(), &urls);
+    }
+
+    let handle = app.handle().clone();
+    let _ = deep_link.on_open_url(move |event| {
+        let urls: Vec<String> = event
+            .urls()
+            .iter()
+            .map(|u| u.as_str().to_string())
+            .collect();
+        dispatch_deep_link(&handle, &urls);
+    });
 }
 
 /// Traz a janela à frente (restaura se estava minimizada ou escondida) e avisa o webview.
