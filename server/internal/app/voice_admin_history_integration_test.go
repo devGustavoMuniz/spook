@@ -109,6 +109,12 @@ func TestVoiceReconcileClearsStaleScreenFlag(t *testing.T) {
 	alice := e.newActor(t, "alice")
 	g := alice.createGuild(t, "Reconciliar")
 	alice.voiceToken(t, g.voiceID, 200)
+	// O reconciliador roda a cada 50 ms: o LiveKit falso precisa dizer a verdade (ela está na sala, com tela) desde
+	// o início, senão ele a remove como "órfã" antes de o teste publicar a faixa (corrida que derrubava o CI).
+	lkf.mu.Lock()
+	lkf.rooms = []*lk.Room{{Name: g.voiceID, NumParticipants: 1}}
+	lkf.parts[g.voiceID] = []*lk.ParticipantInfo{{Identity: alice.id, Sid: "PA_" + alice.id, Tracks: []*lk.TrackInfo{{Sid: "TR_S", Source: lk.TrackSource_SCREEN_SHARE}}}}
+	lkf.mu.Unlock()
 	e.lkJoin(t, g.voiceID, alice)
 	if s := e.lkEvent(t, "track_published", g.voiceID, alice, func(ev *lk.WebhookEvent) { ev.Track = &lk.TrackInfo{Sid: "TR_S", Source: lk.TrackSource_SCREEN_SHARE} }); s != 200 {
 		t.Fatal(s)
