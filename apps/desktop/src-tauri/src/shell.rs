@@ -90,6 +90,11 @@ pub fn setup(app: &mut tauri::App) -> SetupResult {
         let _ = apply_autostart(app.handle(), current.start_with_system);
     }
 
+    // O título da janela mostra a versão instalada ("Spook 0.1.2"): ajuda a conferir se a atualização automática pegou.
+    if let Some(w) = app.get_webview_window(MAIN) {
+        let _ = w.set_title(&window_title(&app.package_info().version.to_string()));
+    }
+
     let args: Vec<String> = std::env::args().collect();
     if settings::should_start_hidden(&current, &args) {
         if let Some(w) = app.get_webview_window(MAIN) {
@@ -97,6 +102,11 @@ pub fn setup(app: &mut tauri::App) -> SetupResult {
         }
     }
     Ok(())
+}
+
+/// Título da janela principal: o nome do app seguido da versão.
+fn window_title(version: &str) -> String {
+    format!("Spook {version}")
 }
 
 fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -348,7 +358,7 @@ pub fn app_set_badge(app: AppHandle, window: tauri::WebviewWindow, count: u32) -
 
 #[cfg(test)]
 mod tests {
-    use super::tray_text;
+    use super::{tray_text, window_title};
 
     #[test]
     fn tray_text_follows_the_locale() {
@@ -356,5 +366,10 @@ mod tests {
         assert_eq!(tray_text("en-US").open, "Open Spook");
         assert_eq!(tray_text("pt-BR").quit, "Sair");
         assert_eq!(tray_text("fr").open, "Abrir Spook");
+    }
+
+    #[test]
+    fn window_title_carries_the_version() {
+        assert_eq!(window_title("0.1.2"), "Spook 0.1.2");
     }
 }
