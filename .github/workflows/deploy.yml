@@ -205,7 +205,8 @@ jobs:
             printf 'LIVEKIT_MONTHLY_TRAFFIC_GB=%s\nLIVEKIT_SAMPLES_RETENTION_DAYS=%s\n' "$LIVEKIT_MONTHLY_TRAFFIC_GB" "$LIVEKIT_SAMPLES_RETENTION_DAYS"
             # E-mail e login social (opcionais; vazio = desligado)
             printf 'PUBLIC_URL=%s\nSPOOK_SECRET_KEY=%s\n' "$PUBLIC_URL" "$SPOOK_SECRET_KEY"
-            printf 'SMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nSMTP_FROM=%s\n' "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USER" "$SMTP_PASSWORD" "$SMTP_FROM"
+            # SMTP_FROM entre aspas simples: o remetente tem espaço e <>, e o .env também é lido por scripts sh (garage-init.sh)
+            printf 'SMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nSMTP_FROM='"'"'%s'"'"'\n' "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USER" "$SMTP_PASSWORD" "$SMTP_FROM"
             printf 'REQUIRE_EMAIL_VERIFICATION=%s\n' "$REQUIRE_EMAIL_VERIFICATION"
             printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_ID" "$GOOGLE_CLIENT_SECRET"
             printf 'DISCORD_CLIENT_ID=%s\nDISCORD_CLIENT_SECRET=%s\n' "$DISCORD_CLIENT_ID" "$DISCORD_CLIENT_SECRET"
