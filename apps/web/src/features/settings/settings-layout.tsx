@@ -73,7 +73,7 @@ export function SettingsLayout() {
   if (!atIndex && !section) return <Navigate to="/settings" replace />;
 
   return (
-    <div className="flex h-dvh bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground">
+    <div className="relative flex h-dvh overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground">
       {showNav ? (
         <SettingsNav
           compact={compact}

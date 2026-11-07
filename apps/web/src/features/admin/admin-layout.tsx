@@ -27,7 +27,7 @@ export function AdminLayout() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const current = NAV.find((n) => (n.exact ? path === n.to : path.startsWith(n.to))) ?? NAV[0];
   return (
-    <div className="flex h-svh bg-background text-foreground">
+    <div className="relative flex h-svh overflow-hidden bg-background text-foreground">
       {open ? (
         <button
           type="button"
@@ -118,7 +118,7 @@ export function AdminLayout() {
             </ol>
           </nav>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="relative min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <div className="mx-auto w-full max-w-7xl">
             <Outlet />
           </div>

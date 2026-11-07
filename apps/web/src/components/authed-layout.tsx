@@ -54,7 +54,7 @@ function Frame({ guilds, onSlot }: { guilds: Guild[]; onSlot: (el: HTMLElement |
   if (inSettings) return <Outlet />;
   const rail = <ServerRail guilds={guilds} />;
   return (
-    <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+    <div className="relative flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <VerifyEmailBanner />
       <div className="flex min-h-0 flex-1">
         {compact ? null : rail}
