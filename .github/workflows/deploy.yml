@@ -184,6 +184,13 @@ jobs:
           RATELIMIT_PROFILE_UPDATE_PER_MIN: ${{ vars.RATELIMIT_PROFILE_UPDATE_PER_MIN }}
           RATELIMIT_MESSAGES_PIN_PER_MIN: ${{ vars.RATELIMIT_MESSAGES_PIN_PER_MIN }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          # Backup offsite (opcional, nada disto roda no CI: só vai para o .env que o backup.sh do VPS lê). Sem BACKUP_REMOTE
+          # o backup fica só no disco do VPS. Ver deploy/README.md ("Backup e restauração").
+          BACKUP_REMOTE: ${{ vars.BACKUP_REMOTE }}
+          BACKUP_R2_ENDPOINT: ${{ vars.BACKUP_R2_ENDPOINT }}
+          BACKUP_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_R2_ACCESS_KEY_ID }}
+          BACKUP_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_R2_SECRET_ACCESS_KEY }}
+          BACKUP_CRYPT_PASSWORD: ${{ secrets.BACKUP_CRYPT_PASSWORD }}
           GARAGE_CAPACITY: ${{ vars.GARAGE_CAPACITY || '50GB' }}
           LIVEKIT_NODE_IP: ${{ vars.LIVEKIT_NODE_IP || '187.127.26.46' }}
           S3_ENDPOINT: ${{ vars.S3_ENDPOINT || 'https://spook-files.dottadigital.com' }}
@@ -215,6 +222,18 @@ jobs:
               [ -z "${!n}" ] || printf '%s=%s\n' "$n" "${!n}"
             done
             printf 'CLOUDFLARE_TUNNEL_TOKEN=%s\n' "$CLOUDFLARE_TUNNEL_TOKEN"
+            # Backup offsite: remote do rclone "r2" (Cloudflare R2, S3 compatível) definido só por variáveis de ambiente.
+            # Com BACKUP_CRYPT_PASSWORD (senha já "obscurecida" pelo `rclone obscure`) o destino vira um remote crypt por cima.
+            if [ -n "$BACKUP_REMOTE" ]; then
+              printf 'RCLONE_CONFIG_R2_TYPE=s3\nRCLONE_CONFIG_R2_PROVIDER=Cloudflare\nRCLONE_CONFIG_R2_ENDPOINT=%s\n' "$BACKUP_R2_ENDPOINT"
+              printf 'RCLONE_CONFIG_R2_ACCESS_KEY_ID=%s\nRCLONE_CONFIG_R2_SECRET_ACCESS_KEY=%s\nRCLONE_CONFIG_R2_NO_CHECK_BUCKET=true\n' "$BACKUP_R2_ACCESS_KEY_ID" "$BACKUP_R2_SECRET_ACCESS_KEY"
+              if [ -n "$BACKUP_CRYPT_PASSWORD" ]; then
+                printf 'RCLONE_CONFIG_SPOOKCRYPT_TYPE=crypt\nRCLONE_CONFIG_SPOOKCRYPT_REMOTE=%s\nRCLONE_CONFIG_SPOOKCRYPT_PASSWORD=%s\n' "$BACKUP_REMOTE" "$BACKUP_CRYPT_PASSWORD"
+                printf 'BACKUP_REMOTE=spookcrypt:\n'
+              else
+                printf 'BACKUP_REMOTE=%s\n' "$BACKUP_REMOTE"
+              fi
+            fi
           } > "$RUNNER_TEMP/env"
           .github/scripts/ssh-retry.sh "$RUNNER_TEMP/env" write-env
 

@@ -1,0 +1,8 @@
+[Unit]
+Description=Check semanal do backup do Spook (idade e integridade do último dump)
+
+[Service]
+Type=oneshot
+WorkingDirectory=__APP_DIR__
+Environment=DOCKER_HOST=unix://%t/docker.sock
+ExecStart=__APP_DIR__/deploy/backup-status.sh --verify

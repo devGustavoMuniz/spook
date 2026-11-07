@@ -356,3 +356,13 @@ Pedido do dono (2 mudanças). Migration `00016_session_persistence` (aditiva: `s
 - **Decisões:** `remember` é `*bool` no contrato (o huma trocaria um `false` pelo padrão com `bool`); IP não guardado; sessões antigas viram "lembradas"; nenhum e-mail de aviso ao vincular (ideia futura).
 - **Pontos de atenção:** o admin passou a mostrar "última atividade" pelo `last_seen_at` (antes, a criação da sessão); `Register` e `Login` do `auth.Service` ganharam o parâmetro `remember`.
 - **Verificação:** ver o relatório da entrega (Go unitário, integração completa, Vitest, E2E curto).
+
+## Backup e restauração do Postgres e do Garage (07/11/2026)
+
+Pedido do dono. Decisões em 5.5 ("Adicional: backups"); questão em aberto 3 do SPEC fechada; operação em `deploy/README.md` seção 10. Nenhuma mudança no app nem no compose de produção (só um comentário); o `ci-entry.sh` do VPS **não** foi ampliado.
+
+- **O que entrou:** `deploy/backup.sh` (pg_dump `-Fc` verificado + `aws s3 sync` do bucket pela API S3 do Garage + retenção 7/4/3 + lock + checagem de espaço + offsite opcional por `rclone`), `restore.sh` (banco novo; `--confirm-replace` renomeia o real para `*_pre_restore_*`), `restore-files.sh`, `backup-status.sh` (sai 1 se > 36 h), `install-backup-timer.sh` + `deploy/systemd/` (timer diário 04:00 UTC e check semanal), `backup-lib.sh` e `backup-selftest.sh`. `deploy.yml` (`write-env`) ganhou as Variables/Secrets opcionais `BACKUP_*` do offsite no R2.
+- **Decisões:** dump lógico + API S3 (nunca copiar volumes do Garage ligado); espelho de arquivos só aditivo; criptografia por `rclone crypt` (sem `age`); RPO 24 h.
+- **Verificação:** `deploy/backup-selftest.sh` (contêineres descartáveis) e shellcheck limpo; o resultado está no relatório da entrega.
+- **Pendências do dono:** instalar o timer no VPS e, se quiser, criar o bucket/token do R2 (`PENDENCIAS-DONO.md`, B8). Não testado: instalação do timer e execução no VPS real.
+

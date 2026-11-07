@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup do Spook (Postgres + arquivos do Garage)
+# Docker rootless do usuário: o socket está em %t (/run/user/<uid>).
+
+[Service]
+Type=oneshot
+WorkingDirectory=__APP_DIR__
+Environment=DOCKER_HOST=unix://%t/docker.sock
+ExecStart=__APP_DIR__/deploy/backup.sh
+TimeoutStartSec=2h
+Nice=10

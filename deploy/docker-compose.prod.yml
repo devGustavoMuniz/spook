@@ -198,7 +198,7 @@ services:
       spook: { condition: service_healthy }
 
 # Dados em volumes nomeados do Docker rootless (bind mounts deixariam arquivos com subuids que o usuário `spook`
-# não lê). O backup do Postgres será por pg_dump (ver deploy/README.md).
+# não lê). O backup (pg_dump + sync do bucket pela API S3, scripts deploy/backup*.sh) não monta volumes: ver deploy/README.md.
 volumes:
   postgres-data:
   garage-meta:

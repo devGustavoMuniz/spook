@@ -36,6 +36,7 @@ A preparação do VPS (usuário, Docker rootless, linger, diretórios, chave de 
 /srv/spook/prod/
 ├─ .env              # 600; escrito por `write-env` (segredos vêm dos GitHub Secrets); SPOOK_IMAGE é mantida pelo deploy
 ├─ .image-history    # imagens anteriores, uma por linha (rollback)
+├─ (backups em /srv/spook/backups, fora desta pasta; ver seção 10)
 └─ deploy/           # substituído de forma atômica por `receive-deploy` (compose, scripts, configs)
 ```
 O `deploy.sh` faz `cd "$(dirname "$0")/.."`, então tudo resolve a partir dessa pasta. Os **dados** ficam em volumes
@@ -360,8 +361,8 @@ Variáveis do backend (Variables do GitHub / ambiente do compose), todas opciona
 - **Observabilidade em produção** (RNF02): `SPOOK_OTLP_ENDPOINT` está vazio, ou seja, sem traces em prod. Plano e critério
   na Fase B do SPEC (Benchmarks e observabilidade): Grafana Cloud (plano gratuito) com só um coletor OpenTelemetry leve no VPS (e, então,
   o limite de memória dele entra na tabela 1.2). Em dev tudo funciona (`pnpm dev`).
-- **Backup** (SPEC, questão em aberto 3): não há rotina ainda. O do Postgres será por `pg_dump`; os dados vivem em
-  volumes nomeados do Docker rootless (`postgres-data`, `garage-meta`, `garage-data`). Estratégia do Garage: a definir.
+- **Backup** (SPEC, questão em aberto 3): resolvido no código (seção 10: `backup.sh`, `restore.sh`, `restore-files.sh`, timer
+  diário). **Falta o dono instalar o timer no VPS** (`PENDENCIAS-DONO.md`, B8); sem isso continua não havendo backup rodando.
 - **TURN/TLS** do LiveKit: fora do escopo por enquanto (se precisar, usar UDP em porta livre).
 - Imagens de terceiros estão fixadas por tag (`garage v2.5.0`, `livekit v1.13.11`, `cloudflared 2026.10.7`,
   `postgres:17-alpine`); atualize de propósito.
@@ -388,3 +389,130 @@ cd "$R" && COMPOSE_PROJECT_NAME=spookprodsmoke DEPLOY_SERVICES="spook postgres g
 ```
 (`DEPLOY_SERVICES` e `DEPLOY_PULL_FLAGS` são ganchos de teste; em produção ficam vazios.) O `retry` do SSH tem teste
 próprio com um `ssh` falso (`.github/scripts/ssh-retry.sh`): repete só no código 255 e relê o stdin a cada tentativa.
+
+## 10. Backup e restauração
+
+Tudo roda **como o usuário `spook`** (Docker rootless), por timer `systemd --user` ou cron: **nunca pela chave de CI** (o
+`ci-entry.sh` não é ampliado e continua aceitando só `receive-deploy`, `write-env` e `deploy`). O CI só entrega os scripts
+(`receive-deploy`) e, se você quiser cópia offsite, as variáveis no `.env` (`write-env`). O compose de produção **não mudou**
+(sem portas novas, sem montagens, limites de memória intactos): o `backup.sh` usa `docker compose exec` no Postgres e
+containers descartáveis (`aws-cli`, `rclone`) na rede do Compose.
+
+### 10.1 O que é copiado e como
+| Dado | Como | Onde fica |
+| --- | --- | --- |
+| Postgres | `pg_dump -Fc` dentro do container (conexão pelo socket local: **a senha não aparece em argv/ps**), verificado com `pg_restore --list` | `${BACKUP_DIR}/db/spook-AAAAMMDD-HHMMSS.dump` (600) |
+| Arquivos enviados (anexos, avatares, thumbnails) | `aws s3 sync` do bucket pela **API S3 do próprio Garage** (container descartável, chaves do `.env` por variável de ambiente), incremental; **nunca** copia os arquivos internos do Garage com ele rodando | `${BACKUP_DIR}/files/` |
+| Offsite (opcional) | `rclone` (container descartável) para o remote em `BACKUP_REMOTE` | seu bucket (ex.: Cloudflare R2) |
+| Estado | `${BACKUP_DIR}/LAST_OK` (data, tamanhos, offsite), `LAST_FAIL`, `backup.log` | idem |
+
+`BACKUP_DIR` padrão: `/srv/spook/backups` (modo 700, do usuário `spook`). Se `spook` não puder criá-lo, como administrador:
+`sudo install -d -o spook -m 700 /srv/spook/backups`. Os arquivos do bucket **não são apagados do espelho** quando somem do
+bucket (proteção contra apagar sem querer; defina `BACKUP_FILES_DELETE=1` para espelhar remoções). Consequência: uma conta
+excluída pelo usuário continua nos backups até o espelho ser limpo à mão; isto é uma decisão de privacidade a rever se o produto
+virar público.
+
+### 10.2 Retenção
+| Camada | Regra | Quantidade |
+| --- | --- | --- |
+| Diários | o dump mais novo de cada dia | 7 dias |
+| Semanais | o dump mais novo de cada domingo (UTC) | 4 domingos |
+| Mensais | o primeiro dump de cada mês | 3 meses |
+
+Um dump que cai em mais de uma camada conta uma vez; no regime normal sobram de 9 a 14 dumps. O mais novo (recém-verificado)
+é sempre mantido, só se apaga arquivo com o nome exato `spook-AAAAMMDD-HHMMSS.dump` dentro de `${BACKUP_DIR}/db`, e a poda só roda
+depois de o dump novo ser verificado. `BACKUP_KEEP_DAILY/WEEKLY/MONTHLY` ajustam. Antes de começar, o script **aborta se o
+espaço livre for menor que 2x o último dump** e **avisa se o disco passar de 85%**. O `files/` não tem versões (é espelho); use o
+offsite para ter histórico dos arquivos se isso importar.
+
+Saída do `backup.sh`: `0` ok; `1` falha (uma linha `FALHA: ...` e `LAST_FAIL`); `2` backup local ok mas a **cópia offsite falhou**
+(`LAST_OK` registra `offsite=FAILED`). Dois backups ao mesmo tempo são impedidos por lock (`${BACKUP_DIR}/.lock`; lock órfão é
+reaproveitado).
+
+### 10.3 Agendar (uma vez, como `spook`) 🔒
+```sh
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/install-backup-timer.sh"             # instala
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/install-backup-timer.sh --status"    # timers + último backup
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/install-backup-timer.sh --uninstall" # remove
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/backup.sh"                           # roda agora (teste do primeiro backup)
+```
+Instala, em `~/.config/systemd/user` (units versionadas em `deploy/systemd/`), `spook-backup.timer` (**diário, 04:00 UTC +
+até 15 min de jitter**, `Persistent=true`) e `spook-backup-check.timer` (**segunda 08:00 UTC**: roda `backup-status.sh --verify`,
+que falha se o último backup tem mais de 36 h ou se o dump mais novo não abre em `pg_restore --list`). Depende do `linger` do
+usuário (já ativo no VPS); se não houver `systemd --user`, o script cai para o crontab do `spook` (04:00 hora local do servidor).
+Verificar: `systemctl --user list-timers 'spook-backup*'` e `journalctl --user -u spook-backup.service -n 50`.
+**Monitoramento:** `deploy/backup-status.sh` imprime idade e tamanho do último backup e sai `1` se passou de 36 h
+(`BACKUP_MAX_AGE_HOURS` muda o limite): é o que um monitor externo deve chamar.
+
+### 10.4 Cópia offsite (opcional): Cloudflare R2 🔒
+Sem `BACKUP_REMOTE` o backup fica só no disco do VPS (**protege de erro humano, não de perder o disco/VPS**). O `backup.sh` usa
+o `rclone` com remotes definidos **só por variáveis `RCLONE_CONFIG_<REMOTE>_*`** no `.env` (nada de arquivo de config; as chaves
+vão ao container por nome de variável, nunca na linha de comando nem em log). `db/` é espelhado com `sync --max-delete 10`;
+`files/` só recebe (`copy`). Passo a passo para o R2 está em `PENDENCIAS-DONO.md` (B8). O `write-env` já sabe escrever:
+
+| Onde no GitHub | Nome | Valor |
+| --- | --- | --- |
+| Variable | `BACKUP_REMOTE` | `r2:spook-backups` (remote `r2` + bucket) |
+| Variable | `BACKUP_R2_ENDPOINT` | `https://<ID-DA-CONTA>.r2.cloudflarestorage.com` |
+| Secret | `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY` | do token S3 do R2 (só Object Read & Write no bucket `spook-backups`) |
+| Secret (opcional) | `BACKUP_CRYPT_PASSWORD` | senha **já obscurecida** (`docker run --rm rclone/rclone:1.69.3 obscure '<senha>'`): liga a criptografia `rclone crypt` (nomes e conteúdo) por cima do remote |
+
+Com criptografia, **guarde a senha original num gerenciador de senhas**: sem ela o offsite é ilegível. Sem `BACKUP_CRYPT_PASSWORD`
+o conteúdo vai em texto claro para um bucket privado (o R2 cifra em repouso). A criptografia entra pelo `rclone crypt` (nada de
+`age`: um programa a menos no VPS).
+
+### 10.5 Restauração
+**Testar sem risco (banco novo, o banco em uso não é tocado):**
+```sh
+ssh <vps> "sudo -iu spook"                                 # depois, em /srv/spook/prod:
+deploy/restore.sh /srv/spook/backups/db/spook-<data>.dump  # cria spook_restore_AAAAMMDD
+docker compose --env-file .env -f deploy/docker-compose.prod.yml exec postgres psql -U spook -d spook_restore_AAAAMMDD -c 'select count(*) from users'
+docker compose --env-file .env -f deploy/docker-compose.prod.yml exec postgres psql -U spook -d postgres -c 'DROP DATABASE spook_restore_AAAAMMDD'
+```
+`--into <nome>` escolhe o nome do banco (recusa se já existir; recusa o banco em uso). Se o `pg_restore` falhar, o banco novo é
+removido.
+
+**Substituir o banco real** (`--confirm-replace`, explícito): restaura num banco novo, **para o `spook`**, renomeia o banco real
+para `spook_pre_restore_<data>` (fica guardado para desfazer), renomeia o novo para `spook` e sobe o `spook` de novo. Apague o
+`..._pre_restore_*` quando tiver certeza.
+```sh
+deploy/restore.sh /srv/spook/backups/db/spook-<data>.dump --confirm-replace
+```
+**Arquivos:** `deploy/restore-files.sh` devolve `${BACKUP_DIR}/files/` ao bucket pela API S3 (só adiciona/atualiza);
+`--mirror` deixa o bucket idêntico ao backup.
+
+**Desastre (VPS novo, disco perdido):**
+1. O administrador prepara o VPS como na seção 1 (usuário `spook`, Docker rootless, linger, `/srv/spook/prod`, chave de CI) e
+   `sudo install -d -o spook -m 700 /srv/spook/backups`.
+2. Reconfigure os Secrets/Variables e rode o workflow **Deploy** (grava o `.env`, sobe a stack com banco vazio e o Garage
+   inicializado com o mesmo bucket e as mesmas chaves). **Use os mesmos** `S3_ACCESS_KEY_ID/SECRET`, `POSTGRES_*`, `SPOOK_SECRET_KEY`
+   e as chaves VAPID de antes (estão no GitHub; trocar VAPID/`SPOOK_SECRET_KEY` invalida inscrições de push e links em andamento).
+3. Traga o backup de volta para `/srv/spook/backups` (se o disco antigo sumiu, do offsite):
+   ```sh
+   docker run --rm --env-file /srv/spook/prod/.env -v /srv/spook/backups:/data rclone/rclone:1.69.3 copy r2:spook-backups /data -P
+   ```
+   (com `BACKUP_CRYPT_PASSWORD`, use `spookcrypt:` no lugar de `r2:spook-backups`; as variáveis `RCLONE_CONFIG_*` vêm do `.env`).
+   `docker run --env-file` aceita o `.env`, só não use esse comando num terminal compartilhado.
+4. `deploy/restore.sh /srv/spook/backups/db/<dump-mais-novo>.dump --confirm-replace` (a migration já aplicada no dump é a
+   verdade: o `spook` aplica as que faltarem ao subir).
+5. `deploy/restore-files.sh`.
+6. Confira: `/healthz`, login, um anexo antigo. Rode `deploy/backup.sh` e reinstale o timer (`install-backup-timer.sh`).
+
+### 10.6 Validar a restauração periodicamente 🔒
+- **Mensal (10 min):** `restore.sh <dump mais novo>` em banco novo, conferir contagens (`users`, `messages`) e um `DROP DATABASE`
+  do banco de teste; `aws s3 cp` de um anexo do `files/` e abrir.
+- **Antes de mexer no backup** (scripts ou compose): `deploy/backup-selftest.sh` na sua máquina (sobe postgres e garage descartáveis no
+  projeto `spook-bkptest`, faz backup, destrói, restaura e compara contagens, md5 e hashes dos arquivos, retenção, lock, offsite e
+  criptografia; apaga só os recursos dele). O selftest **não é exigido pelo CI**.
+- O check semanal do timer já falha (unit em `failed`) se o backup envelheceu ou se o dump não abre.
+
+### 10.7 O que NÃO está coberto
+- **O `.env` e os segredos** vivem no GitHub (Secrets/Variables): o backup não os guarda. Perder o acesso ao GitHub = perder a
+  chave de assinatura de cookies/OAuth (`SPOOK_SECRET_KEY`), as chaves VAPID e as credenciais do S3; guarde-os também num gerenciador de senhas.
+- **A chave de assinatura do updater do desktop** (`TAURI_SIGNING_PRIVATE_KEY` e senha, `PENDENCIAS-DONO.md` A1): fora do VPS.
+- **LiveKit**: é sem estado persistente aqui (sem Redis nem gravação); nada a copiar. A config é renderizada do repositório.
+- **Imagens/Docker, `cloudflared` e o túnel**: recriados pelo deploy. O túnel e os hostnames vivem na Cloudflare.
+- **Volumes brutos** (`postgres-data`, `garage-meta`, `garage-data`) não são copiados de propósito: copiar o LMDB do Garage ou o
+  diretório do Postgres com os serviços rodando gera backup inconsistente. Por isso dump lógico + API S3.
+- **Ponto no tempo**: o RPO é até 24 h (um dump por dia); não há WAL/PITR.
+- O espelho `files/` e o `db/` ficam no **mesmo disco** do VPS: sem o offsite eles não protegem contra perda do disco.

@@ -21,7 +21,7 @@ Consolidado em 03/11/2026 a partir de `deploy/README.md`, `apps/desktop/README.m
 | B5 | Regras de cache da Cloudflare (`/version.json`, `/sw.js`) | aviso de nova versão mais rápido | 10 min |
 | B6 | Certificados de assinatura de código (Apple, Windows) | aviso do Gatekeeper/SmartScreen na primeira abertura | G (conta paga) |
 | B7 | Grafana Cloud e `SPOOK_OTLP_ENDPOINT` | traces e métricas em produção | 1 h |
-| B8 | Backup do Postgres e do Garage | recuperação de desastre | M |
+| B8 | Backup do Postgres e do Garage: instalar o timer (e, se quiser, o offsite no R2) | recuperação de desastre | 10 min (+15 min o R2) |
 | B10 | Login social em conta existente e sessão persistente (conhecer o risco residual) | nada (já ativo) | 5 min |
 | C1 | Fase B: benchmarks contra produção | números finais do SPEC (RNF) | 1 a 2 dias |
 | C2 | Decisões de produto e de limites | nada (valem os padrões atuais) | 30 min |
@@ -160,8 +160,32 @@ Sem certificados, o Gatekeeper (macOS) e o SmartScreen (Windows) avisam na prime
 ### B7. Observabilidade em produção (Grafana Cloud)
 Hoje `SPOOK_OTLP_ENDPOINT` é vazio em produção. Crie a conta gratuita no Grafana Cloud, gere o token de ingestão e coloque um coletor OpenTelemetry leve no VPS (entra no orçamento de memória da tabela 1.2 de `deploy/README.md`); aponte `SPOOK_OTLP_ENDPOINT` para ele. Prometheus, Loki e Grafana **não** rodam no VPS (SPEC, Fase B).
 
-### B8. Backup
-SPEC 10, questão 3: não há rotina. Postgres por `pg_dump` agendado; dados em volumes nomeados do Docker rootless (`postgres-data`, `garage-meta`, `garage-data`); estratégia do Garage a definir (snapshot dos volumes ou `rclone` para outro bucket). Teste a restauração, não só a cópia.
+### B8. Backup (os scripts estão prontos; faltam 2 passos seus)
+Entrou como adicional (SPEC 5.5, "Adicional: backups"; `deploy/README.md`, seção 10): `deploy/backup.sh` (pg_dump + espelho do bucket pela API S3 + retenção 7 diários/4 semanais/3 mensais + offsite opcional), `restore.sh`, `restore-files.sh`, `backup-status.sh`, timer diário 04:00 UTC. Testado de ponta a ponta localmente (`deploy/backup-selftest.sh`). **Só o que depende do VPS e da Cloudflare ficou para você:**
+
+**(i) Instalar o timer (obrigatório; sem isso não há backup rodando).** Depois do próximo deploy (que leva os scripts ao VPS), e como o administrador do VPS:
+```sh
+ssh <vps> "sudo install -d -o spook -m 700 /srv/spook/backups"                          # só se o spook não puder criar a pasta
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/install-backup-timer.sh"               # instala o timer
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/backup.sh"                             # primeiro backup agora (confira a saída)
+ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/install-backup-timer.sh --status"      # timers + idade do último backup
+```
+Faça uma vez o teste de restauração em banco novo (`deploy/README.md` 10.5); "backup" que nunca foi restaurado não conta.
+
+**(ii) Cópia offsite no Cloudflare R2 (opcional, recomendado: sem ela, perder o disco do VPS = perder tudo).**
+1. Painel Cloudflare > **R2 Object Storage** > **Create bucket** > nome `spook-backups` (localização automática; deixe privado). Anote o **Account ID** (o endpoint é `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`).
+2. R2 > **Manage API Tokens** > **Create API token** (Account or User API token): permissão **Object Read & Write**, em **Specify bucket(s)** escolha só `spook-backups`, sem TTL (ou renove antes de vencer). Copie o **Access Key ID** e o **Secret Access Key** (aparecem uma vez).
+3. No GitHub (repositório > Settings > Secrets and variables > Actions), siga o padrão das opcionais:
+   ```sh
+   gh variable set BACKUP_REMOTE --body 'r2:spook-backups'
+   gh variable set BACKUP_R2_ENDPOINT --body 'https://<ACCOUNT_ID>.r2.cloudflarestorage.com'
+   gh secret set BACKUP_R2_ACCESS_KEY_ID          # cole o valor quando pedir
+   gh secret set BACKUP_R2_SECRET_ACCESS_KEY
+   ```
+   Criptografia (opcional): `docker run --rm rclone/rclone:1.69.3 obscure '<senha-forte>'` e grave **o resultado** em `gh secret set BACKUP_CRYPT_PASSWORD`; **guarde a senha original num gerenciador de senhas** (sem ela o offsite é ilegível).
+4. Rode o workflow **Deploy** (o `write-env` grava `BACKUP_REMOTE` e `RCLONE_CONFIG_R2_*` no `.env` do VPS; o `deploy.yml` não executa nada do backup).
+5. Teste: `ssh <vps> "sudo -iu spook /srv/spook/prod/deploy/backup.sh"` deve terminar com `offsite=ok` (código 2 e `offsite=FAILED` = credencial/endpoint/permissão errados). Confira os objetos em `spook-backups/db/` e `files/` no painel do R2 (aparecem cifrados se usou a senha).
+O que o backup **não** cobre (`.env`/segredos no GitHub, chave do updater, LiveKit): `deploy/README.md` 10.7. Guarde os segredos também num gerenciador de senhas.
 
 ### B9. Limpeza e itens menores
 - Usuários de teste em produção (`bench_*`, `smoke_*` e os que você criou): o painel `/admin` > Usuários e o fluxo "Excluir conta" resolvem; remoção por SQL em `bench/README.md` seção 4.
