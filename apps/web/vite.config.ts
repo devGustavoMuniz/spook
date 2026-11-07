@@ -38,6 +38,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
     css: false,
+    // Máquinas carregadas (CI, integração em paralelo) estouravam os 5 s padrão em testes de tela longos.
+    testTimeout: 15000,
     exclude: ["e2e/**", "design/**", "node_modules/**"],
   },
 });
