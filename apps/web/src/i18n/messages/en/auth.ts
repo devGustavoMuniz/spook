@@ -26,7 +26,7 @@ export const auth = {
   "auth.verifyBanner.body": "We sent a link to {email}.",
   "auth.verifyBanner.resend": "Resend",
   "auth.verifyBanner.dismiss": "Dismiss notice",
-  "auth.browserLogin": "Sign in with browser",
+  "auth.browserLogin": "Sign in with Google, Discord or the browser",
   "auth.browserLogin.waiting": "Waiting for you to confirm in the browser…",
   "auth.browserLogin.hint":
     'On the page that opened, confirm "Sign in to the desktop app". The code is valid for 60 seconds after you confirm.',

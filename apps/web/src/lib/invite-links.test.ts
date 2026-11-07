@@ -37,3 +37,13 @@ describe("extractInviteCodes", () => {
     ]);
   });
 });
+
+describe("hosts do app desktop", () => {
+  it("reconhece o domínio de produção mesmo quando a página é tauri.localhost", () => {
+    const text =
+      "entra aí https://spook.dottadigital.com/invite/AbCdEfGh e https://outro.site/invite/ZZZZZZZZ";
+    expect(extractInviteCodes(text, ["tauri.localhost", "spook.dottadigital.com"])).toEqual([
+      "AbCdEfGh",
+    ]);
+  });
+});

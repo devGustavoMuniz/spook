@@ -35,6 +35,7 @@ import { type MessageKey, t as tGlobal, useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { formatDateTime } from "@/lib/format";
 import { can, type Guild } from "@/lib/guild";
+import { publicOrigin } from "@/lib/public-origin";
 import { queryKeys } from "@/lib/queryKeys";
 
 const EXPIRY_OPTIONS: { value: string; labelKey: MessageKey }[] = [
@@ -47,7 +48,7 @@ const EXPIRY_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: "604800", labelKey: "guilds.invites.expiry.7d" },
 ];
 
-export const inviteLink = (code: string) => `${window.location.origin}/invite/${code}`;
+export const inviteLink = (code: string) => `${publicOrigin()}/invite/${code}`;
 
 export function InvitesTab({ guild }: { guild: Guild }) {
   const { t } = useT();

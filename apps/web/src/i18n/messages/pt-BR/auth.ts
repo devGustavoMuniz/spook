@@ -27,7 +27,7 @@ export const auth = {
   "auth.verifyBanner.body": "Enviamos um link para {email}.",
   "auth.verifyBanner.resend": "Reenviar",
   "auth.verifyBanner.dismiss": "Dispensar aviso",
-  "auth.browserLogin": "Entrar pelo navegador",
+  "auth.browserLogin": "Entrar com Google, Discord ou pelo navegador",
   "auth.browserLogin.waiting": "Aguardando a confirmação no navegador…",
   "auth.browserLogin.hint":
     'Na página que abriu, confirme "Entrar no app do computador". O código vale 60 segundos depois da confirmação.',

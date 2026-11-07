@@ -60,7 +60,7 @@ describe("Entrar pelo navegador (desktop)", () => {
       }),
     );
     const view = await renderApp("/login");
-    await userEvent.click(await screen.findByRole("button", { name: "Entrar pelo navegador" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" }));
 
     // aguardando: abriu o navegador com o desafio PKCE e oferece cancelar
     expect(await screen.findByText(/Aguardando a confirmação no navegador/)).toBeInTheDocument();
@@ -98,24 +98,24 @@ describe("Entrar pelo navegador (desktop)", () => {
       ),
     );
     const view = await renderApp("/login");
-    await userEvent.click(await screen.findByRole("button", { name: "Entrar pelo navegador" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" }));
     await screen.findByText(/Aguardando/);
     emitCode(CODE);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "O código expirou ou já foi usado. Tente de novo.",
     );
     expect(view.router.state.location.pathname).toBe("/login");
-    expect(screen.getByRole("button", { name: "Entrar pelo navegador" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" })).toBeInTheDocument();
   });
 
   it("cancelar volta ao botão, sem erro, e para de escutar", async () => {
     fakeIpc();
     await renderApp("/login");
-    await userEvent.click(await screen.findByRole("button", { name: "Entrar pelo navegador" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" }));
     await screen.findByText(/Aguardando/);
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(
-      await screen.findByRole("button", { name: "Entrar pelo navegador" }),
+      await screen.findByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(events.unlisten).toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe("Entrar pelo navegador (desktop)", () => {
   it("falha ao abrir o navegador mostra erro genérico", async () => {
     vi.spyOn(ipc, "invoke").mockRejectedValue(new Error("boom"));
     await renderApp("/login");
-    await userEvent.click(await screen.findByRole("button", { name: "Entrar pelo navegador" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível entrar pelo navegador. Tente de novo.",
     );
@@ -134,12 +134,12 @@ describe("Entrar pelo navegador (desktop)", () => {
     vi.stubEnv("VITE_DESKTOP_BROWSER_LOGIN", "false");
     const view = await renderApp("/login");
     await screen.findByRole("button", { name: "Entrar" });
-    expect(screen.queryByRole("button", { name: "Entrar pelo navegador" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" })).not.toBeInTheDocument();
     view.unmount();
     vi.stubEnv("VITE_DESKTOP_BROWSER_LOGIN", "true");
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
     await renderApp("/login");
     await screen.findByRole("button", { name: "Entrar" });
-    expect(screen.queryByRole("button", { name: "Entrar pelo navegador" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Entrar com Google, Discord ou pelo navegador" })).not.toBeInTheDocument();
   });
 });
