@@ -88,9 +88,12 @@ pub async fn voice_set_microphone(
 }
 
 /// Abre o microfone em paralelo com a conexão (não bloqueia; o `voice_set_microphone(true)` seguinte o usa).
+/// `async` de propósito: comando síncrono roda FORA do runtime do Tokio e o `tokio::spawn` de dentro entrava em pânico
+/// ("no reactor running"), o que fechava o app ao entrar numa chamada.
 #[tauri::command]
-pub fn voice_prepare_microphone(state: State<'_, VoiceState>) {
+pub async fn voice_prepare_microphone(state: State<'_, VoiceState>) -> Result<(), VoiceError> {
     state.0.prepare_microphone();
+    Ok(())
 }
 
 /// Descarta o microfone preparado (entrada cancelada ou falha). Idempotente.

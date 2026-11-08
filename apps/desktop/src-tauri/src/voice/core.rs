@@ -437,7 +437,13 @@ impl VoiceCore {
         let device = self.prefs().input;
         let probe = self.apm.probe();
         let synthetic = self.synthetic();
-        let handle = tokio::spawn(async move {
+        // Sem runtime do Tokio no contexto (chamado de uma thread qualquer) `tokio::spawn` entra em pânico e, no build
+        // de produção, fecha o app: nesse caso só não pré-abre; `set_microphone` abre o dispositivo na hora.
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            log::warn!("voz: sem runtime do Tokio no preparo do microfone; abrindo só na hora");
+            return;
+        };
+        let handle = runtime.spawn(async move {
             let started = Instant::now();
             let (tx, rx) = mpsc::channel::<Vec<i16>>(50);
             let capture = match synthetic {
