@@ -1123,6 +1123,57 @@ components:
         - rtt_ms
         - has_media
       type: object
+    Installer:
+      additionalProperties: false
+      properties:
+        arch:
+          enum:
+            - x64
+            - arm64
+          type: string
+        checksum_url:
+          description: Link do arquivo .sha256 do release, quando existe
+          type:
+            - string
+            - "null"
+        kind:
+          enum:
+            - exe
+            - dmg
+            - deb
+            - AppImage
+          type: string
+        name:
+          description: "Nome do arquivo: Spook-<versão>-<so>-<arquitetura>.<extensão>"
+          type: string
+        os:
+          enum:
+            - windows
+            - macos
+            - linux
+          type: string
+        sha256:
+          description: SHA-256 em hexadecimal (minúsculas), quando o GitHub informa
+          type:
+            - string
+            - "null"
+        size:
+          description: Tamanho em bytes (0 se desconhecido)
+          format: int64
+          type: integer
+        url:
+          description: Link de download
+          type: string
+      required:
+        - name
+        - os
+        - arch
+        - kind
+        - url
+        - size
+        - sha256
+        - checksum_url
+      type: object
     InviteFriendToGuildRequest:
       additionalProperties: false
       properties:
@@ -2076,6 +2127,32 @@ components:
       required:
         - id
         - username
+      type: object
+    Release:
+      additionalProperties: false
+      properties:
+        installers:
+          items:
+            $ref: "#/components/schemas/Installer"
+          type:
+            - array
+            - "null"
+        page_url:
+          description: Página do release no GitHub
+          type: string
+        published_at:
+          description: Data de publicação (RFC 3339)
+          type:
+            - string
+            - "null"
+        version:
+          description: Versão do app, sem o prefixo desktop-v
+          type: string
+      required:
+        - version
+        - published_at
+        - page_url
+        - installers
       type: object
     ReorderChannelsInputBody:
       additionalProperties: false
@@ -6144,6 +6221,55 @@ paths:
       summary: Desconecta alguém do canal de voz (DISCONNECT_MEMBERS + hierarquia). A pessoa pode entrar de novo
       tags:
         - voice
+  /api/downloads/latest:
+    get:
+      operationId: getLatestDownload
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      summary: Último release do app desktop (público, sem sessão; cache de 5 min no servidor)
+      tags:
+        - downloads
   /api/gateway/ticket:
     post:
       operationId: createGatewayTicket

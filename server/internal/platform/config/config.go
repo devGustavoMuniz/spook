@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -128,8 +129,13 @@ type Config struct {
 	Limits          limits.Limits
 	EveryonePushMax int
 	Mail            Mail
-	Google          OAuthApp // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
-	Discord         OAuthApp // DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET
+	// GitHubReleasesRepo (GITHUB_RELEASES_REPO, dono/repo; padrão devGustavoMuniz/spook) é de onde /api/downloads/latest
+	// lê o último release do desktop. GitHubToken (GITHUB_TOKEN) é opcional e NÃO é necessário: só sobe o limite da
+	// API do GitHub (60/h por IP), que o cache de 5 min já evita. Nunca é logado.
+	GitHubReleasesRepo string
+	GitHubToken        string
+	Google             OAuthApp // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+	Discord            OAuthApp // DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET
 	// SecretKey (SPOOK_SECRET_KEY) assina o estado OAuth e cifra os tokens em jobs. Vazio = chave aleatória por
 	// processo (fluxos em andamento e e-mails na fila não sobrevivem a um reinício).
 	SecretKey string
@@ -226,6 +232,11 @@ func Load() (Config, error) {
 		}
 		c.AuditRetentionDays = n
 	}
+	c.GitHubReleasesRepo = getenv("GITHUB_RELEASES_REPO", DefaultGitHubReleasesRepo)
+	if !githubRepoRe.MatchString(c.GitHubReleasesRepo) {
+		return Config{}, fmt.Errorf("GITHUB_RELEASES_REPO inválido (use dono/repo): %q", c.GitHubReleasesRepo)
+	}
+	c.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 	if err := loadLimits(&c); err != nil {
 		return Config{}, err
 	}
@@ -237,6 +248,11 @@ func Load() (Config, error) {
 	}
 	return c, nil
 }
+
+// DefaultGitHubReleasesRepo é o padrão de GITHUB_RELEASES_REPO.
+const DefaultGitHubReleasesRepo = "devGustavoMuniz/spook"
+
+var githubRepoRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
 // DefaultEveryonePushMax é o padrão de EVERYONE_PUSH_MAX.
 const DefaultEveryonePushMax = 200

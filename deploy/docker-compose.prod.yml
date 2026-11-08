@@ -84,6 +84,9 @@ services:
       LIMIT_ATTACHMENT_MB: ${LIMIT_ATTACHMENT_MB:-}
       EVERYONE_PUSH_MAX: ${EVERYONE_PUSH_MAX:-}
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-}
+      # /api/downloads/latest: vazio = padrão (devGustavoMuniz/spook, sem token). Opcionais.
+      GITHUB_RELEASES_REPO: ${GITHUB_RELEASES_REPO:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       ADMIN_DISK_PATH: ${ADMIN_DISK_PATH:-}
       # Limites nomeados por ação: RATELIMIT_<NOME>_PER_MIN (1 a 100000 por minuto), um por limitador do SPEC 7.14.
       RATELIMIT_MESSAGES_SEND_PER_MIN: ${RATELIMIT_MESSAGES_SEND_PER_MIN:-}

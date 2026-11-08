@@ -5,6 +5,7 @@ import {
   fetchLatestRelease,
   installersFor,
   loadLatestRelease,
+  parseBackendRelease,
   parseRelease,
   primaryInstaller,
   ReleaseError,
@@ -13,7 +14,7 @@ import {
   TARGETS,
   writeCachedRelease,
 } from "./releases";
-import { githubRelease } from "./test-fixtures";
+import { backendRelease, githubRelease } from "./test-fixtures";
 
 describe("parseRelease", () => {
   it("extrai versão, data e os instaladores reconhecidos (ignora .sig, .sha256, latest.json)", () => {
@@ -74,11 +75,86 @@ function res(status: number, body: unknown, headers: Record<string, string> = {}
   return new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers });
 }
 
-describe("fetchLatestRelease", () => {
+describe("parseBackendRelease", () => {
+  it("converte o JSON do backend (snake_case) em Release", () => {
+    const r = parseBackendRelease(backendRelease());
+    expect(r?.version).toBe("0.2.0");
+    expect(r?.publishedAt).toBe("2026-11-02T12:00:00Z");
+    expect(r?.installers).toHaveLength(5);
+    expect(r?.installers[0]).toMatchObject({
+      name: "Spook-0.2.0-windows-x64.exe",
+      os: "windows",
+      arch: "x64",
+      kind: "exe",
+      size: 90_000_000,
+      sha256: "a".repeat(64),
+    });
+    expect(r?.installers[0]?.checksumUrl).toMatch(/windows-x64\.exe\.sha256$/);
+  });
+  it("campos opcionais nulos e formato inesperado", () => {
+    const raw = backendRelease();
+    Object.assign(raw.installers[0] ?? {}, { sha256: null, checksum_url: null });
+    expect(parseBackendRelease(raw)?.installers[0]).toMatchObject({
+      sha256: null,
+      checksumUrl: null,
+    });
+    expect(parseBackendRelease(githubRelease())).toBeUndefined();
+    expect(parseBackendRelease({ ...backendRelease(), installers: [] })).toBeUndefined();
+    expect(
+      parseBackendRelease({ ...backendRelease(), installers: [{ name: "x", os: "beos" }] }),
+    ).toBeUndefined();
+    expect(parseBackendRelease(null)).toBeUndefined();
+  });
+});
+
+describe("fetchLatestRelease: backend primeiro, GitHub de reserva", () => {
+  const BACKEND = /\/api\/downloads\/latest$/;
+  /** Roteia por URL: backend e GitHub têm respostas independentes. */
+  const routed = (backend: Response | Error, github: Response | Error) =>
+    vi.fn(async (input: RequestInfo | URL) => {
+      const r = String(input).match(BACKEND) ? backend : github;
+      if (r instanceof Error) throw r;
+      return r.clone();
+    }) as unknown as typeof fetch & { mock: { calls: unknown[][] } };
+  const urls = (f: { mock: { calls: unknown[][] } }) => f.mock.calls.map((c) => String(c[0]));
+
+  it("200 do backend: não toca no GitHub", async () => {
+    const f = routed(res(200, backendRelease()), res(500, {}));
+    expect((await fetchLatestRelease(f))?.version).toBe("0.2.0");
+    expect(urls(f)).toHaveLength(1);
+    expect(urls(f)[0]).toMatch(BACKEND);
+  });
+  it("404 do backend = sem versão publicada, sem tentar o GitHub", async () => {
+    const f = routed(res(404, {}), res(200, githubRelease()));
+    expect(await fetchLatestRelease(f)).toBeNull();
+    expect(urls(f)).toHaveLength(1);
+  });
+  it.each([
+    ["503", res(503, { detail: "x" })],
+    ["429", res(429, {})],
+    ["rede", new TypeError("Failed to fetch")],
+    ["corpo inesperado", res(200, "<html>")],
+    ["JSON de outro formato", res(200, { ok: true })],
+  ])("backend falha (%s): cai para o GitHub", async (_n, backend) => {
+    const f = routed(backend, res(200, githubRelease()));
+    expect((await fetchLatestRelease(f))?.version).toBe("0.2.0");
+    expect(urls(f)[1]).toMatch(/api\.github\.com/);
+  });
+  it("backend e GitHub falham: erro do GitHub", async () => {
+    await expect(
+      fetchLatestRelease(routed(res(503, {}), res(403, {}, { "x-ratelimit-remaining": "0" }))),
+    ).rejects.toMatchObject({ reason: "rate-limit" });
+    await expect(
+      fetchLatestRelease(routed(new TypeError("x"), new TypeError("y"))),
+    ).rejects.toMatchObject({ reason: "network" });
+  });
+});
+
+describe("fetchLatestRelease (GitHub direto, quando o backend não responde)", () => {
   const fetcher = (r: Response | Error) =>
     vi.fn(async () => {
       if (r instanceof Error) throw r;
-      return r;
+      return r.clone(); // o backend já leu o corpo da primeira tentativa
     }) as unknown as typeof fetch;
 
   it("200 devolve o release", async () => {
@@ -115,7 +191,7 @@ describe("cache", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("guarda por 10 min em memória e no sessionStorage", async () => {
-    const f = vi.fn(async () => res(200, githubRelease())) as unknown as typeof fetch;
+    const f = vi.fn(async () => res(200, backendRelease())) as unknown as typeof fetch;
     await loadLatestRelease(f);
     await loadLatestRelease(f);
     expect(f).toHaveBeenCalledTimes(1);

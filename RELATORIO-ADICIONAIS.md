@@ -398,3 +398,15 @@ Pedido do dono (2 itens, só app desktop). Decisões em 5.5 ("Adicional: seletor
 - **Seletor com miniaturas.** Grade de cartões 16:9 com prévia, ícone e nome, seções Telas/Janelas, `radiogroup` acessível (setas, Espaço, Enter, duplo clique), skeleton, "Sem prévia", aviso de privacidade e, no macOS sem permissão, mensagem com botão para abrir os Ajustes. Miniaturas pelo Rust (`voice_screen_source_thumbnails`: sequencial, thread própria, `catch_unwind`, timeout 2,5 s, JPEG ≤ 40 KB, só local), atualizadas a cada 3 s com o diálogo aberto e canceladas ao fechar. Windows: captura única (cada captura acende a borda amarela). Ícone do app não feito (o scap não expõe).
 - **Borda amarela do Windows: não resolvida, documentada.** O `scap` 0.0.8 fixa `DrawBorderSettings::Default`; o `windows-capture` 1.4.4 até tem `WithoutBorder`, mas a Microsoft exige `RequestAccessAsync(Borderless)` com a capability `graphicsCaptureWithoutBorder` no manifesto de app empacotado, e o instalador do Spook não é MSIX. Trocar a captura do Windows sem poder validar arriscaria regredir o que funciona. Caminho futuro: MSIX/pacote esparso.
 - **Não compilado/verificado localmente:** o Rust de captura (só o workflow Desktop do CI compila), o comportamento real em macOS/Windows/Linux. Rodaram: Vitest, tsc, builds web/desktop, Biome, `rustfmt --check` e `cargo test` da lógica pura.
+
+
+## Versão do desktop servida pelo backend (07/11/2026)
+
+Pedido do dono: a `/download` falhava para quem está em rede compartilhada (limite de 60 req/h por IP do GitHub), com bloqueador de anúncios ou em rede corporativa. Decisões em 5.5 ("Adicional: versão do desktop servida pelo backend"). Sem migration nem SQL.
+
+- **Backend.** Novo `GET /api/downloads/latest` (público, `server/internal/download`): consulta o último release no GitHub, normaliza (`version`, `published_at`, `page_url`, `installers[]`) e responde com `Cache-Control: public, max-age=60` e ETag. 404 sem versão publicada; 503 genérico se o GitHub falha e não há cache.
+- **Cache.** Em memória, TTL 5 min, `singleflight`, revalidação por ETag do GitHub, stale-while-error por até 24 h (com log de aviso). Sem goroutine, sem persistência. Timeout 5 s, corpo até 1 MB.
+- **Config.** `GITHUB_RELEASES_REPO` (padrão `devGustavoMuniz/spook`) e `GITHUB_TOKEN` (opcional, desnecessário). Documentadas em `.env.example` e `deploy/README.md`; o compose de produção as aceita vazias. O `write-env` do deploy NÃO as repassa: o GitHub Actions proíbe Variables/Secrets com prefixo `GITHUB_`.
+- **Web.** Tenta o backend primeiro e cai para o GitHub direto só se o backend falhar (rede, 429, 5xx, corpo inesperado); 404 do backend = "ainda não há versão". Estados de erro, cache e textos da página inalterados.
+- **Observabilidade.** Span `download.latest`; contador `spook.download.requests{outcome}`.
+- **Ponto de atenção.** O cache é por processo: cada reinício do backend faz uma busca nova ao GitHub (uma só, por causa do `singleflight`). A medição em produção e o comportamento atrás do Cloudflare (`max-age=60`) só se validam no ar.

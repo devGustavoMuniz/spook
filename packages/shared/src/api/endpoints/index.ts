@@ -4,6 +4,7 @@ export * from "./auth/auth";
 export * from "./calls/calls";
 export * from "./channels/channels";
 export * from "./dms/dms";
+export * from "./downloads/downloads";
 export * from "./gateway/gateway";
 export * from "./guilds/guilds";
 export * from "./invites/invites";

@@ -143,8 +143,8 @@ servidor = server; canal = channel; canal de voz/texto = voice/text channel; cat
 
 ## Download do app e aviso de versão
 
-- `/download` (pública, `features/download`): lê o último release do GitHub, destaca o instalador do seu sistema e mostra
-  tamanho, versão, data e SHA-256. Testes com o GitHub mockado em `features/download/download.test.tsx`.
+- `/download` (pública, `features/download`): lê o último release pelo backend (`GET /api/downloads/latest`, com cache; se ele falhar, cai para a API do GitHub direto), destaca o instalador do seu sistema e mostra
+  tamanho, versão, data e SHA-256. Testes com backend e GitHub mockados (MSW) em `features/download/download.test.tsx`.
 - `vite-version-plugin.ts` embute `__APP_VERSION__/__APP_COMMIT__/__APP_BUILT_AT__` e publica `dist/version.json` (não no modo
   `desktop`). O sha vem de `SPOOK_COMMIT` (Docker/CI) ou do git. `lib/version-watcher.tsx` consulta o arquivo ao voltar o foco e a
   cada 10 min e mostra o banner "Nova versão disponível". Para ver o banner em um build local: `pnpm --filter @spook/web build`,

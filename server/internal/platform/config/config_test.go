@@ -299,3 +299,23 @@ func TestLoadAdminHistoryAndRateLimitOverrides(t *testing.T) {
 		t.Setenv(k, "")
 	}
 }
+
+func TestLoadGitHubReleasesRepo(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("GITHUB_RELEASES_REPO", "")
+	t.Setenv("GITHUB_TOKEN", " tok ")
+	c, err := Load()
+	if err != nil || c.GitHubReleasesRepo != "devGustavoMuniz/spook" || c.GitHubToken != "tok" {
+		t.Fatalf("padrão: %v %+v", err, c.GitHubReleasesRepo)
+	}
+	t.Setenv("GITHUB_RELEASES_REPO", "outro/repo-x")
+	if c, err = Load(); err != nil || c.GitHubReleasesRepo != "outro/repo-x" {
+		t.Fatalf("custom: %v", err)
+	}
+	for _, bad := range []string{"semBarra", "a/b/c", "a b/c", "/repo", "dono/"} {
+		t.Setenv("GITHUB_RELEASES_REPO", bad)
+		if _, err := Load(); err == nil {
+			t.Errorf("%q deveria ser recusado", bad)
+		}
+	}
+}

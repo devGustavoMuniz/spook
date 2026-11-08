@@ -1,11 +1,15 @@
-import type { MessageKey } from "@/i18n";
-// Último release do Spook desktop, lido da API pública do GitHub (sem login; CORS liberado). Os instaladores seguem o
-// nome `Spook-<versão>-<so>-<arquitetura>.<ext>` gerado pelo workflow Desktop; o resto dos assets (.sig, .sha256,
+// Último release do Spook desktop. A fonte principal é o backend (`/api/downloads/latest`, que consulta o GitHub com
+// cache e não sofre o limite de 60 req/h por IP nem bloqueadores); se ele cair, o navegador consulta a API pública do
+// GitHub direto (sem login; CORS liberado). Os instaladores seguem o nome `Spook-<versão>-<so>-<arquitetura>.<ext>` gerado pelo workflow Desktop; o resto dos assets (.sig, .sha256,
 // latest.json, bundles do updater) é ignorado aqui.
+import { apiUrl } from "@spook/shared";
+import type { MessageKey } from "@/i18n";
 import type { Arch, Os } from "./platform";
 
 export const REPO = "devGustavoMuniz/spook";
 export const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+/** Caminho do backend (mesma origem; no desktop vale a base da API). */
+export const BACKEND_LATEST_PATH = "/api/downloads/latest";
 export const RELEASES_PAGE_URL = `https://github.com/${REPO}/releases`;
 
 export type InstallerKind = "exe" | "dmg" | "deb" | "AppImage";
@@ -84,9 +88,76 @@ export class ReleaseError extends Error {
   }
 }
 
-/** `null` = ainda não há versão publicada (404, ou release sem instaladores do app). */
-export async function fetchLatestRelease(
-  fetcher: typeof fetch = fetch,
+const INSTALLER_OS: readonly string[] = ["windows", "macos", "linux"];
+const INSTALLER_ARCH: readonly string[] = ["x64", "arm64"];
+const INSTALLER_KIND: readonly string[] = ["exe", "dmg", "deb", "AppImage"];
+
+/** Converte o JSON do backend (snake_case) em `Release`; `undefined` se o formato não for o esperado. */
+export function parseBackendRelease(raw: unknown): Release | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (
+    typeof r.version !== "string" ||
+    typeof r.page_url !== "string" ||
+    !Array.isArray(r.installers)
+  )
+    return undefined;
+  const installers: Installer[] = [];
+  for (const item of r.installers as Record<string, unknown>[]) {
+    if (
+      !item ||
+      typeof item.name !== "string" ||
+      typeof item.url !== "string" ||
+      !INSTALLER_OS.includes(item.os as string) ||
+      !INSTALLER_ARCH.includes(item.arch as string) ||
+      !INSTALLER_KIND.includes(item.kind as string)
+    )
+      return undefined;
+    installers.push({
+      name: item.name,
+      os: item.os as Os,
+      arch: item.arch as Arch,
+      kind: item.kind as InstallerKind,
+      url: item.url,
+      size: typeof item.size === "number" ? item.size : 0,
+      sha256: typeof item.sha256 === "string" ? item.sha256 : null,
+      checksumUrl: typeof item.checksum_url === "string" ? item.checksum_url : null,
+    });
+  }
+  if (installers.length === 0) return undefined;
+  return {
+    version: r.version,
+    publishedAt: typeof r.published_at === "string" ? r.published_at : null,
+    pageUrl: r.page_url,
+    installers,
+  };
+}
+
+/**
+ * Backend: `Release` (200), `null` (404 = ainda não há versão publicada) ou `undefined` quando o backend não
+ * serve (rede, 5xx, 429, corpo inesperado): quem chama cai para o GitHub.
+ */
+async function fetchFromBackend(
+  fetcher: typeof fetch,
+  signal?: AbortSignal,
+): Promise<Release | null | undefined> {
+  try {
+    const res = await fetcher(apiUrl(BACKEND_LATEST_PATH), {
+      headers: { Accept: "application/json" },
+      credentials: "omit",
+      signal,
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) return undefined;
+    return parseBackendRelease(await res.json());
+  } catch {
+    if (signal?.aborted) throw new ReleaseError("network");
+    return undefined;
+  }
+}
+
+async function fetchFromGitHub(
+  fetcher: typeof fetch,
   signal?: AbortSignal,
 ): Promise<Release | null> {
   let res: Response;
@@ -110,6 +181,16 @@ export async function fetchLatestRelease(
   } catch {
     throw new ReleaseError("error");
   }
+}
+
+/** `null` = ainda não há versão publicada (404, ou release sem instaladores do app). Backend primeiro, GitHub de reserva. */
+export async function fetchLatestRelease(
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<Release | null> {
+  const viaBackend = await fetchFromBackend(fetcher, signal);
+  if (viaBackend !== undefined) return viaBackend;
+  return fetchFromGitHub(fetcher, signal);
 }
 
 // ---- Cache (memória + sessionStorage, tudo com try/catch) ----

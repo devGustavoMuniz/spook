@@ -2,8 +2,12 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearReleaseCache, LATEST_RELEASE_URL } from "@/features/download/releases";
-import { githubRelease } from "@/features/download/test-fixtures";
+import {
+  BACKEND_LATEST_PATH,
+  clearReleaseCache,
+  LATEST_RELEASE_URL,
+} from "@/features/download/releases";
+import { backendRelease, githubRelease } from "@/features/download/test-fixtures";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
 
@@ -27,7 +31,7 @@ const WIN_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 describe("/download", () => {
   it("é pública e destaca o instalador do sistema detectado, com tamanho, versão e SHA-256", async () => {
     fakeNavigator(WIN_UA, "Win32");
-    server.use(http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())));
+    server.use(http.get(BACKEND_LATEST_PATH, () => HttpResponse.json(backendRelease())));
     await renderApp("/download"); // sem sessão: não redireciona ao login
     const cta = await screen.findByRole("link", { name: /Baixar para Windows/ });
     expect(cta).toHaveAttribute("href", expect.stringMatching(/Spook-0\.2\.0-windows-x64\.exe$/));
@@ -53,7 +57,7 @@ describe("/download", () => {
     fakeNavigator(WIN_UA, "Win32");
     const writeText = vi.fn(async () => {});
     Object.assign(navigator, { clipboard: { writeText } });
-    server.use(http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())));
+    server.use(http.get(BACKEND_LATEST_PATH, () => HttpResponse.json(backendRelease())));
     await renderApp("/download");
     await userEvent.click(
       await screen.findByRole("button", {
@@ -65,7 +69,7 @@ describe("/download", () => {
 
   it("no Mac recomenda Apple Silicon por padrão e Intel quando o navegador revela", async () => {
     fakeNavigator("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "MacIntel");
-    server.use(http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())));
+    server.use(http.get(BACKEND_LATEST_PATH, () => HttpResponse.json(backendRelease())));
     await renderApp("/download");
     expect(
       await screen.findByRole("link", { name: /Baixar para macOS \(Apple Silicon\)/ }),
@@ -74,7 +78,7 @@ describe("/download", () => {
 
   it("no Mac Intel (arquitetura revelada) recomenda o .dmg Intel", async () => {
     fakeNavigator("Mozilla/5.0 (Macintosh)", "MacIntel", "x86");
-    server.use(http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())));
+    server.use(http.get(BACKEND_LATEST_PATH, () => HttpResponse.json(backendRelease())));
     await renderApp("/download");
     expect(
       await screen.findByRole("link", { name: /Baixar para macOS \(Intel\)/ }),
@@ -83,7 +87,7 @@ describe("/download", () => {
 
   it("no celular explica que o app é para computador", async () => {
     fakeNavigator("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", "iPhone");
-    server.use(http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())));
+    server.use(http.get(BACKEND_LATEST_PATH, () => HttpResponse.json(backendRelease())));
     await renderApp("/download");
     expect(await screen.findByText(/No celular, abra o Spook no navegador/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Baixar para/ })).not.toBeInTheDocument();
@@ -91,7 +95,7 @@ describe("/download", () => {
 
   it("mostra as instruções de instalação com o aviso de app sem assinatura", async () => {
     fakeNavigator(WIN_UA, "Win32");
-    server.use(http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())));
+    server.use(http.get(BACKEND_LATEST_PATH, () => HttpResponse.json(backendRelease())));
     await renderApp("/download");
     expect(await screen.findByText(/não tem assinatura de código/)).toBeInTheDocument();
     expect(screen.getByText(/Executar assim mesmo/)).toBeVisible();
@@ -99,27 +103,45 @@ describe("/download", () => {
     expect(screen.getByText(/chmod \+x/)).toBeInTheDocument();
   });
 
-  it("ainda não há versão publicada: estado vazio", async () => {
+  it("backend fora do ar: a página cai para o GitHub direto", async () => {
     fakeNavigator(WIN_UA, "Win32");
     server.use(
-      http.get(LATEST_RELEASE_URL, () =>
-        HttpResponse.json({ message: "Not Found" }, { status: 404 }),
+      http.get(BACKEND_LATEST_PATH, () => HttpResponse.json({}, { status: 503 })),
+      http.get(LATEST_RELEASE_URL, () => HttpResponse.json(githubRelease())),
+    );
+    await renderApp("/download");
+    const cta = await screen.findByRole("link", { name: /Baixar para Windows/ });
+    expect(cta).toHaveAttribute("href", expect.stringMatching(/Spook-0\.2\.0-windows-x64\.exe$/));
+  });
+
+  it("ainda não há versão publicada: estado vazio", async () => {
+    fakeNavigator(WIN_UA, "Win32");
+    let githubCalls = 0;
+    server.use(
+      http.get(BACKEND_LATEST_PATH, () =>
+        HttpResponse.json({ detail: "ainda não há versão publicada" }, { status: 404 }),
       ),
+      http.get(LATEST_RELEASE_URL, () => {
+        githubCalls++;
+        return HttpResponse.json(githubRelease());
+      }),
     );
     await renderApp("/download");
     expect(
       await screen.findByRole("heading", { name: "Ainda não há versão publicada" }),
     ).toBeInTheDocument();
+    expect(githubCalls).toBe(0); // 404 do backend não tenta o GitHub
     expect(screen.queryByRole("heading", { name: "Todas as plataformas" })).not.toBeInTheDocument();
   });
 
-  it("erro do GitHub: mensagem, tentar de novo e link dos releases", async () => {
+  it("erro do backend e do GitHub: mensagem, tentar de novo e link dos releases", async () => {
     fakeNavigator(WIN_UA, "Win32");
     let fail = true;
     server.use(
-      http.get(LATEST_RELEASE_URL, () =>
-        fail ? HttpResponse.json({}, { status: 500 }) : HttpResponse.json(githubRelease()),
+      http.get(BACKEND_LATEST_PATH, () =>
+        fail ? HttpResponse.json({}, { status: 503 }) : HttpResponse.json(backendRelease()),
       ),
+      http.get(LATEST_RELEASE_URL, () => HttpResponse.json({}, { status: 500 })),
     );
     await renderApp("/download");
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -137,6 +159,7 @@ describe("/download", () => {
   it("limite de requisições do GitHub tem mensagem própria", async () => {
     fakeNavigator(WIN_UA, "Win32");
     server.use(
+      http.get(BACKEND_LATEST_PATH, () => HttpResponse.json({}, { status: 503 })),
       http.get(LATEST_RELEASE_URL, () =>
         HttpResponse.json({}, { status: 403, headers: { "x-ratelimit-remaining": "0" } }),
       ),

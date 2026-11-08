@@ -4,6 +4,7 @@ export * from "./auth/auth.zod";
 export * from "./calls/calls.zod";
 export * from "./channels/channels.zod";
 export * from "./dms/dms.zod";
+export * from "./downloads/downloads.zod";
 export * from "./gateway/gateway.zod";
 export * from "./guilds/guilds.zod";
 export * from "./invites/invites.zod";

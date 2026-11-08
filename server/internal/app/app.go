@@ -30,6 +30,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/dm"
 	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
+	dlfeature "github.com/devGustavoMuniz/spook/server/internal/download"
 	"github.com/devGustavoMuniz/spook/server/internal/gateway"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/health"
@@ -111,6 +112,9 @@ type Deps struct {
 	// Push (testes): AllowPrivate relaxa o anti-SSRF (o "serviço de push" do teste fica em 127.0.0.1) e
 	// HTTPClient substitui o cliente do envio (para confiar no certificado do servidor de teste).
 	Push PushOptions
+
+	// DownloadSource substitui o cliente do GitHub de /api/downloads/latest (testes; nunca fale com a rede real).
+	DownloadSource dlfeature.Source
 
 	// ActionLimiters substitui por nome ("servers.create"...) os limitadores por ação (testes).
 	ActionLimiters map[string]*ratelimit.Limiter
@@ -447,6 +451,18 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	presenceH := presence.NewHandler(presenceSvc, auth.UserID)
 	relH := relationship.NewHandler(relSvc, auth.UserID)
 	callH := dmcall.NewHandler(callSvc, auth.UserID)
+	dlSrc, dlPage := d.DownloadSource, "https://github.com/"+config.DefaultGitHubReleasesRepo+"/releases"
+	if repo := d.Cfg.GitHubReleasesRepo; repo != "" {
+		dlPage = "https://github.com/" + repo + "/releases"
+	}
+	if dlSrc == nil {
+		repo := d.Cfg.GitHubReleasesRepo
+		if repo == "" {
+			repo = config.DefaultGitHubReleasesRepo
+		}
+		dlSrc = dlfeature.NewGitHub(repo, d.Cfg.GitHubToken)
+	}
+	downloadH := dlfeature.NewHandler(dlfeature.NewService(dlSrc, dlPage))
 
 	// Painel administrativo (/admin): leituras agregadas; voz, gateway, pool e Prometheus entram por interfaces.
 	adminDeps := admin.Deps{
@@ -534,7 +550,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH, actionByOp)
+	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH, downloadH, actionByOp)
 	socialH.RegisterRoutes(r) // /api/auth/social/{provider}/start|callback: redirecionamentos, fora do OpenAPI
 	if outbox != nil {        // SÓ em desenvolvimento com o driver log: lê o último e-mail (E2E e dev local)
 		r.Get("/api/dev/mail/last", devMailHandler(outbox))
@@ -576,7 +592,7 @@ func buildAPI() huma.API {
 	return registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), mailflow.NewHandler(nil, nil), social.NewHandler(nil, nil, nil, true), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil), audit.NewHandler(nil, nil),
-		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil), docActions())
+		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil), dlfeature.NewHandler(nil), docActions())
 }
 
 // docActions é o mapa de limites só para documentar as respostas 429 no OpenAPI (sem estado de uso).
@@ -603,7 +619,7 @@ func (a *lateAccess) OverwriteTarget(ctx context.Context, guildID int64, t perm.
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Handler, socialH *social.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
 	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler, auditH *audit.Handler,
-	relH *relationship.Handler, callH *dmcall.Handler, actions map[string]*ratelimit.Limiter) huma.API {
+	relH *relationship.Handler, callH *dmcall.Handler, downloadH *dlfeature.Handler, actions map[string]*ratelimit.Limiter) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -649,6 +665,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	auditH.Register(api, authed, auth.Security)
 	relH.Register(api, authed, auth.Security)
 	callH.Register(api, authed, auth.Security)
+	downloadH.Register(api) // pública: sem sessão (o limite por IP de /api/* vale em limitByPath)
 	document429(api, actions)
 	return api
 }
