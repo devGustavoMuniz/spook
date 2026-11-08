@@ -161,6 +161,13 @@ export const settings = {
   "settings.screenPicker.description":
     "Escolha uma tela ou uma janela. Quem estiver na chamada verá o que aparecer nela.",
   "settings.screenPicker.none": "Nenhuma tela ou janela disponível.",
+  "settings.screenPicker.loading": "Carregando as prévias…",
+  "settings.screenPicker.noPreview": "Sem prévia",
+  "settings.screenPicker.openSettings": "Abrir as preferências",
+  "settings.screenPicker.permissionDenied":
+    "Permita a gravação de tela para o Spook nas preferências do sistema para ver as prévias e compartilhar a tela.",
+  "settings.screenPicker.privacy":
+    "As prévias ficam só neste computador e não são enviadas a ninguém.",
   "settings.screenPicker.screens": "Telas",
   "settings.screenPicker.share": "Compartilhar",
   "settings.screenPicker.title": "O que você quer compartilhar?",

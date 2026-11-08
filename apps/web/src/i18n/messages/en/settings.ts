@@ -161,6 +161,12 @@ export const settings = {
   "settings.screenPicker.description":
     "Choose a screen or a window. Everyone in the call will see what appears in it.",
   "settings.screenPicker.none": "No screens or windows available.",
+  "settings.screenPicker.loading": "Loading previews…",
+  "settings.screenPicker.noPreview": "No preview",
+  "settings.screenPicker.openSettings": "Open settings",
+  "settings.screenPicker.permissionDenied":
+    "Allow screen recording for Spook in the system settings to see previews and share your screen.",
+  "settings.screenPicker.privacy": "Previews stay on this computer and are never sent to anyone.",
   "settings.screenPicker.screens": "Screens",
   "settings.screenPicker.share": "Share",
   "settings.screenPicker.title": "What do you want to share?",

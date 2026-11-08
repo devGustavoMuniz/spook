@@ -389,3 +389,12 @@ Pedido do dono (2 melhorias de latência percebida). Decisões em 5.5 ("Adiciona
   Ganho real = o que a abertura do dispositivo custa, que passa a sobrepor o token e a conexão (-226 ms a -238 ms no cenário simulado); na rede local, sem custo de dispositivo, nada muda (esperado). A 1ª entrada de uma sessão fria (baixar RNNoise/worklet) não entra na mediana e é coberta só em parte pelo pré-aquecimento do hover.
 - **Não feito (de propósito).** Pré-buscar o token: emissão tem efeito no servidor (7.7) e gastaria o limite de 30/min.
 - **Pontos de atenção.** (1) Toda chamada com microfone aberto passa a ter o grafo de áudio da web (~10 ms de lookahead + CPU baixa), para medir o nível; (2) o preparo abre o microfone no clique, antes de saber se a conexão dará certo (descartado se falhar); (3) latência real do anel em chamada com duas pessoas e o preparo do desktop só se validam à mão (`VALIDACAO-MANUAL.md`).
+
+
+## Seletor de tela com miniaturas e borda da captura (07/11/2026)
+
+Pedido do dono (2 itens, só app desktop). Decisões em 5.5 ("Adicional: seletor de tela com miniaturas e borda da captura (desktop)"). Sem API, Go ou migrations.
+
+- **Seletor com miniaturas.** Grade de cartões 16:9 com prévia, ícone e nome, seções Telas/Janelas, `radiogroup` acessível (setas, Espaço, Enter, duplo clique), skeleton, "Sem prévia", aviso de privacidade e, no macOS sem permissão, mensagem com botão para abrir os Ajustes. Miniaturas pelo Rust (`voice_screen_source_thumbnails`: sequencial, thread própria, `catch_unwind`, timeout 2,5 s, JPEG ≤ 40 KB, só local), atualizadas a cada 3 s com o diálogo aberto e canceladas ao fechar. Windows: captura única (cada captura acende a borda amarela). Ícone do app não feito (o scap não expõe).
+- **Borda amarela do Windows: não resolvida, documentada.** O `scap` 0.0.8 fixa `DrawBorderSettings::Default`; o `windows-capture` 1.4.4 até tem `WithoutBorder`, mas a Microsoft exige `RequestAccessAsync(Borderless)` com a capability `graphicsCaptureWithoutBorder` no manifesto de app empacotado, e o instalador do Spook não é MSIX. Trocar a captura do Windows sem poder validar arriscaria regredir o que funciona. Caminho futuro: MSIX/pacote esparso.
+- **Não compilado/verificado localmente:** o Rust de captura (só o workflow Desktop do CI compila), o comportamento real em macOS/Windows/Linux. Rodaram: Vitest, tsc, builds web/desktop, Biome, `rustfmt --check` e `cargo test` da lógica pura.

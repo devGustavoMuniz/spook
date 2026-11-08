@@ -14,7 +14,8 @@ use super::error::{ConnectCode, VoiceError};
 use super::events::VoiceEvent;
 use super::gate::InputSensitivity;
 use super::mixer::AudioSource;
-use super::screen::ScreenSource;
+use super::screen::{self, ScreenSource};
+use super::thumbnail::ScreenThumbnail;
 
 pub struct VoiceState(pub Arc<VoiceCore>);
 
@@ -200,6 +201,34 @@ pub async fn voice_list_screen_sources(
     tokio::task::spawn_blocking(move || core.list_screen_sources())
         .await
         .map_err(|e| VoiceError::other(e.to_string()))
+}
+
+/// Miniaturas do seletor de fonte: uma por vez, em sequência, enviadas pelo canal `thumbnails` conforme ficam
+/// prontas (fonte sem miniatura chega com `error`). Só local: nada é gravado nem enviado ao servidor.
+#[tauri::command]
+pub async fn voice_screen_source_thumbnails(
+    ids: Vec<String>,
+    thumbnails: Channel<ScreenThumbnail>,
+) -> Result<(), VoiceError> {
+    tokio::task::spawn_blocking(move || {
+        screen::capture_thumbnails(&ids, |t| {
+            let _ = thumbnails.send(t);
+        })
+    })
+    .await
+    .map_err(|e| VoiceError::other(e.to_string()))
+}
+
+/// Interrompe as miniaturas em andamento (diálogo fechado).
+#[tauri::command]
+pub fn voice_cancel_screen_thumbnails() {
+    screen::cancel_thumbnails();
+}
+
+/// macOS: abre as preferências de Gravação de Tela (para liberar as miniaturas e o compartilhamento).
+#[tauri::command]
+pub fn app_open_screen_recording_settings() {
+    screen::open_screen_recording_settings();
 }
 
 #[tauri::command]

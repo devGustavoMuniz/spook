@@ -5,8 +5,9 @@
 //! Áudio do sistema: o `scap` 0.0.8 não captura áudio; fica como limitação documentada.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc as std_mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use scap::capturer::{Capturer, Options, Resolution};
@@ -17,6 +18,7 @@ use serde::Serialize;
 use super::capture::{CaptureThread, VideoOut};
 use super::error::{MediaCode, MediaDevice, VoiceError};
 use super::frames::{to_i420, PixelOrder};
+use super::thumbnail::{self, Order, ScreenThumbnail, Thumb, ThumbFailure};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -253,6 +255,154 @@ fn pixels(frame: Frame) -> Option<(Vec<u8>, u32, u32, PixelOrder)> {
             ))
         }
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Miniaturas do seletor de fonte (um quadro pequeno por tela/janela; só local, nada vai a disco nem ao log).
+// ---------------------------------------------------------------------------------------------------------
+
+/// Tempo máximo para uma fonte entregar o primeiro quadro (depois disso ela vira "sem miniatura").
+const THUMB_TIMEOUT: Duration = Duration::from_millis(2500);
+/// Quadros tentados por fonte até obter um válido (o primeiro do ScreenCaptureKit às vezes vem vazio).
+const THUMB_FRAME_TRIES: usize = 3;
+
+/// Geração do pedido corrente: um pedido novo (ou `cancel_thumbnails`) invalida o anterior.
+static THUMB_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Só um conjunto de capturas por vez (criar/derrubar `Capturer` em paralelo é pesado e pisca bordas).
+static THUMB_LOCK: Mutex<()> = Mutex::new(());
+
+/// Cancela o pedido de miniaturas em andamento (ele para antes da próxima fonte).
+pub fn cancel_thumbnails() {
+    THUMB_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+fn to_thumb_order(o: PixelOrder) -> Order {
+    match o {
+        PixelOrder::Bgra => Order::Bgra,
+        PixelOrder::Rgba => Order::Rgba,
+    }
+}
+
+/// Captura miniaturas de `ids` em sequência, chamando `emit` a cada uma (ou falha). Bloqueante: rode em
+/// `spawn_blocking`. Fontes `portal` (Linux) não têm miniatura e são ignoradas.
+pub fn capture_thumbnails(ids: &[String], mut emit: impl FnMut(ScreenThumbnail)) {
+    let ids: Vec<&String> = ids
+        .iter()
+        .filter(|i| i.as_str() != "portal" && parse_source_id(i).is_some())
+        .take(thumbnail::MAX_SOURCES)
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let generation = THUMB_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let cancelled = || THUMB_GENERATION.load(Ordering::SeqCst) != generation;
+    // Espera o pedido anterior (que já foi invalidado) terminar a fonte atual.
+    let _guard = THUMB_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if cancelled() {
+        return;
+    }
+    let fail_all = |why: ThumbFailure, emit: &mut dyn FnMut(ScreenThumbnail)| {
+        for id in &ids {
+            emit(ScreenThumbnail::failed(id, why));
+        }
+    };
+    let supported = catch_unwind(scap::is_supported).unwrap_or(false);
+    if !supported {
+        fail_all(ThumbFailure::Unsupported, &mut emit);
+        return;
+    }
+    // Sem pedir a permissão aqui: o diálogo do TCC só aparece quando o usuário de fato compartilha.
+    if !catch_unwind(scap::has_permission).unwrap_or(false) {
+        fail_all(ThumbFailure::Permission, &mut emit);
+        return;
+    }
+    for id in ids {
+        if cancelled() {
+            return;
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = std_mpsc::channel();
+        let (worker_id, worker_stop) = (id.clone(), stop.clone());
+        let spawned = std::thread::Builder::new()
+            .name("spook-thumb".into())
+            .spawn(move || {
+                // O scap usa `expect`/`panic`: contido aqui. Alvo e `Capturer` nascem e morrem nesta thread
+                // (`!Send` no Windows).
+                let r = catch_unwind(AssertUnwindSafe(|| capture_one(&worker_id, &worker_stop)))
+                    .unwrap_or(Err(ThumbFailure::Failed));
+                let _ = tx.send(r);
+            });
+        let result = match spawned {
+            Ok(_) => rx.recv_timeout(THUMB_TIMEOUT).unwrap_or_else(|_| {
+                // A thread abandonada termina quando o backend entregar um quadro; `stop` evita o trabalho.
+                stop.store(true, Ordering::SeqCst);
+                Err(ThumbFailure::Timeout)
+            }),
+            Err(_) => Err(ThumbFailure::Failed),
+        };
+        if cancelled() {
+            return;
+        }
+        emit(match result {
+            Ok(t) => ScreenThumbnail::ok(id, &t),
+            Err(why) => ScreenThumbnail::failed(id, why),
+        });
+    }
+}
+
+fn capture_one(id: &str, stop: &AtomicBool) -> Result<Thumb, ThumbFailure> {
+    let target = match find_target(id) {
+        Ok(Some(t)) => Some(t),
+        _ => return Err(ThumbFailure::Failed),
+    };
+    let options = Options {
+        fps: 2,
+        show_cursor: false,
+        show_highlight: false,
+        target,
+        crop_area: None,
+        output_type: FrameType::BGRAFrame,
+        // macOS reduz na própria captura (ScreenCaptureKit); nos outros o scap entrega o tamanho cheio.
+        output_resolution: if cfg!(target_os = "macos") {
+            Resolution::_480p
+        } else {
+            Resolution::Captured
+        },
+        excluded_targets: None,
+    };
+    let mut capturer = Capturer::build(options).map_err(|e| match e {
+        scap::capturer::CapturerBuildError::PermissionNotGranted => ThumbFailure::Permission,
+        scap::capturer::CapturerBuildError::NotSupported => ThumbFailure::Unsupported,
+    })?;
+    capturer.start_capture();
+    let mut out = Err(ThumbFailure::Failed);
+    for _ in 0..THUMB_FRAME_TRIES {
+        let Ok(frame) = capturer.get_next_frame() else {
+            break;
+        };
+        if stop.load(Ordering::SeqCst) {
+            out = Err(ThumbFailure::Timeout);
+            break;
+        }
+        if let Some((data, w, h, order)) = pixels(frame) {
+            if let Ok(t) = thumbnail::build(&data, w, h, to_thumb_order(order)) {
+                out = Ok(t);
+                break;
+            }
+        }
+    }
+    let _ = catch_unwind(AssertUnwindSafe(|| capturer.stop_capture()));
+    out
+}
+
+/// macOS: abre Ajustes > Privacidade > Gravação de Tela. Nos outros sistemas não faz nada.
+pub fn open_screen_recording_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .spawn();
     }
 }
 

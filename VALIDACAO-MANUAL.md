@@ -369,3 +369,10 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 - [ ] **Push:** o corpo vem do servidor em pt-BR (limitação); confirme que o título e o botão "Abrir" seguem o idioma.
 - [ ] **Desktop:** menu da bandeja ("Open Spook"/"Quit") e aviso "continua rodando na bandeja" mudam ao trocar o idioma (código Rust não foi compilado pelo agente; rode `cargo check`/build do desktop antes).
 - [ ] **Erros do servidor em inglês:** provoque alguns (senha errada, limite, 403) e confira se vêm traduzidos; os fora da tabela aparecem em pt-BR.
+
+### Seletor de tela com miniaturas e borda (desktop)
+- [ ] **Miniaturas no macOS:** compartilhar a tela abre a grade com prévias de cada tela e janela (aparecem uma a uma, com skeleton antes), atualizam a cada ~3 s, o foco/seleção por setas, Enter e duplo clique funcionam, e fechar o diálogo para as capturas. Sem a permissão de Gravação de Tela, aparece o aviso com o botão "Abrir as preferências" (abre Ajustes > Privacidade > Gravação de Tela). Conferir que o indicador de gravação do macOS não fica aceso depois de fechar o diálogo.
+- [ ] **Miniaturas no Windows:** prévias aparecem e NÃO atualizam sozinhas; ao abrir o diálogo as bordas amarelas acendem por instantes nas telas/janelas (limitação conhecida). Verificar se alguma janela fica com a borda acesa depois de fechar e se a lista com muitas janelas não trava o app.
+- [ ] **Linux:** o compartilhamento segue direto para o seletor do sistema (portal), como antes.
+- [ ] **Nada regrediu:** compartilhar tela/janela em qualidade, fps e troca de fonte funcionam como antes em macOS/Windows/Linux.
+- [ ] **Borda amarela ao compartilhar no Windows 11:** continua aparecendo (pendência documentada). Se quiser eliminar, avaliar MSIX/pacote esparso com a capability `graphicsCaptureWithoutBorder` (ver SPEC 5.5).
