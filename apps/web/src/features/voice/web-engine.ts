@@ -9,17 +9,20 @@ import {
   DisconnectReason as LkDisconnectReason,
   type LocalAudioTrack,
   type LocalTrackPublication,
+  type LocalVideoTrack,
   type Participant,
   type RemoteAudioTrack,
   type RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
+  type RemoteVideoTrack,
   Room,
   RoomEvent,
   type ScreenShareCaptureOptions,
   Track,
   type TrackProcessor,
   type TrackPublishOptions,
+  VideoQuality,
   type VideoTrack,
 } from "livekit-client";
 import { t } from "@/i18n";
@@ -36,12 +39,14 @@ import {
   type DeviceKind,
   type DisconnectReason,
   Emitter,
+  type FlowState,
   type InputLevel,
   type InputSensitivity,
   type LinkQuality,
   type LocalMedia,
   type NoiseSuppressionLevel,
   type ScreenShareQuality,
+  type StreamStats,
   type VideoKind,
   type VideoSource,
   VoiceConnectError,
@@ -74,8 +79,117 @@ export const WEB_MAX_PARTICIPANT_VOLUME = 1;
 const sourceOfAudio = (s: AudioSource) =>
   s === "screen" ? Track.Source.ScreenShareAudio : Track.Source.Microphone;
 
+/** Nome da camada simulcast a partir da largura recebida frente à largura publicada (`q` < `h` < `f`). */
+export function layerOf(frameWidth: number | undefined, publishedWidth: number | undefined) {
+  if (!frameWidth || !publishedWidth) return null;
+  const r = frameWidth / publishedWidth;
+  return r >= 0.9 ? "f" : r >= 0.45 ? "h" : "q";
+}
+
+type Sample = { at: number; bytes: number; frames: number };
+
+/** bitrate (kbps) e fps entre duas amostras; `null` na primeira (não há com o que comparar). */
+export function rates(prev: Sample | null, cur: Sample) {
+  if (!prev || cur.at <= prev.at) return { kbps: null, fps: null };
+  const dt = (cur.at - prev.at) / 1000;
+  return {
+    kbps: Math.max(0, Math.round(((cur.bytes - prev.bytes) * 8) / 1000 / dt)),
+    fps: Math.max(0, Math.round((cur.frames - prev.frames) / dt)),
+  };
+}
+
+function receiverStats(track: RemoteVideoTrack, pub?: RemoteTrackPublication) {
+  let prev: Sample | null = null;
+  return async (): Promise<StreamStats | null> => {
+    const s = await track.getReceiverStats?.().catch(() => undefined);
+    if (!s) return null;
+    const cur = { at: s.timestamp, bytes: s.bytesReceived ?? 0, frames: s.framesDecoded };
+    const r = rates(prev, cur);
+    prev = cur;
+    return {
+      role: "receive",
+      width: s.frameWidth ?? null,
+      height: s.frameHeight ?? null,
+      fps: r.fps,
+      bitrateKbps: r.kbps,
+      codec: s.mimeType?.replace(/^video\//i, "") ?? null,
+      limitation: null,
+      layer: pub?.simulcasted ? layerOf(s.frameWidth, pub.dimensions?.width) : "single",
+      subscription:
+        track.streamState === Track.StreamState.Paused
+          ? "paused"
+          : pub?.isSubscribed === false
+            ? "unsubscribed"
+            : "subscribed",
+    };
+  };
+}
+
+function senderStats(track: LocalVideoTrack, pub?: LocalTrackPublication) {
+  let prev: Sample | null = null;
+  return async (): Promise<StreamStats | null> => {
+    const list = await track.getSenderStats?.().catch(() => undefined);
+    if (!list || list.length === 0) return null;
+    // A camada ativa mais alta (sem simulcast há uma só).
+    const active = list.filter((l) => (l.framesPerSecond ?? 0) > 0);
+    const top = [...(active.length ? active : list)].sort(
+      (a, b) => (b.frameWidth ?? 0) - (a.frameWidth ?? 0),
+    )[0];
+    if (!top) return null;
+    const cur = { at: top.timestamp, bytes: top.bytesSent ?? 0, frames: top.framesSent };
+    const r = rates(prev, cur);
+    prev = cur;
+    const lim = top.qualityLimitationReason;
+    return {
+      role: "send",
+      width: top.frameWidth ?? null,
+      height: top.frameHeight ?? null,
+      fps: Math.round(top.framesPerSecond ?? 0) || r.fps,
+      bitrateKbps: r.kbps,
+      codec: pub?.mimeType?.replace(/^video\//i, "") ?? null,
+      limitation:
+        lim === "none" || lim === "cpu" || lim === "bandwidth" ? lim : lim ? "other" : null,
+      layer: list.length > 1 ? top.rid || null : "single",
+      subscription: null,
+    };
+  };
+}
+
+/** Eventos do `room` que dizem se o fluxo de uma faixa remota parou (pausa do SFU) ou foi silenciado. */
+function flowWatcher(room: Room | null, sid: string | undefined) {
+  return (cb: (s: FlowState) => void) => {
+    if (!room || !sid) return () => {};
+    const onState = (pub: RemoteTrackPublication, state: Track.StreamState) => {
+      if (pub.trackSid === sid) cb(state === Track.StreamState.Paused ? "paused" : "flowing");
+    };
+    const onMuted = (pub: { trackSid: string }) => {
+      if (pub.trackSid === sid) cb("muted");
+    };
+    const onUnmuted = (pub: { trackSid: string }) => {
+      if (pub.trackSid === sid) cb("flowing");
+    };
+    room.on(RoomEvent.TrackStreamStateChanged, onState);
+    room.on(RoomEvent.TrackMuted, onMuted);
+    room.on(RoomEvent.TrackUnmuted, onUnmuted);
+    return () => {
+      room.off(RoomEvent.TrackStreamStateChanged, onState);
+      room.off(RoomEvent.TrackMuted, onMuted);
+      room.off(RoomEvent.TrackUnmuted, onUnmuted);
+    };
+  };
+}
+
 /** `<video>` + `track.attach`: a implementação web de `VideoSource`. */
-function videoSourceOf(track: VideoTrack, muted: boolean): VideoSource {
+function videoSourceOf(
+  track: VideoTrack,
+  muted: boolean,
+  extra: {
+    remote?: boolean;
+    room?: Room | null;
+    pub?: RemoteTrackPublication | LocalTrackPublication;
+  } = {},
+): VideoSource {
+  const remote = !!extra.remote;
   return {
     attach(host) {
       const video = document.createElement("video");
@@ -93,6 +207,10 @@ function videoSourceOf(track: VideoTrack, muted: boolean): VideoSource {
         video.remove();
       };
     },
+    stats: remote
+      ? receiverStats(track as RemoteVideoTrack, extra.pub as RemoteTrackPublication | undefined)
+      : senderStats(track as LocalVideoTrack, extra.pub as LocalTrackPublication | undefined),
+    onFlow: flowWatcher(extra.room ?? null, extra.pub?.trackSid),
   };
 }
 
@@ -257,11 +375,14 @@ export function screenShareOptions(
 /**
  * Opções de PUBLICAÇÃO da tela para a qualidade pedida: teto de bitrate e de fps, e a prioridade do WebRTC quando
  * a banda aperta (`detail` = mantém a resolução e derruba fps; `motion` = mantém o fps e derruba resolução).
- * Simulcast fica no padrão da lib: o SFU escolhe a camada baixa para quem tem rede ruim (dynacast desliga as
- * camadas que ninguém assiste), e o servidor só repassa pacotes (não recodifica).
+ * Sem simulcast para tela (ver abaixo): quem tem rede ruim depende da estimativa de banda do SFU, que pausa/retoma
+ * a faixa inteira; o `dynacast` ainda para de codificar quando ninguém assiste. O servidor só repassa pacotes.
  */
 export function screenSharePublishOptions(q: ScreenShareQuality): TrackPublishOptions {
   return {
+    // Sem simulcast: a camada baixa da lib (metade da resolução) era entregue a quem assistia em tile pequeno e
+    // ficava borrada ao ampliar até a camada alta subir. Uma única camada, sempre na resolução escolhida.
+    simulcast: false,
     screenShareEncoding: { maxBitrate: estimateUplinkKbps(q) * 1000, maxFramerate: q.fps },
     degradationPreference: q.priority === "detail" ? "maintain-resolution" : "maintain-framerate",
   };
@@ -331,7 +452,8 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
 
   async connect({ url, token }: ConnectParams): Promise<void> {
     await this.disconnect();
-    const room = new Room({ adaptiveStream: true, dynacast: true });
+    // `pixelDensity: "screen"`: o tile é medido em pixels físicos (tela de alta densidade pede camada maior).
+    const room = new Room({ adaptiveStream: { pixelDensity: "screen" }, dynacast: true });
     this.room = room;
     this.closing = false;
     this.wire(room);
@@ -362,7 +484,9 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
 
   private syncSubscription(pub: RemoteTrackPublication, identity: string) {
     const want = this.wantSubscribed(pub.source, identity);
-    if (pub.isSubscribed === want) return;
+    // `isDesired` (o pedido em andamento) e não `isSubscribed`: assistir e parar antes de a faixa chegar precisa
+    // cancelar o pedido, senão a assinatura "fantasma" chega depois e a tela fica assinada sem ninguém olhando.
+    if ((pub.isDesired ?? pub.isSubscribed) === want) return;
     try {
       pub.setSubscribed(want);
     } catch {
@@ -457,12 +581,20 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     }
     const kind = kindOf(pub.source);
     if (!kind) return;
+    // Tela: sempre a melhor camada (o tamanho do tile não decide a qualidade de quem assiste a texto e código).
+    if (kind === "screen") {
+      try {
+        pub.setVideoQuality(VideoQuality.HIGH);
+      } catch {
+        // a publicação pode ter sumido entre o evento e a chamada
+      }
+    }
     this.emit("video-track-added", {
       id: pub.trackSid,
       identity,
       kind,
       local: false,
-      source: videoSourceOf(track as VideoTrack, true),
+      source: videoSourceOf(track as VideoTrack, true, { remote: true, room: this.room, pub }),
     });
   }
 
@@ -485,7 +617,7 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
       identity,
       kind,
       local: true,
-      source: videoSourceOf(track as VideoTrack, true),
+      source: videoSourceOf(track as VideoTrack, true, { room: this.room, pub }),
     });
   }
 

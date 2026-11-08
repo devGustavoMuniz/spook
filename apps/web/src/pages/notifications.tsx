@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { Bell, BellOff, BellRing, MessageSquareDot, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -8,6 +7,7 @@ import { NotificationDefaultsCard } from "@/features/notifications/settings-card
 import type { PushStatus } from "@/features/push/push";
 import { usePushSettings } from "@/features/push/use-push";
 import { SettingRow, SettingsGroup } from "@/features/settings/ui";
+import { SettingsLink } from "@/features/settings/use-settings";
 import { type MessageKey, useT } from "@/i18n";
 
 /** `/settings/notifications`: silenciar avisos in-app e ativar o push neste dispositivo. */
@@ -52,7 +52,7 @@ function NativeCard() {
       description={t("shell.notifications.nativeDesc")}
     >
       <Button asChild variant="outline" size="sm" className="self-start">
-        <Link to="/settings/app">{t("shell.notifications.trayLink")}</Link>
+        <SettingsLink section="app">{t("shell.notifications.trayLink")}</SettingsLink>
       </Button>
     </SettingsGroup>
   );

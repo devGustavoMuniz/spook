@@ -1,5 +1,4 @@
 import { useGetMe } from "@spook/shared";
-import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronUp, Settings, Smile, UserRound } from "lucide-react";
 import { useState } from "react";
 import { Avatar } from "@/components/avatar";
@@ -13,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SettingsLink, useSettingsNav } from "@/features/settings/use-settings";
 import { VoiceCallCard, VoiceDock, VoiceUserControls } from "@/features/voice/voice-bar";
 import { type MessageKey, useT } from "@/i18n";
 import { updatePresence } from "./actions";
@@ -36,15 +36,15 @@ export function UserPanel() {
   const status = usePresence(me?.id);
   const custom = useCustomStatus(me?.id);
   const [editing, setEditing] = useState(false);
-  const navigate = useNavigate();
+  const settings = useSettingsNav();
   if (!me) return null;
   const name = me.display_name || me.username;
   return (
     <VoiceDock>
       <VoiceCallCard />
       <div className="flex items-center p-1.5">
-        <Link
-          to="/settings/profile"
+        <SettingsLink
+          section="profile"
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1 transition-colors hover:bg-accent"
           aria-label={t("settings.presence.myProfile")}
         >
@@ -62,16 +62,17 @@ export function UserPanel() {
               {custom ? `${custom.emoji ?? ""} ${custom.text ?? ""}`.trim() : `@${me.username}`}
             </span>
           </span>
-        </Link>
+        </SettingsLink>
         <VoiceUserControls />
-        <Link
-          to="/settings/profile"
+        <button
+          type="button"
+          onClick={() => void settings.open()}
           aria-label={t("settings.presence.userSettings")}
           title={t("settings.presence.userSettings")}
           className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <Settings className="size-4" aria-hidden />
-        </Link>
+        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -109,10 +110,10 @@ export function UserPanel() {
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void navigate({ to: "/settings/profile" })}>
+            <DropdownMenuItem onSelect={() => void settings.open("profile")}>
               <UserRound /> {t("settings.presence.myProfile")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void navigate({ to: "/settings" })}>
+            <DropdownMenuItem onSelect={() => void settings.open()}>
               <Settings /> {t("settings.presence.settings")}
             </DropdownMenuItem>
             <LanguageMenuItems />

@@ -28,6 +28,7 @@ struct Subscription {
     limiter: FpsLimiter,
     flow: FlowControl,
     max: (u32, u32),
+    quality: u8,
     participant_id: String,
     source: &'static str,
 }
@@ -39,12 +40,15 @@ pub struct ViewParams {
     pub source: &'static str,
     pub max: (u32, u32),
     pub fps: u32,
+    /// Qualidade do JPEG (1 a 100).
+    pub quality: u8,
 }
 
 /// Resultado de `reserve`: o que o produtor precisa para codificar.
 #[derive(Debug, Clone, Copy)]
 pub struct Reservation {
     pub max: (u32, u32),
+    pub quality: u8,
 }
 
 #[derive(Default)]
@@ -69,6 +73,7 @@ impl VideoRouter {
                 limiter: FpsLimiter::new(params.fps),
                 flow: FlowControl::new(limits::MAX_IN_FLIGHT),
                 max: params.max,
+                quality: params.quality,
                 participant_id: params.participant_id,
                 source: params.source,
             },
@@ -105,7 +110,10 @@ impl VideoRouter {
         if !s.flow.try_acquire(now) {
             return None;
         }
-        Some(Reservation { max: s.max })
+        Some(Reservation {
+            max: s.max,
+            quality: s.quality,
+        })
     }
 
     /// A codificação falhou: devolve o crédito reservado.
@@ -173,6 +181,7 @@ mod tests {
             source: "screen",
             max: (1280, 720),
             fps: 30,
+            quality: 70,
         }
     }
 

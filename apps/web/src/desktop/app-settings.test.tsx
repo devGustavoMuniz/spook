@@ -14,7 +14,12 @@ vi.mock("@/features/notifications/badges", async (orig) => ({
   useTotalMentions: () => mentions.value,
 }));
 
-const DEFAULTS: AppSettings = { closeToTray: true, startWithSystem: false, startMinimized: false };
+const DEFAULTS: AppSettings = {
+  closeToTray: true,
+  keepCallOnClose: false,
+  startWithSystem: false,
+  startMinimized: false,
+};
 
 function fakeShell(initial: AppSettings = DEFAULTS) {
   const state = { settings: { ...initial }, calls: [] as { cmd: string; args?: unknown }[] };
@@ -85,9 +90,30 @@ describe("/settings/app", () => {
 
       const saved = state.calls.filter((c) => c.cmd === "app_set_settings").map((c) => c.args);
       expect(saved).toEqual([
-        { settings: { closeToTray: true, startWithSystem: true, startMinimized: false } },
-        { settings: { closeToTray: false, startWithSystem: true, startMinimized: false } },
-        { settings: { closeToTray: false, startWithSystem: true, startMinimized: true } },
+        {
+          settings: {
+            closeToTray: true,
+            keepCallOnClose: false,
+            startWithSystem: true,
+            startMinimized: false,
+          },
+        },
+        {
+          settings: {
+            closeToTray: false,
+            keepCallOnClose: false,
+            startWithSystem: true,
+            startMinimized: false,
+          },
+        },
+        {
+          settings: {
+            closeToTray: false,
+            keepCallOnClose: false,
+            startWithSystem: true,
+            startMinimized: true,
+          },
+        },
       ]);
     });
 

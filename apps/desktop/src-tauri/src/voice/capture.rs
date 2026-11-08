@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -11,8 +11,54 @@ use libwebrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use libwebrtc::video_source::native::NativeVideoSource;
 
 use super::frames::{encode_jpeg, fit_i420};
-use super::limits::{self, FpsLimiter, JPEG_QUALITY};
+use super::limits::{self, FpsLimiter};
 use super::router::VideoRouter;
+
+/// Último quadro enviado ao LiveKit e quando (para repeti-lo se a tela ficar parada).
+type LastFrame = Arc<Mutex<Option<(VideoFrame<I420Buffer>, Instant)>>>;
+
+/// Reenvia o último quadro de uma tela parada (ver `limits::IDLE_REPEAT_AFTER`). Uma thread leve que acorda a cada
+/// 200 ms; para sozinha quando o `VideoOut` é solto.
+struct IdleRepeater {
+    last: LastFrame,
+    stop: Arc<AtomicBool>,
+}
+
+impl IdleRepeater {
+    fn start(source: NativeVideoSource) -> Self {
+        let last: LastFrame = Arc::new(Mutex::new(None));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (l, s) = (last.clone(), stop.clone());
+        let spawned = std::thread::Builder::new()
+            .name("spook-screen-idle".into())
+            .spawn(move || {
+                while !s.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(200));
+                    let mut guard = l.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some((frame, at)) = guard.as_mut() {
+                        if limits::idle_repeat_due(at.elapsed()) {
+                            source.capture_frame(&*frame);
+                            *at = Instant::now();
+                        }
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            log::warn!("não foi possível iniciar o reenvio de quadros da tela parada: {e}");
+        }
+        Self { last, stop }
+    }
+
+    fn remember(&self, frame: VideoFrame<I420Buffer>) {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some((frame, Instant::now()));
+    }
+}
+
+impl Drop for IdleRepeater {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
 
 /// Entrega os quadros capturados: limita fps e resolução, publica no LiveKit e alimenta a prévia local.
 pub struct VideoOut {
@@ -21,6 +67,7 @@ pub struct VideoOut {
     track_id: String,
     limiter: FpsLimiter,
     max: (u32, u32),
+    idle: Option<IdleRepeater>,
 }
 
 impl VideoOut {
@@ -49,7 +96,14 @@ impl VideoOut {
             track_id,
             limiter: FpsLimiter::with_max(fps, fps_cap),
             max,
+            idle: None,
         }
+    }
+
+    /// Tela: se a captura ficar parada (nenhum quadro novo), reenvia o último para os espectadores não verem preto.
+    pub fn repeat_when_idle(mut self) -> Self {
+        self.idle = Some(IdleRepeater::start(self.source.clone()));
+        self
     }
 
     /// Recebe um quadro I420 (qualquer tamanho). Devolve `false` se foi descartado pelo limite de fps.
@@ -61,7 +115,7 @@ impl VideoOut {
         let i420 = fit_i420(i420, self.max);
         // Prévia local: só codifica se o webview estiver desenhando e tiver crédito.
         if let Some(res) = self.router.reserve(&self.track_id, now) {
-            match encode_jpeg(&i420, res.max, JPEG_QUALITY) {
+            match encode_jpeg(&i420, res.max, res.quality) {
                 Ok((jpeg, w, h)) => self.router.deliver(&self.track_id, &jpeg, w, h),
                 Err(e) => {
                     log::debug!("prévia local descartada: {e}");
@@ -69,8 +123,11 @@ impl VideoOut {
                 }
             }
         }
-        self.source
-            .capture_frame(&VideoFrame::new(VideoRotation::VideoRotation0, i420));
+        let frame = VideoFrame::new(VideoRotation::VideoRotation0, i420);
+        self.source.capture_frame(&frame);
+        if let Some(idle) = &self.idle {
+            idle.remember(frame);
+        }
         true
     }
 }

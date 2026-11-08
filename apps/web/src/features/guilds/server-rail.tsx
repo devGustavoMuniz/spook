@@ -24,6 +24,7 @@ import {
 } from "@/features/notifications/badges";
 import { NotificationMenuItems } from "@/features/notifications/notification-menu";
 import { useIsMuted } from "@/features/notifications/settings";
+import { SettingsLink } from "@/features/settings/use-settings";
 import { useIncomingCount } from "@/features/social/store";
 import { formatBadge, useT } from "@/i18n";
 import { type Guild, initials } from "@/lib/guild";
@@ -252,9 +253,13 @@ export function ServerRail({ guilds }: { guilds: Guild[] }) {
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Link to="/settings/profile" aria-label={t("guilds.rail.profileAria")} className={tool}>
+            <SettingsLink
+              section="profile"
+              aria-label={t("guilds.rail.profileAria")}
+              className={tool}
+            >
               <Settings className="size-5" />
-            </Link>
+            </SettingsLink>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={14}>
             {t("guilds.rail.profile")}

@@ -8,16 +8,17 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use scap::capturer::{Capturer, Options, Resolution};
 use scap::frame::{Frame, FrameType};
 use scap::Target;
 use serde::Serialize;
 
+use super::blackdetect::BlackDetector;
 use super::capture::{CaptureThread, VideoOut};
 use super::error::{MediaCode, MediaDevice, VoiceError};
-use super::frames::{to_i420, PixelOrder};
+use super::frames::{stride_of, to_i420, PixelOrder};
 use super::thumbnail::{self, Order, ScreenThumbnail, Thumb, ThumbFailure};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -108,11 +109,15 @@ pub struct ScreenCapture {
     _thread: CaptureThread,
 }
 
+/// Chamado com `true` quando a captura fica preta por alguns segundos e com `false` quando volta ao normal.
+pub type BlackCallback = Arc<dyn Fn(bool) + Send + Sync>;
+
 /// Inicia a captura. Só devolve depois que a captura abriu (ou falhou/foi cancelada).
 pub async fn start(
     source_id_str: &str,
     fps: u32,
     mut out: VideoOut,
+    on_black: BlackCallback,
 ) -> Result<ScreenCapture, VoiceError> {
     // macOS: pede a permissão de gravação de tela (diálogo do TCC) antes de qualquer coisa.
     if !scap::is_supported() {
@@ -184,6 +189,7 @@ pub async fn start(
                 return;
             }
             let _ = ready.send(Ok(()));
+            let mut black = BlackDetector::new();
             while !stop.load(Ordering::SeqCst) {
                 let frame = match catch_unwind(AssertUnwindSafe(|| capturer.get_next_frame())) {
                     Ok(Ok(f)) => f,
@@ -193,6 +199,13 @@ pub async fn start(
                     break;
                 }
                 if let Some((data, w, h, order)) = pixels(frame) {
+                    let stride = stride_of(data.len(), w as usize, h as usize).unwrap_or(0);
+                    if let Some(is_black) =
+                        black.observe(Instant::now(), &data, w as usize, h as usize, stride)
+                    {
+                        log::warn!("captura de tela preta: {is_black}");
+                        on_black(is_black);
+                    }
                     // Descartar antes de converter é mais barato, mas o `push` já limita o fps.
                     match to_i420(&data, w, h, order) {
                         Ok(i420) => {

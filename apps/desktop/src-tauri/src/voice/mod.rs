@@ -7,6 +7,7 @@
 
 pub mod apm;
 pub mod audio;
+pub mod blackdetect;
 pub mod camera;
 pub mod capture;
 pub mod commands;

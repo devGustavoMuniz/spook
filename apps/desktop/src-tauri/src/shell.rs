@@ -20,7 +20,7 @@ use tauri_plugin_notification::NotificationExt as _;
 
 use crate::badge;
 use crate::deeplink;
-use crate::settings::{self, AppSettings, SettingsStore};
+use crate::settings::{self, AppSettings, CloseAction, SettingsStore};
 use crate::voice::VoiceState;
 
 /// Id do ícone da bandeja.
@@ -30,6 +30,9 @@ const MAIN: &str = "main";
 /// Evento enviado ao webview quando a janela é trazida à frente pelo app (bandeja, segunda instância, Dock).
 /// O adaptador de notificações o usa para abrir o canal da última notificação (ver `notifier.ts`).
 pub const ACTIVATED_EVENT: &str = "app://activated";
+/// Evento enviado ao webview depois que o Rust tirou o usuário da chamada ao fechar a janela: a interface limpa o
+/// estado e avisa o servidor (`/api/voice/leave`) sem esperar o webhook do LiveKit.
+pub const CALL_LEFT_EVENT: &str = "app://call-left";
 /// Quanto esperamos a voz desconectar ao sair, antes de encerrar de qualquer jeito.
 const QUIT_VOICE_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -40,6 +43,8 @@ pub struct TrayText {
     pub open: &'static str,
     pub quit: &'static str,
     pub notice: &'static str,
+    /// Tooltip da bandeja enquanto a chamada continua com a janela escondida.
+    pub in_call: &'static str,
 }
 
 /// Textos do idioma pedido (`"en"`, `"en-US"`...); qualquer outro vira português do Brasil.
@@ -49,12 +54,14 @@ pub fn tray_text(locale: &str) -> TrayText {
             open: "Open Spook",
             quit: "Quit",
             notice: "Spook keeps running in the tray. Use the icon to open or quit.",
+            in_call: "Spook - In a call",
         }
     } else {
         TrayText {
             open: "Abrir Spook",
             quit: "Sair",
             notice: "O Spook continua rodando na bandeja. Use o ícone para abrir ou sair.",
+            in_call: "Spook - Em chamada",
         }
     }
 }
@@ -62,6 +69,8 @@ pub fn tray_text(locale: &str) -> TrayText {
 pub struct ShellState {
     pub settings: SettingsStore,
     quitting: AtomicBool,
+    /// O tooltip da bandeja está dizendo "Em chamada" (a chamada continua com a janela escondida).
+    in_call_tooltip: AtomicBool,
     /// Idioma da interface, repassado pelo webview.
     locale: Mutex<String>,
     /// Itens do menu da bandeja (abrir, sair), para trocar o texto ao mudar o idioma.
@@ -78,6 +87,7 @@ pub fn setup(app: &mut tauri::App) -> SetupResult {
     app.manage(ShellState {
         settings: store,
         quitting: AtomicBool::new(false),
+        in_call_tooltip: AtomicBool::new(false),
         locale: Mutex::new("pt-BR".to_string()),
         tray_items: Mutex::new(None),
     });
@@ -193,6 +203,15 @@ pub fn show_main<R: Runtime>(app: &AppHandle<R>) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+    // A janela voltou: o tooltip "Em chamada" (se havia) já não faz sentido; o contador de não lidas o reaplica.
+    let was_in_call = app
+        .try_state::<ShellState>()
+        .is_some_and(|s| s.in_call_tooltip.swap(false, Ordering::SeqCst));
+    if was_in_call {
+        if let Some(tray) = app.tray_by_id(TRAY_ID) {
+            let _ = tray.set_tooltip(Some("Spook"));
+        }
+    }
     let _ = app.emit(ACTIVATED_EVENT, ());
 }
 
@@ -228,6 +247,24 @@ pub fn request_quit<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
+/// Fechar a janela estando em chamada: desconecta a sala de forma graciosa (o LiveKit avisa o servidor na hora, sem
+/// esperar o tempo limite de "fantasma") e depois manda o webview limpar a interface. Com tempo limite curto: se a
+/// desconexão travar, o app não fica preso e a janela já está escondida.
+fn leave_call_on_close<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Some(voice) = app.try_state::<VoiceState>() {
+            if tokio::time::timeout(QUIT_VOICE_TIMEOUT, voice.0.disconnect())
+                .await
+                .is_err()
+            {
+                log::warn!("sair da chamada ao fechar a janela passou de {QUIT_VOICE_TIMEOUT:?}");
+            }
+        }
+        let _ = app.emit(CALL_LEFT_EVENT, ());
+    });
+}
+
 /// Eventos da janela: fechar a principal vai para a bandeja quando a opção está ligada.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     if window.label() != MAIN {
@@ -240,11 +277,31 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let Some(state) = app.try_state::<ShellState>() else {
         return;
     };
-    if state.quitting.load(Ordering::SeqCst) || !state.settings.get().close_to_tray {
+    let in_call = app
+        .try_state::<VoiceState>()
+        .is_some_and(|v| v.0.in_call_hint());
+    let action = settings::close_action(
+        &state.settings.get(),
+        state.quitting.load(Ordering::SeqCst),
+        in_call,
+    );
+    if action == CloseAction::Quit {
         return; // fecha de verdade (e `on_run_event` encerra o app desconectando a voz)
     }
     api.prevent_close();
     let _ = window.hide();
+    match action {
+        CloseAction::HideAndLeaveCall => leave_call_on_close(app),
+        CloseAction::Hide if in_call => {
+            // "Manter a chamada ao fechar": a chamada segue com a janela escondida; a bandeja avisa.
+            let locale = state.locale.lock().map(|l| l.clone()).unwrap_or_default();
+            if let Some(tray) = app.tray_by_id(TRAY_ID) {
+                let _ = tray.set_tooltip(Some(tray_text(&locale).in_call));
+                state.in_call_tooltip.store(true, Ordering::SeqCst);
+            }
+        }
+        _ => {}
+    }
     if state.settings.take_tray_notice() {
         // Aviso único, só na primeira vez. Se o sistema não deixar notificar, tudo bem: o ícone está na bandeja.
         let locale = state.locale.lock().map(|l| l.clone()).unwrap_or_default();
@@ -366,6 +423,8 @@ mod tests {
         assert_eq!(tray_text("en-US").open, "Open Spook");
         assert_eq!(tray_text("pt-BR").quit, "Sair");
         assert_eq!(tray_text("fr").open, "Abrir Spook");
+        assert_eq!(tray_text("pt-BR").in_call, "Spook - Em chamada");
+        assert_eq!(tray_text("en").in_call, "Spook - In a call");
     }
 
     #[test]

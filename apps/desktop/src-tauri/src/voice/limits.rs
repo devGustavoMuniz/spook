@@ -16,6 +16,14 @@ pub const MAX_FPS: u32 = 30;
 /// Teto de fps da tela compartilhada (o preset "Fluidez" do web chega a 60).
 pub const MAX_SHARE_FPS: u32 = 60;
 pub const JPEG_QUALITY: u8 = 70;
+/// Tela de OUTRA pessoa mostrada no webview: até 1080p por padrão (o que ela escolheu transmitir; texto e código
+/// pedem a resolução inteira) e até 1440p se o webview pedir. Antes valia o `VIEW_MAX` de 720p/15 fps/JPEG 70 de
+/// qualquer vídeo, e quem assistia a uma transmissão em 1080p via 720p borrado: a causa nº 1 de "não parece 1080p".
+pub const VIEW_SCREEN_DEFAULT: (u32, u32) = (1920, 1080);
+pub const VIEW_SCREEN_MAX: (u32, u32) = (2560, 1440);
+pub const VIEW_SCREEN_FPS: u32 = 30;
+/// JPEG da tela: qualidade maior que a da câmera (bordas de texto sofrem mais com a compressão).
+pub const JPEG_QUALITY_SCREEN: u8 = 88;
 /// Quadros enviados ao webview sem confirmação (`voice_video_ack`) antes de começar a descartar.
 pub const MAX_IN_FLIGHT: u32 = 2;
 /// Sem confirmação por este tempo, considera-se que o consumidor perdeu o quadro e libera o crédito.
@@ -23,6 +31,68 @@ pub const ACK_TIMEOUT: Duration = Duration::from_millis(1500);
 
 pub fn clamp_fps(fps: u32) -> u32 {
     fps.clamp(MIN_FPS, MAX_FPS)
+}
+
+/// Tela PARADA: o `scap` só entrega quadros quando o conteúdo muda (Windows Graphics Capture e ScreenCaptureKit não
+/// repetem). Sem quadros novos o codificador não gera nada, e quem entra na chamada depois (ou pede um keyframe após
+/// perder pacotes) fica olhando preto até a tela mudar. Passado este tempo sem quadro novo, o último é reenviado.
+pub const IDLE_REPEAT_AFTER: Duration = Duration::from_millis(500);
+
+/// Já passou tempo suficiente sem quadro novo para reenviar o último?
+pub fn idle_repeat_due(since_last_frame: Duration) -> bool {
+    since_last_frame >= IDLE_REPEAT_AFTER
+}
+
+/// Como o vídeo de uma faixa chega ao webview: caixa máxima, fps e qualidade do JPEG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewPlan {
+    pub max: (u32, u32),
+    pub fps: u32,
+    pub quality: u8,
+}
+
+/// Plano de exibição de uma faixa. `local` = a minha própria prévia (pequena e lenta, só confere o que sai);
+/// `screen` = tela compartilhada (resolução, fps e qualidade altos); senão, câmera (720p/15 fps). O que o webview
+/// pede (`req_*`) vale dentro dos tetos de cada caso.
+pub fn view_plan(
+    local: bool,
+    screen: bool,
+    req_w: Option<u32>,
+    req_h: Option<u32>,
+    req_fps: Option<u32>,
+) -> ViewPlan {
+    if local {
+        return ViewPlan {
+            max: (
+                req_w.unwrap_or(640).clamp(160, VIEW_MAX.0),
+                req_h.unwrap_or(360).clamp(90, VIEW_MAX.1),
+            ),
+            fps: clamp_fps(req_fps.unwrap_or(10)),
+            quality: JPEG_QUALITY,
+        };
+    }
+    if screen {
+        return ViewPlan {
+            max: (
+                req_w
+                    .unwrap_or(VIEW_SCREEN_DEFAULT.0)
+                    .clamp(160, VIEW_SCREEN_MAX.0),
+                req_h
+                    .unwrap_or(VIEW_SCREEN_DEFAULT.1)
+                    .clamp(90, VIEW_SCREEN_MAX.1),
+            ),
+            fps: clamp_fps(req_fps.unwrap_or(VIEW_SCREEN_FPS)),
+            quality: JPEG_QUALITY_SCREEN,
+        };
+    }
+    ViewPlan {
+        max: (
+            req_w.unwrap_or(VIEW_MAX.0).clamp(160, VIEW_MAX.0),
+            req_h.unwrap_or(VIEW_MAX.1).clamp(90, VIEW_MAX.1),
+        ),
+        fps: clamp_fps(req_fps.unwrap_or(VIEW_FPS)),
+        quality: JPEG_QUALITY,
+    }
 }
 
 /// Cabe `(w, h)` em `(max_w, max_h)` mantendo a proporção, sem ampliar e com dimensões pares (I420 e
@@ -180,6 +250,50 @@ mod tests {
             }
         }
         assert!((9..=11).contains(&passed), "passaram {passed}");
+    }
+
+    #[test]
+    fn remote_screens_are_shown_in_full_hd_at_30_fps_with_better_jpeg() {
+        let p = view_plan(false, true, None, None, None);
+        assert_eq!(p.max, (1920, 1080));
+        assert_eq!(p.fps, 30);
+        assert!(p.quality > JPEG_QUALITY);
+        // o webview pode pedir menos ou até 1440p, nunca mais
+        assert_eq!(
+            view_plan(false, true, Some(640), Some(360), Some(10)).max,
+            (640, 360)
+        );
+        assert_eq!(
+            view_plan(false, true, Some(9999), Some(9999), Some(120)).max,
+            VIEW_SCREEN_MAX
+        );
+        assert_eq!(
+            view_plan(false, true, Some(9999), Some(9999), Some(120)).fps,
+            MAX_FPS
+        );
+    }
+
+    #[test]
+    fn cameras_and_previews_keep_their_old_limits() {
+        let cam = view_plan(false, false, None, None, None);
+        assert_eq!(
+            (cam.max, cam.fps, cam.quality),
+            (VIEW_MAX, VIEW_FPS, JPEG_QUALITY)
+        );
+        assert_eq!(
+            view_plan(false, false, Some(4000), Some(4000), None).max,
+            VIEW_MAX
+        );
+        let me = view_plan(true, true, None, None, None);
+        assert_eq!((me.max, me.fps, me.quality), ((640, 360), 10, JPEG_QUALITY));
+    }
+
+    #[test]
+    fn a_still_screen_repeats_its_last_frame_after_half_a_second() {
+        assert!(!idle_repeat_due(Duration::from_millis(100)));
+        assert!(!idle_repeat_due(Duration::from_millis(499)));
+        assert!(idle_repeat_due(Duration::from_millis(500)));
+        assert!(idle_repeat_due(Duration::from_secs(5)));
     }
 
     #[test]

@@ -41,7 +41,8 @@ describe("login", () => {
     await user.type(screen.getByLabelText("Senha"), "senha-correta-1");
     await user.click(screen.getByRole("button", { name: "Entrar" }));
     expect(await screen.findByLabelText("Nome de exibição")).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/settings/profile");
+    // o modal de configurações é a máscara `/settings/profile` sobre o app (início)
+    expect(router.history.location.pathname).toBe("/settings/profile");
   });
 
   it("mostra erro em pt-br com credenciais erradas", async () => {

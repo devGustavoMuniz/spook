@@ -28,13 +28,14 @@ export default defineConfig({
     ? [
         {
           name: "voice",
-          testMatch: /voice(-join-perf)?\.spec\.ts/,
+          testMatch: /voice(-join-perf|-dialog-scroll|-stream-stats)?\.spec\.ts/,
           use: {
             ...devices["Desktop Chrome"],
             // Chromium completo (novo headless): o headless shell padrão ignora a flag de origem insegura abaixo.
             channel: "chromium",
             permissions: ["microphone", "camera"],
             launchOptions: {
+              executablePath: process.env.CHROMIUM_PATH || undefined,
               args: [
                 // Câmera e microfone falsos do Chromium (padrão de teste e bipe), sem diálogo de permissão.
                 "--use-fake-device-for-media-stream",
@@ -50,8 +51,11 @@ export default defineConfig({
     : [
         {
           name: "chromium",
-          testIgnore: /voice(-join-perf)?\.spec\.ts/,
-          use: { ...devices["Desktop Chrome"] },
+          testIgnore: /voice(-join-perf|-dialog-scroll|-stream-stats)?\.spec\.ts/,
+          use: {
+            ...devices["Desktop Chrome"],
+            launchOptions: { executablePath: process.env.CHROMIUM_PATH || undefined },
+          },
         },
       ],
 });

@@ -94,6 +94,8 @@ const FIXED_NUMBERS: Record<string, number> = {
   "en-canal-texto": 131,
   "en-amigos": 132,
   "en-config-aparencia": 133,
+  "config-modal-rolado": 134,
+  "dialogo-dispositivos-voz-rolado": 135,
 };
 // A numeração das telas que já existem em antes/ é herdada de lá: se um passo falhar, os números das demais não deslocam.
 try {
@@ -1251,19 +1253,38 @@ test("captura de telas", async ({ browser }) => {
           .first()
           .click();
         await shot(page, "dialogo-dispositivos-voz", theme, vk);
+        // corpo longo: rola até o fim (supressão de ruído e interruptores) e confirma que o último controle aparece
+        await page
+          .locator('[role="dialog"] [data-radix-scroll-area-viewport]')
+          .first()
+          .evaluate((el) => {
+            el.scrollTop = el.scrollHeight;
+          });
+        await page.waitForTimeout(300);
+        await shot(page, "dialogo-dispositivos-voz-rolado", theme, vk);
         await page.keyboard.press("Escape");
       });
-      // Configurações (etapa g): seções novas e, no celular, a lista de seções.
+      // Configurações em MODAL sobre o app (o canal fica atrás): seções por deep link e, no celular, a lista.
       for (const [route, key] of [
         ["/settings/voice", "config-voz-e-video"],
         ["/settings/appearance", "config-aparencia"],
       ] as const) {
         await step(key, vk, theme, async () => {
           await open(page, route);
-          await page.waitForTimeout(400);
+          await expect(page.getByRole("dialog", { name: "Configurações" })).toBeVisible();
+          await page.waitForTimeout(500);
           await shot(page, key, theme, vk);
         });
       }
+      await step("config-modal-rolado", vk, theme, async () => {
+        await open(page, "/settings/profile");
+        await expect(page.getByRole("dialog", { name: "Configurações" })).toBeVisible();
+        await page.getByRole("main").evaluate((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+        await page.waitForTimeout(400);
+        await shot(page, "config-modal-rolado", theme, vk);
+      });
       if (vk === "390") {
         await step("config-lista", vk, theme, async () => {
           await open(page, "/settings");

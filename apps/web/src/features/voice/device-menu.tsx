@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { openSettingsIn } from "@/features/settings/use-settings";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { chooseDevice, listDevices } from "./controller";
@@ -132,7 +133,7 @@ export function DeviceMenu({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() => {
-              if (router) void router.navigate({ to: "/settings/voice" });
+              if (router) void openSettingsIn(router, "voice");
               else window.location.assign("/settings/voice");
             }}
           >

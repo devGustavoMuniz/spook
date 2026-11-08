@@ -410,7 +410,7 @@ describe("configurações: e-mail e contas vinculadas", () => {
       },
     });
     await user.click(await screen.findByRole("button", { name: "Vincular Discord" }));
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", { name: "Confirme sua senha" });
     await user.type(within(dialog).getByLabelText("Senha"), CORRECT);
     await user.click(within(dialog).getByRole("button", { name: "Confirmar" }));
     await waitFor(() =>

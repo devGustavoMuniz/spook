@@ -39,6 +39,7 @@ import {
 } from "@/features/account/confirm-password";
 import { SessionsCard } from "@/features/settings/sessions";
 import { SettingsGroup } from "@/features/settings/ui";
+import { useSettingsNav } from "@/features/settings/use-settings";
 import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { navigateTo } from "@/lib/navigate";
@@ -379,7 +380,7 @@ function SetPasswordCard() {
 function LoginMethodsCard({ me }: { me: View }) {
   const { t } = useT();
   const qc = useQueryClient();
-  const navigate = useNavigate();
+  const settings = useSettingsNav();
   const search = useSearch({ strict: false }) as {
     linked?: string;
     reauth?: string;
@@ -414,7 +415,7 @@ function LoginMethodsCard({ me }: { me: View }) {
       else if (action === "unlink" && provider) void doUnlink(provider);
       else toast.success(t("settings.security.identityConfirmed"));
     }
-    void navigate({ to: "/settings/profile", search: {}, replace: true });
+    void settings.show("profile", ["linked", "reauth", "social_error", "then"]);
   }, [search.linked, search.reauth, search.social_error]);
 
   function reauth(provider: string, then: string) {

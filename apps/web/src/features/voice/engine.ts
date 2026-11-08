@@ -32,7 +32,36 @@ export type VideoKind = "camera" | "screen";
  */
 export interface VideoSource {
   attach(host: HTMLElement): () => void;
+  /**
+   * Estatísticas AO VIVO da faixa (painel "Estatísticas da transmissão"). Quem recebe lê o que chegou; quem
+   * transmite lê o que o codificador entrega. Cada chamada devolve os valores atuais (bitrate e fps saem da
+   * diferença entre duas chamadas). Opcional: sem ele o painel só mostra o que o tile consegue medir.
+   */
+  stats?(): Promise<StreamStats | null>;
+  /**
+   * O fluxo da faixa parou/voltou por fora do app (o SFU pausou por falta de banda, `dynacast` sem ninguém assistindo,
+   * a pessoa silenciou a tela). Devolve a função que para de ouvir. Opcional.
+   */
+  onFlow?(cb: (state: FlowState) => void): () => void;
 }
+
+export type FlowState = "flowing" | "paused" | "muted";
+
+/** Estatísticas de uma faixa de vídeo (ver `VideoSource.stats`). Campo ausente = a engine não sabe. */
+export type StreamStats = {
+  role: "receive" | "send";
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  bitrateKbps: number | null;
+  codec: string | null;
+  /** Quem transmite: por que o codificador baixou a qualidade (`none` = nada o limita). */
+  limitation: "none" | "cpu" | "bandwidth" | "other" | null;
+  /** Camada simulcast em uso (`q`/`h`/`f`) ou `single` quando a faixa não tem camadas. */
+  layer: string | null;
+  /** Quem recebe: estado da assinatura/fluxo. */
+  subscription: "subscribed" | "paused" | "unsubscribed" | null;
+};
 
 export type VideoTrackInfo = {
   /** Identificador estável da faixa (muda a cada nova publicação). */
@@ -226,6 +255,8 @@ export type VoiceEngineEvents = {
   "input-level": InputLevel;
   /** Andamento do teste de microfone. */
   "mic-test": MicTestState;
+  /** Captura da MINHA tela preta há alguns segundos (`black`) ou normalizada. Só o desktop emite. */
+  "screen-black": { black: boolean };
   /** A sala foi encerrada. Depois disso `connect()` pode ser chamado de novo. */
   disconnected: { reason: DisconnectReason };
 };
@@ -313,6 +344,8 @@ export interface VoiceEngine {
    * `VoiceMediaError` (inclusive `cancelled`, que deixa a fonte anterior intacta).
    */
   replaceScreenShareSource?(opts?: { audio?: boolean }): Promise<void>;
+  /** Abre o ajuste do sistema onde se libera a gravação de tela (macOS). Opcional: só o desktop. */
+  openScreenCaptureSettings?(): void;
   /** Mede RTT, perda e jitter agora. Devolve `null` se não houver sala ou medida. */
   getConnectionStats?(): Promise<ConnectionStats | null>;
 

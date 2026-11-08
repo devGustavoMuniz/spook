@@ -1,5 +1,6 @@
 import type { VoiceStatePayload } from "@spook/shared";
 import {
+  Activity,
   Expand,
   EyeOff,
   HeadphoneOff,
@@ -41,6 +42,8 @@ import { useVoiceStatesStore } from "../store";
 import type { PersonLookup } from "../use-person-lookup";
 import { ViewersBadge } from "../viewers";
 import { useTileColor } from "./dominant-color";
+import { useFirstFrame, useFlowState } from "./stream-health";
+import { loadStatsOpen, StreamStatsPanel, saveStatsOpen, useStreamStats } from "./stream-stats";
 import { useStageHold } from "./use-auto-hide";
 
 export type TileModel = {
@@ -158,18 +161,39 @@ export function ParticipantTile({
     tile.kind === "screen" ? s.byUser[tile.userId] : undefined,
   );
   const color = useTileColor(tile.avatarUrl, tile.userId);
-  const host = useRef<HTMLDivElement>(null);
+  const [hostEl, setHostEl] = useState<HTMLDivElement | null>(null);
   const track = tile.video;
+  // `attempt` remonta o vídeo (nova tentativa quando o primeiro quadro não chega e a engine não escolhe a assinatura).
+  const [attempt, setAttempt] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` só serve para remontar o vídeo
   useEffect(() => {
-    const el = host.current;
-    if (!el || !track) return;
-    return track.source.attach(el);
-  }, [track]);
+    if (!hostEl || !track) return;
+    return track.source.attach(hostEl);
+  }, [track, hostEl, attempt]);
+  const frame = useFirstFrame(hostEl, track);
+  const flow = useFlowState(track);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
+  const [statsOpen, setStatsOpen] = useState(loadStatsOpen);
+  const stats = useStreamStats(track, statsOpen && !!track);
+  /** "Tentar de novo": reassina a tela (engine que escolhe) ou remonta o vídeo (desktop). */
+  const retry = () => {
+    if (tile.canStopWatching && onWatch) {
+      onWatch(tile.userId, false);
+      clearTimeout(retryTimer.current);
+      retryTimer.current = setTimeout(() => onWatch(tile.userId, true), 400);
+      return;
+    }
+    setAttempt((n) => n + 1);
+    frame.restart();
+  };
 
+  const isScreenTrack = !!track && track.kind === "screen" && !track.local;
+  const waitingFrame = isScreenTrack && frame.state !== "ready";
   const previewState = useStreamPreview(
     channelId ?? "",
     tile.userId,
-    !!tile.unwatched && !!channelId && loadViewStreamPreviews(),
+    (!!tile.unwatched || waitingFrame) && !!channelId && loadViewStreamPreviews(),
   );
   const [menuOpen, setMenuOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
@@ -211,6 +235,8 @@ export function ParticipantTile({
       data-kind={track ? track.kind : tile.unwatched ? "screen" : "person"}
       data-speaking={speaking || undefined}
       data-focused={focused || undefined}
+      data-frame-state={track ? frame.state : undefined}
+      data-first-frame-ms={frame.firstFrameMs ?? undefined}
       data-tile-key={tile.key}
       aria-label={caption}
       style={{
@@ -251,7 +277,7 @@ export function ParticipantTile({
         </div>
       ) : track ? (
         <div
-          ref={host}
+          ref={setHostEl}
           className={cn(
             "pointer-events-none absolute inset-0 z-0 [&_video]:size-full",
             isScreen || focused ? "[&_video]:object-contain" : "[&_video]:object-cover",
@@ -284,6 +310,50 @@ export function ParticipantTile({
           )}
         </div>
       )}
+      {waitingFrame ? (
+        <div
+          data-testid="stream-loading"
+          className={cn(
+            "absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black",
+            // Parado: o botão "Tentar de novo" precisa ficar acima do botão de foco do tile (z-[3]).
+            frame.state === "stalled" ? "z-[4]" : "z-[1]",
+          )}
+        >
+          {previewState.status === "ready" ? (
+            <img
+              src={previewState.url}
+              alt=""
+              className="absolute inset-0 size-full object-contain opacity-40"
+              draggable={false}
+            />
+          ) : null}
+          {frame.state === "waiting" ? (
+            <output className="relative flex items-center gap-2 text-sm text-white/85">
+              <Spinner className="text-white/80" /> {t("voice.stream.loading")}
+            </output>
+          ) : (
+            <div className="relative z-[3] flex flex-col items-center gap-2">
+              <output className="text-sm text-white/85">{t("voice.stream.stalled")}</output>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="cursor-pointer rounded-full"
+                onClick={retry}
+              >
+                <RefreshCw /> {t("voice.stream.retry")}
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : isScreenTrack && flow !== "flowing" ? (
+        <output className="pointer-events-none absolute inset-x-2 top-2 z-[3] mx-auto w-fit max-w-full rounded-full bg-black/70 px-3 py-1 text-xs text-white backdrop-blur-sm">
+          {flow === "muted" ? t("voice.stream.muted") : t("voice.stream.paused")}
+        </output>
+      ) : null}
+      {statsOpen && track ? (
+        <StreamStatsPanel stats={stats} firstFrameMs={frame.firstFrameMs} />
+      ) : null}
       {/* escurecimento para o texto do rodapé do tile */}
       <div
         aria-hidden
@@ -433,6 +503,17 @@ export function ParticipantTile({
                 <DropdownMenuItem onSelect={() => onFullscreen?.(tile.key)}>
                   <Expand /> {t("voice.tile.fullscreen")}
                 </DropdownMenuItem>
+              ) : null}
+              {track ? (
+                <DropdownMenuCheckboxItem
+                  checked={statsOpen}
+                  onCheckedChange={(open) => {
+                    setStatsOpen(open);
+                    saveStatsOpen(open);
+                  }}
+                >
+                  <Activity /> {t("voice.tile.stats")}
+                </DropdownMenuCheckboxItem>
               ) : null}
               {canModerateTile && modState ? (
                 <VoiceModerationItems state={modState} name={tile.name} />

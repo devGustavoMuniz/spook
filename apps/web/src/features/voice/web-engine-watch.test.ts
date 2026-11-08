@@ -105,7 +105,7 @@ vi.mock("livekit-client", () => ({
 }));
 vi.mock("./noise-processor", () => ({ createMicProcessor: vi.fn(), unsupported: vi.fn() }));
 
-import { createWebVoiceEngine } from "./web-engine";
+import { createWebVoiceEngine, layerOf, rates } from "./web-engine";
 
 const URL = { url: "wss://x", token: "t" };
 type FakePub = ReturnType<typeof lk.pub>;
@@ -174,6 +174,24 @@ describe("assistir telas", () => {
     expect(other.isSubscribed).toBe(false);
   });
 
+  it("assistir e parar antes de a faixa chegar cancela o pedido (sem assinatura fantasma)", async () => {
+    const e = createWebVoiceEngine();
+    await e.connect(URL);
+    // A assinatura demora: `isSubscribed` continua falso, mas o pedido (`isDesired`) já foi feito.
+    const pending = lk.pub("screen_share") as FakePub & { isDesired: boolean };
+    pending.isDesired = false;
+    pending.setSubscribed = function (v: boolean) {
+      this.calls.push(v);
+      this.isDesired = v;
+    };
+    const p = { identity: "7", trackPublications: new Map<string, FakePub>([["s", pending]]) };
+    lk.Room.last.remoteParticipants.set("7", p);
+    e.setScreenWatching?.("7", true);
+    e.setScreenWatching?.("7", false);
+    expect(pending.calls).toEqual([true, false]);
+    expect(pending.isSubscribed).toBe(false);
+  });
+
   it("sair da sala esquece quem estava sendo assistido", async () => {
     const e = createWebVoiceEngine();
     await e.connect(URL);
@@ -227,5 +245,28 @@ describe("estatísticas de rede", () => {
     expect(await e.getConnectionStats?.()).toBeNull();
     await e.connect(URL);
     expect(await e.getConnectionStats?.()).toBeNull();
+  });
+});
+
+describe("estatísticas da transmissão", () => {
+  it("bitrate e fps saem da diferença entre duas leituras (a primeira não tem base)", () => {
+    const a = { at: 1_000, bytes: 0, frames: 0 };
+    expect(rates(null, a)).toEqual({ kbps: null, fps: null });
+    expect(rates(a, { at: 3_000, bytes: 1_250_000, frames: 60 })).toEqual({ kbps: 5000, fps: 30 });
+    // relógio que não avançou ou voltou: sem divisão por zero
+    expect(rates(a, { at: 1_000, bytes: 10, frames: 1 })).toEqual({ kbps: null, fps: null });
+    // contadores que reiniciaram (faixa nova) nunca dão negativo
+    expect(rates({ at: 0, bytes: 900, frames: 90 }, { at: 1_000, bytes: 100, frames: 5 })).toEqual({
+      kbps: 0,
+      fps: 0,
+    });
+  });
+
+  it("a camada vem da largura recebida frente à publicada", () => {
+    expect(layerOf(1920, 1920)).toBe("f");
+    expect(layerOf(960, 1920)).toBe("h");
+    expect(layerOf(480, 1920)).toBe("q");
+    expect(layerOf(undefined, 1920)).toBeNull();
+    expect(layerOf(1920, undefined)).toBeNull();
   });
 });

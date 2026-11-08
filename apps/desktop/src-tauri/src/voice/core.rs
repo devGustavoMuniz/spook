@@ -29,7 +29,7 @@ use super::capture::VideoOut;
 use super::error::{classify_connect_message, connect_message, MediaCode, MediaDevice, VoiceError};
 use super::events::{map_disconnect_reason, map_quality, VoiceEvent};
 use super::frames::encode_jpeg;
-use super::limits::{self, clamp_fps};
+use super::limits;
 use super::mictest::{Feeder, Recorder, RECORD_MS};
 use super::mixer::{AudioSource, Mixer};
 use super::quality::ScreenQuality;
@@ -169,6 +169,61 @@ struct CameraState {
 struct ScreenState {
     sid: TrackSid,
     _capture: VideoInput,
+    /// Registra no log a cada poucos segundos o que o codificador realmente entrega (resolução, fps, bitrate,
+    /// motivo de limitação). Para junto com a tela.
+    stats_task: JoinHandle<()>,
+}
+
+impl Drop for ScreenState {
+    fn drop(&mut self) {
+        self.stats_task.abort();
+    }
+}
+
+/// Intervalo entre as linhas de estatística da transmissão no log.
+const SCREEN_STATS_EVERY: Duration = Duration::from_secs(5);
+
+/// `voz: tela enviada ...`: o que o libwebrtc de fato codifica e envia, para diagnosticar "não parece 1080p"
+/// (`limitation=cpu|bandwidth` diz POR QUE a qualidade caiu). Só leitura; falhas são ignoradas.
+fn spawn_screen_stats(track: LocalVideoTrack, quality: ScreenQuality) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut last: Option<(Instant, u64)> = None;
+        loop {
+            tokio::time::sleep(SCREEN_STATS_EVERY).await;
+            let Ok(stats) = track.get_stats().await else {
+                continue;
+            };
+            for st in stats {
+                let libwebrtc::stats::RtcStats::OutboundRtp(o) = st else {
+                    continue;
+                };
+                let now = Instant::now();
+                let bytes = o.sent.bytes_sent;
+                let kbps = match last {
+                    Some((t, b)) if now > t => {
+                        (bytes.saturating_sub(b) as f64 * 8.0 / 1000.0)
+                            / now.duration_since(t).as_secs_f64()
+                    }
+                    _ => 0.0,
+                };
+                last = Some((now, bytes));
+                log::info!(
+                    "voz: tela enviada {}x{} {:.0} fps ~{:.0} kbps (teto {} kbps, pedido {}p{}) encoder={} limitation={:?} keyframes={} pli={}",
+                    o.outbound.frame_width,
+                    o.outbound.frame_height,
+                    o.outbound.frames_per_second,
+                    kbps,
+                    quality.bitrate_kbps(),
+                    quality.height,
+                    quality.fps,
+                    o.outbound.encoder_implementation,
+                    o.outbound.quality_limitation_reason,
+                    o.outbound.key_frames_encoded,
+                    o.outbound.pli_count,
+                );
+            }
+        }
+    })
 }
 
 struct Session {
@@ -426,6 +481,15 @@ impl VoiceCore {
 
     pub async fn is_connected(&self) -> bool {
         self.session.lock().await.is_some()
+    }
+
+    /// Há sala de voz conectada? Resposta imediata, sem esperar (serve a callbacks síncronos, como o fechar da
+    /// janela): se a sessão está ocupada (entrando, sendo alterada), assume que SIM, que é o lado seguro.
+    pub fn in_call_hint(&self) -> bool {
+        match self.session.try_lock() {
+            Ok(guard) => guard.is_some(),
+            Err(_) => true,
+        }
     }
 
     // ----- áudio local -----
@@ -1115,12 +1179,21 @@ impl VoiceCore {
             fps,
             max,
             limits::MAX_SHARE_FPS,
-        );
+        )
+        .repeat_when_idle();
         let capture: VideoInput = match self.synthetic() {
             Some(syn) => Box::new(synth::start_video(out, syn).map_err(VoiceError::other)?),
-            None => Box::new(screen::start(&opts.source_id, fps, out).await?),
+            None => {
+                // Captura preta persistente (permissão de gravação ausente, janela protegida): avisa a interface.
+                let emit = s.shared.emit.clone();
+                let on_black: screen::BlackCallback = Arc::new(move |black| {
+                    emit(VoiceEvent::ScreenBlack { black });
+                });
+                Box::new(screen::start(&opts.source_id, fps, out, on_black).await?)
+            }
         };
         let track = LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(source));
+        let stats_track = track.clone();
         let publish = TrackPublishOptions {
             source: TrackSource::Screenshare,
             simulcast: false,
@@ -1148,6 +1221,7 @@ impl VoiceCore {
         s.screen = Some(ScreenState {
             sid: publication.sid(),
             _capture: capture,
+            stats_task: spawn_screen_stats(stats_track, quality),
         });
         (s.shared.emit)(VoiceEvent::VideoTrackAdded {
             id: LOCAL_SCREEN_ID.into(),
@@ -1198,18 +1272,12 @@ impl VoiceCore {
                 .ok_or_else(|| VoiceError::other("Faixa de vídeo não encontrada."))?;
             (v.identity.clone(), v.kind)
         };
-        let default_max = if local { (640, 360) } else { limits::VIEW_MAX };
-        let max = (
-            view.max_width
-                .unwrap_or(default_max.0)
-                .clamp(160, limits::VIEW_MAX.0),
-            view.max_height
-                .unwrap_or(default_max.1)
-                .clamp(90, limits::VIEW_MAX.1),
-        );
-        let fps = clamp_fps(
-            view.fps
-                .unwrap_or(if local { 10 } else { limits::VIEW_FPS }),
+        let plan = limits::view_plan(
+            local,
+            source == "screen",
+            view.max_width,
+            view.max_height,
+            view.fps,
         );
         self.router.subscribe(
             track_id,
@@ -1217,8 +1285,9 @@ impl VoiceCore {
             ViewParams {
                 participant_id,
                 source,
-                max,
-                fps,
+                max: plan.max,
+                fps: plan.fps,
+                quality: plan.quality,
             },
         );
         if !local {
@@ -1277,7 +1346,7 @@ fn spawn_remote_video(
             };
             let buffer = frame.buffer;
             let encoded = tokio::task::spawn_blocking(move || {
-                encode_jpeg(buffer.as_ref(), res.max, limits::JPEG_QUALITY)
+                encode_jpeg(buffer.as_ref(), res.max, res.quality)
             })
             .await;
             match encoded {

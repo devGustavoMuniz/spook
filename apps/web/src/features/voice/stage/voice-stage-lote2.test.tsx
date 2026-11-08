@@ -14,7 +14,12 @@ import { useVoiceStatesStore, useVoiceStore } from "../store";
 import { useCallLayoutStore } from "./call-layout";
 import { VoiceStage } from "./voice-stage";
 
-const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+const toasts = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
+  dismiss: vi.fn(),
+}));
 vi.mock("sonner", () => ({ toast: toasts }));
 
 const state = (user_id: string, extra: Partial<VoiceStatePayload> = {}): VoiceStatePayload => ({

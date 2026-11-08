@@ -2,6 +2,8 @@
 //! diretório de configuração do app. Nada sensível (o token fica no chaveiro, ver `token.rs`).
 //!
 //! * `closeToTray` (padrão LIGADO, como o Discord): fechar a janela esconde o app na bandeja;
+//! * `keepCallOnClose` (padrão DESLIGADO): fechar a janela ESTANDO EM CHAMADA sai da chamada (e vai para a bandeja,
+//!   se `closeToTray`); ligado, a chamada continua com a janela escondida;
 //! * `startWithSystem` (padrão desligado): abre o Spook ao iniciar a sessão do sistema (plugin autostart);
 //! * `startMinimized` (padrão desligado): na inicialização automática, abre só na bandeja.
 //!
@@ -23,6 +25,8 @@ pub const MINIMIZED_ARG: &str = "--minimized";
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub close_to_tray: bool,
+    /// Fechar a janela com uma chamada em andamento mantém a chamada (na bandeja). Desligado = sai da chamada.
+    pub keep_call_on_close: bool,
     pub start_with_system: bool,
     pub start_minimized: bool,
 }
@@ -31,6 +35,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             close_to_tray: true,
+            keep_call_on_close: false,
             start_with_system: false,
             start_minimized: false,
         }
@@ -43,6 +48,28 @@ struct Stored {
     #[serde(flatten)]
     settings: AppSettings,
     tray_notice_shown: bool,
+}
+
+/// O que fazer quando o usuário pede para fechar a janela principal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseAction {
+    /// Deixa fechar de verdade (o app encerra e desconecta a voz).
+    Quit,
+    /// Esconde na bandeja; a chamada (se houver) continua.
+    Hide,
+    /// Esconde na bandeja E sai da chamada em andamento.
+    HideAndLeaveCall,
+}
+
+/// Decide o fechar da janela: `quitting` = o app já está saindo; `in_call` = há sala de voz conectada.
+pub fn close_action(settings: &AppSettings, quitting: bool, in_call: bool) -> CloseAction {
+    if quitting || !settings.close_to_tray {
+        CloseAction::Quit
+    } else if in_call && !settings.keep_call_on_close {
+        CloseAction::HideAndLeaveCall
+    } else {
+        CloseAction::Hide
+    }
 }
 
 /// A janela deve nascer escondida? Só nas aberturas pelo sistema (`--autostart`) ou manuais (`--minimized`),
@@ -139,6 +166,10 @@ mod tests {
     fn defaults_close_to_tray_on_everything_else_off() {
         let d = AppSettings::default();
         assert!(d.close_to_tray);
+        assert!(
+            !d.keep_call_on_close,
+            "fechar a janela sai da chamada por padrão"
+        );
         assert!(!d.start_with_system);
         assert!(!d.start_minimized);
     }
@@ -146,10 +177,13 @@ mod tests {
     #[test]
     fn json_is_camel_case_and_partial_files_get_defaults() {
         let s: AppSettings = serde_json::from_str(r#"{"startWithSystem":true}"#).unwrap();
-        assert!(s.close_to_tray && s.start_with_system && !s.start_minimized);
+        assert!(
+            s.close_to_tray && s.start_with_system && !s.start_minimized && !s.keep_call_on_close
+        );
         let v = serde_json::to_value(AppSettings::default()).unwrap();
         assert_eq!(v["closeToTray"], true);
         assert_eq!(v["startWithSystem"], false);
+        assert_eq!(v["keepCallOnClose"], false);
         assert_eq!(v["startMinimized"], false);
         // campos desconhecidos são ignorados
         assert!(serde_json::from_str::<AppSettings>(r#"{"x":1}"#).is_ok());
@@ -171,6 +205,7 @@ mod tests {
         let store = SettingsStore::open(&dir);
         let want = AppSettings {
             close_to_tray: false,
+            keep_call_on_close: true,
             start_with_system: true,
             start_minimized: true,
         };
@@ -225,6 +260,26 @@ mod tests {
             .unwrap();
         assert!(!SettingsStore::open(&dir).take_tray_notice());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn closing_the_window_in_a_call_leaves_it_unless_the_user_opted_out() {
+        let d = AppSettings::default();
+        assert_eq!(close_action(&d, false, true), CloseAction::HideAndLeaveCall);
+        assert_eq!(close_action(&d, false, false), CloseAction::Hide);
+        let keep = AppSettings {
+            keep_call_on_close: true,
+            ..d
+        };
+        assert_eq!(close_action(&keep, false, true), CloseAction::Hide);
+        // sem bandeja a janela fecha de verdade (e o app desconecta ao sair)
+        let no_tray = AppSettings {
+            close_to_tray: false,
+            ..d
+        };
+        assert_eq!(close_action(&no_tray, false, true), CloseAction::Quit);
+        // já saindo: deixa fechar
+        assert_eq!(close_action(&d, true, true), CloseAction::Quit);
     }
 
     #[test]

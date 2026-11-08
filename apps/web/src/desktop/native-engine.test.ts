@@ -809,3 +809,53 @@ describe("NativeVoiceEngine: qualidade da tela", () => {
     });
   });
 });
+
+describe("NativeVoiceEngine: captura preta e estatísticas", () => {
+  it("repassa o aviso de captura preta do Rust", async () => {
+    const { rust, engine } = setup();
+    const seen: boolean[] = [];
+    engine.on("screen-black", ({ black }) => seen.push(black));
+    await engine.connect(params);
+    rust.emit({ type: "screen-black", black: true });
+    rust.emit({ type: "screen-black", black: false });
+    expect(seen).toEqual([true, false]);
+  });
+
+  it("abrir os Ajustes de gravação de tela chama o comando do Rust", async () => {
+    const { rust, engine } = setup();
+    engine.openScreenCaptureSettings();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(rust.named("app_open_screen_recording_settings")).toHaveLength(1);
+  });
+
+  it("estatísticas: sem quadros ainda tudo é desconhecido (nada de zeros inventados)", async () => {
+    const { rust, engine, seen } = setup();
+    await engine.connect(params);
+    rust.emit({
+      type: "video-track-added",
+      id: "TR_1",
+      identity: "7",
+      kind: "screen",
+      local: false,
+    });
+    const track = seen["video-track-added"]?.[0] as VideoTrackInfo;
+    const s = await track.source.stats?.();
+    expect(s).toMatchObject({
+      role: "receive",
+      width: null,
+      height: null,
+      fps: null,
+      bitrateKbps: null,
+      codec: "jpeg (app)",
+    });
+    rust.emit({
+      type: "video-track-added",
+      id: "local:screen",
+      identity: "1",
+      kind: "screen",
+      local: true,
+    });
+    const mine = seen["video-track-added"]?.[1] as VideoTrackInfo;
+    expect((await mine.source.stats?.())?.role).toBe("send");
+  });
+});

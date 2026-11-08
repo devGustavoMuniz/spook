@@ -6,7 +6,10 @@ export const settings = {
     "Como o Spook se comporta no seu computador. Estas escolhas valem só neste dispositivo.",
   "settings.app.closeToTray": "Fechar vai para a bandeja",
   "settings.app.closeToTrayHint":
-    "Ao fechar a janela, o Spook continua rodando na bandeja do sistema (barra de menus no macOS) e a voz não cai. Para sair de verdade, use Sair no menu do ícone.",
+    "Ao fechar a janela, o Spook continua rodando na bandeja do sistema (barra de menus no macOS). Para sair de verdade, use Sair no menu do ícone.",
+  "settings.app.keepCallOnClose": "Manter a chamada ao fechar a janela",
+  "settings.app.keepCallOnCloseHint":
+    'Desligado (padrão): fechar a janela durante uma chamada sai da chamada. Ligado: a chamada continua na bandeja (o ícone mostra "Em chamada"); use Sair da chamada ou Sair no menu do ícone para encerrar.',
   "settings.app.desktopOnly": "Só no app para computador",
   "settings.app.desktopOnlyDescription":
     "Estas opções (bandeja, início com o sistema) existem só no app para computador.",
@@ -80,6 +83,8 @@ export const settings = {
   "settings.gateway.takenOver": "Sessão aberta em outro lugar.",
   "settings.layout.backToSettings": "Voltar às configurações",
   "settings.layout.close": "Fechar configurações",
+  "settings.layout.groupAccount": "Conta",
+  "settings.layout.groupApp": "App",
   "settings.layout.navLabel": "Seções das configurações",
   "settings.layout.signOut": "Sair",
   "settings.layout.title": "Configurações",

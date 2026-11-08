@@ -1038,12 +1038,15 @@ describe("compartilhamento de tela: qualidade", () => {
 
   it("publicação: teto de bitrate/fps e prioridade de degradação conforme nitidez x fluidez", () => {
     expect(screenSharePublishOptions(q)).toEqual({
+      // sem simulcast: a camada baixa deixava a tela borrada em tile pequeno
+      simulcast: false,
       screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 30 },
       degradationPreference: "maintain-resolution",
     });
     expect(
       screenSharePublishOptions({ height: 720, fps: 60, priority: "motion", maxBitrateKbps: 2000 }),
     ).toEqual({
+      simulcast: false,
       screenShareEncoding: { maxBitrate: 2_000_000, maxFramerate: 60 },
       degradationPreference: "maintain-framerate",
     });
@@ -1059,6 +1062,7 @@ describe("compartilhamento de tela: qualidade", () => {
     const calls = room().localParticipant.calls as unknown[][];
     expect(room().localParticipant.publishOpts).toEqual([
       {
+        simulcast: false,
         screenShareEncoding: { maxBitrate: 7_000_000, maxFramerate: 30 },
         degradationPreference: "maintain-resolution",
       },

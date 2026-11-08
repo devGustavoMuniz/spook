@@ -1,8 +1,14 @@
 // Montado só no desktop (ver `main.tsx`): contador no ícone do app e "clicar na notificação abre o canal".
 import { useEffect } from "react";
 import { useTotalMentions } from "@/features/notifications/badges";
+import { leaveCall } from "@/features/voice/controller";
 import { useLocale } from "@/i18n";
-import { appBadge, installNotificationClick, setNativeLocale } from "./shell";
+import {
+  appBadge,
+  installCallLeftListener,
+  installNotificationClick,
+  setNativeLocale,
+} from "./shell";
 
 export function DesktopShell({ navigate }: { navigate: (url: string) => void }) {
   // Mesmo número do título da aba, "(N) Spook": menções + mensagens de DM não lidas.
@@ -18,5 +24,7 @@ export function DesktopShell({ navigate }: { navigate: (url: string) => void }) 
     void setNativeLocale(locale);
   }, [locale]);
   useEffect(() => installNotificationClick(navigate), [navigate]);
+  // Fechar a janela em chamada: o Rust já desconectou a sala; aqui sai da chamada na interface e avisa o servidor.
+  useEffect(() => installCallLeftListener(() => void leaveCall()), []);
   return null;
 }

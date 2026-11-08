@@ -22,6 +22,11 @@ const OPTIONS: { key: Key; labelKey: MessageKey; hintKey: MessageKey }[] = [
     hintKey: "settings.app.closeToTrayHint",
   },
   {
+    key: "keepCallOnClose",
+    labelKey: "settings.app.keepCallOnClose",
+    hintKey: "settings.app.keepCallOnCloseHint",
+  },
+  {
     key: "startWithSystem",
     labelKey: "settings.app.startWithSystem",
     hintKey: "settings.app.startWithSystemHint",

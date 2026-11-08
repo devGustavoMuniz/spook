@@ -73,6 +73,7 @@ export function GuildIndex() {
       <Navigate
         to="/channels/$guildId/$channelId"
         params={{ guildId, channelId: target.id }}
+        search={((prev: Record<string, unknown>) => prev) as never}
         replace
       />
     );

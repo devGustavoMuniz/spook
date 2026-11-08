@@ -42,6 +42,7 @@ export type NativeEvent =
   | { type: "link-quality"; quality: LinkQuality }
   | ({ type: "local-media" } & LocalMedia)
   | { type: "devices-changed" }
+  | { type: "screen-black"; black: boolean }
   | { type: "disconnected"; reason: DisconnectReason }
   | { type: "input-level"; db: number; gateOpen: boolean }
   | { type: "mic-test"; phase: MicTestPhase; remainingMs?: number; error?: MediaErrorCode };
@@ -78,7 +79,35 @@ export class TrackView {
     private readonly maxSize?: { maxWidth?: number; maxHeight?: number; fps?: number },
   ) {}
 
-  readonly source: VideoSource = { attach: (host) => this.attach(host) };
+  /** Contadores do que chegou do Rust (painel de estatísticas); bitrate e fps saem da diferença entre leituras. */
+  private seen = { frames: 0, bytes: 0, width: 0, height: 0 };
+  private lastStat: { at: number; frames: number; bytes: number } | null = null;
+
+  readonly source: VideoSource = {
+    attach: (host) => this.attach(host),
+    stats: async () => this.readStats(),
+  };
+
+  private readStats() {
+    const at = Date.now();
+    const prev = this.lastStat;
+    this.lastStat = { at, frames: this.seen.frames, bytes: this.seen.bytes };
+    const dt = prev ? (at - prev.at) / 1000 : 0;
+    const local = this.trackId.startsWith("local:");
+    return {
+      role: (local ? "send" : "receive") as "send" | "receive",
+      width: this.seen.width || null,
+      height: this.seen.height || null,
+      fps: prev && dt > 0 ? Math.round((this.seen.frames - prev.frames) / dt) : null,
+      // JPEG que o Rust entrega ao webview (não é a banda da rede: o fluxo de rede é decodificado no Rust).
+      bitrateKbps:
+        prev && dt > 0 ? Math.round(((this.seen.bytes - prev.bytes) * 8) / 1000 / dt) : null,
+      codec: "jpeg (app)",
+      limitation: null,
+      layer: "single",
+      subscription: null,
+    };
+  }
 
   private attach(host: HTMLElement): () => void {
     const canvas = document.createElement("canvas");
@@ -155,11 +184,17 @@ export class TrackView {
       const bitmap = await createImageBitmap(
         new Blob([frame.jpeg as BlobPart], { type: "image/jpeg" }),
       );
+      this.seen.frames++;
+      this.seen.bytes += frame.jpeg.byteLength;
+      this.seen.width = bitmap.width;
+      this.seen.height = bitmap.height;
       try {
         for (const canvas of this.canvases) {
           if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
           if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
           canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+          // Marca o primeiro quadro desenhado: o tile troca o "Carregando transmissão…" pelo vídeo (stream-health.ts).
+          if (canvas.dataset.frame !== "1") canvas.dataset.frame = "1";
         }
       } finally {
         bitmap.close();
@@ -317,6 +352,10 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     void this.deps.invoke("voice_set_deafened", { deafened }).catch(() => {});
   }
 
+  openScreenCaptureSettings(): void {
+    void this.deps.invoke("app_open_screen_recording_settings").catch(() => {});
+  }
+
   /** O áudio é tocado pelo Rust: nunca há bloqueio de reprodução automática como no navegador. */
   async resumeAudio() {}
 
@@ -468,6 +507,9 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
         break;
       case "devices-changed":
         this.emit("devices-changed", {});
+        break;
+      case "screen-black":
+        this.emit("screen-black", { black: e.black });
         break;
       case "input-level":
         this.emit("input-level", { db: e.db, gateOpen: e.gateOpen });

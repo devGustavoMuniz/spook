@@ -14,7 +14,12 @@ import { closePictureInPicture } from "../pip";
 import { useVoiceStatesStore, useVoiceStore } from "../store";
 import { VoiceStage } from "./voice-stage";
 
-const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+const toasts = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
+  dismiss: vi.fn(),
+}));
 vi.mock("sonner", () => ({ toast: toasts }));
 
 /** Faixa cuja fonte monta um <video> de verdade (como a engine web). */

@@ -1,3 +1,4 @@
+import { setApiBaseUrl, setRequestHeaders } from "@spook/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { type Backend, makeBackend, server } from "@/test/server";
@@ -36,7 +37,12 @@ import {
   useVoiceStore,
 } from "./store";
 
-const toasts = vi.hoisted(() => ({ error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+const toasts = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
+  dismiss: vi.fn(),
+}));
 vi.mock("sonner", () => ({ toast: toasts }));
 
 const ME = "1";
@@ -368,6 +374,60 @@ describe("sair e quedas", () => {
       expect.objectContaining({ method: "POST", keepalive: true }),
     );
     spy.mockRestore();
+  });
+
+  it("no desktop o POST de saída vai à URL absoluta com o Bearer, sem cookie", async () => {
+    await joined();
+    setApiBaseUrl("https://spook.example");
+    setRequestHeaders(() => ({ Authorization: "Bearer tok" }));
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    try {
+      leaveOnPageHide();
+      const [url, init] = spy.mock.calls[0] ?? [];
+      expect(url).toBe("https://spook.example/api/voice/leave");
+      expect(init).toMatchObject({ method: "POST", keepalive: true, credentials: "omit" });
+      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    } finally {
+      spy.mockRestore();
+      setApiBaseUrl("");
+      setRequestHeaders(null);
+    }
+  });
+});
+
+describe("captura de tela preta (desktop)", () => {
+  it("avisa quem transmite uma única vez e some quando a captura volta ou a tela para", async () => {
+    await joinVoice(A);
+    toasts.warning.mockClear();
+    toasts.dismiss.mockClear();
+    fake.fire("screen-black", { black: true });
+    expect(toasts.warning).toHaveBeenCalledTimes(1);
+    expect(toasts.warning.mock.calls[0]?.[0]).toMatch(/captura da sua tela está preta/);
+    expect(toasts.warning.mock.calls[0]?.[1]).toMatchObject({ id: "voice-screen-black" });
+    fake.fire("screen-black", { black: false });
+    expect(toasts.dismiss).toHaveBeenCalledWith("voice-screen-black");
+    // sair da chamada também limpa o aviso
+    toasts.dismiss.mockClear();
+    fake.fire("screen-black", { black: true });
+    await leaveCall();
+    expect(toasts.dismiss).toHaveBeenCalledWith("voice-screen-black");
+  });
+
+  it("no macOS o aviso oferece abrir os Ajustes (se a engine sabe fazer isso)", async () => {
+    await joinVoice(A);
+    const open = vi.fn();
+    (fake as unknown as { openScreenCaptureSettings: () => void }).openScreenCaptureSettings = open;
+    const ua = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Macintosh)");
+    fake.fire("screen-black", { black: true });
+    const opts = toasts.warning.mock.calls.at(-1)?.[1] as {
+      action?: { label: string; onClick: () => void };
+    };
+    expect(opts.action?.label).toBe("Abrir Ajustes");
+    opts.action?.onClick();
+    expect(open).toHaveBeenCalledTimes(1);
+    ua.mockRestore();
   });
 });
 

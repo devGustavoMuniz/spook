@@ -309,7 +309,8 @@ describe("silenciar e nível de notificação", () => {
     });
     useNotificationSettings.getState().replaceAll(app.state.notifSettings as never);
     expect(await screen.findByText("Silenciados e níveis")).toBeInTheDocument();
-    expect(await screen.findByText("Alfa")).toBeInTheDocument();
+    const modal = await screen.findByRole("dialog", { name: "Configurações" });
+    expect(await within(modal).findByText("Alfa")).toBeInTheDocument();
     expect(screen.getByText(/silenciado até você reativar · Nada/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Restaurar padrão" }));
     await waitFor(() => expect(app.state.notifSettings).toHaveLength(0));

@@ -13,7 +13,8 @@ import { AuthedLayout } from "@/components/authed-layout";
 import { CrashScreen } from "@/components/error-boundary";
 import { NotFoundPage } from "@/components/not-found";
 import { AdminLayout } from "@/features/admin/admin-layout";
-import { SettingsLayout } from "@/features/settings/settings-layout";
+import { parseView, type SettingsView } from "@/features/settings/sections";
+import { settingsHref } from "@/features/settings/use-settings";
 import { FriendsPage } from "@/features/social/friends-page";
 import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
@@ -21,7 +22,6 @@ import { AdminCallsPage } from "@/pages/admin/calls";
 import { AdminDashboardPage } from "@/pages/admin/dashboard";
 import { AdminServersPage } from "@/pages/admin/servers";
 import { AdminUsersPage } from "@/pages/admin/users";
-import { AppSettingsPage } from "@/pages/app-settings";
 import { ChooseUsernamePage } from "@/pages/choose-username";
 import { DesktopLoginPage } from "@/pages/desktop-login";
 import { DmIndex, DmLayout, DmPage } from "@/pages/dms";
@@ -31,18 +31,18 @@ import { ChannelPage, GuildIndex, GuildLayout } from "@/pages/guild";
 import { HomePage } from "@/pages/home";
 import { InvitePage } from "@/pages/invite";
 import { LoginPage } from "@/pages/login";
-import { NotificationsPage } from "@/pages/notifications";
-import { ProfilePage } from "@/pages/profile";
 import { RegisterPage } from "@/pages/register";
 import { ResetPasswordPage } from "@/pages/reset-password";
-import { AppearancePage } from "@/pages/settings-appearance";
-import { BlockedPage } from "@/pages/settings-blocked";
-import { VoiceSettingsPage } from "@/pages/settings-voice";
 import { VerifyEmailPage } from "@/pages/verify-email";
 
 export type RouterContext = { queryClient: QueryClient };
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
+  // `?settings=` abre o modal de configurações sobre qualquer tela do app (veja `features/settings`).
+  validateSearch: (s: Record<string, unknown>): { settings?: SettingsView } => {
+    const settings = parseView(s.settings);
+    return settings ? { settings } : {};
+  },
   component: Outlet,
   notFoundComponent: NotFoundPage,
   errorComponent: () => <CrashScreen />,
@@ -148,44 +148,29 @@ const homeRoute = createRoute({
   path: "/",
   component: HomePage,
 });
-// Configurações em tela cheia (layout próprio, sem a barra de servidores). `/settings` é a lista no celular
-// e vai para o perfil no desktop (o layout decide); as seções são rotas irmãs para deep link.
+// Configurações são um MODAL sobre o app (`features/settings/settings-modal.tsx`), controlado pelo parâmetro
+// `?settings=` da rota em que a pessoa está; a URL mostrada é `/settings/<seção>` (máscara). Estas rotas existem
+// só para o endereço direto (link, recarga, retorno do OAuth): abrem o app (`/`) com o modal naquela seção,
+// preservando os demais parâmetros (`linked`, `reauth`...).
+const openSettingsFrom = (view: SettingsView) => (search: Record<string, unknown>) => {
+  const { settings: _drop, ...rest } = search;
+  throw redirect({
+    to: "/",
+    search: { ...rest, settings: view } as never,
+    mask: { to: settingsHref(view), search: rest } as never,
+    replace: true,
+  });
+};
 const settingsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/settings",
-  component: SettingsLayout,
+  beforeLoad: ({ location }) => openSettingsFrom("menu")(location.search),
 });
-const settingsIndexRoute = createRoute({ getParentRoute: () => settingsRoute, path: "/" });
-const profileRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "profile",
-  component: ProfilePage,
-});
-const notificationsRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "notifications",
-  component: NotificationsPage,
-});
-const blockedRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "blocked",
-  component: BlockedPage,
-});
-const voiceSettingsRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "voice",
-  component: VoiceSettingsPage,
-});
-const appearanceRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "appearance",
-  component: AppearancePage,
-});
-// Só tem efeito no desktop (bandeja, início com o sistema); na web a seção some da navegação e a rota apenas explica.
-const appSettingsRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "app",
-  component: AppSettingsPage,
+const settingsSectionRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/settings/$section",
+  beforeLoad: ({ location, params }) =>
+    openSettingsFrom(parseView(params.section) ?? "menu")(location.search),
 });
 
 // Endereço antigo do perfil.
@@ -193,7 +178,7 @@ const legacyProfileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profile",
   beforeLoad: () => {
-    throw redirect({ to: "/settings/profile", replace: true });
+    openSettingsFrom("profile")({});
   },
 });
 
@@ -303,15 +288,8 @@ const routeTree = rootRoute.addChildren([
   legacyProfileRoute,
   authedRoute.addChildren([
     homeRoute,
-    settingsRoute.addChildren([
-      settingsIndexRoute,
-      profileRoute,
-      notificationsRoute,
-      blockedRoute,
-      voiceSettingsRoute,
-      appearanceRoute,
-      appSettingsRoute,
-    ]),
+    settingsRoute,
+    settingsSectionRoute,
     dmRoute.addChildren([dmIndexRoute, friendsRoute, dmChannelRoute]),
     guildRoute.addChildren([guildIndexRoute, channelRoute]),
     inviteRoute,

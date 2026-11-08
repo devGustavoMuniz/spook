@@ -9,7 +9,9 @@ import {
 import {
   ACTIVATED_EVENT,
   BADGE_DEBOUNCE_MS,
+  CALL_LEFT_EVENT,
   createBadgeSync,
+  installCallLeftListener,
   installNotificationClick,
   shellErrorMessage,
   tauriActivationSource,
@@ -227,5 +229,40 @@ describe("tauriActivationSource", () => {
     off();
     expect(tauri.offFocus).toHaveBeenCalled();
     expect(tauri.offEvent).toHaveBeenCalled();
+  });
+});
+
+describe("fechar a janela em chamada", () => {
+  it("o evento do Rust chama o callback e desfazer remove o ouvinte", async () => {
+    vi.useRealTimers();
+    const onLeft = vi.fn();
+    const off = installCallLeftListener(onLeft);
+    await vi.waitFor(() => expect(tauri.listeners.has(CALL_LEFT_EVENT)).toBe(true));
+    tauri.listeners.get(CALL_LEFT_EVENT)?.();
+    expect(onLeft).toHaveBeenCalledTimes(1);
+    off();
+    await vi.waitFor(() => expect(tauri.offEvent).toHaveBeenCalled());
+  });
+
+  it("falha ao registrar o ouvinte é ignorada (o servidor remove pelo webhook)", async () => {
+    vi.useRealTimers();
+    const off = installCallLeftListener(vi.fn(), () => Promise.reject(new Error("sem tauri")));
+    expect(() => off()).not.toThrow();
+  });
+
+  it("desfazer antes de o registro terminar também solta o ouvinte", async () => {
+    vi.useRealTimers();
+    const un = vi.fn();
+    let resolve: (f: () => void) => void = () => {};
+    const off = installCallLeftListener(
+      vi.fn(),
+      () =>
+        new Promise<() => void>((r) => {
+          resolve = r;
+        }),
+    );
+    off();
+    resolve(un);
+    await vi.waitFor(() => expect(un).toHaveBeenCalled());
   });
 });

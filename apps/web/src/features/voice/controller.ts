@@ -1,6 +1,7 @@
 // Orquestra a chamada: token (API) + engine (mídia) + store (estado) + avisos. Sem React: funções
 // de módulo, para o gateway, a barra de controle e os botões de canal usarem o mesmo fluxo.
 import {
+  apiFetch,
   createVoiceToken,
   type VoiceStatePayload as GatewayVoiceState,
   isApiError,
@@ -152,10 +153,32 @@ function ensureEngine(): VoiceEngine {
       onLocalLevel(l);
     }),
     e.on("mic-test", (s) => useMicTestStore.getState().set(s)),
+    e.on("screen-black", ({ black }) => onScreenBlack(e, black)),
     e.on("disconnected", ({ reason }) => onDisconnected(reason)),
     useVoiceStore.subscribe(syncScreenPreview),
   ];
   return e;
+}
+
+/** Id do toast de "captura preta" (um só por vez; sai sozinho quando a captura volta ao normal). */
+const SCREEN_BLACK_TOAST = "voice-screen-black";
+
+/** A captura da MINHA tela ficou preta (ou voltou): avisa quem transmite, que não enxerga o que os outros veem. */
+function onScreenBlack(e: VoiceEngine, black: boolean) {
+  if (!black) return void toast.dismiss(SCREEN_BLACK_TOAST);
+  const mac = typeof navigator !== "undefined" && /mac/i.test(navigator.userAgent);
+  toast.warning(t("voice.toast.screenBlack"), {
+    id: SCREEN_BLACK_TOAST,
+    duration: Number.POSITIVE_INFINITY,
+    ...(mac && e.openScreenCaptureSettings
+      ? {
+          action: {
+            label: t("voice.toast.screenBlackAction"),
+            onClick: () => e.openScreenCaptureSettings?.(),
+          },
+        }
+      : {}),
+  });
 }
 
 /**
@@ -403,6 +426,7 @@ export async function leaveCall() {
   session().clear();
   useAudioStatusStore.getState().set(null);
   playCallSound("leave");
+  toast.dismiss(SCREEN_BLACK_TOAST);
   eng?.discardPreparedMicrophone?.();
   setCallMeter(eng ?? null, false);
   resetSpeaking();
@@ -536,6 +560,7 @@ export async function toggleScreenShare(opts?: {
   try {
     await engine.setScreenShareEnabled(on, quality ? { audio, quality } : { audio });
     session().patch({ screen: on, screenPreview: preview, mediaIssue: null });
+    if (!on) toast.dismiss(SCREEN_BLACK_TOAST);
   } catch (err) {
     reportMediaIssue(err);
   }
@@ -802,6 +827,7 @@ function forcedOut(message: string) {
   session().clear();
   useAudioStatusStore.getState().set(null);
   playCallSound("leave");
+  toast.dismiss(SCREEN_BLACK_TOAST);
   engine?.discardPreparedMicrophone?.();
   setCallMeter(engine, false);
   resetSpeaking();
@@ -889,7 +915,8 @@ export function leaveOnPageHide() {
   if (session().status === "idle") return;
   void engine?.disconnect();
   try {
-    void fetch("/api/voice/leave", { method: "POST", credentials: "same-origin", keepalive: true });
+    // `apiFetch`: no desktop vai à URL absoluta com o Bearer (um `fetch` relativo cairia em tauri.localhost, sem sessão).
+    void apiFetch("/api/voice/leave", { method: "POST", keepalive: true }).catch(() => {});
   } catch {
     // o servidor tira o usuário pelo webhook do LiveKit quando a conexão cai
   }

@@ -1,6 +1,6 @@
 import { useListGuilds } from "@spook/shared";
-import { Outlet, useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { Outlet } from "@tanstack/react-router";
+import { useState } from "react";
 import { useSessionGuard } from "@/components/app-shell";
 import { NavDrawer, ShellProvider, useShell } from "@/components/shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,7 +10,7 @@ import { GatewayProvider } from "@/features/gateway/gateway-provider";
 import { ServerRail } from "@/features/guilds/server-rail";
 import { useUnreadTitle } from "@/features/notifications/use-unread-title";
 import { usePushSync } from "@/features/push/use-push";
-import { trackReturnPath } from "@/features/settings/return-path";
+import { SettingsModal } from "@/features/settings/settings-modal";
 import { IncomingCalls } from "@/features/social/incoming-call";
 import type { Guild } from "@/lib/guild";
 
@@ -41,17 +41,6 @@ export function AuthedLayout() {
 function Frame({ guilds, onSlot }: { guilds: Guild[]; onSlot: (el: HTMLElement | null) => void }) {
   const shell = useShell();
   const compact = !!shell?.compact;
-  const href = useRouterState({ select: (st) => st.location.href });
-  const inSettings = useRouterState({
-    select: (st) => st.location.pathname.startsWith("/settings"),
-  });
-  const first = useRef(true);
-  useEffect(() => {
-    trackReturnPath(href, inSettings, first.current);
-    first.current = false;
-  }, [href, inSettings]);
-  // Configurações têm layout próprio, em tela cheia: sem barra de servidores nem drawer.
-  if (inSettings) return <Outlet />;
   const rail = <ServerRail guilds={guilds} />;
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
@@ -63,6 +52,7 @@ function Frame({ guilds, onSlot }: { guilds: Guild[]; onSlot: (el: HTMLElement |
         </div>
       </div>
       <NavDrawer rail={rail} onSlot={onSlot} />
+      <SettingsModal />
     </div>
   );
 }

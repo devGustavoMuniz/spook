@@ -11,6 +11,8 @@ import { AddServerDialog } from "@/features/guilds/add-server-dialog";
 import { useT } from "@/i18n";
 import { lastLocation } from "@/lib/last-location";
 
+const keepSearch = ((prev: Record<string, unknown>) => prev) as never;
+
 /** `/`: vai ao último servidor visitado (ou ao primeiro); sem servidores, mostra o estado vazio. */
 export function HomePage() {
   const { t } = useT();
@@ -37,7 +39,16 @@ export function HomePage() {
   const list = guilds.data ?? [];
   if (list.length > 0) {
     const target = list.find((g) => g.id === lastLocation.guild()) ?? list[0];
-    if (target) return <Navigate to="/channels/$guildId" params={{ guildId: target.id }} replace />;
+    // `search` acompanha o redirecionamento: `?settings=` (modal de configurações aberto por link direto) não se perde.
+    if (target)
+      return (
+        <Navigate
+          to="/channels/$guildId"
+          params={{ guildId: target.id }}
+          search={keepSearch}
+          replace
+        />
+      );
   }
 
   return (

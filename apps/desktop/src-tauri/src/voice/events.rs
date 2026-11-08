@@ -45,6 +45,10 @@ pub enum VoiceEvent {
         screen_share: bool,
     },
     DevicesChanged,
+    /// A captura da MINHA tela está preta há alguns segundos (`black: true`) ou voltou ao normal (`false`).
+    ScreenBlack {
+        black: bool,
+    },
     /// `client` | `removed` | `network` | `unknown`.
     Disconnected {
         reason: &'static str,

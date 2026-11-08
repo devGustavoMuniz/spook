@@ -113,6 +113,8 @@ O navegador do container precisa alcançar o LiveKit e o backend pela rede do Co
 
 ### Latência da entrada na voz
 
+`e2e/voice-stream-stats.spec.ts` (projeto `voice`) mede a qualidade da tela compartilhada: A transmite uma "tela" falsa de 1920x1080 (canvas no lugar do `getDisplayMedia`) e B assiste em tile pequeno e em foco; o teste lê o `getStats()` real (resolução, fps e taxa recebidos e enviados), confere o tempo até o primeiro quadro, a imagem não preta, o painel "Estatísticas da transmissão" e a entrada tardia. `STATS_OUT=/caminho.json` grava a tabela medida e `STATS_ASSERT=0` desliga as asserções de qualidade (para medir um build antigo). Cuidado com o alias de rede: dois servidores com o alias `server` na mesma rede do Docker dividem o DNS e o E2E falha de forma enganosa (convite 404).
+
 `JOIN_PERF_OUT=/repo/apps/web/e2e/lat.json pnpm --filter @spook/web e2e voice-join-perf` (mesmo ambiente do E2E de voz acima, projeto `voice`) entra e sai do canal 10 vezes por cenário (Padrão e Forte) e imprime a mediana de cada fase (`src/features/voice/join-perf.ts`); `JOIN_PERF_SIM=1` simula token e microfone lentos. Cada entrada gasta um token: o teste espera 2,3 s entre elas por causa do limite `voice.token` (30/min). As marcas também ficam na linha do tempo do navegador (`voice:*`) e em `window.__voiceJoinPerf`.
 
 ## Ruído e eco no microfone (voz, web)

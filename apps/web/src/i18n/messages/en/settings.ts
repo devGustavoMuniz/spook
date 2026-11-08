@@ -6,7 +6,10 @@ export const settings = {
     "How Spook behaves on your computer. These choices apply to this device only.",
   "settings.app.closeToTray": "Closing hides to the tray",
   "settings.app.closeToTrayHint":
-    "When you close the window, Spook keeps running in the system tray (menu bar on macOS) and voice stays connected. To really quit, use Quit in the icon menu.",
+    "When you close the window, Spook keeps running in the system tray (menu bar on macOS). To really quit, use Quit in the icon menu.",
+  "settings.app.keepCallOnClose": "Keep the call when closing the window",
+  "settings.app.keepCallOnCloseHint":
+    'Off (default): closing the window during a call leaves the call. On: the call keeps going from the tray (the icon says "In a call"); use Leave call or Quit in the icon menu to end it.',
   "settings.app.desktopOnly": "Desktop app only",
   "settings.app.desktopOnlyDescription":
     "These options (tray, start with the system) only exist in the desktop app.",
@@ -80,6 +83,8 @@ export const settings = {
   "settings.gateway.takenOver": "Session opened somewhere else.",
   "settings.layout.backToSettings": "Back to settings",
   "settings.layout.close": "Close settings",
+  "settings.layout.groupAccount": "Account",
+  "settings.layout.groupApp": "App",
   "settings.layout.navLabel": "Settings sections",
   "settings.layout.signOut": "Sign out",
   "settings.layout.title": "Settings",
