@@ -64,6 +64,18 @@ func TestPurgeSamplesLoopsInBatches(t *testing.T) {
 	}
 }
 
+// Retenção zerada (config ausente) não apaga nada: o corte seria "agora" e o job de início levaria as amostras novas.
+func TestPurgeSamplesWithoutRetentionDeletesNothing(t *testing.T) {
+	st := &fakeStore{purgeLeft: 5}
+	s := NewService(Deps{Store: st})
+	for _, retention := range []time.Duration{0, -time.Hour} {
+		n, err := s.PurgeSamples(context.Background(), retention)
+		if err != nil || n != 0 || st.purgeCalls != 0 {
+			t.Fatalf("retenção %v: apagou %d em %d lotes (err %v)", retention, n, st.purgeCalls, err)
+		}
+	}
+}
+
 func TestLiveKitHistoryRangesBucketsAndCollecting(t *testing.T) {
 	c := &clock{t: time.Date(2026, 11, 3, 10, 7, 0, 0, time.UTC)}
 	st := &fakeStore{}

@@ -117,6 +117,11 @@ func (s *Service) Sample(ctx context.Context) error {
 func (s *Service) PurgeSamples(ctx context.Context, retention time.Duration) (int64, error) {
 	ctx, span := tracer.Start(ctx, "admin.PurgeSamples")
 	defer span.End()
+	// Retenção zerada ou negativa (config ausente) não apaga nada: com corte em "agora" o job de início apagaria
+	// as amostras recém-gravadas (e deixava o teste de uso do LiveKit instável).
+	if retention <= 0 {
+		return 0, nil
+	}
 	cutoff := s.now().Add(-retention)
 	var total int64
 	for {
