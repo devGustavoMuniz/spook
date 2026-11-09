@@ -1,0 +1,27 @@
+{
+  "tiers": [
+    "free",
+    "nitro",
+    "nitro_plus"
+  ],
+  "limits": {
+    "free": {
+      "screen_max_height": 720,
+      "screen_max_fps": 30,
+      "animated_avatar": false,
+      "animated_banner": false
+    },
+    "nitro": {
+      "screen_max_height": 1080,
+      "screen_max_fps": 60,
+      "animated_avatar": true,
+      "animated_banner": true
+    },
+    "nitro_plus": {
+      "screen_max_height": 1440,
+      "screen_max_fps": 60,
+      "animated_avatar": true,
+      "animated_banner": true
+    }
+  }
+}

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
@@ -35,6 +36,7 @@ type Deps struct {
 	Users    Users
 	Pub      events.Publisher
 	Audit    Auditor          // opcional
+	Plans    Plans            // opcional: limites de plano (Nitro) no token e na faixa de tela
 	Now      func() time.Time // opcional (testes)
 }
 
@@ -47,6 +49,7 @@ type Service struct {
 	users    Users
 	pub      events.Publisher
 	audit    Auditor
+	plans    Plans
 	now      func() time.Time
 
 	locks [lockStripes]sync.Mutex
@@ -64,7 +67,7 @@ type Service struct {
 
 func NewService(d Deps) *Service {
 	s := &Service{
-		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, audit: d.Audit, now: d.Now,
+		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, audit: d.Audit, plans: d.Plans, now: d.Now,
 		seen: newDedupe(2048), lastPut: map[int64]time.Time{}, watch: newWatchers(),
 	}
 	if s.now == nil {
@@ -203,7 +206,25 @@ func (s *Service) IssueToken(ctx context.Context, userID, channelID int64) (resp
 		return TokenResponse{}, err
 	}
 	s.met.tokensIssued.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", acc.Kind())))
-	return TokenResponse{URL: s.prov.PublicURL(), Token: token, ExpiresIn: int(TokenTTL / time.Second)}, nil
+	tier := s.tierOf(ctx, userID)
+	return TokenResponse{
+		URL: s.prov.PublicURL(), Token: token, ExpiresIn: int(TokenTTL / time.Second),
+		Plan: string(tier), Limits: plan.For(tier),
+	}, nil
+}
+
+// tierOf lê o plano de quem entra; sem planos ligados ou com falha vale grátis (a voz nunca deixa de funcionar por
+// causa do plano).
+func (s *Service) tierOf(ctx context.Context, userID int64) plan.Tier {
+	if s.plans == nil {
+		return plan.Free
+	}
+	t, err := s.plans.Tier(ctx, userID)
+	if err != nil {
+		slog.WarnContext(ctx, "voice: não foi possível ler o plano", "user", userID, "err", err)
+		return plan.Free
+	}
+	return t
 }
 
 func grantsFor(acc ChannelAccess) Grants {
@@ -332,6 +353,7 @@ func (s *Service) HandleWebhook(ctx context.Context, authorization string, body 
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
+	s.enforceScreenLimit(ctx, ev) // depois do estado e fora das travas; nunca devolve erro (o LiveKit não reenvia por isso)
 	if ev.ID != "" {
 		s.seen.add(ev.ID)
 	}

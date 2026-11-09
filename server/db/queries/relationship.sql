@@ -73,7 +73,7 @@ SELECT EXISTS (
 -- Relacionamentos do usuário (amigos, pedidos e bloqueados), paginados por ID do outro usuário.
 -- kind: friend, incoming, outgoing ou blocked; $3 vazio = todos.
 -- name: ListRelationships :many
-SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key
+SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM user_relationships r
 JOIN users u ON u.id = r.other_id AND u.deleted_at IS NULL
 WHERE r.user_id = $1 AND r.other_id > $2 AND ($3::text = '' OR r.kind = $3::text)
@@ -88,7 +88,7 @@ WHERE r.user_id = $1 GROUP BY r.kind;
 
 -- Amigos e pedidos para o READY (os bloqueados vão só como IDs): pedidos recebidos, enviados e depois amigos.
 -- name: ListRelationshipsReady :many
-SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key
+SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM user_relationships r
 JOIN users u ON u.id = r.other_id AND u.deleted_at IS NULL
 WHERE r.user_id = $1 AND r.kind <> 'blocked'
@@ -104,7 +104,7 @@ SELECT kind, since FROM user_relationships WHERE user_id = $1 AND other_id = $2 
 
 -- Perfil mínimo de um usuário para montar o payload de relacionamento.
 -- name: GetUserBrief :one
-SELECT id, username, display_name, avatar_key FROM users WHERE id = $1 AND deleted_at IS NULL;
+SELECT id, username, display_name, avatar_key, user_plan(id) AS plan FROM users WHERE id = $1 AND deleted_at IS NULL;
 
 -- Quem os amigos aceitos de userID são (para a presença).
 -- name: ListFriendIDs :many

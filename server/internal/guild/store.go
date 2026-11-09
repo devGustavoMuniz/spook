@@ -180,10 +180,10 @@ func (s *PGStore) AccessByUser(ctx context.Context, userID int64) (map[int64]Acc
 	return access, roles, nil
 }
 
-func toMember(guildID, userID int64, nick *string, joined time.Time, voiceMuted bool, username string, display, avatar, bio, pronouns, bannerKey *string, bannerColor *int32, roleIDs []int64) Member {
+func toMember(guildID, userID int64, nick *string, joined time.Time, voiceMuted bool, username string, display, avatar, bio, pronouns, bannerKey *string, bannerColor *int32, plan string, roleIDs []int64) Member {
 	return Member{
 		GuildID: guildID, UserID: userID, Nickname: nick, JoinedAt: joined, Username: username,
-		DisplayName: display, AvatarKey: avatar, Bio: bio, Pronouns: pronouns, BannerKey: bannerKey, BannerColor: bannerColor,
+		DisplayName: display, AvatarKey: avatar, Bio: bio, Pronouns: pronouns, BannerKey: bannerKey, BannerColor: bannerColor, Plan: plan,
 		RoleIDs: roleIDs, VoiceMuted: voiceMuted,
 	}
 }
@@ -195,7 +195,7 @@ func (s *PGStore) Members(ctx context.Context, guildID, afterUserID int64, limit
 	}
 	out := make([]Member, len(rows))
 	for i, r := range rows {
-		out[i] = toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.VoiceMuted, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.RoleIds)
+		out[i] = toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.VoiceMuted, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.Plan, r.RoleIds)
 	}
 	return out, nil
 }
@@ -208,7 +208,7 @@ func (s *PGStore) Member(ctx context.Context, guildID, userID int64) (Member, er
 	if err != nil {
 		return Member{}, wrap("buscar membro", err)
 	}
-	return toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.VoiceMuted, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.RoleIds), nil
+	return toMember(r.GuildID, r.UserID, r.Nickname, r.JoinedAt.Time, r.VoiceMuted, r.Username, r.DisplayName, r.AvatarKey, r.Bio, r.Pronouns, r.BannerKey, r.BannerColor, r.Plan, r.RoleIds), nil
 }
 
 func (s *PGStore) RemoveMember(ctx context.Context, guildID, userID int64) error {

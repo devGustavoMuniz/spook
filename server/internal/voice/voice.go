@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 )
@@ -177,6 +178,10 @@ type TokenResponse struct {
 	URL       string `json:"url" doc:"URL de sinalização do LiveKit (wss://…)"`
 	Token     string `json:"token" doc:"JWT do LiveKit, de uma sala só"`
 	ExpiresIn int    `json:"expires_in" doc:"Segundos até o token expirar (600)"`
+	// Plan e Limits dizem o que o plano de quem entra libera. O cliente limita a captura da tela a eles; o servidor
+	// confere a altura da faixa no webhook (a taxa de quadros só o cliente limita).
+	Plan   string      `json:"plan" enum:"free,nitro,nitro_plus" doc:"Plano de quem entra"`
+	Limits plan.Limits `json:"limits" doc:"Limites do plano: tela até screen_max_height px e screen_max_fps quadros por segundo"`
 }
 
 // parseRoom e identity convertem sala/identidade do LiveKit em IDs.

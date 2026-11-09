@@ -13,7 +13,7 @@ import (
 
 const getMessage = `-- name: GetMessage :one
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.id = $1 AND m.channel_id = $2 AND m.deleted_at IS NULL
 `
@@ -39,6 +39,7 @@ type GetMessageRow struct {
 	Username        string
 	DisplayName     *string
 	AvatarKey       *string
+	Plan            string
 }
 
 func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMessageRow, error) {
@@ -60,6 +61,7 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (GetMess
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -149,7 +151,7 @@ WITH m AS (
     UPDATE channels SET last_message_id = $1 WHERE id = $2 AND (last_message_id IS NULL OR last_message_id < $1)
 )
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM m JOIN users u ON u.id = m.author_id
 `
 
@@ -182,6 +184,7 @@ type InsertMessageRow struct {
 	Username        string
 	DisplayName     *string
 	AvatarKey       *string
+	Plan            string
 }
 
 // Insere a mensagem e avança channels.last_message_id numa só ida ao banco.
@@ -215,13 +218,14 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
+		&i.Plan,
 	)
 	return i, err
 }
 
 const listMessages = `-- name: ListMessages :many
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.id < $2 AND m.deleted_at IS NULL
 ORDER BY m.id DESC
@@ -250,6 +254,7 @@ type ListMessagesRow struct {
 	Username        string
 	DisplayName     *string
 	AvatarKey       *string
+	Plan            string
 }
 
 func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]ListMessagesRow, error) {
@@ -277,6 +282,7 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}
@@ -290,7 +296,7 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 
 const listPinnedMessages = `-- name: ListPinnedMessages :many
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
 ORDER BY m.pinned_at DESC, m.id DESC
@@ -318,6 +324,7 @@ type ListPinnedMessagesRow struct {
 	Username        string
 	DisplayName     *string
 	AvatarKey       *string
+	Plan            string
 }
 
 func (q *Queries) ListPinnedMessages(ctx context.Context, arg ListPinnedMessagesParams) ([]ListPinnedMessagesRow, error) {
@@ -345,6 +352,7 @@ func (q *Queries) ListPinnedMessages(ctx context.Context, arg ListPinnedMessages
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}

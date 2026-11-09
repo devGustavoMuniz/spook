@@ -10,6 +10,7 @@ export * from "./guilds/guilds";
 export * from "./invites/invites";
 export * from "./messages/messages";
 export * from "./notifications/notifications";
+export * from "./plan/plan";
 export * from "./presence/presence";
 export * from "./relationships/relationships";
 export * from "./tickets/tickets";

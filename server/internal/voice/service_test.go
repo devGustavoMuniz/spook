@@ -26,6 +26,8 @@ type fakeProvider struct {
 	webhook      voice.RoomEvent
 	webhookOK    bool
 	webhookErr   error
+	muted        [][3]string // sala, identidade, faixa
+	muteErr      error
 }
 
 type updateCall struct {
@@ -54,6 +56,15 @@ func (p *fakeProvider) UpdatePermissions(_ context.Context, room, id string, g v
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.updated = append(p.updated, updateCall{room, id, g})
+	return nil
+}
+func (p *fakeProvider) MuteTrack(_ context.Context, room, id, track string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.muteErr != nil {
+		return p.muteErr
+	}
+	p.muted = append(p.muted, [3]string{room, id, track})
 	return nil
 }
 func (p *fakeProvider) ListRooms(context.Context) ([]voice.Room, error) {

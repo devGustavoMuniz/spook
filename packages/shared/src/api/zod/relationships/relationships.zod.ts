@@ -35,6 +35,10 @@ export const BlockUserResponse = zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),
     id: zod.string(),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
     username: zod.string(),
   }),
 });
@@ -65,6 +69,10 @@ export const RequestFriendResponse = zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),
     id: zod.string(),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
     username: zod.string(),
   }),
 });
@@ -98,6 +106,10 @@ export const AcceptFriendResponse = zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),
     id: zod.string(),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
     username: zod.string(),
   }),
 });
@@ -155,6 +167,10 @@ export const ListRelationshipsResponse = zod.object({
           avatar_url: zod.string().optional(),
           display_name: zod.string().optional(),
           id: zod.string(),
+          plan: zod
+            .enum(["free", "nitro", "nitro_plus"])
+            .optional()
+            .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
           username: zod.string(),
         }),
       }),

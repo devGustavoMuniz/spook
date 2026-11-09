@@ -46,6 +46,7 @@ type CallCaller struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
+	Plan        string `json:"plan,omitempty" enum:"free,nitro,nitro_plus" doc:"Plano de quem liga (Grátis, Nitro ou Nitro+). Ausente = free"`
 }
 
 // Call é a chamada na API e nos eventos CALL_RING, CALL_UPDATE e CALL_END.

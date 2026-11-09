@@ -134,6 +134,23 @@ describe("fixtures do gateway", () => {
     expect(ev.d).toMatchObject({ id: "950", status: "answered", unread: true, by_admin: true });
   });
 
+  it("ENTITLEMENT_UPDATE e USER_UPDATE.plan: o plano mudou (Nitro/Nitro+)", () => {
+    const ent = dispatchFrameSchema("ENTITLEMENT_UPDATE").parse(
+      fixtures.dispatch.ENTITLEMENT_UPDATE,
+    );
+    expect(ent.d).toMatchObject({
+      tier: "nitro",
+      source: "code",
+      reason: "redeemed",
+      limits: { screen_max_height: 1080, screen_max_fps: 60, animated_avatar: true },
+    });
+    const upd = dispatchFrameSchema("USER_UPDATE").parse(fixtures.dispatch.USER_UPDATE);
+    expect(upd.d.plan).toBe("nitro");
+    // Sem o campo (servidor antigo), `plan` fica ausente e o cliente trata como "free".
+    const { plan: _omit, ...legacy } = fixtures.dispatch.USER_UPDATE.d;
+    expect(eventSchemas.USER_UPDATE.parse(legacy).plan).toBeUndefined();
+  });
+
   it("social: relacionamentos e chamadas de DM (READY e eventos)", () => {
     const ready = eventSchemas.READY.parse(fixtures.ready.d);
     expect(ready.relationships).toMatchObject({

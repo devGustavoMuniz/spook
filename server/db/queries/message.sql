@@ -9,18 +9,18 @@ WITH m AS (
     UPDATE channels SET last_message_id = $1 WHERE id = $2 AND (last_message_id IS NULL OR last_message_id < $1)
 )
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM m JOIN users u ON u.id = m.author_id;
 
 -- name: GetMessage :one
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.id = $1 AND m.channel_id = $2 AND m.deleted_at IS NULL;
 
 -- name: ListMessages :many
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.id < $2 AND m.deleted_at IS NULL
 ORDER BY m.id DESC
@@ -37,7 +37,7 @@ WHERE m.id = ANY(sqlc.arg(ids)::bigint[]) AND m.channel_id = $1;
 
 -- name: ListPinnedMessages :many
 SELECT m.id, m.channel_id, m.author_id, m.content, m.edited_at, m.mention_ids, m.reference_id, m.pinned_at, m.kind, m.mention_everyone, m.mention_here, m.mention_role_ids,
-       u.username, u.display_name, u.avatar_key
+       u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM messages m JOIN users u ON u.id = m.author_id
 WHERE m.channel_id = $1 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
 ORDER BY m.pinned_at DESC, m.id DESC

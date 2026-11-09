@@ -6,6 +6,7 @@ package channel
 import (
 	"time"
 
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 )
@@ -55,6 +56,7 @@ type Recipient struct {
 	DisplayName *string
 	AvatarKey   *string
 	AvatarURL   string
+	Plan        string // free, nitro ou nitro_plus
 }
 
 // RecipientPayload é o participante nos payloads de DM.
@@ -63,10 +65,11 @@ type RecipientPayload struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
+	Plan        string `json:"plan,omitempty" enum:"free,nitro,nitro_plus" doc:"Plano (Grátis, Nitro ou Nitro+). Ausente = free"`
 }
 
 func (r Recipient) Payload() RecipientPayload {
-	p := RecipientPayload{ID: httpx.ID(r.ID), Username: r.Username, AvatarURL: r.AvatarURL}
+	p := RecipientPayload{ID: httpx.ID(r.ID), Username: r.Username, AvatarURL: r.AvatarURL, Plan: plan.Omit(r.Plan)}
 	if r.DisplayName != nil {
 		p.DisplayName = *r.DisplayName
 	}

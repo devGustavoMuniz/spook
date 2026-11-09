@@ -128,6 +128,11 @@ export const system = {
   "system.api.ownerAlready": "Você já é o dono do servidor",
   "system.api.addSelfFriend": "Você não pode adicionar a si mesmo como amigo",
   "system.api.dmSelf": "Você não pode abrir uma DM consigo mesmo",
+  "system.api.nitroRequired":
+    "GIF e imagens animadas em avatar e banner são exclusivos de quem tem Nitro.",
+  "system.api.redeemInvalid": "Código de resgate inválido. Confira o texto e tente de novo.",
+  "system.api.redeemUsed": "Este código já foi usado.",
+  "system.api.redeemExpired": "Este código expirou.",
   "system.api.avatarInvalid":
     "Avatar inválido: use png, jpeg, webp ou gif de até 5 MB e uma chave gerada para você",
   "system.api.profileInvalid":

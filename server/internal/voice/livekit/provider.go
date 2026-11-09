@@ -141,6 +141,18 @@ func (p *Provider) UpdatePermissions(ctx context.Context, room, identity string,
 	return err
 }
 
+func (p *Provider) MuteTrack(ctx context.Context, room, identity, trackSID string) error {
+	ctx, err := p.adminCtx(ctx, room)
+	if err != nil {
+		return err
+	}
+	_, err = p.rooms.MutePublishedTrack(ctx, &lk.MuteRoomTrackRequest{Room: room, Identity: identity, TrackSid: trackSID, Muted: true})
+	if notFound(err) {
+		return nil
+	}
+	return err
+}
+
 func (p *Provider) ListRooms(ctx context.Context) ([]voice.Room, error) {
 	ctx, err := p.adminCtx(ctx, "")
 	if err != nil {
@@ -206,8 +218,9 @@ func (p *Provider) VerifyWebhook(authorization string, body []byte) (voice.RoomE
 		out.Identity, out.SID = pi.Identity, pi.Sid
 		out.Tracks = trackSources(pi.Tracks)
 	}
-	if ev.Track != nil {
-		out.Source, _ = fromLK(ev.Track.Source)
+	if t := ev.Track; t != nil {
+		out.Source, _ = fromLK(t.Source)
+		out.TrackSID, out.TrackWidth, out.TrackHeight = t.Sid, int(t.Width), int(t.Height)
 	}
 	switch ev.Event {
 	case voice.EventParticipantJoined, voice.EventParticipantLeft, voice.EventTrackPublished,

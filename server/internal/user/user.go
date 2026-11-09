@@ -37,6 +37,9 @@ var (
 	ErrInvalidProfile   = errors.New("perfil inválido")
 	ErrInvalidEmail     = errors.New("e-mail inválido")
 	ErrReservedUsername = errors.New("nome de usuário reservado")
+	// ErrNitroRequired: GIF e imagens animadas (WebP/APNG) em avatar e banner são do Nitro; a API responde 403 com
+	// `code: nitro_required`.
+	ErrNitroRequired = errors.New("imagem animada requer Nitro")
 	// ErrEmailVerificationPending: um EmailChangeVerifier assumiu a troca (confirmação no endereço novo).
 	ErrEmailVerificationPending = errors.New("troca de e-mail aguardando verificação")
 )

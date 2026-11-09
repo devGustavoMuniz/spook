@@ -52,6 +52,7 @@ type row struct {
 	mentionRoles            []int64
 	username                string
 	display, avatar         *string
+	plan                    string
 }
 
 func (r row) message() Message {
@@ -59,12 +60,12 @@ func (r row) message() Message {
 		ID: r.id, ChannelID: r.channelID, Content: r.content, EditedAt: edited(r.editedAt), MentionIDs: r.mentions,
 		ReferenceID: r.referenceID, PinnedAt: edited(r.pinnedAt), Kind: r.kind,
 		MentionEveryone: r.mentionEveryone, MentionHere: r.mentionHere, MentionRoleIDs: r.mentionRoles,
-		Author: Author{ID: r.authorID, Username: r.username, DisplayName: r.display, AvatarKey: r.avatar},
+		Author: Author{ID: r.authorID, Username: r.username, DisplayName: r.display, AvatarKey: r.avatar, Plan: r.plan},
 	}
 }
 
-func insertedRow(id, channelID, authorID int64, content string, editedAt pgtype.Timestamptz, mentions []int64, referenceID *int64, pinnedAt pgtype.Timestamptz, kind string, everyone, here bool, roles []int64, username string, display, avatar *string) row {
-	return row{id, channelID, authorID, content, editedAt, mentions, referenceID, pinnedAt, kind, everyone, here, roles, username, display, avatar}
+func insertedRow(id, channelID, authorID int64, content string, editedAt pgtype.Timestamptz, mentions []int64, referenceID *int64, pinnedAt pgtype.Timestamptz, kind string, everyone, here bool, roles []int64, username string, display, avatar *string, plan string) row {
+	return row{id, channelID, authorID, content, editedAt, mentions, referenceID, pinnedAt, kind, everyone, here, roles, username, display, avatar, plan}
 }
 
 // mentionIDs nunca devolve nil (a coluna é NOT NULL).
@@ -82,7 +83,7 @@ func (s *PGStore) Insert(ctx context.Context, p InsertParams) (Message, []attach
 		if err != nil {
 			return Message{}, nil, fmt.Errorf("gravar mensagem: %w", err)
 		}
-		return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message(), nil, nil
+		return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey, r.Plan).message(), nil, nil
 	}
 	return s.insertWithAttachments(ctx, p)
 }
@@ -128,7 +129,7 @@ func (s *PGStore) insertWithAttachments(ctx context.Context, p InsertParams) (Me
 	if err := tx.Commit(ctx); err != nil {
 		return Message{}, nil, fmt.Errorf("confirmar mensagem: %w", err)
 	}
-	return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message(), atts, nil
+	return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey, r.Plan).message(), atts, nil
 }
 
 func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error) {
@@ -139,7 +140,7 @@ func (s *PGStore) Get(ctx context.Context, id, channelID int64) (Message, error)
 	if err != nil {
 		return Message{}, fmt.Errorf("buscar mensagem: %w", err)
 	}
-	return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message(), nil
+	return insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey, r.Plan).message(), nil
 }
 
 func (s *PGStore) List(ctx context.Context, channelID, before int64, limit int) ([]Message, error) {
@@ -149,7 +150,7 @@ func (s *PGStore) List(ctx context.Context, channelID, before int64, limit int) 
 	}
 	out := make([]Message, len(rows))
 	for i, r := range rows {
-		out[i] = insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message()
+		out[i] = insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey, r.Plan).message()
 	}
 	return out, nil
 }
@@ -200,7 +201,7 @@ func (s *PGStore) ListPinned(ctx context.Context, channelID int64, limit int) ([
 	}
 	out := make([]Message, len(rows))
 	for i, r := range rows {
-		out[i] = insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey).message()
+		out[i] = insertedRow(r.ID, r.ChannelID, r.AuthorID, r.Content, r.EditedAt, r.MentionIds, r.ReferenceID, r.PinnedAt, r.Kind, r.MentionEveryone, r.MentionHere, r.MentionRoleIds, r.Username, r.DisplayName, r.AvatarKey, r.Plan).message()
 	}
 	return out, nil
 }

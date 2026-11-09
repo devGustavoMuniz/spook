@@ -26,6 +26,9 @@ type UpdatePayload struct {
 	Pronouns    string `json:"pronouns,omitempty"`
 	BannerURL   string `json:"banner_url,omitempty"`
 	BannerColor *int32 `json:"banner_color,omitempty"`
+	// Plan é o plano da pessoa (free, nitro ou nitro_plus), sempre presente: o cliente troca o selo e a animação
+	// do avatar/banner por ele. Fonte e validade não vão a terceiros.
+	Plan string `json:"plan" enum:"free,nitro,nitro_plus"`
 }
 
 // WithEvents liga a publicação de USER_UPDATE (pub e aud nulos desligam).
@@ -38,7 +41,7 @@ func (s *Service) WithEvents(pub events.Publisher, aud Audience) *Service {
 func (s *Service) Payload(ctx context.Context, u User) UpdatePayload {
 	p := UpdatePayload{
 		ID: strconv.FormatInt(u.ID, 10), Username: u.Username, AvatarURL: s.AvatarURL(ctx, u),
-		BannerURL: s.AvatarURLForKey(ctx, u.BannerKey), BannerColor: u.BannerColor,
+		BannerURL: s.AvatarURLForKey(ctx, u.BannerKey), BannerColor: u.BannerColor, Plan: s.PlanOf(ctx, u.ID),
 	}
 	if u.DisplayName != nil {
 		p.DisplayName = *u.DisplayName

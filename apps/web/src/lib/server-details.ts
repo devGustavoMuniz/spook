@@ -159,6 +159,13 @@ const ENTRIES: [string, MessageKey][] = [
   ["você está abrindo DMs rápido demais", "system.api.rlDms"],
   ["muitos e-mails para este endereço; aguarde um pouco", "system.api.rlEmails"],
   ["muitas tentativas; aguarde um pouco e tente de novo", "system.api.rlAttempts"],
+  [
+    "GIF e imagens animadas em avatar e banner são exclusivos de quem tem Nitro",
+    "system.api.nitroRequired",
+  ],
+  ["código de resgate inválido", "system.api.redeemInvalid"],
+  ["este código já foi usado", "system.api.redeemUsed"],
+  ["este código expirou", "system.api.redeemExpired"],
 ];
 
 export const SERVER_DETAILS: ReadonlyMap<string, MessageKey> = new Map(ENTRIES);

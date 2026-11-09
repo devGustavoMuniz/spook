@@ -47,6 +47,10 @@ export const ListMessagesResponse = zod.object({
           avatar_url: zod.string().optional(),
           display_name: zod.string().optional(),
           id: zod.string(),
+          plan: zod
+            .enum(["free", "nitro", "nitro_plus"])
+            .optional()
+            .describe("Plano do autor (Grátis, Nitro ou Nitro+). Ausente = free"),
           username: zod.string(),
         }),
         channel_id: zod.string(),
@@ -151,6 +155,10 @@ export const SendMessageResponse = zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),
     id: zod.string(),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe("Plano do autor (Grátis, Nitro ou Nitro+). Ausente = free"),
     username: zod.string(),
   }),
   channel_id: zod.string(),
@@ -240,6 +248,10 @@ export const EditMessageResponse = zod.object({
     avatar_url: zod.string().optional(),
     display_name: zod.string().optional(),
     id: zod.string(),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe("Plano do autor (Grátis, Nitro ou Nitro+). Ausente = free"),
     username: zod.string(),
   }),
   channel_id: zod.string(),
@@ -311,6 +323,10 @@ export const ListPinnedMessagesResponse = zod.object({
           avatar_url: zod.string().optional(),
           display_name: zod.string().optional(),
           id: zod.string(),
+          plan: zod
+            .enum(["free", "nitro", "nitro_plus"])
+            .optional()
+            .describe("Plano do autor (Grátis, Nitro ou Nitro+). Ausente = free"),
           username: zod.string(),
         }),
         channel_id: zod.string(),

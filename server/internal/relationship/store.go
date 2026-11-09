@@ -50,7 +50,7 @@ func (s *PGStore) Brief(ctx context.Context, id int64) (Row, error) {
 	if err != nil {
 		return Row{}, wrap("buscar usuário", err)
 	}
-	return Row{OtherID: u.ID, Username: u.Username, DisplayName: u.DisplayName, AvatarKey: u.AvatarKey}, nil
+	return Row{OtherID: u.ID, Username: u.Username, DisplayName: u.DisplayName, AvatarKey: u.AvatarKey, Plan: u.Plan}, nil
 }
 
 // Request registra o pedido de userID a other, de forma atômica e respeitando os limites.
@@ -221,8 +221,8 @@ func (s *PGStore) Unblock(ctx context.Context, userID, other int64) (bool, error
 	return n > 0, nil
 }
 
-func toRow(otherID int64, kind string, since time.Time, username string, dn, ak *string) Row {
-	return Row{OtherID: otherID, Kind: Kind(kind), Since: since, Username: username, DisplayName: dn, AvatarKey: ak}
+func toRow(otherID int64, kind string, since time.Time, username string, dn, ak *string, plan string) Row {
+	return Row{OtherID: otherID, Kind: Kind(kind), Since: since, Username: username, DisplayName: dn, AvatarKey: ak, Plan: plan}
 }
 
 func (s *PGStore) List(ctx context.Context, userID int64, kind Kind, after int64, limit int) ([]Row, error) {
@@ -232,7 +232,7 @@ func (s *PGStore) List(ctx context.Context, userID int64, kind Kind, after int64
 	}
 	out := make([]Row, len(rs))
 	for i, r := range rs {
-		out[i] = toRow(r.OtherID, r.Kind, r.Since.Time, r.Username, r.DisplayName, r.AvatarKey)
+		out[i] = toRow(r.OtherID, r.Kind, r.Since.Time, r.Username, r.DisplayName, r.AvatarKey, r.Plan)
 	}
 	return out, nil
 }
@@ -243,7 +243,7 @@ func (s *PGStore) Ready(ctx context.Context, userID int64, limit int) (rows []Ro
 		return nil, nil, Counts{}, wrap("listar relacionamentos", err)
 	}
 	for _, r := range rs {
-		rows = append(rows, toRow(r.OtherID, r.Kind, r.Since.Time, r.Username, r.DisplayName, r.AvatarKey))
+		rows = append(rows, toRow(r.OtherID, r.Kind, r.Since.Time, r.Username, r.DisplayName, r.AvatarKey, r.Plan))
 	}
 	if blocked, err = s.q.ListBlockedIDs(ctx, userID); err != nil {
 		return nil, nil, Counts{}, wrap("listar bloqueados", err)

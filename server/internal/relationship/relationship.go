@@ -61,6 +61,7 @@ type RelationshipUser struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
+	Plan        string `json:"plan,omitempty" enum:"free,nitro,nitro_plus" doc:"Plano (Grátis, Nitro ou Nitro+). Ausente = free"`
 }
 
 // Relationship é um relacionamento na API, no READY e nos eventos RELATIONSHIP_ADD/UPDATE.
@@ -107,6 +108,7 @@ type Row struct {
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
+	Plan        string // free, nitro ou nitro_plus
 }
 
 // Counts são as contagens por tipo.

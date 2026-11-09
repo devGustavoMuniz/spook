@@ -7,6 +7,7 @@ import (
 
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/limits"
@@ -96,6 +97,7 @@ type Member struct {
 	BannerKey   *string
 	BannerURL   string
 	BannerColor *int32
+	Plan        string  // free, nitro ou nitro_plus
 	RoleIDs     []int64 // sem o @everyone, que todos têm
 	VoiceMuted  bool    // mutado na voz por um moderador (persistente)
 }
@@ -193,6 +195,7 @@ type MemberPayload struct {
 	Pronouns    string    `json:"pronouns,omitempty" doc:"Pronomes (até 40 caracteres)"`
 	BannerURL   string    `json:"banner_url,omitempty" doc:"URL temporária de leitura do banner"`
 	BannerColor *int32    `json:"banner_color,omitempty" doc:"Cor sólida do banner (RGB 0..16777215), usada quando não há imagem"`
+	Plan        string    `json:"plan,omitempty" enum:"free,nitro,nitro_plus" doc:"Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"`
 	RoleIDs     []string  `json:"role_ids" doc:"Cargos do membro, sem o @everyone"`
 	VoiceMuted  bool      `json:"voice_muted,omitempty" doc:"Mutado na voz por um moderador (MUTE_MEMBERS)"`
 }
@@ -252,6 +255,7 @@ func (m Member) Payload() MemberPayload {
 		p.Pronouns = *m.Pronouns
 	}
 	p.BannerURL, p.BannerColor = m.BannerURL, m.BannerColor
+	p.Plan = plan.Omit(m.Plan)
 	return p
 }
 

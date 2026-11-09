@@ -112,6 +112,10 @@ export const JoinInviteResponse = zod.object({
               avatar_url: zod.string().optional(),
               display_name: zod.string().optional(),
               id: zod.string(),
+              plan: zod
+                .enum(["free", "nitro", "nitro_plus"])
+                .optional()
+                .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
               username: zod.string(),
             }),
           )

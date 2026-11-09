@@ -15,6 +15,11 @@ func TestCropAnimatedGIFProfileImage(t *testing.T) {
 	e := accountEnv(t)
 	a := e.newActor(t, "recorte")
 	other := e.newActor(t, "recorte2")
+	// GIF é do Nitro: quem recorta precisa ter plano (o bloqueio sem plano está em nitro_integration_test.go).
+	adm := e.newActor(t, "recorte_adm")
+	e.makeAdmin(t, adm)
+	adm.call(t, "POST", "/api/admin/users/"+a.id+"/entitlement", J{"tier": "nitro", "days": 7}, 201)
+	adm.call(t, "POST", "/api/admin/users/"+other.id+"/entitlement", J{"tier": "nitro", "days": 7}, 201)
 	src := animatedGIF() // 16x16, 3 quadros
 
 	for _, kind := range []string{"avatar", "banner"} {

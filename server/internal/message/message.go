@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/snowflake"
@@ -49,6 +50,7 @@ type Author struct {
 	DisplayName *string
 	AvatarKey   *string
 	AvatarURL   string
+	Plan        string // free, nitro ou nitro_plus
 }
 
 type Message struct {
@@ -136,6 +138,7 @@ type AuthorPayload struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
+	Plan        string `json:"plan,omitempty" enum:"free,nitro,nitro_plus" doc:"Plano do autor (Grátis, Nitro ou Nitro+). Ausente = free"`
 }
 
 // MessagePayload é a mensagem na API e nos eventos MESSAGE_CREATE e MESSAGE_UPDATE.
@@ -170,7 +173,7 @@ type DeletePayload struct {
 }
 
 func (m Message) Payload() MessagePayload {
-	a := AuthorPayload{ID: httpx.ID(m.Author.ID), Username: m.Author.Username, AvatarURL: m.Author.AvatarURL}
+	a := AuthorPayload{ID: httpx.ID(m.Author.ID), Username: m.Author.Username, AvatarURL: m.Author.AvatarURL, Plan: plan.Omit(m.Author.Plan)}
 	if m.Author.DisplayName != nil {
 		a.DisplayName = *m.Author.DisplayName
 	}

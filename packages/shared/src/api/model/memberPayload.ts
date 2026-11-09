@@ -4,6 +4,7 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { MemberPayloadPlan } from "./memberPayloadPlan";
 
 export interface MemberPayload {
   avatar_url?: string;
@@ -18,6 +19,8 @@ export interface MemberPayload {
   joined_at: string;
   /** @nullable */
   nickname: string | null;
+  /** Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free */
+  plan?: MemberPayloadPlan;
   /** Pronomes (até 40 caracteres) */
   pronouns?: string;
   /**

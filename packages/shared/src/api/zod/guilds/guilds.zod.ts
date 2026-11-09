@@ -27,6 +27,10 @@ export const ListGuildsResponseItem = zod.object({
               avatar_url: zod.string().optional(),
               display_name: zod.string().optional(),
               id: zod.string(),
+              plan: zod
+                .enum(["free", "nitro", "nitro_plus"])
+                .optional()
+                .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
               username: zod.string(),
             }),
           )
@@ -103,6 +107,10 @@ export const CreateGuildResponse = zod.object({
               avatar_url: zod.string().optional(),
               display_name: zod.string().optional(),
               id: zod.string(),
+              plan: zod
+                .enum(["free", "nitro", "nitro_plus"])
+                .optional()
+                .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
               username: zod.string(),
             }),
           )
@@ -185,6 +193,10 @@ export const GetGuildResponse = zod.object({
               avatar_url: zod.string().optional(),
               display_name: zod.string().optional(),
               id: zod.string(),
+              plan: zod
+                .enum(["free", "nitro", "nitro_plus"])
+                .optional()
+                .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
               username: zod.string(),
             }),
           )
@@ -400,6 +412,10 @@ export const ListGuildMembersResponse = zod.object({
         guild_id: zod.string(),
         joined_at: zod.iso.datetime({ offset: true }),
         nickname: zod.string().nullable(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"),
         pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
         role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
         user_id: zod.string(),
@@ -453,6 +469,10 @@ export const SetGuildMemberNicknameResponse = zod.object({
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe("Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
@@ -481,6 +501,10 @@ export const RemoveGuildMemberRoleResponse = zod.object({
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe("Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
@@ -509,6 +533,10 @@ export const AddGuildMemberRoleResponse = zod.object({
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe("Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
@@ -536,6 +564,10 @@ export const UnmuteGuildMemberVoiceResponse = zod.object({
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe("Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),
@@ -563,6 +595,10 @@ export const MuteGuildMemberVoiceResponse = zod.object({
   guild_id: zod.string(),
   joined_at: zod.iso.datetime({ offset: true }),
   nickname: zod.string().nullable(),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe("Plano do membro (Grátis, Nitro ou Nitro+). Ausente = free"),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   role_ids: zod.array(zod.string()).nullable().describe("Cargos do membro, sem o @everyone"),
   user_id: zod.string(),

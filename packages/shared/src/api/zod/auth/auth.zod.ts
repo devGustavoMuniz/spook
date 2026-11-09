@@ -113,6 +113,12 @@ export const DesktopExchangeResponse = zod.object({
       .describe(
         "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
       ),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe(
+        "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
+      ),
     pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
   }),
@@ -211,6 +217,12 @@ export const LoginResponse = zod.object({
       .optional()
       .describe(
         "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+      ),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe(
+        "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
       ),
     pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
@@ -349,6 +361,12 @@ export const RegisterResponse = zod.object({
       .describe(
         "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
       ),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe(
+        "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
+      ),
     pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),
   }),
@@ -414,6 +432,12 @@ export const SocialSignupCompleteResponse = zod.object({
       .optional()
       .describe(
         "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+      ),
+    plan: zod
+      .enum(["free", "nitro", "nitro_plus"])
+      .optional()
+      .describe(
+        "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
       ),
     pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
     username: zod.string(),

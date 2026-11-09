@@ -39,6 +39,10 @@ export const AddDMRecipientResponse = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )
@@ -69,6 +73,10 @@ export const ListDMsResponseItem = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )
@@ -116,6 +124,10 @@ export const OpenDMResponse = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )

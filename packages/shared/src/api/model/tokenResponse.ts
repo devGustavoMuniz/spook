@@ -4,10 +4,16 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { Limits } from "./limits";
+import type { TokenResponsePlan } from "./tokenResponsePlan";
 
 export interface TokenResponse {
   /** Segundos até o token expirar (600) */
   expires_in: number;
+  /** Limites do plano: tela até screen_max_height px e screen_max_fps quadros por segundo */
+  limits: Limits;
+  /** Plano de quem entra */
+  plan: TokenResponsePlan;
   /** JWT do LiveKit, de uma sala só */
   token: string;
   /** URL de sinalização do LiveKit (wss://…) */

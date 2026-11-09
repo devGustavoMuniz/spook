@@ -74,9 +74,11 @@ const (
 	EventRelationshipRemove = events.RelationshipRemove
 	EventUserUpdate         = events.UserUpdate   // perfil público de um usuário mudou
 	EventTicketUpdate       = events.TicketUpdate // chamado de feedback do próprio usuário mudou
-	EventCallRing           = events.CallRing
-	EventCallUpdate         = events.CallUpdate
-	EventCallEnd            = events.CallEnd
+	// EventEntitlementUpdate: o plano (Nitro/Nitro+) do próprio usuário mudou (tópico user:<id>).
+	EventEntitlementUpdate = events.EntitlementUpdate
+	EventCallRing          = events.CallRing
+	EventCallUpdate        = events.CallUpdate
+	EventCallEnd           = events.CallEnd
 )
 
 // Hello é o d do op 10.

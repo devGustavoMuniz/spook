@@ -4,10 +4,13 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { CallCallerPlan } from "./callCallerPlan";
 
 export interface CallCaller {
   avatar_url?: string;
   display_name?: string;
   id: string;
+  /** Plano de quem liga (Grátis, Nitro ou Nitro+). Ausente = free */
+  plan?: CallCallerPlan;
   username: string;
 }

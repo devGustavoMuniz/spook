@@ -51,11 +51,18 @@ export const GetMeResponse = zod.object({
     .describe(
       "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
     ),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe(
+      "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
+    ),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
 });
 
 /**
+ * Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`.
  * @summary Edita nome de exibição, avatar, bio, pronomes e banner
  */
 export const updateMeBodyAvatarKeyMax = 200;
@@ -129,11 +136,18 @@ export const UpdateMeResponse = zod.object({
     .describe(
       "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
     ),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe(
+      "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
+    ),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),
 });
 
 /**
+ * Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`.
  * @summary Gera URL pré-assinada para enviar o avatar
  */
 export const requestAvatarUploadBodySizeMax = 5242880;
@@ -157,6 +171,7 @@ export const RequestAvatarUploadResponse = zod.object({
 });
 
 /**
+ * Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`.
  * @summary Gera URL pré-assinada para enviar o banner do perfil
  */
 export const requestBannerUploadBodySizeMax = 5242880;
@@ -180,7 +195,7 @@ export const RequestBannerUploadResponse = zod.object({
 });
 
 /**
- * Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original.
+ * Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original. Sem Nitro (GIF é do Nitro): 403 com `code: nitro_required`.
  * @summary Recorta um GIF (animado) de avatar ou banner já enviado
  */
 export const cropProfileImageBodyHeightMax = 4096;
@@ -270,6 +285,12 @@ export const ChangeEmailResponse = zod.object({
     .optional()
     .describe(
       "Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)",
+    ),
+  plan: zod
+    .enum(["free", "nitro", "nitro_plus"])
+    .optional()
+    .describe(
+      "Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan",
     ),
   pronouns: zod.string().optional().describe("Pronomes (até 40 caracteres)"),
   username: zod.string(),

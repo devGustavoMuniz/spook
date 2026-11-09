@@ -46,7 +46,7 @@ WHERE r.user_id = $1
 ORDER BY COALESCE(c.last_message_id, c.id) DESC;
 
 -- name: ListRecipientsByChannels :many
-SELECT r.channel_id, u.id AS user_id, u.username, u.display_name, u.avatar_key
+SELECT r.channel_id, u.id AS user_id, u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM channel_recipients r JOIN users u ON u.id = r.user_id
 WHERE r.channel_id = ANY($1::bigint[])
 ORDER BY r.channel_id, r.user_id;

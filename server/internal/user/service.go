@@ -6,14 +6,22 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"log/slog"
 	"net/mail"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 )
+
+// PlanSource diz o plano efetivo de uma pessoa (implementado por entitlement.Service). Nulo = sem planos: tudo
+// vale como no plano grátis nas respostas, mas nenhuma regra de Nitro é aplicada (testes e ferramentas).
+type PlanSource interface {
+	Tier(ctx context.Context, userID int64) (plan.Tier, error)
+}
 
 // Store é o que o service precisa do banco.
 type Store interface {
@@ -57,10 +65,54 @@ type Service struct {
 	aud Audience
 	// verifier é o ponto de extensão da troca de e-mail com verificação (nulo = troca direta).
 	verifier EmailChangeVerifier
+	// plans liga o Nitro: o plano vai nos perfis e GIF/imagem animada em avatar e banner exige Nitro (nulo = sem regra).
+	plans PlanSource
 }
 
 func NewService(store Store, storage AvatarStorage, ids IDGenerator) *Service {
 	return &Service{store: store, storage: storage, ids: ids}
+}
+
+// WithPlans liga as regras de plano (Nitro) ao perfil.
+func (s *Service) WithPlans(p PlanSource) *Service {
+	s.plans = p
+	return s
+}
+
+// PlanOf devolve o plano efetivo da pessoa como texto da API (free, nitro ou nitro_plus). Sem planos ou com falha
+// na leitura vale free: o perfil nunca deixa de carregar por causa do plano.
+func (s *Service) PlanOf(ctx context.Context, userID int64) string {
+	if s.plans == nil {
+		return string(plan.Free)
+	}
+	t, err := s.plans.Tier(ctx, userID)
+	if err != nil {
+		slog.WarnContext(ctx, "user: não foi possível ler o plano", "user", userID, "err", err)
+		return string(plan.Free)
+	}
+	return string(t)
+}
+
+// canAnimate diz se a pessoa pode usar imagem animada (Nitro ou Nitro+). Sem planos ligados, qualquer um pode.
+func (s *Service) canAnimate(ctx context.Context, userID int64) (bool, error) {
+	if s.plans == nil {
+		return true, nil
+	}
+	t, err := s.plans.Tier(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return plan.For(t).AnimatedAvatar, nil
+}
+
+// Republish publica de novo o USER_UPDATE da pessoa (o plano mudou). Falhas só vão para o log.
+func (s *Service) Republish(ctx context.Context, userID int64) {
+	u, err := s.store.ByID(ctx, userID)
+	if err != nil {
+		slog.WarnContext(ctx, "user: não foi possível republicar o perfil", "user", userID, "err", err)
+		return
+	}
+	s.publishUpdate(ctx, u)
 }
 
 func (s *Service) Create(ctx context.Context, email, username, passwordHash string) (User, error) {
@@ -178,6 +230,11 @@ func (s *Service) UpdateProfile(ctx context.Context, id int64, in ProfileUpdate)
 		if !strings.HasPrefix(*in.AvatarKey, avatarPrefix(id)) {
 			return User{}, ErrInvalidAvatar
 		}
+		if cur.AvatarKey == nil || *cur.AvatarKey != *in.AvatarKey {
+			if err := s.requireStaticUnlessNitro(ctx, id, *in.AvatarKey, ErrInvalidAvatar); err != nil {
+				return User{}, err
+			}
+		}
 		p.AvatarKey = in.AvatarKey
 	}
 	if in.BannerKey != nil && in.BannerColor != nil {
@@ -189,6 +246,11 @@ func (s *Service) UpdateProfile(ctx context.Context, id int64, in ProfileUpdate)
 	case in.BannerKey != nil:
 		if !strings.HasPrefix(*in.BannerKey, bannerPrefix(id)) {
 			return User{}, ErrInvalidBanner
+		}
+		if cur.BannerKey == nil || *cur.BannerKey != *in.BannerKey {
+			if err := s.requireStaticUnlessNitro(ctx, id, *in.BannerKey, ErrInvalidBanner); err != nil {
+				return User{}, err
+			}
 		}
 		p.BannerKey, p.BannerColor = in.BannerKey, nil
 	case in.BannerColor != nil:
@@ -262,7 +324,7 @@ type AvatarUpload struct {
 
 // RequestAvatarUpload devolve uma URL pré-assinada para o cliente enviar o avatar direto ao storage.
 func (s *Service) RequestAvatarUpload(ctx context.Context, userID int64, contentType string, size int64) (AvatarUpload, error) {
-	up, err := s.requestImageUpload(ctx, avatarPrefix(userID), contentType, size)
+	up, err := s.requestImageUpload(ctx, userID, avatarPrefix(userID), contentType, size)
 	if errors.Is(err, errInvalidImage) {
 		return AvatarUpload{}, ErrInvalidAvatar
 	}
@@ -271,7 +333,7 @@ func (s *Service) RequestAvatarUpload(ctx context.Context, userID int64, content
 
 // RequestBannerUpload é o equivalente do avatar para o banner do perfil.
 func (s *Service) RequestBannerUpload(ctx context.Context, userID int64, contentType string, size int64) (AvatarUpload, error) {
-	up, err := s.requestImageUpload(ctx, bannerPrefix(userID), contentType, size)
+	up, err := s.requestImageUpload(ctx, userID, bannerPrefix(userID), contentType, size)
 	if errors.Is(err, errInvalidImage) {
 		return AvatarUpload{}, ErrInvalidBanner
 	}
@@ -280,13 +342,20 @@ func (s *Service) RequestBannerUpload(ctx context.Context, userID int64, content
 
 var errInvalidImage = errors.New("imagem inválida")
 
-func (s *Service) requestImageUpload(ctx context.Context, prefix, contentType string, size int64) (AvatarUpload, error) {
+func (s *Service) requestImageUpload(ctx context.Context, userID int64, prefix, contentType string, size int64) (AvatarUpload, error) {
 	if s.storage == nil {
 		return AvatarUpload{}, fmt.Errorf("storage não configurado")
 	}
 	ext, ok := imageTypes[contentType]
 	if !ok || size <= 0 || size > MaxAvatarBytes {
 		return AvatarUpload{}, errInvalidImage
+	}
+	if contentType == "image/gif" { // GIF é do Nitro, animado ou não: o bloqueio é por tipo
+		if ok, err := s.canAnimate(ctx, userID); err != nil {
+			return AvatarUpload{}, err
+		} else if !ok {
+			return AvatarUpload{}, ErrNitroRequired
+		}
 	}
 	key := fmt.Sprintf("%s%d.%s", prefix, s.ids.Next(), ext)
 	url, err := s.storage.PresignPut(ctx, key, contentType, size, avatarPutTTL)
@@ -336,6 +405,11 @@ func (s *Service) CropImage(ctx context.Context, userID int64, key string, rect 
 	if !strings.HasSuffix(key, ".gif") || strings.Contains(key[len(prefix):], "/") {
 		return "", ErrInvalidAvatar
 	}
+	if ok, err := s.canAnimate(ctx, userID); err != nil {
+		return "", err
+	} else if !ok {
+		return "", ErrNitroRequired
+	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	select {
@@ -367,6 +441,32 @@ func (s *Service) CropImage(ctx context.Context, userID int64, key string, rect 
 	}
 	_ = s.storage.Delete(ctx, key) // o original não é mais necessário; falha aqui só deixa um objeto órfão
 	return newKey, nil
+}
+
+// requireStaticUnlessNitro barra, para quem não tem Nitro, uma chave de avatar/banner cujo arquivo já enviado seja
+// GIF, WebP animado ou APNG (os bytes valem mais que o Content-Type declarado no pedido de upload). Sem planos
+// ligados ou sem storage não há o que checar. Arquivo ausente ou ilegível é recusado com invalid: sem ele não dá
+// para saber se é animado. O arquivo é enviado antes por URL pré-assinada, então a janela entre este teste e um
+// reenvio na mesma chave (até 5 min) existe; a exibição estática por plano no cliente cobre essa fresta.
+func (s *Service) requireStaticUnlessNitro(ctx context.Context, userID int64, key string, invalid error) error {
+	if s.plans == nil || s.storage == nil {
+		return nil
+	}
+	ok, err := s.canAnimate(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	data, err := s.storage.Get(ctx, key, MaxAvatarBytes)
+	if err != nil {
+		return invalid
+	}
+	if isAnimatedImage(data) {
+		return ErrNitroRequired
+	}
+	return nil
 }
 
 // cropSlots limita os recortes simultâneos (cada um pode ocupar dezenas de MB).

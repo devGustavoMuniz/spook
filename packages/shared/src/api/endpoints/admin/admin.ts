@@ -24,6 +24,8 @@ import { http } from "../../../http";
 import type {
   ActivityHeatmap,
   AdminCallsParams,
+  AdminListEntitlementsParams,
+  AdminListRedeemCodesParams,
   AdminListTicketsParams,
   AdminLiveKitHistoryParams,
   AdminServersParams,
@@ -34,12 +36,19 @@ import type {
   AdminTicketPayload,
   AdminUsersParams,
   Calls,
+  CodesPage,
+  CreateCodesBody,
   ErrorModel,
   GatewayHistory,
+  GrantBody,
+  GrantPayload,
+  GrantsPage,
   Live,
   LiveKitHistory,
   LiveKitPlan,
+  NewCodesPayload,
   Overview,
+  RevokeResult,
   ServersBody,
   System,
   TicketAdminMessagePayload,
@@ -309,6 +318,236 @@ export function useAdminCalls<TData = Awaited<ReturnType<typeof adminCalls>>, TE
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getAdminListEntitlementsUrl = (params?: AdminListEntitlementsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/entitlements?${stringifiedParams}`
+    : `/api/admin/entitlements`;
+};
+
+/**
+ * @summary Concessões de plano (ativas por padrão) com busca por username/nome, filtro por plano e página
+ */
+export const adminListEntitlements = async (
+  params?: AdminListEntitlementsParams,
+  options?: Parameters<typeof http>[1],
+): Promise<GrantsPage> => {
+  return http<GrantsPage>(getAdminListEntitlementsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminListEntitlementsQueryKey = (params?: AdminListEntitlementsParams) => {
+  return [`/api/admin/entitlements`, ...(params ? [params] : [])] as const;
+};
+
+export const getAdminListEntitlementsQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminListEntitlements>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListEntitlementsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlements>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminListEntitlementsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListEntitlements>>> = ({ signal }) =>
+    adminListEntitlements(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminListEntitlements>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminListEntitlementsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminListEntitlements>>
+>;
+export type AdminListEntitlementsQueryError = ErrorModel;
+
+export function useAdminListEntitlements<
+  TData = Awaited<ReturnType<typeof adminListEntitlements>>,
+  TError = ErrorModel,
+>(
+  params: undefined | AdminListEntitlementsParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlements>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListEntitlements>>,
+          TError,
+          Awaited<ReturnType<typeof adminListEntitlements>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminListEntitlements<
+  TData = Awaited<ReturnType<typeof adminListEntitlements>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListEntitlementsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlements>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListEntitlements>>,
+          TError,
+          Awaited<ReturnType<typeof adminListEntitlements>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminListEntitlements<
+  TData = Awaited<ReturnType<typeof adminListEntitlements>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListEntitlementsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlements>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Concessões de plano (ativas por padrão) com busca por username/nome, filtro por plano e página
+ */
+
+export function useAdminListEntitlements<
+  TData = Awaited<ReturnType<typeof adminListEntitlements>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListEntitlementsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlements>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminListEntitlementsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAdminRevokeEntitlementGrantUrl = (id: string) => {
+  return `/api/admin/entitlements/${id}`;
+};
+
+/**
+ * @summary Revoga uma concessão específica (a pessoa pode continuar com outra)
+ */
+export const adminRevokeEntitlementGrant = async (
+  id: string,
+  options?: Parameters<typeof http>[1],
+): Promise<RevokeResult> => {
+  return http<RevokeResult>(getAdminRevokeEntitlementGrantUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getAdminRevokeEntitlementGrantMutationKey = () =>
+  ["adminRevokeEntitlementGrant"] as const;
+
+export const getAdminRevokeEntitlementGrantMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminRevokeEntitlementGrant>>,
+    TError,
+    AdminRevokeEntitlementGrantMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminRevokeEntitlementGrant>>,
+  TError,
+  AdminRevokeEntitlementGrantMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAdminRevokeEntitlementGrantMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminRevokeEntitlementGrant>>,
+    AdminRevokeEntitlementGrantMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return adminRevokeEntitlementGrant(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminRevokeEntitlementGrantMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminRevokeEntitlementGrant>>
+>;
+
+export type AdminRevokeEntitlementGrantMutationError = ErrorModel;
+export type AdminRevokeEntitlementGrantMutationVariables = { id: string };
+
+/**
+ * @summary Revoga uma concessão específica (a pessoa pode continuar com outra)
+ */
+export const useAdminRevokeEntitlementGrant = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof adminRevokeEntitlementGrant>>,
+      TError,
+      AdminRevokeEntitlementGrantMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof adminRevokeEntitlementGrant>>,
+  TError,
+  AdminRevokeEntitlementGrantMutationVariables,
+  TContext
+> => {
+  return useMutation(getAdminRevokeEntitlementGrantMutationOptions(options), queryClient);
+};
 export const getAdminGatewayHistoryUrl = () => {
   return `/api/admin/gateway/history`;
 };
@@ -902,6 +1141,256 @@ export function useAdminOverview<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getAdminListRedeemCodesUrl = (params?: AdminListRedeemCodesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : String(value));
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/redeem-codes?${stringifiedParams}`
+    : `/api/admin/redeem-codes`;
+};
+
+/**
+ * @summary Códigos de resgate (não usados por padrão), sem o texto: só os 4 últimos caracteres
+ */
+export const adminListRedeemCodes = async (
+  params?: AdminListRedeemCodesParams,
+  options?: Parameters<typeof http>[1],
+): Promise<CodesPage> => {
+  return http<CodesPage>(getAdminListRedeemCodesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminListRedeemCodesQueryKey = (params?: AdminListRedeemCodesParams) => {
+  return [`/api/admin/redeem-codes`, ...(params ? [params] : [])] as const;
+};
+
+export const getAdminListRedeemCodesQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminListRedeemCodes>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListRedeemCodesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListRedeemCodes>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminListRedeemCodesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListRedeemCodes>>> = ({ signal }) =>
+    adminListRedeemCodes(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminListRedeemCodes>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminListRedeemCodesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminListRedeemCodes>>
+>;
+export type AdminListRedeemCodesQueryError = ErrorModel;
+
+export function useAdminListRedeemCodes<
+  TData = Awaited<ReturnType<typeof adminListRedeemCodes>>,
+  TError = ErrorModel,
+>(
+  params: undefined | AdminListRedeemCodesParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListRedeemCodes>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListRedeemCodes>>,
+          TError,
+          Awaited<ReturnType<typeof adminListRedeemCodes>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminListRedeemCodes<
+  TData = Awaited<ReturnType<typeof adminListRedeemCodes>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListRedeemCodesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListRedeemCodes>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListRedeemCodes>>,
+          TError,
+          Awaited<ReturnType<typeof adminListRedeemCodes>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminListRedeemCodes<
+  TData = Awaited<ReturnType<typeof adminListRedeemCodes>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListRedeemCodesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListRedeemCodes>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Códigos de resgate (não usados por padrão), sem o texto: só os 4 últimos caracteres
+ */
+
+export function useAdminListRedeemCodes<
+  TData = Awaited<ReturnType<typeof adminListRedeemCodes>>,
+  TError = ErrorModel,
+>(
+  params?: AdminListRedeemCodesParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListRedeemCodes>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminListRedeemCodesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAdminCreateRedeemCodesUrl = () => {
+  return `/api/admin/redeem-codes`;
+};
+
+/**
+ * @summary Gera códigos de resgate. O texto de cada código aparece só nesta resposta: o servidor guarda apenas o hash
+ */
+export const adminCreateRedeemCodes = async (
+  createCodesBody: CreateCodesBody,
+  options?: Parameters<typeof http>[1],
+): Promise<NewCodesPayload> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<NewCodesPayload>(getAdminCreateRedeemCodesUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(createCodesBody),
+  });
+};
+
+export const getAdminCreateRedeemCodesMutationKey = () => ["adminCreateRedeemCodes"] as const;
+
+export const getAdminCreateRedeemCodesMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminCreateRedeemCodes>>,
+    TError,
+    AdminCreateRedeemCodesMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminCreateRedeemCodes>>,
+  TError,
+  AdminCreateRedeemCodesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAdminCreateRedeemCodesMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminCreateRedeemCodes>>,
+    AdminCreateRedeemCodesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return adminCreateRedeemCodes(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminCreateRedeemCodesMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminCreateRedeemCodes>>
+>;
+export type AdminCreateRedeemCodesMutationBody = CreateCodesBody;
+export type AdminCreateRedeemCodesMutationError = ErrorModel;
+export type AdminCreateRedeemCodesMutationVariables = { data: CreateCodesBody };
+
+/**
+ * @summary Gera códigos de resgate. O texto de cada código aparece só nesta resposta: o servidor guarda apenas o hash
+ */
+export const useAdminCreateRedeemCodes = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof adminCreateRedeemCodes>>,
+      TError,
+      AdminCreateRedeemCodesMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof adminCreateRedeemCodes>>,
+  TError,
+  AdminCreateRedeemCodesMutationVariables,
+  TContext
+> => {
+  return useMutation(getAdminCreateRedeemCodesMutationOptions(options), queryClient);
+};
 export const getAdminServersUrl = (params?: AdminServersParams) => {
   const normalizedParams = new URLSearchParams();
 
@@ -1968,3 +2457,194 @@ export function useAdminUsers<TData = Awaited<ReturnType<typeof adminUsers>>, TE
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export const getAdminRevokeEntitlementUrl = (id: string) => {
+  return `/api/admin/users/${id}/entitlement`;
+};
+
+/**
+ * @summary Revoga todas as concessões ativas do usuário (volta ao plano Grátis). 404 se não havia plano ativo
+ */
+export const adminRevokeEntitlement = async (
+  id: string,
+  options?: Parameters<typeof http>[1],
+): Promise<RevokeResult> => {
+  return http<RevokeResult>(getAdminRevokeEntitlementUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getAdminRevokeEntitlementMutationKey = () => ["adminRevokeEntitlement"] as const;
+
+export const getAdminRevokeEntitlementMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminRevokeEntitlement>>,
+    TError,
+    AdminRevokeEntitlementMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminRevokeEntitlement>>,
+  TError,
+  AdminRevokeEntitlementMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAdminRevokeEntitlementMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminRevokeEntitlement>>,
+    AdminRevokeEntitlementMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return adminRevokeEntitlement(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminRevokeEntitlementMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminRevokeEntitlement>>
+>;
+
+export type AdminRevokeEntitlementMutationError = ErrorModel;
+export type AdminRevokeEntitlementMutationVariables = { id: string };
+
+/**
+ * @summary Revoga todas as concessões ativas do usuário (volta ao plano Grátis). 404 se não havia plano ativo
+ */
+export const useAdminRevokeEntitlement = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof adminRevokeEntitlement>>,
+      TError,
+      AdminRevokeEntitlementMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof adminRevokeEntitlement>>,
+  TError,
+  AdminRevokeEntitlementMutationVariables,
+  TContext
+> => {
+  return useMutation(getAdminRevokeEntitlementMutationOptions(options), queryClient);
+};
+export const getAdminGrantEntitlementUrl = (id: string) => {
+  return `/api/admin/users/${id}/entitlement`;
+};
+
+/**
+ * @summary Concede Nitro ou Nitro+ a um usuário por um prazo em dias (ou permanente). Avisa a pessoa em tempo real
+ */
+export const adminGrantEntitlement = async (
+  id: string,
+  grantBody: GrantBody,
+  options?: Parameters<typeof http>[1],
+): Promise<GrantPayload> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<GrantPayload>(getAdminGrantEntitlementUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(grantBody),
+  });
+};
+
+export const getAdminGrantEntitlementMutationKey = () => ["adminGrantEntitlement"] as const;
+
+export const getAdminGrantEntitlementMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminGrantEntitlement>>,
+    TError,
+    AdminGrantEntitlementMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminGrantEntitlement>>,
+  TError,
+  AdminGrantEntitlementMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAdminGrantEntitlementMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminGrantEntitlement>>,
+    AdminGrantEntitlementMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return adminGrantEntitlement(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminGrantEntitlementMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminGrantEntitlement>>
+>;
+export type AdminGrantEntitlementMutationBody = GrantBody;
+export type AdminGrantEntitlementMutationError = ErrorModel;
+export type AdminGrantEntitlementMutationVariables = { id: string; data: GrantBody };
+
+/**
+ * @summary Concede Nitro ou Nitro+ a um usuário por um prazo em dias (ou permanente). Avisa a pessoa em tempo real
+ */
+export const useAdminGrantEntitlement = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof adminGrantEntitlement>>,
+      TError,
+      AdminGrantEntitlementMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof adminGrantEntitlement>>,
+  TError,
+  AdminGrantEntitlementMutationVariables,
+  TContext
+> => {
+  return useMutation(getAdminGrantEntitlementMutationOptions(options), queryClient);
+};

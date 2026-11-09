@@ -179,7 +179,10 @@ func TestProfileBioPronounsBannerAndAnimatedAvatar(t *testing.T) {
 	a.call(t, "PATCH", "/api/users/me", J{"banner_key": "banners/1/x.png", "banner_color": 1}, 422)
 	a.call(t, "PATCH", "/api/users/me", J{"banner_key": "banners/999999/x.png"}, 422) // chave de outro usuário
 
-	// banner por upload (GIF animado: preservado byte a byte)
+	// banner por upload (GIF animado: preservado byte a byte). GIF é do Nitro: o administrador concede o plano.
+	adm := e.newActor(t, "perfil_adm")
+	e.makeAdmin(t, adm)
+	adm.call(t, "POST", "/api/admin/users/"+a.id+"/entitlement", J{"tier": "nitro", "days": 7}, 201)
 	gif := animatedGIF()
 	for _, kind := range []string{"banner", "avatar"} {
 		up := obj(t, a.call(t, "POST", "/api/users/me/"+kind, J{"content_type": "image/gif", "size": len(gif)}, 200))

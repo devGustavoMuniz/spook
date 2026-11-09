@@ -4,6 +4,7 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { ViewPlan } from "./viewPlan";
 
 export interface View {
   /** URL temporária de leitura do avatar (pode ser animado: GIF/WebP) */
@@ -27,6 +28,8 @@ export interface View {
   is_admin: boolean;
   /** Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link) */
   pending_email?: string;
+  /** Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan */
+  plan?: ViewPlan;
   /** Pronomes (até 40 caracteres) */
   pronouns?: string;
   username: string;

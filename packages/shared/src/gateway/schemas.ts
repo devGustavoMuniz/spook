@@ -4,11 +4,16 @@ import { z } from "zod";
 
 // ---- Payloads de domínio (mesmo formato da API REST) ----
 
+/** Plano de uma pessoa (Nitro e Nitro+). Nos payloads públicos o campo `plan` é opcional: ausente = "free". */
+export const planTierSchema = z.enum(["free", "nitro", "nitro_plus"]);
+export type PlanTier = z.infer<typeof planTierSchema>;
+
 export const authorPayloadSchema = z.object({
   id: z.string(),
   username: z.string(),
   display_name: z.string().optional(),
   avatar_url: z.string().optional(),
+  plan: planTierSchema.optional(),
 });
 
 export const attachmentPayloadSchema = z.object({
@@ -66,6 +71,7 @@ export const recipientPayloadSchema = z.object({
   username: z.string(),
   display_name: z.string().optional(),
   avatar_url: z.string().optional(),
+  plan: planTierSchema.optional(),
 });
 
 export const channelPayloadSchema = z.object({
@@ -108,6 +114,7 @@ export const memberPayloadSchema = z.object({
   pronouns: z.string().optional(),
   banner_url: z.string().optional(),
   banner_color: z.number().int().optional(),
+  plan: planTierSchema.optional(),
   role_ids: z.array(z.string()).nullable(),
   /** Mutado na voz por um moderador (MUTE_MEMBERS). `default` tolera um servidor anterior. */
   voice_muted: z.boolean().optional(),
@@ -219,6 +226,7 @@ export const relationshipUserSchema = z.object({
   username: z.string(),
   display_name: z.string().optional(),
   avatar_url: z.string().optional(),
+  plan: planTierSchema.optional(),
 });
 /** Um relacionamento (RELATIONSHIP_ADD/UPDATE, READY.relationships.items e GET /api/users/me/relationships). */
 export const relationshipPayloadSchema = z.object({
@@ -245,6 +253,7 @@ export const callCallerSchema = z.object({
   username: z.string(),
   display_name: z.string().optional(),
   avatar_url: z.string().optional(),
+  plan: planTierSchema.optional(),
 });
 /** Chamada de DM (CALL_RING, CALL_UPDATE, CALL_END e READY.calls). */
 export const callPayloadSchema = z.object({
@@ -274,6 +283,25 @@ export const ticketUpdateDataSchema = z.object({
   by_admin: z.boolean(),
 });
 export type TicketUpdateData = z.infer<typeof ticketUpdateDataSchema>;
+
+/** O que um plano libera (espelha `server/internal/plan` e `fixtures/plans.json`). */
+export const planLimitsSchema = z.object({
+  screen_max_height: z.number().int(),
+  screen_max_fps: z.number().int(),
+  animated_avatar: z.boolean(),
+  animated_banner: z.boolean(),
+});
+export type PlanLimits = z.infer<typeof planLimitsSchema>;
+
+/** O plano do próprio usuário mudou (ENTITLEMENT_UPDATE, tópico do usuário; todas as sessões). */
+export const entitlementUpdateDataSchema = z.object({
+  tier: planTierSchema,
+  expires_at: z.string().nullable(),
+  source: z.enum(["admin", "code", "payment"]).nullable(),
+  limits: planLimitsSchema,
+  reason: z.enum(["granted", "revoked", "redeemed", "expired"]),
+});
+export type EntitlementUpdateData = z.infer<typeof entitlementUpdateDataSchema>;
 
 function presenceUpdateDataSchemaBase() {
   return z.object({
@@ -341,6 +369,8 @@ export const userUpdateDataSchema = z.object({
   pronouns: z.string().optional(),
   banner_url: z.string().optional(),
   banner_color: z.number().int().optional(),
+  /** O servidor sempre envia em USER_UPDATE; ausente (servidor antigo) vale "free". Trocar o plano limpa o selo e a animação. */
+  plan: planTierSchema.optional(),
 });
 export type UserUpdateData = z.infer<typeof userUpdateDataSchema>;
 export const presenceUpdateDataSchema = presenceUpdateDataSchemaBase();
@@ -381,6 +411,7 @@ export const eventSchemas = {
   RELATIONSHIP_UPDATE: relationshipPayloadSchema,
   RELATIONSHIP_REMOVE: relationshipRemoveDataSchema,
   TICKET_UPDATE: ticketUpdateDataSchema,
+  ENTITLEMENT_UPDATE: entitlementUpdateDataSchema,
   CALL_RING: callPayloadSchema,
   CALL_UPDATE: callPayloadSchema,
   CALL_END: callPayloadSchema,

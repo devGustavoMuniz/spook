@@ -260,6 +260,7 @@ export const getUpdateMeUrl = () => {
 };
 
 /**
+ * Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`.
  * @summary Edita nome de exibição, avatar, bio, pronomes e banner
  */
 export const updateMe = async (
@@ -360,6 +361,7 @@ export const getRequestAvatarUploadUrl = () => {
 };
 
 /**
+ * Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`.
  * @summary Gera URL pré-assinada para enviar o avatar
  */
 export const requestAvatarUpload = async (
@@ -465,6 +467,7 @@ export const getRequestBannerUploadUrl = () => {
 };
 
 /**
+ * Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`.
  * @summary Gera URL pré-assinada para enviar o banner do perfil
  */
 export const requestBannerUpload = async (
@@ -570,7 +573,7 @@ export const getCropProfileImageUrl = () => {
 };
 
 /**
- * Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original.
+ * Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original. Sem Nitro (GIF é do Nitro): 403 com `code: nitro_required`.
  * @summary Recorta um GIF (animado) de avatar ou banner já enviado
  */
 export const cropProfileImage = async (

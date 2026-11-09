@@ -53,6 +53,10 @@ export const UpdateChannelResponse = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )
@@ -149,6 +153,10 @@ export const ListGuildChannelsResponseItem = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )
@@ -197,6 +205,10 @@ export const CreateChannelResponse = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )
@@ -251,6 +263,10 @@ export const ReorderChannelsResponseItem = zod.object({
         avatar_url: zod.string().optional(),
         display_name: zod.string().optional(),
         id: zod.string(),
+        plan: zod
+          .enum(["free", "nitro", "nitro_plus"])
+          .optional()
+          .describe("Plano (Grátis, Nitro ou Nitro+). Ausente = free"),
         username: zod.string(),
       }),
     )

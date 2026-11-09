@@ -4,10 +4,13 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthorPayloadPlan } from "./authorPayloadPlan";
 
 export interface AuthorPayload {
   avatar_url?: string;
   display_name?: string;
   id: string;
+  /** Plano do autor (Grátis, Nitro ou Nitro+). Ausente = free */
+  plan?: AuthorPayloadPlan;
   username: string;
 }

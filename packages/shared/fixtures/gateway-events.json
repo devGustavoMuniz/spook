@@ -21,7 +21,7 @@
     "CALL_END": {
       "op": 0,
       "t": "CALL_END",
-      "s": 31,
+      "s": 32,
       "d": {
         "channel_id": "500",
         "state": "ended",
@@ -34,7 +34,7 @@
     "CALL_RING": {
       "op": 0,
       "t": "CALL_RING",
-      "s": 29,
+      "s": 30,
       "d": {
         "channel_id": "500",
         "state": "ringing",
@@ -52,7 +52,7 @@
     "CALL_UPDATE": {
       "op": 0,
       "t": "CALL_UPDATE",
-      "s": 30,
+      "s": 31,
       "d": {
         "channel_id": "500",
         "state": "active",
@@ -109,6 +109,23 @@
         "last_message_id": "900",
         "created_at": "2026-10-31T12:00:00Z",
         "topic": "Avisos e conversa geral"
+      }
+    },
+    "ENTITLEMENT_UPDATE": {
+      "op": 0,
+      "t": "ENTITLEMENT_UPDATE",
+      "s": 29,
+      "d": {
+        "tier": "nitro",
+        "expires_at": "2026-10-31T12:00:00Z",
+        "source": "code",
+        "limits": {
+          "screen_max_height": 1080,
+          "screen_max_fps": 60,
+          "animated_avatar": true,
+          "animated_banner": true
+        },
+        "reason": "redeemed"
       }
     },
     "GUILD_CREATE": {
@@ -537,7 +554,8 @@
         "avatar_url": "https://s3.example/avatars/11/7.gif?sig=x",
         "bio": "oi",
         "pronouns": "ela/dela",
-        "banner_url": "https://s3.example/banners/11/8.png?sig=x"
+        "banner_url": "https://s3.example/banners/11/8.png?sig=x",
+        "plan": "nitro"
       }
     },
     "VOICE_STATE_UPDATE": {

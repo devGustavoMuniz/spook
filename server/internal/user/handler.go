@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/httpx"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/ratelimit"
 )
@@ -28,6 +29,7 @@ type View struct {
 	EmailVerified bool      `json:"email_verified" doc:"O e-mail foi confirmado. Contas antigas começam como não verificadas"`
 	PendingEmail  string    `json:"pending_email,omitempty" doc:"Endereço novo aguardando confirmação por e-mail (a troca só vale depois do clique no link)"`
 	HasPassword   bool      `json:"has_password" doc:"Falso em contas criadas por login social que ainda não definiram senha"`
+	Plan          string    `json:"plan,omitempty" enum:"free,nitro,nitro_plus" doc:"Plano (Grátis, Nitro ou Nitro+). Ausente = free. Validade e origem: GET /api/me/plan"`
 	IsAdmin       bool      `json:"is_admin" doc:"Administrador do painel /admin (só para mostrar o link; o backend decide o acesso)"`
 }
 
@@ -55,6 +57,9 @@ func (h *Handler) View(ctx context.Context, u User) View {
 		CreatedAt: u.CreatedAt, AvatarURL: h.svc.AvatarURL(ctx, u), IsAdmin: u.IsAdmin,
 	}
 	v.EmailVerified, v.HasPassword = u.EmailVerifiedAt != nil, u.HasPassword
+	if p := h.svc.PlanOf(ctx, u.ID); p != string(plan.Free) {
+		v.Plan = p
+	}
 	if u.PendingEmail != nil {
 		v.PendingEmail = *u.PendingEmail
 	}
@@ -138,6 +143,13 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 		}
 	}
 
+	// nitro: operações que podem responder 403 `code: nitro_required` (imagem animada sem Nitro).
+	nitro := func(o huma.Operation) huma.Operation {
+		o.Errors = append(o.Errors, http.StatusForbidden)
+		o.Description = "Sem Nitro, GIF, WebP animado e APNG não são aceitos: 403 com `code: nitro_required`."
+		return o
+	}
+
 	huma.Register(api, op("getMe", http.MethodGet, "/api/users/me", "Perfil do usuário autenticado"),
 		func(ctx context.Context, _ *struct{}) (*MeOutput, error) {
 			u, err := h.svc.Get(ctx, h.userID(ctx))
@@ -147,7 +159,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return &MeOutput{Body: h.View(ctx, u)}, nil
 		})
 
-	huma.Register(api, op("updateMe", http.MethodPatch, "/api/users/me", "Edita nome de exibição, avatar, bio, pronomes e banner"),
+	huma.Register(api, nitro(op("updateMe", http.MethodPatch, "/api/users/me", "Edita nome de exibição, avatar, bio, pronomes e banner")),
 		func(ctx context.Context, in *UpdateProfileInput) (*MeOutput, error) {
 			u, err := h.svc.UpdateProfile(ctx, h.userID(ctx), ProfileUpdate{
 				DisplayName: in.Body.DisplayName, AvatarKey: in.Body.AvatarKey, RemoveAvatar: in.Body.RemoveAvatar,
@@ -160,7 +172,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return &MeOutput{Body: h.View(ctx, u)}, nil
 		})
 
-	huma.Register(api, op("requestAvatarUpload", http.MethodPost, "/api/users/me/avatar", "Gera URL pré-assinada para enviar o avatar"),
+	huma.Register(api, nitro(op("requestAvatarUpload", http.MethodPost, "/api/users/me/avatar", "Gera URL pré-assinada para enviar o avatar")),
 		func(ctx context.Context, in *AvatarInput) (*AvatarOutput, error) {
 			up, err := h.svc.RequestAvatarUpload(ctx, h.userID(ctx), in.Body.ContentType, in.Body.Size)
 			if err != nil {
@@ -171,7 +183,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return out, nil
 		})
 
-	huma.Register(api, op("requestBannerUpload", http.MethodPost, "/api/users/me/banner", "Gera URL pré-assinada para enviar o banner do perfil"),
+	huma.Register(api, nitro(op("requestBannerUpload", http.MethodPost, "/api/users/me/banner", "Gera URL pré-assinada para enviar o banner do perfil")),
 		func(ctx context.Context, in *AvatarInput) (*AvatarOutput, error) {
 			up, err := h.svc.RequestBannerUpload(ctx, h.userID(ctx), in.Body.ContentType, in.Body.Size)
 			if err != nil {
@@ -184,7 +196,8 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 
 	cropOp := op("cropProfileImage", http.MethodPost, "/api/users/me/crop-image", "Recorta um GIF (animado) de avatar ou banner já enviado")
 	cropOp.Description = "Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original."
-	cropOp.Errors = append(cropOp.Errors, http.StatusUnprocessableEntity)
+	cropOp.Description += " Sem Nitro (GIF é do Nitro): 403 com `code: nitro_required`."
+	cropOp.Errors = append(cropOp.Errors, http.StatusUnprocessableEntity, http.StatusForbidden)
 	huma.Register(api, cropOp, func(ctx context.Context, in *CropInput) (*CropOutput, error) {
 		b := in.Body
 		key, err := h.svc.CropImage(ctx, h.userID(ctx), b.Key, image.Rect(b.X, b.Y, b.X+b.Width, b.Y+b.Height))
@@ -219,8 +232,14 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 	})
 }
 
+// CodeNitroRequired é o `code` do 403 de imagem animada sem Nitro.
+const CodeNitroRequired = "nitro_required"
+
 func mapErr(err error) error {
 	switch {
+	case errors.Is(err, ErrNitroRequired):
+		return &httpx.ProblemError{Status: http.StatusForbidden, Code: CodeNitroRequired,
+			Detail: "GIF e imagens animadas em avatar e banner são exclusivos de quem tem Nitro"}
 	case errors.Is(err, ErrInvalidBanner):
 		return huma.Error422UnprocessableEntity("banner inválido: use png, jpeg, webp ou gif de até 5 MB, uma chave gerada para você, e escolha imagem OU cor")
 	case errors.Is(err, ErrInvalidProfile):

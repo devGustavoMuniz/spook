@@ -31,6 +31,7 @@ var adminRoutes = []string{
 	"/api/admin/livekit/history", "/api/admin/livekit/usage", "/api/admin/gateway/history",
 	"/api/admin/activity/heatmap", "/api/admin/servers/top",
 	"/api/admin/tickets", "/api/admin/tickets/summary",
+	"/api/admin/entitlements", "/api/admin/redeem-codes",
 }
 
 func TestAdminRoutesRequireAdmin(t *testing.T) {
@@ -384,7 +385,9 @@ func TestAdminEveryRouteIsGuarded(t *testing.T) {
 		// existe e de um corpo válido: aqui basta que a barreira tenha passado e o handler respondido (404 do
 		// chamado inexistente ou 422 do corpo vazio); o fluxo completo está em feedback_integration_test.go.
 		resp, b = adm.do(t, o.method, path, body)
-		perTicket := strings.HasPrefix(o.path, "/api/admin/tickets/{id}")
+		// O mesmo vale para as ações do plano que precisam de alvo e corpo válidos (nitro_integration_test.go).
+		perTicket := strings.HasPrefix(o.path, "/api/admin/tickets/{id}") || o.path == "/api/admin/users/{id}/entitlement" ||
+			o.path == "/api/admin/entitlements/{id}" || (o.method == "POST" && o.path == "/api/admin/redeem-codes")
 		ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
 		if perTicket {
 			ok = resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnprocessableEntity

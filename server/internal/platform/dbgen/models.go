@@ -93,6 +93,19 @@ type EmailToken struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Entitlement struct {
+	ID               int64
+	UserID           int64
+	Tier             string
+	Source           string
+	ExpiresAt        pgtype.Timestamptz
+	GrantedBy        *int64
+	RedeemCodeID     *int64
+	RevokedAt        pgtype.Timestamptz
+	ExpiryNotifiedAt pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+}
+
 type Friendship struct {
 	UserA       int64
 	UserB       int64
@@ -204,6 +217,19 @@ type ReadState struct {
 	ChannelID         int64
 	LastReadMessageID int64
 	MentionCount      int32
+}
+
+type RedeemCode struct {
+	ID         int64
+	CodeHash   string
+	CodeHint   string
+	Tier       string
+	Days       *int32
+	CreatedBy  *int64
+	RedeemedBy *int64
+	RedeemedAt pgtype.Timestamptz
+	ExpiresAt  pgtype.Timestamptz
+	CreatedAt  pgtype.Timestamptz
 }
 
 type Role struct {

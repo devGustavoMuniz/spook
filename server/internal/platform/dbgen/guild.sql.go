@@ -118,7 +118,7 @@ func (q *Queries) GetGuild(ctx context.Context, id int64) (Guild, error) {
 
 const getMember = `-- name: GetMember :one
 SELECT m.guild_id, m.user_id, m.nickname, m.joined_at, m.voice_muted,
-       u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
+       u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color, user_plan(u.id) AS plan,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
 JOIN users u ON u.id = m.user_id
@@ -145,6 +145,7 @@ type GetMemberRow struct {
 	Pronouns    *string
 	BannerKey   *string
 	BannerColor *int32
+	Plan        string
 	RoleIds     []int64
 }
 
@@ -164,6 +165,7 @@ func (q *Queries) GetMember(ctx context.Context, arg GetMemberParams) (GetMember
 		&i.Pronouns,
 		&i.BannerKey,
 		&i.BannerColor,
+		&i.Plan,
 		&i.RoleIds,
 	)
 	return i, err
@@ -546,7 +548,7 @@ func (q *Queries) ListMemberRolesByUser(ctx context.Context, userID int64) ([]Li
 
 const listMembers = `-- name: ListMembers :many
 SELECT m.guild_id, m.user_id, m.nickname, m.joined_at, m.voice_muted,
-       u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color,
+       u.username, u.display_name, u.avatar_key, u.bio, u.pronouns, u.banner_key, u.banner_color, user_plan(u.id) AS plan,
        COALESCE(array_agg(mr.role_id) FILTER (WHERE mr.role_id IS NOT NULL), '{}')::bigint[] AS role_ids
 FROM guild_members m
 JOIN users u ON u.id = m.user_id
@@ -576,6 +578,7 @@ type ListMembersRow struct {
 	Pronouns    *string
 	BannerKey   *string
 	BannerColor *int32
+	Plan        string
 	RoleIds     []int64
 }
 
@@ -601,6 +604,7 @@ func (q *Queries) ListMembers(ctx context.Context, arg ListMembersParams) ([]Lis
 			&i.Pronouns,
 			&i.BannerKey,
 			&i.BannerColor,
+			&i.Plan,
 			&i.RoleIds,
 		); err != nil {
 			return nil, err

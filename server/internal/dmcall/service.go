@@ -191,7 +191,7 @@ func (s *Service) Ring(ctx context.Context, userID, channelID int64) (Call, erro
 	for _, r := range ch.Recipients {
 		if r.ID == userID {
 			rp := r.Payload()
-			caller = CallCaller{ID: rp.ID, Username: rp.Username, DisplayName: rp.DisplayName, AvatarURL: rp.AvatarURL}
+			caller = CallCaller{ID: rp.ID, Username: rp.Username, DisplayName: rp.DisplayName, AvatarURL: rp.AvatarURL, Plan: rp.Plan}
 			continue
 		}
 		callees = append(callees, r.ID)

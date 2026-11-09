@@ -165,10 +165,10 @@ func TestVerifyWebhook(t *testing.T) {
 	}
 
 	trk := &lk.WebhookEvent{Event: "track_published", Room: &lk.Room{Name: "301"},
-		Participant: &lk.ParticipantInfo{Identity: "11"}, Track: &lk.TrackInfo{Source: lk.TrackSource_SCREEN_SHARE}}
+		Participant: &lk.ParticipantInfo{Identity: "11"}, Track: &lk.TrackInfo{Source: lk.TrackSource_SCREEN_SHARE, Sid: "TR_9", Width: 1920, Height: 1080}}
 	body, _ = protojsonMarshal(trk)
 	got, ok, err = p.VerifyWebhook(signed(t, body, secret), body)
-	if err != nil || !ok || got.Source != voice.SourceScreenShare {
+	if err != nil || !ok || got.Source != voice.SourceScreenShare || got.TrackSID != "TR_9" || got.TrackWidth != 1920 || got.TrackHeight != 1080 {
 		t.Fatalf("track: %+v ok=%v err=%v", got, ok, err)
 	}
 
@@ -244,6 +244,12 @@ func TestAdminCalls(t *testing.T) {
 				t.Errorf("permissão = %+v", pm)
 			}
 			return &lk.ParticipantInfo{}, 200
+		case "MutePublishedTrack":
+			var req lk.MuteRoomTrackRequest
+			if err := proto.Unmarshal(body, &req); err != nil || req.Room != "301" || req.Identity != "11" || req.TrackSid != "TR_9" || !req.Muted {
+				t.Errorf("mute = %+v %v", &req, err)
+			}
+			return &lk.MuteRoomTrackResponse{}, 200
 		case "ListRooms":
 			return &lk.ListRoomsResponse{Rooms: []*lk.Room{{Name: "301", NumParticipants: 2}}}, 200
 		case "ListParticipants":
@@ -261,6 +267,9 @@ func TestAdminCalls(t *testing.T) {
 	if err := p.UpdatePermissions(ctx, "301", "11", voice.GrantsFor(true, false)); err != nil {
 		t.Fatal(err)
 	}
+	if err := p.MuteTrack(ctx, "301", "11", "TR_9"); err != nil {
+		t.Fatal(err)
+	}
 	rooms, err := p.ListRooms(ctx)
 	if err != nil || len(rooms) != 1 || rooms[0].Name != "301" || rooms[0].Participants != 2 {
 		t.Fatalf("rooms = %+v %v", rooms, err)
@@ -269,7 +278,7 @@ func TestAdminCalls(t *testing.T) {
 	if err != nil || len(ps) != 1 || ps[0].Identity != "11" || ps[0].SID != "PA_1" || len(ps[0].Sources) != 2 {
 		t.Fatalf("participants = %+v %v", ps, err)
 	}
-	if len(*calls) != 4 {
+	if len(*calls) != 5 {
 		t.Fatalf("chamadas = %v", *calls)
 	}
 }

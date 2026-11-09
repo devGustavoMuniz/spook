@@ -19,6 +19,8 @@ type metrics struct {
 	previewReads metric.Int64Counter
 	previewBytes metric.Int64Histogram
 
+	planEnforced metric.Int64Counter
+
 	reconcileRuns metric.Int64Counter
 	reconcileTime metric.Float64Histogram
 	reconcileFix  metric.Int64Counter
@@ -38,6 +40,7 @@ func newMetrics(store StateStore, previews PreviewStore, watch *watchers) *metri
 	x.previewReads, _ = m.Int64Counter("spook.voice.screen_preview.reads", metric.WithDescription("Leituras de prévia da tela (hit/miss)"))
 	x.previewBytes, _ = m.Int64Histogram("spook.voice.screen_preview.size", metric.WithUnit("By"),
 		metric.WithDescription("Tamanho das prévias aceitas"))
+	x.planEnforced, _ = m.Int64Counter("spook.voice.plan_enforced", metric.WithDescription("Telas acima do limite do plano silenciadas no LiveKit (por plano; result=mute_failed quando a chamada ao LiveKit falhou)"))
 	x.reconcileRuns, _ = m.Int64Counter("spook.voice.reconcile.runs", metric.WithDescription("Rodadas do reconciliador (ok ou unreachable: LiveKit fora do ar)"))
 	x.reconcileTime, _ = m.Float64Histogram("spook.voice.reconcile.duration", metric.WithUnit("s"), metric.WithDescription("Duração de uma rodada do reconciliador"))
 	x.reconcileFix, _ = m.Int64Counter("spook.voice.reconcile.fixed", metric.WithDescription("Divergências corrigidas pelo reconciliador (joined, flags, mute)"))

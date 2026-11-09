@@ -31,6 +31,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/dm"
 	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
 	dlfeature "github.com/devGustavoMuniz/spook/server/internal/download"
+	"github.com/devGustavoMuniz/spook/server/internal/entitlement"
 	"github.com/devGustavoMuniz/spook/server/internal/feedback"
 	"github.com/devGustavoMuniz/spook/server/internal/gateway"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
@@ -88,6 +89,7 @@ type Deps struct {
 	TypingLimiter   *ratelimit.Limiter // padrão: 1 TYPING_START a cada 3 s por usuário e canal
 	UploadLimiter   *ratelimit.Limiter // padrão: 30 pedidos de upload por minuto por usuário
 	PushLimiter     *ratelimit.Limiter // padrão: 30 requisições por minuto por usuário nos endpoints de push
+	RedeemIPLimiter *ratelimit.Limiter // padrão: rajada de 20 e 20 por hora por IP no resgate de códigos de plano ("plan.redeem_ip")
 	EveryoneLimiter *ratelimit.Limiter // padrão: 1 uso de @everyone/@here a cada 30 s por usuário e canal
 	ModLimiter      *ratelimit.Limiter // padrão: rajada de 20 e 1 por segundo por usuário nas ações de moderação
 
@@ -141,6 +143,7 @@ type App struct {
 	presence *presence.Service // acessado pelos testes de integração
 	jobs     *jobs.Client      // nil sem storage nem push; parado por Close
 	notify   *notification.Service
+	plans    *entitlement.Service // acessado pelos testes de integração (vencimento)
 	// Outbox guarda os últimos e-mails do driver log em desenvolvimento (nil fora dele).
 	Outbox *mailer.Outbox
 }
@@ -204,6 +207,10 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 
 	userSvc := user.NewService(user.NewStore(pool), avatarStorage, ids).WithEvents(bus, presence.NewStore(pool))
+	// Planos (Nitro e Nitro+): o plano efetivo vai nos perfis, vale nos uploads de imagem animada e na voz. O
+	// service avisa o perfil ao mudar (userSvc.Republish) e o administrador entra depois, quando o admin existe.
+	entSvc := entitlement.NewService(entitlement.NewStore(pool), ids, bus, userSvc).WithPepper(d.Cfg.SecretKey)
+	userSvc.WithPlans(entSvc)
 	authSvc, err := auth.NewService(ctx, userSvc, auth.NewStore(pool), auth.NewHasher(4), ids)
 	if err != nil {
 		return nil, err
@@ -295,6 +302,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 
 	passwordLimiter := named.get("account.password", d.PasswordLimiter, 2, 5)
 	emailLimiter := named.get("account.email", d.EmailLimiter, 5.0/60, 5)
+	redeemIPLimiter := named.get("plan.redeem_ip", d.RedeemIPLimiter, 20.0/60, 20)
 	deleteLimiter := named.get("account.delete", d.DeleteLimiter, 1, 3)
 	userH := user.NewHandler(userSvc, auth.UserID).WithLimiter(emailLimiter)
 	authH := auth.NewHandler(authSvc, !d.Cfg.IsDev(), userH.View).WithLimiter(passwordLimiter)
@@ -396,6 +404,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	voiceSvc := voice.NewService(voice.Deps{
 		Provider: voiceProv, Store: voicememory.New(), Previews: voicememory.NewPreviews(), Pub: bus,
 		Access: voiceAccess{channels: channelSvc, guilds: guildSvc, dmBlocked: relSvc.PairBlocked}, Users: voiceUsers{users: userSvc}, Audit: auditSvc,
+		Plans: entSvc,
 	})
 	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam
 	go func() { <-ctx.Done(); cancelVoice() }()
@@ -422,7 +431,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	authSvc.OnRevoke(hub.RevokeAuth)       // troca de senha e exclusão de conta derrubam as conexões das sessões encerradas
 	actionByOp, actionAll := named.actionLimiters(d.ActionLimiters)
 	named.warnUnknown(allLimiterNames())
-	startCleanup(ctx, append(actionAll, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter, friendReqLimiter, socialLimiter, callLimiter)...)
+	startCleanup(ctx, append(actionAll, passwordLimiter, emailLimiter, deleteLimiter, authLimiter, apiLimiter, msgLimiter, gwLimiter, dmLimiter, typingLimiter, uploadLimiter, pushLimiter, modLimiter, everyoneLimiter, friendReqLimiter, socialLimiter, callLimiter, redeemIPLimiter)...)
 	inviteSvc := invite.NewService(invite.NewStore(pool).WithLimits(lim), guildSvc, guildSvc, guildSvc)
 	inviteSvc.SetAudit(auditSvc)
 	inviteSvc.SetLimits(lim)
@@ -491,6 +500,9 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	// Chamados de feedback, sugestões e bugs: o autor usa /api/tickets; o administrador, /api/admin/tickets.
 	feedbackSvc := feedback.NewService(feedback.NewStore(pool), ids, bus, adminSvc, objects)
 	feedbackH := feedback.NewHandler(feedbackSvc, auth.UserID)
+	// Concessões de plano e códigos de resgate: a pessoa usa /api/me/plan; o administrador, /api/admin/entitlements.
+	entSvc.WithAdmins(adminSvc)
+	planH := entitlement.NewHandler(entSvc, auth.UserID).WithIPLimiter(redeemIPLimiter)
 
 	var jobClient *jobs.Client
 	reconcileByJob := false
@@ -518,6 +530,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 			periodic = append(periodic, feedback.PeriodicJobs()...)
 			account.RegisterWorkers(workers, objects)
 		}
+		entitlement.RegisterWorkers(workers, entSvc)
+		periodic = append(periodic, entitlement.PeriodicJobs()...)
 		if notifySvc.PushEnabled() {
 			notification.RegisterWorkers(workers, notifySvc)
 		}
@@ -556,7 +570,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	r.Method(http.MethodGet, "/healthz", healthH)
 	r.Method(http.MethodGet, "/api/healthz", healthH)
 
-	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH, downloadH, feedbackH, actionByOp)
+	registerAPI(r, d.Cfg.IsDev(), authH, mailH, socialH, userH, accountH, guildH, channelH, messageH, attachmentH, inviteH, dmH, typingH, voiceH, notifyH, presenceH, gatewayH, adminH, auditH, relH, callH, downloadH, feedbackH, planH, actionByOp)
 	socialH.RegisterRoutes(r) // /api/auth/social/{provider}/start|callback: redirecionamentos, fora do OpenAPI
 	if outbox != nil {        // SÓ em desenvolvimento com o driver log: lê o último e-mail (E2E e dev local)
 		r.Get("/api/dev/mail/last", devMailHandler(outbox))
@@ -582,7 +596,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		otelhttp.WithSpanNameFormatter(func(_ string, req *http.Request) string {
 			return req.Method + " " + req.URL.Path
 		}))
-	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient, notify: notifySvc, Outbox: outbox}, nil
+	return &App{Handler: h, Gateway: hub, Voice: voiceSvc, presence: presenceSvc, jobs: jobClient, notify: notifySvc, plans: entSvc, Outbox: outbox}, nil
 }
 
 // OpenAPIYAML gera o contrato da API sem precisar de banco (usado por `spook openapi`).
@@ -598,7 +612,7 @@ func buildAPI() huma.API {
 	return registerAPI(chi.NewRouter(), false, auth.NewHandler(nil, true, nil), mailflow.NewHandler(nil, nil), social.NewHandler(nil, nil, nil, true), user.NewHandler(nil, nil), account.NewHandler(nil, nil),
 		guild.NewHandler(nil, nil), channel.NewHandler(nil, nil), message.NewHandler(nil, nil), attachment.NewHandler(nil, nil), invite.NewHandler(nil, nil),
 		dm.NewHandler(nil, nil), typing.NewHandler(nil, nil), voice.NewHandler(nil, nil), notification.NewHandler(nil, nil), presence.NewHandler(nil, nil), gateway.NewHandler(nil, nil, nil), admin.NewHandler(nil, nil), audit.NewHandler(nil, nil),
-		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil), dlfeature.NewHandler(nil), feedback.NewHandler(nil, nil), docActions())
+		relationship.NewHandler(nil, nil), dmcall.NewHandler(nil, nil), dlfeature.NewHandler(nil), feedback.NewHandler(nil, nil), entitlement.NewHandler(nil, nil), docActions())
 }
 
 // docActions é o mapa de limites só para documentar as respostas 429 no OpenAPI (sem estado de uso).
@@ -625,7 +639,7 @@ func (a *lateAccess) OverwriteTarget(ctx context.Context, guildID int64, t perm.
 func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Handler, socialH *social.Handler, userH *user.Handler, accountH *account.Handler,
 	guildH *guild.Handler, channelH *channel.Handler, messageH *message.Handler, attachmentH *attachment.Handler, inviteH *invite.Handler,
 	dmH *dm.Handler, typingH *typing.Handler, voiceH *voice.Handler, notifyH *notification.Handler, presenceH *presence.Handler, gatewayH *gateway.Handler, adminH *admin.Handler, auditH *audit.Handler,
-	relH *relationship.Handler, callH *dmcall.Handler, downloadH *dlfeature.Handler, feedbackH *feedback.Handler, actions map[string]*ratelimit.Limiter) huma.API {
+	relH *relationship.Handler, callH *dmcall.Handler, downloadH *dlfeature.Handler, feedbackH *feedback.Handler, planH *entitlement.Handler, actions map[string]*ratelimit.Limiter) huma.API {
 	cfg := huma.DefaultConfig("Spook API", "0.1.0")
 	cfg.CreateHooks = nil // sem o campo "$schema" nas respostas
 	cfg.OpenAPIPath = "/api/openapi"
@@ -672,6 +686,7 @@ func registerAPI(r chi.Router, dev bool, authH *auth.Handler, mailH *mailflow.Ha
 	relH.Register(api, authed, auth.Security)
 	callH.Register(api, authed, auth.Security)
 	feedbackH.Register(api, authed, auth.Security)
+	planH.Register(api, authed, auth.Security)
 	downloadH.Register(api) // pública: sem sessão (o limite por IP de /api/* vale em limitByPath)
 	document429(api, actions)
 	return api

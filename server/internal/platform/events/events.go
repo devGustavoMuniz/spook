@@ -33,6 +33,10 @@ const (
 	// próprio usuário (user:<id>, todas as sessões), aos servidores dele (guild:<id>) e a quem divide DM ou amizade
 	// com ele (user:<par>). Data = user.UpdatePayload.
 	UserUpdate = "USER_UPDATE"
+	// EntitlementUpdate: o plano (Nitro/Nitro+) da própria pessoa mudou (concedido, revogado, resgatado ou vencido).
+	// Vai só a ela (user:<id>, todas as sessões). Data = entitlement.UpdatePayload. Quem vê o perfil dela recebe o
+	// plano novo em USER_UPDATE.
+	EntitlementUpdate = "ENTITLEMENT_UPDATE"
 	// ChannelOverwritesUpdate é INTERNO (nunca vai ao cliente): os overwrites de um canal mudaram e o gateway
 	// e a voz reavaliam quem vê o canal. Data = o canal (ChannelPayload).
 	ChannelOverwritesUpdate = "CHANNEL_OVERWRITES_UPDATE"

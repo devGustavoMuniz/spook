@@ -41,6 +41,7 @@ var actionRules = []actionRule{
 	{"tickets.create", 5.0 / 60, 5, []string{"createTicket"}},   // 5 chamados por hora
 	{"tickets.upload", 20, 10, []string{"requestTicketUpload"}}, // imagens de chamados: 20 pedidos por minuto
 	{"tickets.reply", 30, 10, []string{"replyMyTicket", "setMyTicketStatus"}},
+	{"plan.redeem", 5, 5, []string{"redeemPlanCode"}}, // 5 resgates por minuto por usuário (e 20 por hora por IP: plan.redeem_ip)
 	{"messages.pin", 30, 15, []string{"pinMessage", "unpinMessage"}},
 	// Banir, expulsar, mutar, apelido alheio, overwrites e desconectar da voz já são limitados dentro dos services,
 	// no limitador "moderation" (chave "mod:<usuário>"): não entram aqui para não contar duas vezes.
@@ -103,7 +104,7 @@ func (n *namedLimiters) warnUnknown(known []string) {
 var knownLimiterNames = []string{
 	"messages.send", "dms.open", "moderation", "friends.request", "social.actions", "call.ring", "uploads.request",
 	"messages.everyone", "push", "account.password", "account.email", "account.delete", "auth.forgot", "auth.resend",
-	"mail.recipient",
+	"mail.recipient", "plan.redeem_ip",
 }
 
 func allLimiterNames() []string {

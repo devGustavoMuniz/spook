@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/apperr"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 )
@@ -79,7 +80,7 @@ func take(l Limiter, key string, msg string) error {
 }
 
 func (s *Service) payload(ctx context.Context, r Row) Relationship {
-	u := RelationshipUser{ID: idStr(r.OtherID), Username: r.Username, AvatarURL: s.avatars.AvatarURLForKey(ctx, r.AvatarKey)}
+	u := RelationshipUser{ID: idStr(r.OtherID), Username: r.Username, AvatarURL: s.avatars.AvatarURLForKey(ctx, r.AvatarKey), Plan: plan.Omit(r.Plan)}
 	if r.DisplayName != nil {
 		u.DisplayName = *r.DisplayName
 	}

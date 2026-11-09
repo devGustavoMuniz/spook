@@ -107,7 +107,7 @@ func (s *PGStore) Recipients(ctx context.Context, channelIDs []int64) (map[int64
 	out := map[int64][]channel.Recipient{}
 	for _, r := range rows {
 		out[r.ChannelID] = append(out[r.ChannelID], channel.Recipient{
-			ID: r.UserID, Username: r.Username, DisplayName: r.DisplayName, AvatarKey: r.AvatarKey,
+			ID: r.UserID, Username: r.Username, DisplayName: r.DisplayName, AvatarKey: r.AvatarKey, Plan: r.Plan,
 		})
 	}
 	return out, nil

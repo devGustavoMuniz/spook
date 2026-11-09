@@ -63,6 +63,19 @@ export const CreateVoiceTokenParams = zod.object({
 
 export const CreateVoiceTokenResponse = zod.object({
   expires_in: zod.int().describe("Segundos até o token expirar (600)"),
+  limits: zod
+    .object({
+      animated_avatar: zod.boolean().describe("Avatar animado (GIF, WebP ou APNG animado)"),
+      animated_banner: zod.boolean().describe("Banner animado (GIF, WebP ou APNG animado)"),
+      screen_max_fps: zod.int().describe("Maior taxa de quadros da tela compartilhada (30 ou 60)"),
+      screen_max_height: zod
+        .int()
+        .describe("Maior altura da tela compartilhada, em pixels (720, 1080 ou 1440)"),
+    })
+    .describe(
+      "Limites do plano: tela até screen_max_height px e screen_max_fps quadros por segundo",
+    ),
+  plan: zod.enum(["free", "nitro", "nitro_plus"]).describe("Plano de quem entra"),
   token: zod.string().describe("JWT do LiveKit, de uma sala só"),
   url: zod.string().describe("URL de sinalização do LiveKit (wss://…)"),
 });

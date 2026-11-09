@@ -60,6 +60,95 @@ export const AdminCallsResponse = zod.object({
 });
 
 /**
+ * @summary Concessões de plano (ativas por padrão) com busca por username/nome, filtro por plano e página
+ */
+export const adminListEntitlementsQueryStateDefault = `active`;
+export const adminListEntitlementsQueryQMax = 100;
+
+export const adminListEntitlementsQueryPageDefault = 1;
+
+export const AdminListEntitlementsQueryParams = zod.object({
+  state: zod
+    .enum(["active", "inactive", "all"])
+    .default(adminListEntitlementsQueryStateDefault)
+    .describe("active = não revogadas e não vencidas; inactive = revogadas ou vencidas"),
+  tier: zod.enum(["nitro", "nitro_plus"]).optional().describe("Filtra por plano"),
+  q: zod
+    .string()
+    .max(adminListEntitlementsQueryQMax)
+    .optional()
+    .describe("Busca no username ou no nome de exibição"),
+  page: zod.int().min(1).default(adminListEntitlementsQueryPageDefault),
+});
+
+export const AdminListEntitlementsResponse = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        active: zod.boolean().describe("Não revogada e não vencida"),
+        created_at: zod.iso.datetime({ offset: true }),
+        display_name: zod.string().optional(),
+        expires_at: zod.iso.datetime({ offset: true }).nullable().describe("Nulo = permanente"),
+        granted_by: zod
+          .string()
+          .optional()
+          .describe("Username de quem concedeu (vazio se foi resgate ou a conta saiu)"),
+        id: zod.string().describe("ID Snowflake (string)"),
+        revoked_at: zod.iso.datetime({ offset: true }).nullable(),
+        source: zod.enum(["admin", "code", "payment"]),
+        tier: zod.enum(["nitro", "nitro_plus"]),
+        user_id: zod.string(),
+        username: zod.string(),
+      }),
+    )
+    .nullable(),
+  page: zod.int(),
+  page_size: zod.int(),
+  total: zod.int(),
+});
+
+/**
+ * @summary Revoga uma concessão específica (a pessoa pode continuar com outra)
+ */
+export const AdminRevokeEntitlementGrantParams = zod.object({
+  id: zod.string().describe("ID da concessão"),
+});
+
+export const AdminRevokeEntitlementGrantResponse = zod.object({
+  plan: zod
+    .object({
+      expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe("Quando o plano vence. Nulo = permanente (ou plano grátis)"),
+      limits: zod
+        .object({
+          animated_avatar: zod.boolean().describe("Avatar animado (GIF, WebP ou APNG animado)"),
+          animated_banner: zod.boolean().describe("Banner animado (GIF, WebP ou APNG animado)"),
+          screen_max_fps: zod
+            .int()
+            .describe("Maior taxa de quadros da tela compartilhada (30 ou 60)"),
+          screen_max_height: zod
+            .int()
+            .describe("Maior altura da tela compartilhada, em pixels (720, 1080 ou 1440)"),
+        })
+        .describe("O que o plano libera"),
+      source: zod
+        .union([
+          zod.literal("admin"),
+          zod.literal("code"),
+          zod.literal("payment"),
+          zod.literal(null),
+        ])
+        .nullable()
+        .describe("De onde veio a concessão que define o plano (nulo no plano grátis)"),
+      tier: zod.enum(["free", "nitro", "nitro_plus"]).describe("Plano efetivo agora"),
+    })
+    .describe("O plano da pessoa depois da revogação"),
+  revoked: zod.int().describe("Quantas concessões ativas foram revogadas"),
+});
+
+/**
  * @summary Usuários online e conexões do gateway nas últimas 24 h, em baldes de 5 min (cache de 1 min)
  */
 export const adminGatewayHistoryResponsePointsMax = 300;
@@ -262,6 +351,95 @@ export const AdminOverviewResponse = zod.object({
     new_7d: zod.int(),
     total: zod.int(),
   }),
+});
+
+/**
+ * @summary Códigos de resgate (não usados por padrão), sem o texto: só os 4 últimos caracteres
+ */
+export const adminListRedeemCodesQueryStateDefault = `unused`;
+export const adminListRedeemCodesQueryPageDefault = 1;
+
+export const AdminListRedeemCodesQueryParams = zod.object({
+  state: zod
+    .enum(["unused", "used", "expired", "all"])
+    .default(adminListRedeemCodesQueryStateDefault),
+  tier: zod.enum(["nitro", "nitro_plus"]).optional().describe("Filtra por plano"),
+  page: zod.int().min(1).default(adminListRedeemCodesQueryPageDefault),
+});
+
+export const AdminListRedeemCodesResponse = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        created_at: zod.iso.datetime({ offset: true }),
+        created_by: zod.string().optional().describe("Username de quem gerou"),
+        days: zod.int().nullable().describe("Nulo = permanente"),
+        expires_at: zod.iso.datetime({ offset: true }).nullable(),
+        hint: zod.string().describe("Últimos 4 caracteres do código, para reconhecê-lo"),
+        id: zod.string(),
+        redeemed_at: zod.iso.datetime({ offset: true }).nullable(),
+        redeemed_by: zod.string().optional().describe("Username de quem resgatou"),
+        state: zod.enum(["unused", "used", "expired"]),
+        tier: zod.enum(["nitro", "nitro_plus"]),
+      }),
+    )
+    .nullable(),
+  page: zod.int(),
+  page_size: zod.int(),
+  total: zod.int(),
+});
+
+/**
+ * @summary Gera códigos de resgate. O texto de cada código aparece só nesta resposta: o servidor guarda apenas o hash
+ */
+export const adminCreateRedeemCodesBodyDaysMax = 3650;
+
+export const adminCreateRedeemCodesBodyExpiresInDaysMax = 365;
+
+export const adminCreateRedeemCodesBodyQuantityDefault = 1;
+export const adminCreateRedeemCodesBodyQuantityMax = 100;
+
+export const AdminCreateRedeemCodesBody = zod.object({
+  days: zod
+    .int()
+    .min(1)
+    .max(adminCreateRedeemCodesBodyDaysMax)
+    .optional()
+    .describe("Dias de plano que o código dá; omitido ou nulo = permanente"),
+  expires_in_days: zod
+    .int()
+    .min(1)
+    .max(adminCreateRedeemCodesBodyExpiresInDaysMax)
+    .optional()
+    .describe("Prazo para resgatar o código; omitido = não vence"),
+  quantity: zod
+    .int()
+    .min(1)
+    .max(adminCreateRedeemCodesBodyQuantityMax)
+    .default(adminCreateRedeemCodesBodyQuantityDefault)
+    .describe("Quantos códigos gerar"),
+  tier: zod.enum(["nitro", "nitro_plus"]).describe("Plano que o código dá"),
+});
+
+export const AdminCreateRedeemCodesResponse = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        code: zod
+          .string()
+          .describe(
+            "Texto do código (SPOOK-XXXX-XXXX-XXXX-XXXX). Mostrado só nesta resposta; o servidor guarda apenas o hash",
+          ),
+        days: zod.int().nullable().describe("Dias de plano que o código dá. Nulo = permanente"),
+        expires_at: zod.iso
+          .datetime({ offset: true })
+          .nullable()
+          .describe("Até quando o código pode ser resgatado. Nulo = não vence"),
+        id: zod.string(),
+        tier: zod.enum(["nitro", "nitro_plus"]),
+      }),
+    )
+    .nullable(),
 });
 
 /**
@@ -721,4 +899,83 @@ export const AdminUsersResponse = zod.object({
   q: zod.string(),
   sort: zod.string(),
   total: zod.int().describe("Total de linhas que casam com a busca"),
+});
+
+/**
+ * @summary Revoga todas as concessões ativas do usuário (volta ao plano Grátis). 404 se não havia plano ativo
+ */
+export const AdminRevokeEntitlementParams = zod.object({
+  id: zod.string().describe("ID do usuário"),
+});
+
+export const AdminRevokeEntitlementResponse = zod.object({
+  plan: zod
+    .object({
+      expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe("Quando o plano vence. Nulo = permanente (ou plano grátis)"),
+      limits: zod
+        .object({
+          animated_avatar: zod.boolean().describe("Avatar animado (GIF, WebP ou APNG animado)"),
+          animated_banner: zod.boolean().describe("Banner animado (GIF, WebP ou APNG animado)"),
+          screen_max_fps: zod
+            .int()
+            .describe("Maior taxa de quadros da tela compartilhada (30 ou 60)"),
+          screen_max_height: zod
+            .int()
+            .describe("Maior altura da tela compartilhada, em pixels (720, 1080 ou 1440)"),
+        })
+        .describe("O que o plano libera"),
+      source: zod
+        .union([
+          zod.literal("admin"),
+          zod.literal("code"),
+          zod.literal("payment"),
+          zod.literal(null),
+        ])
+        .nullable()
+        .describe("De onde veio a concessão que define o plano (nulo no plano grátis)"),
+      tier: zod.enum(["free", "nitro", "nitro_plus"]).describe("Plano efetivo agora"),
+    })
+    .describe("O plano da pessoa depois da revogação"),
+  revoked: zod.int().describe("Quantas concessões ativas foram revogadas"),
+});
+
+/**
+ * @summary Concede Nitro ou Nitro+ a um usuário por um prazo em dias (ou permanente). Avisa a pessoa em tempo real
+ */
+export const AdminGrantEntitlementParams = zod.object({
+  id: zod.string().describe("ID do usuário"),
+});
+
+export const adminGrantEntitlementBodyDaysMax = 3650;
+
+export const AdminGrantEntitlementBody = zod.object({
+  days: zod
+    .int()
+    .min(1)
+    .max(adminGrantEntitlementBodyDaysMax)
+    .optional()
+    .describe(
+      "Dias de plano; omitido ou nulo = permanente. Soma-se à validade vigente do mesmo plano (ou de um maior)",
+    ),
+  tier: zod.enum(["nitro", "nitro_plus"]).describe("Plano a conceder"),
+});
+
+export const AdminGrantEntitlementResponse = zod.object({
+  active: zod.boolean().describe("Não revogada e não vencida"),
+  created_at: zod.iso.datetime({ offset: true }),
+  display_name: zod.string().optional(),
+  expires_at: zod.iso.datetime({ offset: true }).nullable().describe("Nulo = permanente"),
+  granted_by: zod
+    .string()
+    .optional()
+    .describe("Username de quem concedeu (vazio se foi resgate ou a conta saiu)"),
+  id: zod.string().describe("ID Snowflake (string)"),
+  revoked_at: zod.iso.datetime({ offset: true }).nullable(),
+  source: zod.enum(["admin", "code", "payment"]),
+  tier: zod.enum(["nitro", "nitro_plus"]),
+  user_id: zod.string(),
+  username: zod.string(),
 });

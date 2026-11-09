@@ -194,7 +194,7 @@ func (q *Queries) ListDMChannelsByUser(ctx context.Context, userID int64) ([]Cha
 }
 
 const listRecipientsByChannels = `-- name: ListRecipientsByChannels :many
-SELECT r.channel_id, u.id AS user_id, u.username, u.display_name, u.avatar_key
+SELECT r.channel_id, u.id AS user_id, u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM channel_recipients r JOIN users u ON u.id = r.user_id
 WHERE r.channel_id = ANY($1::bigint[])
 ORDER BY r.channel_id, r.user_id
@@ -206,6 +206,7 @@ type ListRecipientsByChannelsRow struct {
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
+	Plan        string
 }
 
 func (q *Queries) ListRecipientsByChannels(ctx context.Context, dollar_1 []int64) ([]ListRecipientsByChannelsRow, error) {
@@ -223,6 +224,7 @@ func (q *Queries) ListRecipientsByChannels(ctx context.Context, dollar_1 []int64
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}

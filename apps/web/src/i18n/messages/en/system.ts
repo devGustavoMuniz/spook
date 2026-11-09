@@ -131,6 +131,10 @@ export const system = {
   "system.api.ownerAlready": "You are already the server owner.",
   "system.api.addSelfFriend": "You can't add yourself as a friend.",
   "system.api.dmSelf": "You can't open a DM with yourself.",
+  "system.api.nitroRequired": "GIFs and animated images for avatars and banners are Nitro-only.",
+  "system.api.redeemInvalid": "Invalid redeem code. Check the text and try again.",
+  "system.api.redeemUsed": "This code has already been used.",
+  "system.api.redeemExpired": "This code has expired.",
   "system.api.avatarInvalid": "Invalid avatar: use a PNG, JPEG, WebP or GIF up to 5 MB.",
   "system.api.profileInvalid":
     "Invalid profile: the bio accepts up to 190 characters and pronouns up to 40.",

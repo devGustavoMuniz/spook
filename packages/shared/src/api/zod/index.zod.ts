@@ -10,6 +10,7 @@ export * from "./guilds/guilds.zod";
 export * from "./invites/invites.zod";
 export * from "./messages/messages.zod";
 export * from "./notifications/notifications.zod";
+export * from "./plan/plan.zod";
 export * from "./presence/presence.zod";
 export * from "./relationships/relationships.zod";
 export * from "./tickets/tickets.zod";

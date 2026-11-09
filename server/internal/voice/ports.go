@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/devGustavoMuniz/spook/server/internal/audit"
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 )
 
 // ErrInvalidSignature indica um webhook que não veio do LiveKit (assinatura ausente ou inválida).
@@ -26,9 +27,14 @@ type RoomEvent struct {
 	Type     string
 	Room     string
 	Identity string
-	SID      string   // SID do participante
-	Source   Source   // track_*: origem da mídia
-	Tracks   []Source // participant_joined: mídias já publicadas
+	SID      string // SID do participante
+	Source   Source // track_*: origem da mídia
+	// track_published: a faixa e o tamanho informado pelo cliente ao publicá-la (vídeo; 0 = desconhecido). O
+	// webhook do LiveKit não traz a taxa de quadros.
+	TrackSID    string
+	TrackWidth  int
+	TrackHeight int
+	Tracks      []Source // participant_joined: mídias já publicadas
 }
 
 // Participant é um participante visto no LiveKit.
@@ -63,6 +69,8 @@ type Provider interface {
 	RemoveParticipant(ctx context.Context, room, identity string) error
 	// UpdatePermissions troca o que o participante pode publicar. Inexistente não é erro.
 	UpdatePermissions(ctx context.Context, room, identity string, g Grants) error
+	// MuteTrack silencia uma faixa publicada (o servidor para de repassá-la). Faixa/sala inexistente não é erro.
+	MuteTrack(ctx context.Context, room, identity, trackSID string) error
 	ListRooms(ctx context.Context) ([]Room, error)
 	ListParticipants(ctx context.Context, room string) ([]Participant, error)
 	// VerifyWebhook valida a assinatura (header Authorization + hash do corpo) e interpreta o evento.
@@ -105,6 +113,12 @@ type Access interface {
 // Auditor grava o registro de auditoria (audit.Service; opcional).
 type Auditor interface {
 	Record(ctx context.Context, e audit.Entry)
+}
+
+// Plans diz o plano efetivo de quem entra na voz (entitlement.Service). Opcional: nulo = sem limites de plano
+// (o token devolve os do plano grátis e nada é imposto na faixa publicada).
+type Plans interface {
+	Tier(ctx context.Context, userID int64) (plan.Tier, error)
 }
 
 // Users resolve o nome de exibição do participante.

@@ -4,10 +4,13 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { RelationshipUserPlan } from "./relationshipUserPlan";
 
 export interface RelationshipUser {
   avatar_url?: string;
   display_name?: string;
   id: string;
+  /** Plano (Grátis, Nitro ou Nitro+). Ausente = free */
+  plan?: RelationshipUserPlan;
   username: string;
 }

@@ -267,7 +267,7 @@ func (q *Queries) GetRelationship(ctx context.Context, arg GetRelationshipParams
 }
 
 const getUserBrief = `-- name: GetUserBrief :one
-SELECT id, username, display_name, avatar_key FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, username, display_name, avatar_key, user_plan(id) AS plan FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 type GetUserBriefRow struct {
@@ -275,6 +275,7 @@ type GetUserBriefRow struct {
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
+	Plan        string
 }
 
 // Perfil mínimo de um usuário para montar o payload de relacionamento.
@@ -286,6 +287,7 @@ func (q *Queries) GetUserBrief(ctx context.Context, id int64) (GetUserBriefRow, 
 		&i.Username,
 		&i.DisplayName,
 		&i.AvatarKey,
+		&i.Plan,
 	)
 	return i, err
 }
@@ -473,7 +475,7 @@ func (q *Queries) ListFriendsAmong(ctx context.Context, arg ListFriendsAmongPara
 }
 
 const listRelationships = `-- name: ListRelationships :many
-SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key
+SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM user_relationships r
 JOIN users u ON u.id = r.other_id AND u.deleted_at IS NULL
 WHERE r.user_id = $1 AND r.other_id > $2 AND ($3::text = '' OR r.kind = $3::text)
@@ -495,6 +497,7 @@ type ListRelationshipsRow struct {
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
+	Plan        string
 }
 
 // Relacionamentos do usuário (amigos, pedidos e bloqueados), paginados por ID do outro usuário.
@@ -520,6 +523,7 @@ func (q *Queries) ListRelationships(ctx context.Context, arg ListRelationshipsPa
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}
@@ -532,7 +536,7 @@ func (q *Queries) ListRelationships(ctx context.Context, arg ListRelationshipsPa
 }
 
 const listRelationshipsReady = `-- name: ListRelationshipsReady :many
-SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key
+SELECT r.other_id, r.kind, r.since, u.username, u.display_name, u.avatar_key, user_plan(u.id) AS plan
 FROM user_relationships r
 JOIN users u ON u.id = r.other_id AND u.deleted_at IS NULL
 WHERE r.user_id = $1 AND r.kind <> 'blocked'
@@ -552,6 +556,7 @@ type ListRelationshipsReadyRow struct {
 	Username    string
 	DisplayName *string
 	AvatarKey   *string
+	Plan        string
 }
 
 // Amigos e pedidos para o READY (os bloqueados vão só como IDs): pedidos recebidos, enviados e depois amigos.
@@ -571,6 +576,7 @@ func (q *Queries) ListRelationshipsReady(ctx context.Context, arg ListRelationsh
 			&i.Username,
 			&i.DisplayName,
 			&i.AvatarKey,
+			&i.Plan,
 		); err != nil {
 			return nil, err
 		}
