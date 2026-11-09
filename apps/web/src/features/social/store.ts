@@ -22,6 +22,13 @@ type SocialActions = {
   upsert: (p: RelationshipPayload) => void;
   /** RELATIONSHIP_REMOVE: a pessoa deixou de ter relacionamento comigo (inclusive desbloqueio). */
   remove: (userId: string) => void;
+  /** USER_UPDATE: nome e avatar de quem já está na lista. */
+  patchUser: (u: {
+    id: string;
+    username: string;
+    display_name?: string;
+    avatar_url?: string;
+  }) => void;
   reset: () => void;
 };
 
@@ -60,6 +67,25 @@ export const useSocialStore = create<SocialState & SocialActions>()((set) => ({
       const { [userId]: _r, ...rels } = s.rels;
       const { [userId]: _b, ...blocked } = s.blocked;
       return { rels, blocked, incomingCount: Math.max(0, s.incomingCount - (wasIncoming ? 1 : 0)) };
+    }),
+  patchUser: (u) =>
+    set((s) => {
+      const cur = s.rels[u.id];
+      if (!cur) return s;
+      return {
+        rels: {
+          ...s.rels,
+          [u.id]: {
+            ...cur,
+            user: {
+              ...cur.user,
+              username: u.username,
+              display_name: u.display_name,
+              avatar_url: u.avatar_url,
+            },
+          },
+        },
+      };
     }),
   reset: () => set({ rels: {}, blocked: {}, incomingCount: 0 }),
 }));

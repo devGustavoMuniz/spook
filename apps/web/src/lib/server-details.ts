@@ -3,6 +3,13 @@ import type { MessageKey } from "@/i18n";
 // Gerado a partir dos `detail` em pt-BR devolvidos pelo backend (server/internal/**). Não há `code` estável para
 // a maioria dos erros, então a tradução é por texto exato; o que não estiver aqui é exibido como veio.
 const ENTRIES: [string, MessageKey][] = [
+  ["chamado não encontrado", "feedback.api.notFound"],
+  ["este chamado está fechado: reabra-o para responder", "feedback.api.closed"],
+  [
+    "você já tem 20 chamados em andamento: aguarde respostas ou feche alguns antes de abrir outro",
+    "feedback.api.tooManyActive",
+  ],
+  ["este chamado atingiu o limite de 200 mensagens", "feedback.api.tooManyMessages"],
   ["e-mail já cadastrado", "system.api.emailTaken"],
   ["esse e-mail já pertence a outra conta", "system.api.emailOtherAccount"],
   ["nome de usuário já em uso", "system.api.usernameTaken"],

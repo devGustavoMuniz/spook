@@ -129,6 +129,11 @@ describe("fixtures do gateway", () => {
     expect(parsed.notification_settings).toEqual([]);
   });
 
+  it("TICKET_UPDATE: o chamado do autor mudou (resposta da equipe)", () => {
+    const ev = dispatchFrameSchema("TICKET_UPDATE").parse(fixtures.dispatch.TICKET_UPDATE);
+    expect(ev.d).toMatchObject({ id: "950", status: "answered", unread: true, by_admin: true });
+  });
+
   it("social: relacionamentos e chamadas de DM (READY e eventos)", () => {
     const ready = eventSchemas.READY.parse(fixtures.ready.d);
     expect(ready.relationships).toMatchObject({

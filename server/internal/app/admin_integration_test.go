@@ -30,6 +30,7 @@ var adminRoutes = []string{
 	"/api/admin/users", "/api/admin/servers", "/api/admin/calls",
 	"/api/admin/livekit/history", "/api/admin/livekit/usage", "/api/admin/gateway/history",
 	"/api/admin/activity/heatmap", "/api/admin/servers/top",
+	"/api/admin/tickets", "/api/admin/tickets/summary",
 }
 
 func TestAdminRoutesRequireAdmin(t *testing.T) {
@@ -379,9 +380,16 @@ func TestAdminEveryRouteIsGuarded(t *testing.T) {
 		if o.method != "HEAD" && (!strings.Contains(string(b), "administradores") || strings.Contains(string(b), "overview")) {
 			t.Fatalf("%s %s: 403 deve ser genérico: %s", o.method, o.path, b)
 		}
-		// admin: 2xx
+		// admin: 2xx. As rotas de um chamado específico (/api/admin/tickets/{id}...) precisam de um chamado que
+		// existe e de um corpo válido: aqui basta que a barreira tenha passado e o handler respondido (404 do
+		// chamado inexistente ou 422 do corpo vazio); o fluxo completo está em feedback_integration_test.go.
 		resp, b = adm.do(t, o.method, path, body)
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		perTicket := strings.HasPrefix(o.path, "/api/admin/tickets/{id}")
+		ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
+		if perTicket {
+			ok = resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnprocessableEntity
+		}
+		if !ok {
 			t.Fatalf("%s %s como admin = %d: %s", o.method, o.path, resp.StatusCode, b)
 		}
 	}

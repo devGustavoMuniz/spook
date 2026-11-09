@@ -19,7 +19,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
-  leaveCall,
   resumeAudio,
   toggleCamera,
   toggleDeafen,
@@ -28,6 +27,7 @@ import {
 } from "./controller";
 import { DeviceDialog } from "./device-dialog";
 import { DeviceMenu } from "./device-menu";
+import { useLeaveAction } from "./leave-action";
 import { NetworkIndicator } from "./network-indicator";
 import { voicePermissions } from "./permissions";
 import { ScreenShareDialog } from "./screen-share-dialog";
@@ -74,6 +74,7 @@ export function VoiceDock({ children }: { children: React.ReactNode }) {
 /** Cartão "Voz conectada" acima do painel do usuário: canal, sair, câmera e tela. */
 export function VoiceCallCard() {
   const { t } = useT();
+  const action = useLeaveAction();
   const s = useVoiceStore();
   const perms = useCallPermissions();
   const guilds = useListGuilds();
@@ -125,13 +126,13 @@ export function VoiceCallCard() {
               variant="destructive"
               size="icon"
               className="size-8 shrink-0"
-              aria-label={t("voice.leaveCall")}
-              onClick={() => void leaveCall()}
+              aria-label={action.label}
+              onClick={action.run}
             >
-              <PhoneOff />
+              <action.Icon />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{t("voice.leaveCall")}</TooltipContent>
+          <TooltipContent>{action.label}</TooltipContent>
         </Tooltip>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -139,6 +140,11 @@ export function VoiceCallCard() {
         {s.audioBlocked && !stageMounted ? (
           <Button variant="outline" size="sm" onClick={() => void resumeAudio()}>
             <Volume2 /> {t("voice.enableAudio")}
+          </Button>
+        ) : null}
+        {action.kind !== "leave" ? (
+          <Button variant="outline" size="sm" onClick={action.leave}>
+            <PhoneOff /> {action.leaveLabel}
           </Button>
         ) : null}
         <BarButton

@@ -67,7 +67,13 @@ export function InviteToServerDialog({
                     onClick={() => void send(g.id, g.name)}
                     className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60"
                   >
-                    <Avatar url={g.icon_url} name={g.name} seed={g.id} size={32} />
+                    <Avatar
+                      url={g.icon_url}
+                      name={g.name}
+                      seed={g.id}
+                      size={32}
+                      animation="always"
+                    />
                     <span className="min-w-0 flex-1 truncate font-medium">{g.name}</span>
                     <span className="text-xs text-muted-foreground">
                       {busy === g.id

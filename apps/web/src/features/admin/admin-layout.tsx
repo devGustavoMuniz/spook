@@ -1,6 +1,15 @@
-import { useGetMe } from "@spook/shared";
+import { useAdminTicketSummary, useGetMe } from "@spook/shared";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, LayoutDashboard, LogOut, PanelLeft, Phone, Server, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  LayoutDashboard,
+  LifeBuoy,
+  LogOut,
+  PanelLeft,
+  Phone,
+  Server,
+  Users,
+} from "lucide-react";
 import { useState } from "react";
 import { useSignOut } from "@/auth/use-sign-out";
 import { useSessionGuard } from "@/components/app-shell";
@@ -14,6 +23,7 @@ const NAV = [
   { to: "/admin/users", label: "Usuários", icon: Users, exact: false },
   { to: "/admin/servers", label: "Servidores", icon: Server, exact: false },
   { to: "/admin/calls", label: "Chamadas", icon: Phone, exact: false },
+  { to: "/admin/tickets", label: "Chamados", icon: LifeBuoy, exact: false },
 ] as const;
 
 const wide = () => typeof window === "undefined" || window.innerWidth >= 768;
@@ -24,6 +34,10 @@ export function AdminLayout() {
   const { data: me } = useGetMe();
   const { signOut, pending } = useSignOut();
   const [open, setOpen] = useState(wide);
+  // Chamados que esperam uma resposta da equipe (abertos): selo ao lado do item do menu.
+  const { data: tickets } = useAdminTicketSummary({
+    query: { refetchInterval: 30_000, staleTime: 10_000 },
+  });
   const path = useRouterState({ select: (s) => s.location.pathname });
   const current = NAV.find((n) => (n.exact ? path === n.to : path.startsWith(n.to))) ?? NAV[0];
   return (
@@ -65,6 +79,12 @@ export function AdminLayout() {
                   className="flex min-h-10 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[status=active]:bg-brand-500/15 data-[status=active]:font-medium data-[status=active]:text-foreground data-[status=active]:shadow-[inset_2px_0_0_var(--primary)]"
                 >
                   <n.icon className="size-4" aria-hidden /> {n.label}
+                  {n.to === "/admin/tickets" && tickets && tickets.open > 0 ? (
+                    <span className="tabular ml-auto rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground">
+                      <span aria-hidden>{tickets.open > 99 ? "99+" : tickets.open}</span>
+                      <span className="sr-only">{`${tickets.open} chamados abertos`}</span>
+                    </span>
+                  ) : null}
                 </Link>
               </li>
             ))}

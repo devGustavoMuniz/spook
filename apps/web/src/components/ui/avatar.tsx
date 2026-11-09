@@ -1,7 +1,14 @@
-import type * as React from "react";
+import * as React from "react";
 import { LogoMark } from "@/components/brand";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
+import {
+  isGifUrl,
+  loadStaticFrame,
+  paintCover,
+  peekStaticFrame,
+  type StaticFrame,
+} from "./static-frame";
 
 export type PresenceStatus = "online" | "idle" | "dnd" | "invisible" | "offline";
 
@@ -77,6 +84,169 @@ export function StatusDot({
 }
 
 /**
+ * Quando um avatar GIF anima:
+ * - `never` (padrão): sempre parado no primeiro quadro (lista de membros, mensagens, DMs, painel do usuário...);
+ * - `speaking`: parado, e anima enquanto `animating` (padrão: `speaking`) for verdadeiro: usado só dentro de uma
+ *   chamada de voz, com o mesmo sinal de fala que acende o anel verde;
+ * - `always`: sempre animado (perfil ampliado).
+ * `prefers-reduced-motion` vence qualquer valor: nunca anima. Não-GIF ignora a prop (sem custo extra).
+ */
+export type AvatarAnimation = "never" | "always" | "speaking";
+
+function usePrefersReducedMotion(enabled: boolean): boolean {
+  const query = "(prefers-reduced-motion: reduce)";
+  const subscribe = React.useCallback(
+    (cb: () => void) => {
+      if (!enabled || typeof window.matchMedia !== "function") return () => {};
+      const mql = window.matchMedia(query);
+      mql.addEventListener("change", cb);
+      return () => mql.removeEventListener("change", cb);
+    },
+    [enabled],
+  );
+  const get = () =>
+    enabled && typeof window.matchMedia === "function" ? window.matchMedia(query).matches : false;
+  return React.useSyncExternalStore(subscribe, get, () => false);
+}
+
+/** Rosto de avatar GIF: primeiro quadro no canvas e, se couber, o GIF de verdade por cima enquanto anima. */
+function GifFace({
+  url,
+  px,
+  label,
+  animation,
+  animating,
+  className,
+  placeholder,
+}: {
+  url: string;
+  px: number;
+  label: string;
+  animation: AvatarAnimation;
+  animating: boolean;
+  className?: string;
+  placeholder: React.ReactNode;
+}) {
+  const reduced = usePrefersReducedMotion(true);
+  const mode: AvatarAnimation = reduced ? "never" : animation;
+  const box: React.CSSProperties = { width: px, height: px };
+  if (mode === "always") {
+    return (
+      <img
+        src={url}
+        alt={label}
+        width={px}
+        height={px}
+        style={box}
+        className={cn("rounded-full bg-muted object-cover", className)}
+      />
+    );
+  }
+  return (
+    <StillGif
+      url={url}
+      px={px}
+      label={label}
+      play={mode === "speaking" && animating}
+      className={className}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function StillGif({
+  url,
+  px,
+  label,
+  play,
+  className,
+  placeholder,
+}: {
+  url: string;
+  px: number;
+  label: string;
+  play: boolean;
+  className?: string;
+  placeholder: React.ReactNode;
+}) {
+  const [frame, setFrame] = React.useState<StaticFrame | null | undefined>(() =>
+    peekStaticFrame(url),
+  );
+  const [failed, setFailed] = React.useState(false);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [live, setLive] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    setFailed(false);
+    const hit = peekStaticFrame(url);
+    if (hit) {
+      setFrame(hit);
+      return;
+    }
+    setFrame(undefined);
+    void loadStaticFrame(url).then((f) => {
+      if (!alive) return;
+      if (f) setFrame(f);
+      else setFailed(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+
+  const dpr = typeof window === "undefined" ? 1 : Math.min(2, window.devicePixelRatio || 1);
+  const side = Math.max(1, Math.round(px * dpr));
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mudar o tamanho (`side`) limpa o canvas: repinta.
+  React.useLayoutEffect(() => {
+    if (frame && canvasRef.current) paintCover(canvasRef.current, frame);
+  }, [frame, side]);
+
+  // Ao parar de falar o GIF sai; na próxima fala ele reaparece com fade (o canvas por baixo evita piscar).
+  React.useEffect(() => {
+    if (!play) setLive(false);
+  }, [play]);
+
+  if (failed || !frame) return <>{placeholder}</>;
+  return (
+    <span
+      className={cn(
+        "relative inline-flex shrink-0 overflow-hidden rounded-full bg-muted",
+        className,
+      )}
+      style={{ width: px, height: px }}
+      data-gif-still
+    >
+      <canvas
+        ref={canvasRef}
+        role="img"
+        aria-label={label}
+        width={side}
+        height={side}
+        style={{ width: px, height: px }}
+        className="rounded-full"
+      />
+      {play ? (
+        <img
+          src={url}
+          alt=""
+          aria-hidden
+          width={px}
+          height={px}
+          data-gif-live
+          style={{ width: px, height: px }}
+          onLoad={() => setLive(true)}
+          className={cn(
+            "absolute inset-0 rounded-full object-cover transition-opacity duration-[var(--dur-base)]",
+            live ? "opacity-100" : "opacity-0",
+          )}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * Avatar do usuário.
  * - sem imagem: `fallback="initials"` (padrão) mostra as iniciais sobre uma cor derivada do `seed` (id ou
  *   username); `fallback="logo"` usa a mini logo (só para casos de marca);
@@ -91,6 +261,8 @@ export function Avatar({
   fallback = "initials",
   seed,
   speaking = false,
+  animation = "never",
+  animating,
   status,
   statusLabel,
   statusRingClassName,
@@ -102,6 +274,10 @@ export function Avatar({
   fallback?: "logo" | "initials";
   seed?: string;
   speaking?: boolean;
+  /** GIF animado: ver `AvatarAnimation`. Padrão `never` (parado). */
+  animation?: AvatarAnimation;
+  /** Com `animation="speaking"`: anima enquanto verdadeiro (padrão: o valor de `speaking`). */
+  animating?: boolean;
   status?: PresenceStatus;
   statusLabel?: string;
   statusRingClassName?: string;
@@ -114,35 +290,9 @@ export function Avatar({
   const wrapped = speaking || Boolean(status);
   const faceClass = wrapped ? undefined : className;
   let face: React.ReactNode;
-  if (!url && fallback === "logo") {
-    // Marca com fundo transparente dentro de um círculo do tema, com respiro uniforme.
-    face = (
-      <span
-        role="img"
-        aria-label={label}
-        style={box}
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-3",
-          faceClass,
-        )}
-      >
-        <LogoMark size={Math.round(px * 0.8)} alt="" />
-      </span>
-    );
-  } else if (url) {
-    face = (
-      <img
-        src={url}
-        alt={label}
-        width={px}
-        height={px}
-        style={box}
-        className={cn("rounded-full bg-muted object-cover", faceClass)}
-      />
-    );
-  } else {
+  const initialsFace = () => {
     const c = avatarColor(seed ?? name);
-    face = (
+    return (
       <span
         role="img"
         aria-label={label}
@@ -159,6 +309,46 @@ export function Avatar({
         )}
       />
     );
+  };
+  if (!url && fallback === "logo") {
+    // Marca com fundo transparente dentro de um círculo do tema, com respiro uniforme.
+    face = (
+      <span
+        role="img"
+        aria-label={label}
+        style={box}
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-3",
+          faceClass,
+        )}
+      >
+        <LogoMark size={Math.round(px * 0.8)} alt="" />
+      </span>
+    );
+  } else if (url) {
+    const initials = initialsFace();
+    face = isGifUrl(url) ? (
+      <GifFace
+        url={url}
+        px={px}
+        label={label}
+        animation={animation}
+        animating={animating ?? speaking}
+        className={faceClass}
+        placeholder={initials}
+      />
+    ) : (
+      <img
+        src={url}
+        alt={label}
+        width={px}
+        height={px}
+        style={box}
+        className={cn("rounded-full bg-muted object-cover", faceClass)}
+      />
+    );
+  } else {
+    face = initialsFace();
   }
 
   if (!wrapped) return face;

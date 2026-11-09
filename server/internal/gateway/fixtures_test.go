@@ -12,6 +12,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/attachment"
 	"github.com/devGustavoMuniz/spook/server/internal/channel"
 	"github.com/devGustavoMuniz/spook/server/internal/dmcall"
+	"github.com/devGustavoMuniz/spook/server/internal/feedback"
 	"github.com/devGustavoMuniz/spook/server/internal/guild"
 	"github.com/devGustavoMuniz/spook/server/internal/message"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
@@ -19,6 +20,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/presence"
 	"github.com/devGustavoMuniz/spook/server/internal/relationship"
 	"github.com/devGustavoMuniz/spook/server/internal/typing"
+	"github.com/devGustavoMuniz/spook/server/internal/user"
 	voicepkg "github.com/devGustavoMuniz/spook/server/internal/voice"
 )
 
@@ -159,9 +161,14 @@ func buildFixtures(t *testing.T) map[string]any {
 		{EventNotificationSettingsUpdate, notification.SettingPayload{Scope: "channel", TargetID: "300", Muted: true, MutedUntil: &at, Level: ptr("mentions")}},
 		{EventVoiceStateUpdate, VoiceStateUpdate{GuildID: ptr("100"), ChannelID: ptr("301"), UserID: "11", SelfMute: true, SelfVideo: true, SelfScreen: true, ViewerCount: 2, Viewers: []string{"12", "13"}}},
 		{EventReadStateUpdate, ReadStateUpdate{ChannelID: "300", LastReadMessageID: "901", MentionCount: 2}},
+		{EventUserUpdate, user.UpdatePayload{ID: "11", Username: "ana", DisplayName: "Ana", AvatarURL: "https://s3.example/avatars/11/7.gif?sig=x", Bio: "oi", Pronouns: "ela/dela", BannerURL: "https://s3.example/banners/11/8.png?sig=x"}},
 		{EventRelationshipAdd, incoming},
 		{EventRelationshipUpdate, friend},
 		{EventRelationshipRemove, relationship.RelationshipRemoved{UserID: "13"}},
+		{EventTicketUpdate, feedback.TicketUpdatePayload{
+			TicketPayload: feedback.TicketPayload{ID: "950", Kind: "bug", Status: "answered", Title: "A tela de voz fecha sozinha", MessageCount: 2, Unread: true, CreatedAt: at, LastActivityAt: at},
+			ByAdmin:       true,
+		}},
 		{EventCallRing, ring},
 		{EventCallUpdate, answered},
 		{EventCallEnd, ended},

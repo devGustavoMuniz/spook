@@ -29,6 +29,10 @@ const (
 	PresenceUpdate    = "PRESENCE_UPDATE"
 	VoiceStateUpdate  = "VOICE_STATE_UPDATE"
 	ReadStateUpdate   = "READ_STATE_UPDATE"
+	// UserUpdate: o perfil público de um usuário mudou (nome de exibição, avatar, bio, pronomes, banner). Vai ao
+	// próprio usuário (user:<id>, todas as sessões), aos servidores dele (guild:<id>) e a quem divide DM ou amizade
+	// com ele (user:<par>). Data = user.UpdatePayload.
+	UserUpdate = "USER_UPDATE"
 	// ChannelOverwritesUpdate é INTERNO (nunca vai ao cliente): os overwrites de um canal mudaram e o gateway
 	// e a voz reavaliam quem vê o canal. Data = o canal (ChannelPayload).
 	ChannelOverwritesUpdate = "CHANNEL_OVERWRITES_UPDATE"
@@ -39,6 +43,7 @@ const (
 	// Social (tópico user:<id>, só ao usuário envolvido): amizades, pedidos e bloqueios.
 	RelationshipAdd    = "RELATIONSHIP_ADD"    // novo relacionamento (pedido enviado/recebido, bloqueio)
 	RelationshipUpdate = "RELATIONSHIP_UPDATE" // pedido recebido virou amizade
+	TicketUpdate       = "TICKET_UPDATE"       // chamado de feedback mudou (tópico user:<autor>)
 	RelationshipRemove = "RELATIONSHIP_REMOVE" // amizade desfeita, pedido cancelado/recusado ou desbloqueio
 	// Chamada em DM com toque (tópico user:<id> dos participantes).
 	CallRing   = "CALL_RING"   // chamada recebida (só quem deve tocar)

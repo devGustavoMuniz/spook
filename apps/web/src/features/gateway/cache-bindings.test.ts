@@ -468,3 +468,88 @@ describe('"digitando…"', () => {
     expect(typing(CH)).toEqual([]);
   });
 });
+
+describe("USER_UPDATE (perfil de alguém mudou)", () => {
+  const update = (over: Record<string, unknown> = {}) =>
+    send({
+      t: "USER_UPDATE",
+      d: {
+        id: "50",
+        username: "bia",
+        display_name: "Bia Nova",
+        avatar_url: "https://s3.test/avatars/50/9.gif?sig=n",
+        ...over,
+      },
+    });
+
+  it("troca nome e avatar nos membros já carregados, sem refetch", () => {
+    qc.setQueryData(queryKeys.members("g1"), {
+      members: [
+        {
+          ...member("50", "bia"),
+          guild_id: "g1",
+          avatar_url: "https://s3.test/old.png",
+          display_name: "Bia",
+        },
+        { ...member("51", "caio"), guild_id: "g1" },
+      ],
+    });
+    update();
+    const list = qc.getQueryData<{
+      members: { user_id: string; display_name?: string; avatar_url?: string }[];
+    }>(queryKeys.members("g1"));
+    expect(list?.members[0]).toMatchObject({
+      display_name: "Bia Nova",
+      avatar_url: "https://s3.test/avatars/50/9.gif?sig=n",
+    });
+    expect(list?.members[1]?.display_name).not.toBe("Bia Nova");
+    expect(invalidated(queryKeys.members("g1"))).toBe(false);
+  });
+
+  it("atualiza o autor das mensagens carregadas e o autor da citação", () => {
+    const withReply = {
+      ...msg("3000", "re", "51"),
+      reply_to: {
+        id: "1000",
+        author: { id: "50", username: "bia" },
+        content: "x",
+        has_attachments: false,
+        deleted: false,
+      },
+    };
+    addMessage(qc, CH, msg("3001", "oi", "50"));
+    addMessage(qc, CH, withReply);
+    update();
+    const h = history();
+    expect(h.find((m) => m.id === "3001")?.author).toMatchObject({
+      display_name: "Bia Nova",
+      avatar_url: "https://s3.test/avatars/50/9.gif?sig=n",
+    });
+    expect(h.find((m) => m.id === "3000")?.reply_to?.author.display_name).toBe("Bia Nova");
+    expect(h.find((m) => m.id === "3000")?.author.display_name).toBeUndefined();
+  });
+
+  it("atualiza os participantes das DMs", () => {
+    qc.setQueryData(queryKeys.dms(), [dm("d1", [recipient("50", "bia"), recipient("51", "caio")])]);
+    update();
+    const r = dmsOf(qc)[0]?.recipients ?? [];
+    expect(r.find((x) => x.id === "50")?.display_name).toBe("Bia Nova");
+    expect(r.find((x) => x.id === "51")?.display_name).not.toBe("Bia Nova");
+  });
+
+  it("no próprio usuário, atualiza o `me`; no de outro, não mexe nele", () => {
+    qc.setQueryData(queryKeys.me(), {
+      ...({ id: ME, username: "ana", display_name: "Ana" } as object),
+    });
+    update();
+    expect(qc.getQueryData<{ display_name?: string }>(queryKeys.me())?.display_name).toBe("Ana");
+    update({ id: ME, username: "ana", display_name: "Ana Nova" });
+    expect(qc.getQueryData<{ display_name?: string }>(queryKeys.me())?.display_name).toBe(
+      "Ana Nova",
+    );
+  });
+
+  it("sem cache carregado não faz nada (nem quebra)", () => {
+    expect(() => update({ id: "999" })).not.toThrow();
+  });
+});

@@ -209,6 +209,13 @@ describe("perfil: bio, pronomes e banner", () => {
     const { state } = await open();
     const input = (await screen.findByLabelText("Enviar imagem de banner")) as HTMLInputElement;
     await user.upload(input, new File([new Uint8Array(100)], "b.gif", { type: "image/gif" }));
+    // Agora o arquivo passa pelo diálogo de recorte; 400x100 já está em 4:1, então o GIF segue inteiro.
+    const crop = await screen.findByRole("dialog", { name: "Ajustar banner" });
+    const loader = crop.querySelector("img.sr-only") as HTMLImageElement;
+    Object.defineProperty(loader, "naturalWidth", { value: 400 });
+    Object.defineProperty(loader, "naturalHeight", { value: 100 });
+    fireEvent.load(loader);
+    await user.click(within(crop).getByRole("button", { name: "Aplicar" }));
     await waitFor(() => expect(FakeXhr.all).toHaveLength(1));
     expect(state.account.bannerUploads).toEqual([{ content_type: "image/gif", size: 100 }]);
     expect(FakeXhr.all[0]?.headers["Content-Type"]).toBe("image/gif");

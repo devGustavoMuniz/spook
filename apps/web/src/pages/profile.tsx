@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useGetMe, useRequestAvatarUpload, type View } from "@spook/shared";
+import { useCropProfileImage, useGetMe, useRequestAvatarUpload, type View } from "@spook/shared";
 import { AtSign, Image as ImageIcon, Mail, UserRound } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Avatar } from "@/components/avatar";
 import { describedBy, Field } from "@/components/form-field";
+import { type CropResult, ImageCropDialog } from "@/components/image-cropper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AboutCard, BannerCard, useSaveProfile } from "@/features/settings/profile-fields";
@@ -13,8 +14,8 @@ import { SecuritySection } from "@/features/settings/security";
 import { SettingsGroup } from "@/features/settings/ui";
 import { useT } from "@/i18n";
 import { applyServerError, messageFor } from "@/lib/errors";
+import { uploadCropped } from "@/lib/image-upload";
 import { type ProfileForm, profileSchema, validateAvatar } from "@/lib/schemas";
-import { putWithProgress } from "@/lib/upload";
 
 export function ProfilePage() {
   const { data: me } = useGetMe();
@@ -130,29 +131,38 @@ function AvatarCard({ me }: { me: View }) {
   const name = me.display_name || me.username;
   const busy = progress !== null;
 
-  async function onFile(file: File | undefined) {
+  const cropGif = useCropProfileImage();
+  const [picked, setPicked] = useState<File | null>(null);
+
+  function onFile(file: File | undefined) {
     if (!file) return;
     const problem = validateAvatar(file);
     setFileError(problem);
-    if (problem) return;
+    if (fileInput.current) fileInput.current.value = "";
+    if (!problem) setPicked(file);
+  }
+
+  async function upload(result: CropResult) {
+    setPicked(null);
     setProgress(0);
     try {
-      const { upload_url, key } = await requestUpload.mutateAsync({
-        data: {
-          content_type: file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
-          size: file.size,
-        },
+      const { key, fallback } = await uploadCropped({
+        result,
+        presign: (content_type, size) =>
+          requestUpload.mutateAsync({ data: { content_type, size } }),
+        cropGif: (key, r) =>
+          cropGif.mutateAsync({ data: { key, x: r.x, y: r.y, width: r.w, height: r.h } }),
+        onProgress: setProgress,
       });
-      await putWithProgress(upload_url, file, setProgress);
       await save({ avatar_key: key });
       toast.success(t("shell.profile.avatarUpdated"));
+      if (fallback) toast.info(t("crop.gifFallback"));
     } catch (e) {
       toast.error(
         e instanceof Error && !("status" in e) ? t("shell.profile.uploadFailed") : messageFor(e),
       );
     } finally {
       setProgress(null);
-      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -172,7 +182,7 @@ function AvatarCard({ me }: { me: View }) {
       description={t("shell.profile.avatarDesc")}
     >
       <div className="flex flex-wrap items-center gap-4">
-        <Avatar url={me.avatar_url} name={name} size={80} />
+        <Avatar url={me.avatar_url} name={name} size={80} animation="always" />
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <input
@@ -181,7 +191,7 @@ function AvatarCard({ me }: { me: View }) {
               type="file"
               accept="image/png,image/jpeg,image/webp,image/gif"
               className="sr-only"
-              onChange={(e) => void onFile(e.target.files?.[0])}
+              onChange={(e) => onFile(e.target.files?.[0])}
               disabled={busy}
             />
             <Button
@@ -213,6 +223,12 @@ function AvatarCard({ me }: { me: View }) {
           ) : null}
         </div>
       </div>
+      <ImageCropDialog
+        file={picked}
+        kind="avatar"
+        onCancel={() => setPicked(null)}
+        onApply={(r) => void upload(r)}
+      />
     </SettingsGroup>
   );
 }

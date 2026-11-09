@@ -390,3 +390,40 @@ Pré-requisito: DUAS pessoas (A transmite, B assiste), build novo do desktop (a 
 - [ ] **Matar o processo:** com o app em chamada, encerre-o pelo Gerenciador de Tarefas/Force Quit: a pessoa deve sair da lista do canal em até ~15 a 20 s (tempo do LiveKit, não configurável).
 - [ ] **Cmd+Q / Sair da bandeja** em chamada também tiram a pessoa do canal na hora.
 
+### Palco: participantes recolhíveis e controles que somem (web e desktop)
+- [ ] **Recolher:** assista a uma tela compartilhada; o botão com seta para baixo no meio da borda de baixo recolhe a faixa dos participantes e a tela cresce; vira seta para cima e reabre. Vale em tela cheia e fora dela; recarregar mantém a escolha. Tecla `P` alterna.
+- [ ] **Fala recolhida:** com a faixa recolhida, peça para outra pessoa falar: o botão acende (borda/ponto verde).
+- [ ] **Auto-ocultar:** com a tela em foco (e em tela cheia), parado ~3 s a barra, o botão de tela cheia e o de recolher somem com fade e deslize; qualquer movimento, tecla ou toque traz de volta; não somem com o mouse sobre eles, menu aberto ou foco neles. Em tela cheia o cursor some junto. Fora da tela cheia e sem tela em foco, a barra fica fixa.
+- [ ] **Movimento reduzido** (SO): sem deslize, só fade. **Teclado:** Tab nunca pousa em controle invisível.
+- [ ] **Desktop (Tauri):** o mesmo no app, inclusive tela cheia pelo botão e por `F`.
+
+### Recorte de avatar, banner e ícone do servidor
+- [ ] **Avatar estático:** Configurações > Perfil > Alterar avatar, escolha uma foto grande (de preferência de celular, com rotação EXIF). O diálogo abre com a imagem na orientação certa; arraste, use a roda do mouse e o slider; as prévias (80, 40 e 28 px) acompanham; Aplicar e conferir o resultado no cartão de perfil, na lista de membros e no chat.
+- [ ] **Foto de celular (EXIF):** a foto aparece de pé no recorte e no avatar final, e o arquivo novo não tem GPS (propriedades do arquivo baixado).
+- [ ] **Banner:** a moldura é larga (4:1); a prévia mostra como fica no cartão de perfil; o banner final bate com a prévia.
+- [ ] **GIF animado:** escolha um GIF (pessoal, de 1 a 5 MB); no recorte ele anima; Aplicar com zoom e arraste: o avatar final anima, recortado na área escolhida, e o arquivo não ficou maior. Teste um GIF grande (mais de 2000 px ou centenas de quadros): deve cair no original com o aviso "grande ou complexo demais".
+- [ ] **WebP animado:** o diálogo avisa que não recorta e trava zoom e arraste; Aplicar usa o arquivo inteiro e ele anima.
+- [ ] **Teclado:** Tab/Shift+Tab não saem do diálogo; na moldura, setas movem, Shift+setas movem mais, + e - dão zoom, Esc cancela e devolve o foco ao botão que abriu.
+- [ ] **Celular (390 px) e toque:** o diálogo ocupa a tela, arrastar com um dedo move e pinça com dois dedos dá zoom (sem rolar a página atrás); Aplicar e Cancelar à vista.
+- [ ] **Ícone do servidor:** Configurações do servidor > Geral > Alterar ícone abre o recorte quadrado; o ícone final aparece na barra de servidores.
+- [ ] **Desktop (Tauri) e Safari/Firefox:** o mesmo fluxo, em especial arraste e roda do mouse.
+
+### Perfil ao vivo e avatar GIF só ao falar
+- [ ] **Troca de nome/avatar ao vivo:** com duas contas no mesmo servidor e na mesma chamada, uma troca o nome de exibição e o avatar em Configurações > Perfil: a outra vê o nome e o avatar novos na lista de membros, nas mensagens já na tela, na lista de DMs e na chamada (palco e lista de conectados), sem recarregar. A que trocou vê tudo igual em todos os lugares. Repita com uma terceira conta que só tem DM (por amizade) com a primeira.
+- [ ] **Outra sessão:** com a mesma conta aberta em duas abas/aparelhos, a mudança numa aparece na outra sem recarregar.
+- [ ] **GIF parado fora do perfil:** com um avatar GIF animado, na lista de membros, nas mensagens, nas DMs e no painel do usuário ele aparece parado (primeiro quadro); no cartão de perfil (clique no membro) e na prévia de Configurações > Perfil ele anima.
+- [ ] **GIF anima só ao falar:** na chamada, o GIF fica parado no tile e na lista de conectados e anda enquanto a pessoa fala (com o anel verde); o meu próprio também (fale no seu microfone). Quem está em outro canal de voz que não é o seu aparece parado mesmo falando.
+- [ ] **Sem piscar:** ao começar a falar o GIF entra com um fade curto, sem flash de iniciais ou de tela vazia; ao parar volta ao quadro parado.
+- [ ] **Movimento reduzido** (SO): o GIF nunca anda, nem no perfil nem falando. **Desktop (Tauri):** o mesmo comportamento.
+
+### Chamados de feedback, sugestões e bugs
+- [ ] **Abrir um chamado (web):** Configurações > Ajuda e feedback; escolha Bug, escreva título e descrição, veja a prévia do contexto técnico e envie: a conversa do chamado abre e ele aparece em "Meus chamados" como Aberto.
+- [ ] **Opt-out do contexto:** desligue "Incluir informações técnicas" e envie; no /admin o chamado não mostra "Contexto técnico".
+- [ ] **Desktop (Tauri):** o mesmo no app; no /admin o contexto mostra `client: desktop` e a versão nativa do app (a mesma de Configurações > Aplicativo).
+- [ ] **Admin vê e responde:** com a sua conta admin, o menu do /admin tem "Chamados" com o selo de abertos; a fila mostra o chamado; filtre por estado e tipo, busque pelo título e pelo username, troque a ordenação e use "Carregar mais".
+- [ ] **Resposta ao vivo:** com o usuário logado em outra janela, responda no /admin: o usuário vê o aviso "A equipe respondeu ao seu chamado." com o botão Abrir; a lista mostra "Nova resposta" até abrir a conversa; a resposta aparece como "Equipe do Spook" (sem identificar quem respondeu).
+- [ ] **Nota interna:** marque "Nota interna" e salve: a nota aparece destacada para o admin e nunca na conversa do usuário nem no aviso.
+- [ ] **Estados:** o admin troca para Em análise, Resolvido e Fechado; resolver e fechar avisam o usuário. O usuário responde (volta a Aberto), fecha e reabre o próprio chamado; fechado não aceita resposta até reabrir.
+- [ ] **Limites:** o 6º chamado na mesma hora recebe "muitas tentativas"; título curto ou descrição vazia mostram o erro no formulário.
+- [ ] **Celular (390 px) e idioma:** o formulário e a conversa sem rolagem horizontal; em inglês a seção toda vem traduzida (o /admin é só em português).
+- [ ] **Botão vermelho:** sem tela, "Sair da chamada" na lateral e na barra. Compartilhando, vira "Parar de compartilhar" (para a publicação; volta a "Sair da chamada"). Assistindo a tela de outra pessoa, vira "Sair da transmissão" (para de assistir, o palco volta à grade). Nos dois casos o botão discreto "Sair da chamada" ao lado sai da chamada. Compartilhando e assistindo ao mesmo tempo: "Parar de compartilhar". No app desktop o botão segue "Sair da chamada" ao assistir.

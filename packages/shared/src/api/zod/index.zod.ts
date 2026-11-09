@@ -12,6 +12,7 @@ export * from "./messages/messages.zod";
 export * from "./notifications/notifications.zod";
 export * from "./presence/presence.zod";
 export * from "./relationships/relationships.zod";
+export * from "./tickets/tickets.zod";
 export * from "./uploads/uploads.zod";
 export * from "./users/users.zod";
 export * from "./voice/voice.zod";

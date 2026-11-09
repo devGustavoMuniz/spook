@@ -14,6 +14,7 @@ export * from "./api/endpoints/messages/messages";
 export * from "./api/endpoints/notifications/notifications";
 export * from "./api/endpoints/presence/presence";
 export * from "./api/endpoints/relationships/relationships";
+export * from "./api/endpoints/tickets/tickets";
 export * from "./api/endpoints/uploads/uploads";
 export * from "./api/endpoints/users/users";
 export * from "./api/endpoints/voice/voice";

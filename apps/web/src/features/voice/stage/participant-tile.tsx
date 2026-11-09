@@ -44,7 +44,7 @@ import { ViewersBadge } from "../viewers";
 import { useTileColor } from "./dominant-color";
 import { useFirstFrame, useFlowState } from "./stream-health";
 import { loadStatsOpen, StreamStatsPanel, saveStatsOpen, useStreamStats } from "./stream-stats";
-import { useStageHold } from "./use-auto-hide";
+import { useStageHold } from "./use-idle-controls";
 
 export type TileModel = {
   /** Chave estável: `u:<id>` (pessoa) ou `s:<trackId>` (tela). */
@@ -298,6 +298,8 @@ export function ParticipantTile({
                 size={avatarPx}
                 fallback="initials"
                 seed={tile.userId}
+                animation="speaking"
+                animating={speaking}
                 className="shadow-lg ring-2 ring-white/20"
               />
               {speaking ? (

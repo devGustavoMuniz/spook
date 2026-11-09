@@ -28,7 +28,8 @@ export default defineConfig({
     ? [
         {
           name: "voice",
-          testMatch: /voice(-join-perf|-dialog-scroll|-stream-stats)?\.spec\.ts/,
+          testMatch:
+            /voice(-join-perf|-dialog-scroll|-stream-stats|-stage-controls|-profile)?\.spec\.ts/,
           use: {
             ...devices["Desktop Chrome"],
             // Chromium completo (novo headless): o headless shell padrão ignora a flag de origem insegura abaixo.
@@ -51,7 +52,8 @@ export default defineConfig({
     : [
         {
           name: "chromium",
-          testIgnore: /voice(-join-perf|-dialog-scroll|-stream-stats)?\.spec\.ts/,
+          testIgnore:
+            /voice(-join-perf|-dialog-scroll|-stream-stats|-stage-controls|-profile)?\.spec\.ts/,
           use: {
             ...devices["Desktop Chrome"],
             launchOptions: { executablePath: process.env.CHROMIUM_PATH || undefined },

@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { describedBy, Field } from "@/components/form-field";
+import { type CropResult, ImageCropDialog } from "@/components/image-cropper";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,8 +41,8 @@ import { useT } from "@/i18n";
 import { appMessage } from "@/lib/app-errors";
 import { CHANNEL_TEXT, channelsOf, type Guild, initials } from "@/lib/guild";
 import { refreshGuilds, removeGuild } from "@/lib/guild-cache";
+import { uploadCropped } from "@/lib/image-upload";
 import { type GuildNameForm, guildNameSchema, validateAvatar } from "@/lib/schemas";
-import { putWithProgress } from "@/lib/upload";
 import { useReportDirty } from "./dirty";
 
 export function GeneralTab({ guild, onClose }: { guild: Guild; onClose: () => void }) {
@@ -175,23 +176,30 @@ function IconSection({ guild }: { guild: Guild }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<File | null>(null);
   const busy = progress !== null;
 
-  async function onFile(file: File | undefined) {
+  function onFile(file: File | undefined) {
     if (!file) return;
     const problem = validateAvatar(file);
     setFileError(problem);
-    if (problem) return;
+    if (fileInput.current) fileInput.current.value = "";
+    if (!problem) setPicked(file);
+  }
+
+  async function upload(result: CropResult) {
+    setPicked(null);
     setProgress(0);
     try {
-      const { upload_url, key } = await requestUpload.mutateAsync({
-        guildId: guild.id,
-        data: {
-          content_type: file.type as "image/png" | "image/jpeg" | "image/webp",
-          size: file.size,
-        },
+      const { key } = await uploadCropped({
+        result,
+        presign: (content_type, size) =>
+          requestUpload.mutateAsync({
+            guildId: guild.id,
+            data: { content_type: content_type as "image/png" | "image/jpeg" | "image/webp", size },
+          }),
+        onProgress: setProgress,
       });
-      await putWithProgress(upload_url, file, setProgress);
       await update.mutateAsync({ guildId: guild.id, data: { icon_key: key } });
       await refreshGuilds(qc);
       toast.success(t("guilds.general.icon.updated"));
@@ -203,7 +211,6 @@ function IconSection({ guild }: { guild: Guild }) {
       );
     } finally {
       setProgress(null);
-      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -245,7 +252,7 @@ function IconSection({ guild }: { guild: Guild }) {
               accept="image/png,image/jpeg,image/webp"
               className="sr-only"
               aria-label={t("guilds.general.icon.fileAria")}
-              onChange={(e) => void onFile(e.target.files?.[0])}
+              onChange={(e) => onFile(e.target.files?.[0])}
               disabled={busy}
             />
             <Button
@@ -278,6 +285,12 @@ function IconSection({ guild }: { guild: Guild }) {
           ) : null}
         </div>
       </div>
+      <ImageCropDialog
+        file={picked}
+        kind="icon"
+        onCancel={() => setPicked(null)}
+        onApply={(r) => void upload(r)}
+      />
     </section>
   );
 }

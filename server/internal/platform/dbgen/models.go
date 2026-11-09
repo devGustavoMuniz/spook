@@ -248,6 +248,29 @@ type SocialSignup struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
+type Ticket struct {
+	ID             int64
+	AuthorID       int64
+	Kind           string
+	Status         string
+	Title          string
+	Context        []byte
+	MessageCount   int32
+	UserUnread     bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	LastActivityAt pgtype.Timestamptz
+}
+
+type TicketMessage struct {
+	ID        int64
+	TicketID  int64
+	AuthorID  *int64
+	Kind      string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type User struct {
 	ID                    int64
 	Email                 string

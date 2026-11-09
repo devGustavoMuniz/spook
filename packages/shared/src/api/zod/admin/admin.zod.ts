@@ -430,6 +430,215 @@ export const AdminSystemResponse = zod.object({
 });
 
 /**
+ * @summary Fila de chamados com filtros por estado e tipo, busca (título ou username), ordenação e cursor
+ */
+export const adminListTicketsQueryQMax = 100;
+
+export const adminListTicketsQuerySortDefault = `activity`;
+export const adminListTicketsQueryCursorMax = 64;
+
+export const adminListTicketsQueryLimitDefault = 20;
+export const adminListTicketsQueryLimitMax = 50;
+
+export const AdminListTicketsQueryParams = zod.object({
+  status: zod
+    .enum(["open", "in_review", "answered", "resolved", "closed"])
+    .optional()
+    .describe("Filtra por estado"),
+  kind: zod.enum(["bug", "suggestion", "feedback"]).optional().describe("Filtra por tipo"),
+  q: zod
+    .string()
+    .max(adminListTicketsQueryQMax)
+    .optional()
+    .describe("Busca no título ou no username do autor"),
+  sort: zod
+    .enum(["activity", "oldest"])
+    .default(adminListTicketsQuerySortDefault)
+    .describe("activity = movimento mais recente; oldest = mais antigos primeiro"),
+  cursor: zod
+    .string()
+    .max(adminListTicketsQueryCursorMax)
+    .optional()
+    .describe("next_cursor da página anterior"),
+  limit: zod
+    .int()
+    .min(1)
+    .max(adminListTicketsQueryLimitMax)
+    .default(adminListTicketsQueryLimitDefault)
+    .describe("Itens por página (máx. 50)"),
+});
+
+export const AdminListTicketsResponse = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        author: zod.object({
+          display_name: zod.string().optional(),
+          email: zod.string(),
+          id: zod.string(),
+          username: zod.string(),
+        }),
+        created_at: zod.iso.datetime({ offset: true }),
+        id: zod.string().describe("ID Snowflake (string)"),
+        kind: zod.enum(["bug", "suggestion", "feedback"]),
+        last_activity_at: zod.iso.datetime({ offset: true }),
+        message_count: zod.int().describe("Mensagens visíveis ao autor (a abertura conta)"),
+        status: zod.enum(["open", "in_review", "answered", "resolved", "closed"]),
+        title: zod.string(),
+        unread: zod.boolean().describe("A equipe respondeu e o autor ainda não abriu o chamado"),
+      }),
+    )
+    .nullable(),
+  next_cursor: zod
+    .string()
+    .nullable()
+    .describe("Passe em cursor para a próxima página. Nulo = fim"),
+});
+
+/**
+ * @summary Contagem de chamados por estado (badge do menu)
+ */
+export const AdminTicketSummaryResponse = zod.object({
+  answered: zod.int(),
+  closed: zod.int(),
+  in_review: zod.int(),
+  open: zod.int(),
+  resolved: zod.int(),
+  total: zod.int(),
+});
+
+/**
+ * @summary Chamado completo: conversa, notas internas, contexto técnico e dados do autor
+ */
+export const AdminGetTicketParams = zod.object({
+  id: zod.string().describe("ID do chamado"),
+});
+
+export const adminGetTicketResponseContextAppVersionMax = 32;
+
+export const adminGetTicketResponseContextBrowserMax = 160;
+
+export const adminGetTicketResponseContextClientMax = 16;
+
+export const adminGetTicketResponseContextLocaleMax = 16;
+
+export const adminGetTicketResponseContextOsMax = 64;
+
+export const adminGetTicketResponseContextRouteMax = 200;
+
+export const AdminGetTicketResponse = zod.object({
+  author: zod.object({
+    display_name: zod.string().optional(),
+    email: zod.string(),
+    id: zod.string(),
+    username: zod.string(),
+  }),
+  context: zod
+    .object({
+      app_version: zod
+        .string()
+        .max(adminGetTicketResponseContextAppVersionMax)
+        .optional()
+        .describe("Versão do app"),
+      browser: zod
+        .string()
+        .max(adminGetTicketResponseContextBrowserMax)
+        .optional()
+        .describe("Navegador ou webview (user agent resumido)"),
+      client: zod
+        .string()
+        .max(adminGetTicketResponseContextClientMax)
+        .optional()
+        .describe("web ou desktop"),
+      locale: zod
+        .string()
+        .max(adminGetTicketResponseContextLocaleMax)
+        .optional()
+        .describe("Idioma da interface"),
+      os: zod
+        .string()
+        .max(adminGetTicketResponseContextOsMax)
+        .optional()
+        .describe("Sistema operacional"),
+      route: zod
+        .string()
+        .max(adminGetTicketResponseContextRouteMax)
+        .optional()
+        .describe("Rota aberta no app quando o chamado foi criado"),
+    })
+    .optional(),
+  created_at: zod.iso.datetime({ offset: true }),
+  id: zod.string().describe("ID Snowflake (string)"),
+  kind: zod.enum(["bug", "suggestion", "feedback"]),
+  last_activity_at: zod.iso.datetime({ offset: true }),
+  message_count: zod.int().describe("Mensagens visíveis ao autor (a abertura conta)"),
+  messages: zod
+    .array(
+      zod.object({
+        body: zod.string(),
+        created_at: zod.iso.datetime({ offset: true }),
+        id: zod.string(),
+        kind: zod.enum(["user", "admin", "internal"]),
+        username: zod.string().optional().describe("Quem escreveu (vazio se a conta foi excluída)"),
+      }),
+    )
+    .nullable(),
+  status: zod.enum(["open", "in_review", "answered", "resolved", "closed"]),
+  title: zod.string(),
+  unread: zod.boolean().describe("A equipe respondeu e o autor ainda não abriu o chamado"),
+});
+
+/**
+ * @summary Responde ao autor (internal=false: avisa o autor e move para respondido) ou registra uma nota interna
+ */
+export const AdminReplyTicketParams = zod.object({
+  id: zod.string().describe("ID do chamado"),
+});
+
+export const adminReplyTicketBodyBodyMax = 4000;
+
+export const AdminReplyTicketBody = zod.object({
+  body: zod.string().min(1).max(adminReplyTicketBodyBodyMax).describe("Texto da mensagem"),
+  internal: zod.boolean().optional().describe("true = nota interna, invisível para o autor"),
+});
+
+export const AdminReplyTicketResponse = zod.object({
+  body: zod.string(),
+  created_at: zod.iso.datetime({ offset: true }),
+  id: zod.string(),
+  kind: zod.enum(["user", "admin", "internal"]),
+  username: zod.string().optional().describe("Quem escreveu (vazio se a conta foi excluída)"),
+});
+
+/**
+ * @summary Muda o estado do chamado (resolver ou fechar avisa o autor)
+ */
+export const AdminSetTicketStatusParams = zod.object({
+  id: zod.string().describe("ID do chamado"),
+});
+
+export const AdminSetTicketStatusBody = zod.object({
+  status: zod.enum(["open", "in_review", "answered", "resolved", "closed"]),
+});
+
+export const AdminSetTicketStatusResponse = zod.object({
+  author: zod.object({
+    display_name: zod.string().optional(),
+    email: zod.string(),
+    id: zod.string(),
+    username: zod.string(),
+  }),
+  created_at: zod.iso.datetime({ offset: true }),
+  id: zod.string().describe("ID Snowflake (string)"),
+  kind: zod.enum(["bug", "suggestion", "feedback"]),
+  last_activity_at: zod.iso.datetime({ offset: true }),
+  message_count: zod.int().describe("Mensagens visíveis ao autor (a abertura conta)"),
+  status: zod.enum(["open", "in_review", "answered", "resolved", "closed"]),
+  title: zod.string(),
+  unread: zod.boolean().describe("A equipe respondeu e o autor ainda não abriu o chamado"),
+});
+
+/**
  * @summary Usuários, paginado (25 por página), com busca e ordenação
  */
 export const adminUsersQueryQMax = 100;

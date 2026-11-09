@@ -29,7 +29,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
-  leaveCall,
   screenSourceSwapSupported,
   swapScreenSource,
   toggleCamera,
@@ -39,11 +38,12 @@ import {
 } from "../controller";
 import { DeviceDialog } from "../device-dialog";
 import { DeviceMenu } from "../device-menu";
+import { useLeaveAction } from "../leave-action";
 import { voicePermissions } from "../permissions";
 import { ScreenShareDialog } from "../screen-share-dialog";
 import { useVoiceStore } from "../store";
 import { LAYOUTS, useCallLayoutStore } from "./call-layout";
-import { useStageHold } from "./use-auto-hide";
+import { useStageHold } from "./use-idle-controls";
 
 type Tone = "neutral" | "danger" | "brand";
 
@@ -108,6 +108,7 @@ function BarButton({
 export function ControlBar({ leaveLabel }: { leaveLabel?: string }) {
   const { t } = useT();
   const leave = leaveLabel ?? t("voice.bar.leaveChannel");
+  const action = useLeaveAction(leave);
   const s = useVoiceStore();
   const guilds = useListGuilds();
   const guild = s.guildId ? guilds.data?.find((g) => g.id === s.guildId) : null;
@@ -181,19 +182,35 @@ export function ControlBar({ leaveLabel }: { leaveLabel?: string }) {
           <Settings />
         </BarButton>
         <span aria-hidden className="mx-0.5 h-6 w-px bg-border" />
+        {action.kind !== "leave" ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon-lg"
+                className="size-9 rounded-full min-[420px]:size-11 sm:size-12"
+                aria-label={action.leaveLabel}
+                onClick={action.leave}
+              >
+                <PhoneOff />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{action.leaveLabel}</TooltipContent>
+          </Tooltip>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="destructive"
               size="icon-lg"
               className="size-11 rounded-full sm:size-12"
-              aria-label={leave}
-              onClick={() => void leaveCall()}
+              aria-label={action.label}
+              onClick={action.run}
             >
-              <PhoneOff />
+              <action.Icon />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{leave}</TooltipContent>
+          <TooltipContent>{action.label}</TooltipContent>
         </Tooltip>
       </div>
       <DeviceDialog open={devices} onOpenChange={setDevices} />

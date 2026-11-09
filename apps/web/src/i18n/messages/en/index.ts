@@ -3,6 +3,8 @@ import type { Message } from "../../types";
 import { auth } from "./auth";
 import { chat } from "./chat";
 import { common } from "./common";
+import { crop } from "./crop";
+import { feedback } from "./feedback";
 import { format } from "./format";
 import { guilds } from "./guilds";
 import { people } from "./people";
@@ -14,6 +16,7 @@ import { voice } from "./voice";
 /** Tradução em inglês: precisa ter exatamente as mesmas chaves e placeholders de pt-BR (há teste). */
 export const en: Record<MessageKey, Message> = {
   ...common,
+  ...crop,
   ...format,
   ...auth,
   ...shell,
@@ -22,5 +25,6 @@ export const en: Record<MessageKey, Message> = {
   ...guilds,
   ...voice,
   ...settings,
+  ...feedback,
   ...system,
 };

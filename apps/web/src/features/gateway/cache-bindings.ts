@@ -8,6 +8,7 @@ import type {
   MessagePayload,
   ReadStatePayload,
   RelationshipsReady,
+  TicketUpdateData,
   VoiceStatePayload,
 } from "@spook/shared";
 import type { QueryClient } from "@tanstack/react-query";
@@ -29,6 +30,7 @@ import { bulkMentionsMe } from "@/lib/mentions";
 import { addMessage, removeMessage, replaceMessage } from "@/lib/message-cache";
 import { applyPinUpdate, removePinned } from "@/lib/pins-cache";
 import { isMembersKey, isMessagesKey, queryKeys } from "@/lib/queryKeys";
+import { applyUserUpdate } from "@/lib/user-cache";
 import { dmTitle } from "../dms/dm-utils";
 import {
   channelUrl,
@@ -62,6 +64,8 @@ export type GatewayEffects = {
   viewing(channelId: string): Viewing;
   /** Aviso in-app (toast ou notificação do navegador) de DM ou menção em canal que não está à vista. */
   notify(n: InAppNotification): void;
+  /** A equipe respondeu ou mudou o estado de um chamado meu (aviso com atalho para abri-lo). */
+  ticketUpdated?(ticket: TicketUpdateData): void;
 };
 
 const guildsOf = (qc: QueryClient) => qc.getQueryData<DetailPayload[] | null>(queryKeys.guilds());
@@ -219,6 +223,8 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
     case "PRESENCE_SELF_UPDATE":
       // A minha preferência mudou (nesta ou em outra aba): invisível, não perturbar e status personalizado.
       return usePresenceStore.getState().setMine(fx.myId(), ev.d);
+    case "USER_UPDATE":
+      return applyUserUpdate(qc, ev.d, fx.myId());
     case "NOTIFICATION_SETTINGS_UPDATE":
       return useNotificationSettings.getState().apply(ev.d);
     case "TYPING_START":
@@ -234,6 +240,14 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
     case "RELATIONSHIP_REMOVE":
       useSocialStore.getState().remove(ev.d.user_id);
       return invalidateRelationships(qc, ev.d.user_id);
+    // ---- chamados de feedback: só o autor recebe; a lista e a conversa abertas são refeitas ----
+    case "TICKET_UPDATE":
+      void qc.invalidateQueries({
+        predicate: (q) =>
+          typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/tickets"),
+      });
+      if (ev.d.by_admin && ev.d.unread) fx.ticketUpdated?.(ev.d);
+      return;
     case "CALL_RING":
       useCallStore.getState().ring(ev.d);
       return notifyCall(fx, ev.d);

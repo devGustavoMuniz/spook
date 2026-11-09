@@ -5,6 +5,7 @@ import { type ReactNode, useEffect } from "react";
 import { toast } from "sonner";
 import { gatewayConnection } from "@/desktop/connection";
 import { t } from "@/i18n";
+import { useFeedbackFocus } from "../feedback/focus-store";
 import { showInAppNotification } from "../notifications/notify";
 import { useReadStateStore } from "../notifications/read-state";
 import { useNotificationSettings } from "../notifications/settings";
@@ -13,6 +14,7 @@ import { resetAckMemory } from "../notifications/use-auto-ack";
 import { pageActive, useViewportStore, viewingOf } from "../notifications/viewport";
 import { watchIdle } from "../presence/idle-detector";
 import { usePresenceStore } from "../presence/store";
+import { openSettingsIn } from "../settings/use-settings";
 import { useCallStore } from "../social/call-store";
 import { useSocialStore } from "../social/store";
 import { useTypingStore } from "../typing/store";
@@ -66,6 +68,24 @@ export function GatewayProvider({ children }: { children: ReactNode }) {
       },
       viewing: (channelId) => viewingOf(channelId, useViewportStore.getState(), pageActive()),
       notify: (n) => showInAppNotification(n, (url) => void router.navigate({ href: url })),
+      ticketUpdated: (ticket) => {
+        const key =
+          ticket.status === "resolved"
+            ? "feedback.notify.resolved"
+            : ticket.status === "closed"
+              ? "feedback.notify.closed"
+              : "feedback.notify.replied";
+        toast.info(t(key), {
+          description: ticket.title,
+          action: {
+            label: t("feedback.notify.open"),
+            onClick: () => {
+              useFeedbackFocus.getState().focus(ticket.id);
+              void openSettingsIn(router, "feedback");
+            },
+          },
+        });
+      },
     };
 
     const client = new GatewayClient({

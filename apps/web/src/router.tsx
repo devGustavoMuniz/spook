@@ -21,6 +21,7 @@ import { authSearch, safeRedirect } from "@/lib/redirect";
 import { AdminCallsPage } from "@/pages/admin/calls";
 import { AdminDashboardPage } from "@/pages/admin/dashboard";
 import { AdminServersPage } from "@/pages/admin/servers";
+import { AdminTicketsPage } from "@/pages/admin/tickets";
 import { AdminUsersPage } from "@/pages/admin/users";
 import { ChooseUsernamePage } from "@/pages/choose-username";
 import { DesktopLoginPage } from "@/pages/desktop-login";
@@ -260,6 +261,16 @@ const adminCallsRoute = createRoute({
   path: "calls",
   component: AdminCallsPage,
 });
+const adminTicketsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "tickets",
+  component: AdminTicketsPage,
+});
+const adminTicketRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "tickets/$ticketId",
+  component: AdminTicketsPage,
+});
 
 // Referência dos componentes (docs/design/DESIGN-SYSTEM.md): só existe em desenvolvimento, o build de produção não a inclui.
 const devRoutes = import.meta.env.DEV
@@ -276,7 +287,14 @@ const devRoutes = import.meta.env.DEV
 
 const routeTree = rootRoute.addChildren([
   ...devRoutes,
-  adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminServersRoute, adminCallsRoute]),
+  adminRoute.addChildren([
+    adminIndexRoute,
+    adminUsersRoute,
+    adminServersRoute,
+    adminCallsRoute,
+    adminTicketsRoute,
+    adminTicketRoute,
+  ]),
   loginRoute,
   registerRoute,
   forgotPasswordRoute,

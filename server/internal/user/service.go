@@ -1,14 +1,18 @@
 package user
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"net/mail"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 )
 
 // Store é o que o service precisa do banco.
@@ -26,6 +30,10 @@ type Store interface {
 type AvatarStorage interface {
 	PresignPut(ctx context.Context, key, contentType string, size int64, ttl time.Duration) (string, error)
 	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
+	// Get, Put e Delete servem ao recorte de GIF no servidor (CropImage).
+	Get(ctx context.Context, key string, maxBytes int64) ([]byte, error)
+	Put(ctx context.Context, key, contentType string, data []byte) error
+	Delete(ctx context.Context, key string) error
 }
 
 type IDGenerator interface{ Next() int64 }
@@ -44,6 +52,9 @@ type Service struct {
 	store   Store
 	storage AvatarStorage // pode ser nil: avatar desativado
 	ids     IDGenerator
+	// pub e aud publicam USER_UPDATE quando o perfil muda (nulos = não publica; testes e ferramentas).
+	pub events.Publisher
+	aud Audience
 	// verifier é o ponto de extensão da troca de e-mail com verificação (nulo = troca direta).
 	verifier EmailChangeVerifier
 }
@@ -186,7 +197,12 @@ func (s *Service) UpdateProfile(ctx context.Context, id int64, in ProfileUpdate)
 		}
 		p.BannerKey, p.BannerColor = nil, in.BannerColor
 	}
-	return s.store.UpdateProfile(ctx, id, p)
+	u, err := s.store.UpdateProfile(ctx, id, p)
+	if err != nil {
+		return User{}, err
+	}
+	s.publishUpdate(ctx, u)
+	return u, nil
 }
 
 // EmailChangeVerifier é o ponto de extensão da verificação por e-mail (lote futuro: confirmar no
@@ -299,3 +315,59 @@ func bannerPrefix(userID int64) string { return fmt.Sprintf("banners/%d/", userI
 func (s *Service) AvatarURLForKey(ctx context.Context, key *string) string {
 	return s.AvatarURL(ctx, User{AvatarKey: key})
 }
+
+// CropImage recorta, no servidor, um GIF que o usuário já enviou por URL pré-assinada (avatar ou banner dele) e
+// grava o resultado numa chave nova do mesmo prefixo; o original é apagado. Só GIF passa por aqui: PNG, JPEG e
+// WebP estáticos são recortados no navegador, e WebP/APNG animados são usados como estão. Devolve
+// ErrInvalidAvatar para chave que não é do usuário ou não é .gif, ErrGIFTooComplex acima dos limites.
+func (s *Service) CropImage(ctx context.Context, userID int64, key string, rect image.Rectangle) (string, error) {
+	if s.storage == nil {
+		return "", fmt.Errorf("storage não configurado")
+	}
+	var prefix string
+	switch {
+	case strings.HasPrefix(key, avatarPrefix(userID)):
+		prefix = avatarPrefix(userID)
+	case strings.HasPrefix(key, bannerPrefix(userID)):
+		prefix = bannerPrefix(userID)
+	default:
+		return "", ErrInvalidAvatar
+	}
+	if !strings.HasSuffix(key, ".gif") || strings.Contains(key[len(prefix):], "/") {
+		return "", ErrInvalidAvatar
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	select {
+	case cropSlots <- struct{}{}:
+		defer func() { <-cropSlots }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	data, err := s.storage.Get(ctx, key, MaxAvatarBytes)
+	if err != nil {
+		return "", ErrInvalidAvatar
+	}
+	cropped, err := CropGIF(ctx, data, rect)
+	if err != nil {
+		if errors.Is(err, ErrGIFTooComplex) {
+			return "", err
+		}
+		return "", fmt.Errorf("%w: %w", ErrInvalidAvatar, err)
+	}
+	if len(cropped) > MaxAvatarBytes {
+		return "", ErrGIFTooComplex
+	}
+	if bytes.Equal(cropped, data) {
+		return key, nil
+	}
+	newKey := fmt.Sprintf("%s%d.gif", prefix, s.ids.Next())
+	if err := s.storage.Put(ctx, newKey, "image/gif", cropped); err != nil {
+		return "", err
+	}
+	_ = s.storage.Delete(ctx, key) // o original não é mais necessário; falha aqui só deixa um objeto órfão
+	return newKey, nil
+}
+
+// cropSlots limita os recortes simultâneos (cada um pode ocupar dezenas de MB).
+var cropSlots = make(chan struct{}, 2)

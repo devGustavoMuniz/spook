@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"image"
 	"net/http"
 	"strconv"
 	"time"
@@ -111,6 +112,22 @@ type AvatarOutput struct {
 	}
 }
 
+type CropInput struct {
+	Body struct {
+		Key    string `json:"key" minLength:"1" maxLength:"200" doc:"Chave .gif devolvida por /users/me/avatar ou /users/me/banner, já enviada"`
+		X      int    `json:"x" minimum:"0" maximum:"4096" doc:"Esquerda do recorte, em pixels do GIF"`
+		Y      int    `json:"y" minimum:"0" maximum:"4096" doc:"Topo do recorte, em pixels do GIF"`
+		Width  int    `json:"width" minimum:"1" maximum:"4096" doc:"Largura do recorte em pixels"`
+		Height int    `json:"height" minimum:"1" maximum:"4096" doc:"Altura do recorte em pixels"`
+	}
+}
+
+type CropOutput struct {
+	Body struct {
+		Key string `json:"key" doc:"Chave do GIF recortado (use em avatar_key ou banner_key); igual à enviada se o recorte cobre a imagem toda"`
+	}
+}
+
 // Register registra as rotas autenticadas; mw deve exigir sessão válida.
 func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[string][]string) {
 	op := func(id, method, path, summary string) huma.Operation {
@@ -165,6 +182,20 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return out, nil
 		})
 
+	cropOp := op("cropProfileImage", http.MethodPost, "/api/users/me/crop-image", "Recorta um GIF (animado) de avatar ou banner já enviado")
+	cropOp.Description = "Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original."
+	cropOp.Errors = append(cropOp.Errors, http.StatusUnprocessableEntity)
+	huma.Register(api, cropOp, func(ctx context.Context, in *CropInput) (*CropOutput, error) {
+		b := in.Body
+		key, err := h.svc.CropImage(ctx, h.userID(ctx), b.Key, image.Rect(b.X, b.Y, b.X+b.Width, b.Y+b.Height))
+		if err != nil {
+			return nil, mapErr(err)
+		}
+		out := &CropOutput{}
+		out.Body.Key = key
+		return out, nil
+	})
+
 	emailOp := op("changeEmail", http.MethodPut, "/api/users/me/email", "Troca o e-mail (exige confirmação recente de senha)")
 	if h.sensitive != nil {
 		emailOp.Middlewares = h.sensitive
@@ -202,6 +233,8 @@ func mapErr(err error) error {
 		return huma.Error409Conflict("a troca de e-mail aguarda a confirmação no endereço novo")
 	case errors.Is(err, ErrInvalidAvatar):
 		return huma.Error422UnprocessableEntity("avatar inválido: use png, jpeg, webp ou gif de até 5 MB e uma chave gerada para você")
+	case errors.Is(err, ErrGIFTooComplex):
+		return huma.Error422UnprocessableEntity("gif complexo demais para recortar: use o arquivo como está")
 	case errors.Is(err, ErrNotFound):
 		return huma.Error404NotFound("usuário não encontrado")
 	default:

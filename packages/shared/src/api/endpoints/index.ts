@@ -12,6 +12,7 @@ export * from "./messages/messages";
 export * from "./notifications/notifications";
 export * from "./presence/presence";
 export * from "./relationships/relationships";
+export * from "./tickets/tickets";
 export * from "./uploads/uploads";
 export * from "./users/users";
 export * from "./voice/voice";

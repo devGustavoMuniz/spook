@@ -5,7 +5,7 @@ import { VoiceInviteIllustration } from "@/components/illustrations";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { can, type Guild } from "@/lib/guild";
-import { useStageHold } from "./use-auto-hide";
+import { useStageHold } from "./use-idle-controls";
 
 // O diálogo de convites é o das configurações do servidor (aba "Convites"), carregado sob demanda.
 const GuildSettingsDialog = lazy(() =>

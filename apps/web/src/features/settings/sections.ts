@@ -1,7 +1,23 @@
-import { Ban, Bell, type LucideIcon, Mic, Monitor, Palette, UserRound } from "lucide-react";
+import {
+  Ban,
+  Bell,
+  LifeBuoy,
+  type LucideIcon,
+  Mic,
+  Monitor,
+  Palette,
+  UserRound,
+} from "lucide-react";
 import type { MessageKey } from "@/i18n";
 
-export type SectionKey = "profile" | "notifications" | "blocked" | "voice" | "appearance" | "app";
+export type SectionKey =
+  | "profile"
+  | "notifications"
+  | "blocked"
+  | "voice"
+  | "appearance"
+  | "app"
+  | "feedback";
 
 /** Estado do modal: uma seção ou `menu` (a lista de seções; só aparece em tela estreita). */
 export type SettingsView = SectionKey | "menu";
@@ -55,6 +71,13 @@ export const SECTIONS: readonly Section[] = [
     icon: Palette,
   },
   {
+    key: "feedback",
+    group: "app",
+    labelKey: "settings.sections.feedback.label",
+    descriptionKey: "settings.sections.feedback.description",
+    icon: LifeBuoy,
+  },
+  {
     key: "app",
     group: "app",
     labelKey: "settings.sections.app.label",
@@ -66,7 +89,7 @@ export const SECTIONS: readonly Section[] = [
 
 export const sectionOf = (key: string | undefined) => SECTIONS.find((s) => s.key === key);
 
-/** Ordem do menu: grupo "Conta" (Perfil, Bloqueados) e grupo "App" (Notificações, Voz e vídeo, Aparência, Aplicativo). */
+/** Ordem do menu: grupo "Conta" (Perfil, Bloqueados) e grupo "App" (Notificações, Voz e vídeo, Aparência, Aplicativo, Ajuda e feedback). */
 export const GROUPS: readonly { key: SectionGroup; labelKey: MessageKey }[] = [
   { key: "account", labelKey: "settings.layout.groupAccount" },
   { key: "app", labelKey: "settings.layout.groupApp" },

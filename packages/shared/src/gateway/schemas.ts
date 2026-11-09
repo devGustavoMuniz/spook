@@ -261,6 +261,20 @@ export const callPayloadSchema = z.object({
 });
 export type CallPayload = z.infer<typeof callPayloadSchema>;
 
+/** Chamado de feedback que mudou (TICKET_UPDATE, tópico do próprio autor). */
+export const ticketUpdateDataSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["bug", "suggestion", "feedback"]),
+  status: z.enum(["open", "in_review", "answered", "resolved", "closed"]),
+  title: z.string(),
+  message_count: z.number().int(),
+  unread: z.boolean(),
+  created_at: z.string(),
+  last_activity_at: z.string(),
+  by_admin: z.boolean(),
+});
+export type TicketUpdateData = z.infer<typeof ticketUpdateDataSchema>;
+
 function presenceUpdateDataSchemaBase() {
   return z.object({
     user_id: z.string(),
@@ -317,6 +331,18 @@ export const typingStartDataSchema = z.object({
   user_id: z.string(),
   timestamp: z.number().int(),
 });
+/** O perfil público de alguém mudou (nome de exibição, avatar, bio, pronomes, banner); sem e-mail. */
+export const userUpdateDataSchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  display_name: z.string().optional(),
+  avatar_url: z.string().optional(),
+  bio: z.string().optional(),
+  pronouns: z.string().optional(),
+  banner_url: z.string().optional(),
+  banner_color: z.number().int().optional(),
+});
+export type UserUpdateData = z.infer<typeof userUpdateDataSchema>;
 export const presenceUpdateDataSchema = presenceUpdateDataSchemaBase();
 export const voiceStateUpdateDataSchema = voiceStatePayloadSchema;
 export const readStateUpdateDataSchema = z.object({
@@ -346,6 +372,7 @@ export const eventSchemas = {
   ROLE_DELETE: roleDeleteDataSchema,
   TYPING_START: typingStartDataSchema,
   PRESENCE_UPDATE: presenceUpdateDataSchema,
+  USER_UPDATE: userUpdateDataSchema,
   VOICE_STATE_UPDATE: voiceStateUpdateDataSchema,
   READ_STATE_UPDATE: readStateUpdateDataSchema,
   PRESENCE_SELF_UPDATE: selfPresenceSchema,
@@ -353,6 +380,7 @@ export const eventSchemas = {
   RELATIONSHIP_ADD: relationshipPayloadSchema,
   RELATIONSHIP_UPDATE: relationshipPayloadSchema,
   RELATIONSHIP_REMOVE: relationshipRemoveDataSchema,
+  TICKET_UPDATE: ticketUpdateDataSchema,
   CALL_RING: callPayloadSchema,
   CALL_UPDATE: callPayloadSchema,
   CALL_END: callPayloadSchema,

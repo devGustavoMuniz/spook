@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { chooseDevice, listDevices } from "./controller";
 import { loadDevicePrefs } from "./devices";
 import type { DeviceInfo } from "./engine";
-import { useStageHold } from "./stage/use-auto-hide";
+import { useStageHold } from "./stage/use-idle-controls";
 
 export const LONG_PRESS_MS = 500;
 

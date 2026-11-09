@@ -7,6 +7,7 @@ function Slider({
   className,
   value,
   defaultValue,
+  "aria-label": ariaLabel,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>) {
   const thumbs = (value ?? defaultValue ?? [0]).length;
@@ -27,6 +28,7 @@ function Slider({
         <SliderPrimitive.Thumb
           // biome-ignore lint/suspicious/noArrayIndexKey: polegares não mudam de ordem
           key={i}
+          aria-label={ariaLabel}
           className="block size-4 rounded-full border-2 border-primary bg-white shadow-sm transition-[box-shadow] hover:shadow-glow data-[disabled]:pointer-events-none"
         />
       ))}

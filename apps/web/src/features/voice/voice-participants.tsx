@@ -126,6 +126,8 @@ export function VoiceParticipants({
                   size={size}
                   fallback="initials"
                   seed={p.user_id}
+                  animation={inMyCall ? "speaking" : "never"}
+                  animating={talking}
                 />
                 {talking ? (
                   <span

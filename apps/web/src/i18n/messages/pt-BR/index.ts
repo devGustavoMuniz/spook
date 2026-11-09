@@ -1,6 +1,8 @@
 import { auth } from "./auth";
 import { chat } from "./chat";
 import { common } from "./common";
+import { crop } from "./crop";
+import { feedback } from "./feedback";
 import { format } from "./format";
 import { guilds } from "./guilds";
 import { people } from "./people";
@@ -12,6 +14,7 @@ import { voice } from "./voice";
 /** Idioma-fonte: toda chave nasce aqui. O tipo `MessageKey` deriva deste objeto. */
 export const ptBR = {
   ...common,
+  ...crop,
   ...format,
   ...auth,
   ...shell,
@@ -20,5 +23,6 @@ export const ptBR = {
   ...guilds,
   ...voice,
   ...settings,
+  ...feedback,
   ...system,
 } as const;

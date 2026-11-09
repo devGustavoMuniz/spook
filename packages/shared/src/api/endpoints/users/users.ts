@@ -25,6 +25,8 @@ import type {
   AvatarInputBody,
   AvatarOutputBody,
   ChangePasswordInputBody,
+  CropInputBody,
+  CropOutputBody,
   DeleteInputBody,
   EmailInputBody,
   ErrorModel,
@@ -562,6 +564,112 @@ export const useRequestBannerUpload = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getRequestBannerUploadMutationOptions(options), queryClient);
+};
+export const getCropProfileImageUrl = () => {
+  return `/api/users/me/crop-image`;
+};
+
+/**
+ * Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original.
+ * @summary Recorta um GIF (animado) de avatar ou banner já enviado
+ */
+export const cropProfileImage = async (
+  cropInputBody: CropInputBody,
+  options?: Parameters<typeof http>[1],
+): Promise<CropOutputBody> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<CropOutputBody>(getCropProfileImageUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(cropInputBody),
+  });
+};
+
+export const getCropProfileImageMutationKey = () => ["cropProfileImage"] as const;
+
+export const getCropProfileImageMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cropProfileImage>>,
+    TError,
+    CropProfileImageMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cropProfileImage>>,
+  TError,
+  CropProfileImageMutationVariables,
+  TContext
+> => {
+  const mutationKey = getCropProfileImageMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cropProfileImage>>,
+    CropProfileImageMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return cropProfileImage(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CropProfileImageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cropProfileImage>>
+>;
+export type CropProfileImageMutationBody = CropInputBody;
+export type CropProfileImageMutationError = ErrorModel;
+export type CropProfileImageMutationVariables = { data: CropInputBody };
+
+/**
+ * @summary Recorta um GIF (animado) de avatar ou banner já enviado
+ */
+export const useCropProfileImage = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof cropProfileImage>>,
+      TError,
+      CropProfileImageMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof cropProfileImage>>,
+  TError,
+  CropProfileImageMutationVariables,
+  TContext
+> => {
+  return useMutation(getCropProfileImageMutationOptions(options), queryClient);
 };
 export const getChangeEmailUrl = () => {
   return `/api/users/me/email`;

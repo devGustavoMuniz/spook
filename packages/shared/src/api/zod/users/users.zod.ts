@@ -180,6 +180,58 @@ export const RequestBannerUploadResponse = zod.object({
 });
 
 /**
+ * Só GIF: o servidor recorta quadro a quadro preservando a animação, sem redimensionar. Estáticos são recortados no navegador; WebP/APNG animados são usados como estão. 422 com `code` fora do padrão quando o GIF passa dos limites (4096 px, 500 quadros): use o arquivo original.
+ * @summary Recorta um GIF (animado) de avatar ou banner já enviado
+ */
+export const cropProfileImageBodyHeightMax = 4096;
+
+export const cropProfileImageBodyKeyMax = 200;
+
+export const cropProfileImageBodyWidthMax = 4096;
+
+export const cropProfileImageBodyXMin = 0;
+export const cropProfileImageBodyXMax = 4096;
+
+export const cropProfileImageBodyYMin = 0;
+export const cropProfileImageBodyYMax = 4096;
+
+export const CropProfileImageBody = zod.object({
+  height: zod
+    .int()
+    .min(1)
+    .max(cropProfileImageBodyHeightMax)
+    .describe("Altura do recorte em pixels"),
+  key: zod
+    .string()
+    .min(1)
+    .max(cropProfileImageBodyKeyMax)
+    .describe("Chave .gif devolvida por /users/me/avatar ou /users/me/banner, já enviada"),
+  width: zod
+    .int()
+    .min(1)
+    .max(cropProfileImageBodyWidthMax)
+    .describe("Largura do recorte em pixels"),
+  x: zod
+    .int()
+    .min(cropProfileImageBodyXMin)
+    .max(cropProfileImageBodyXMax)
+    .describe("Esquerda do recorte, em pixels do GIF"),
+  y: zod
+    .int()
+    .min(cropProfileImageBodyYMin)
+    .max(cropProfileImageBodyYMax)
+    .describe("Topo do recorte, em pixels do GIF"),
+});
+
+export const CropProfileImageResponse = zod.object({
+  key: zod
+    .string()
+    .describe(
+      "Chave do GIF recortado (use em avatar_key ou banner_key); igual à enviada se o recorte cobre a imagem toda",
+    ),
+});
+
+/**
  * Exige a senha confirmada nos últimos 10 min (`POST /api/auth/confirm-password`); sem isso responde 403 com `code: password_confirmation_required`. Limite: 5 trocas por hora. Com e-mail ativo no servidor, o endereço novo precisa ser confirmado pelo link enviado a ele: a resposta é 202 com `pending_email` e a conta só muda ao confirmar (`POST /api/auth/email/verify`); sem e-mail (modo degradado) a troca é direta (200).
  * @summary Troca o e-mail (exige confirmação recente de senha)
  */

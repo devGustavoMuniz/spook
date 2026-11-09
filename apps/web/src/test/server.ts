@@ -1211,4 +1211,13 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
 
 export type Backend = ReturnType<typeof makeBackend>;
 
-export const server = setupServer();
+/**
+ * Resposta de base do selo de chamados abertos do menu do /admin (o layout o consulta em toda tela do painel):
+ * sem isso cada teste do painel precisaria registrá-la. `server.use` de um teste a sobrepõe.
+ */
+const baseHandlers = [
+  http.get("*/api/admin/tickets/summary", () =>
+    HttpResponse.json({ open: 0, in_review: 0, answered: 0, resolved: 0, closed: 0, total: 0 }),
+  ),
+];
+export const server = setupServer(...baseHandlers);

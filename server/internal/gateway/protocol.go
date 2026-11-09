@@ -72,6 +72,8 @@ const (
 	EventRelationshipAdd    = events.RelationshipAdd
 	EventRelationshipUpdate = events.RelationshipUpdate
 	EventRelationshipRemove = events.RelationshipRemove
+	EventUserUpdate         = events.UserUpdate   // perfil público de um usuário mudou
+	EventTicketUpdate       = events.TicketUpdate // chamado de feedback do próprio usuário mudou
 	EventCallRing           = events.CallRing
 	EventCallUpdate         = events.CallUpdate
 	EventCallEnd            = events.CallEnd

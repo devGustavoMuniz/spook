@@ -21,7 +21,7 @@
     "CALL_END": {
       "op": 0,
       "t": "CALL_END",
-      "s": 29,
+      "s": 31,
       "d": {
         "channel_id": "500",
         "state": "ended",
@@ -34,7 +34,7 @@
     "CALL_RING": {
       "op": 0,
       "t": "CALL_RING",
-      "s": 27,
+      "s": 29,
       "d": {
         "channel_id": "500",
         "state": "ringing",
@@ -52,7 +52,7 @@
     "CALL_UPDATE": {
       "op": 0,
       "t": "CALL_UPDATE",
-      "s": 28,
+      "s": 30,
       "d": {
         "channel_id": "500",
         "state": "active",
@@ -427,7 +427,7 @@
     "RELATIONSHIP_ADD": {
       "op": 0,
       "t": "RELATIONSHIP_ADD",
-      "s": 24,
+      "s": 25,
       "d": {
         "user": {
           "id": "13",
@@ -440,7 +440,7 @@
     "RELATIONSHIP_REMOVE": {
       "op": 0,
       "t": "RELATIONSHIP_REMOVE",
-      "s": 26,
+      "s": 27,
       "d": {
         "user_id": "13"
       }
@@ -448,7 +448,7 @@
     "RELATIONSHIP_UPDATE": {
       "op": 0,
       "t": "RELATIONSHIP_UPDATE",
-      "s": 25,
+      "s": 26,
       "d": {
         "user": {
           "id": "12",
@@ -499,6 +499,22 @@
         "mentionable": true
       }
     },
+    "TICKET_UPDATE": {
+      "op": 0,
+      "t": "TICKET_UPDATE",
+      "s": 28,
+      "d": {
+        "id": "950",
+        "kind": "bug",
+        "status": "answered",
+        "title": "A tela de voz fecha sozinha",
+        "message_count": 2,
+        "unread": true,
+        "created_at": "2026-10-31T12:00:00Z",
+        "last_activity_at": "2026-10-31T12:00:00Z",
+        "by_admin": true
+      }
+    },
     "TYPING_START": {
       "op": 0,
       "t": "TYPING_START",
@@ -508,6 +524,20 @@
         "guild_id": "100",
         "user_id": "11",
         "timestamp": 1793448000
+      }
+    },
+    "USER_UPDATE": {
+      "op": 0,
+      "t": "USER_UPDATE",
+      "s": 24,
+      "d": {
+        "id": "11",
+        "username": "ana",
+        "display_name": "Ana",
+        "avatar_url": "https://s3.example/avatars/11/7.gif?sig=x",
+        "bio": "oi",
+        "pronouns": "ela/dela",
+        "banner_url": "https://s3.example/banners/11/8.png?sig=x"
       }
     },
     "VOICE_STATE_UPDATE": {

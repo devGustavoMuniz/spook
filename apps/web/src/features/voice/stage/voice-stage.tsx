@@ -1,5 +1,5 @@
 import { useGetMe, type VoiceStatePayload } from "@spook/shared";
-import { Expand, Minimize, TriangleAlert, Volume2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Expand, Minimize, TriangleAlert, Volume2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -25,12 +25,32 @@ import { ControlBar } from "./control-bar";
 import { InviteTile } from "./invite-tile";
 import { bestGrid } from "./layout";
 import { ParticipantTile, type TileModel } from "./participant-tile";
-import { StageHoldContext, useAutoHide } from "./use-auto-hide";
+import { StageHoldContext, useIdleControls } from "./use-idle-controls";
 
 const GAP = 12;
 /** Por quanto tempo "Assistir transmissão" espera a tela chegar antes de desistir. */
 export const FOCUS_REQUEST_TTL_MS = 10_000;
 const STRIP_TILE = 176;
+const STRIP_ID = "voice-participants-strip";
+const STRIP_KEY = "spook:voice-strip-collapsed";
+/** Camada de controles que some por ociosidade: fade + leve deslize (só fade curto com movimento reduzido). */
+const IDLE_LAYER =
+  "transition-[transform,opacity] duration-[var(--dur-base)] ease-[var(--ease-out)] motion-reduce:translate-y-0 motion-reduce:duration-150";
+
+function readStripCollapsed() {
+  try {
+    return localStorage.getItem(STRIP_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeStripCollapsed(v: boolean) {
+  try {
+    localStorage.setItem(STRIP_KEY, v ? "1" : "0");
+  } catch {
+    // preferência de conveniência: sem armazenamento, vale só nesta sessão
+  }
+}
 
 /** Monta os tiles: um por pessoa (com a câmera dela, se ligada) e um por tela compartilhada. */
 export function buildTiles(
@@ -170,9 +190,6 @@ export function VoiceStage({
   const area = useRef<HTMLDivElement>(null);
   const size = useElementSize(area);
 
-  const auto = useAutoHide({ forceVisible: status !== "connected" });
-  const barVisible = inCall && auto.visible;
-
   const tiles = useMemo(
     () =>
       buildTiles(
@@ -217,6 +234,44 @@ export function VoiceStage({
       ? pickAutoFocus(shownTiles, speaking)
       : undefined;
   const focused = manualFocus ?? autoFocus;
+  // Controles somem por ociosidade em tela cheia ou, fora dela, com uma tela em foco no palco.
+  const watchingScreen = !!focused && focused.kind === "screen" && !!focused.video;
+  const auto = useIdleControls({
+    forceVisible: status !== "connected",
+    enabled: inCall && (fullscreen || watchingScreen),
+  });
+  const barVisible = inCall && auto.visible;
+  // Faixa dos outros participantes (só existe com um tile em foco e mais gente na chamada).
+  const stripTiles = focused ? shownTiles.filter((x) => x !== focused) : [];
+  const collapsible = stripTiles.length > 0;
+  const [stripCollapsed, setStripCollapsed] = useState(readStripCollapsed);
+  const collapsed = collapsible && stripCollapsed;
+  const toggleStrip = useCallback(() => {
+    setStripCollapsed((cur) => {
+      writeStripCollapsed(!cur);
+      return !cur;
+    });
+  }, []);
+  const collapsedSpeaking =
+    collapsed && stripTiles.some((x) => x.kind === "person" && speaking.has(x.userId));
+  // Controles ocultos não ficam focáveis nem lidos por engano (refaz quando o botão de recolher aparece).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `collapsible` cria uma camada nova
+  useEffect(() => {
+    const els = root.current?.querySelectorAll<HTMLElement>("[data-idle-layer]") ?? [];
+    for (const el of els) {
+      // Foco de teclado segura os controles visíveis; sobrou só foco de clique: solta e oculta.
+      const hide = !barVisible;
+      if (hide && el.contains(document.activeElement))
+        (document.activeElement as HTMLElement).blur();
+      if (hide) {
+        el.setAttribute("inert", "");
+        el.setAttribute("aria-hidden", "true");
+      } else {
+        el.removeAttribute("inert");
+        el.removeAttribute("aria-hidden");
+      }
+    }
+  }, [barVisible, collapsible]);
   // "Assistir transmissão": põe a tela pedida em foco assim que ela chega (a sala ainda pode estar conectando);
   // vence em 10 s, e some se a pessoa parar de transmitir antes.
   useEffect(() => {
@@ -296,6 +351,7 @@ export function VoiceStage({
     else if (e.key.toLowerCase() === "v" && perms.video) void toggleCamera();
     else if (e.key.toLowerCase() === "l") useCallLayoutStore.getState().cycle();
     else if (e.key.toLowerCase() === "f") toggleStageFullscreen();
+    else if (e.key.toLowerCase() === "p" && collapsible) toggleStrip();
   }
 
   const speakingNow = (userId: string) => speaking.has(userId);
@@ -337,7 +393,7 @@ export function VoiceStage({
           className={cn(
             "relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-1",
             fullscreen && "bg-background",
-            fullscreen && !barVisible && "cursor-none",
+            fullscreen && !barVisible && auto.idleEnabled && "cursor-none",
             className,
           )}
         >
@@ -387,8 +443,11 @@ export function VoiceStage({
             ref={area}
             className={cn(
               "absolute inset-0 overflow-y-auto p-3",
-              inCall && "pb-[calc(5.75rem+env(safe-area-inset-bottom))]",
-              focused ? "flex flex-col gap-3 overflow-hidden" : "",
+              inCall &&
+                (collapsible
+                  ? "pb-[calc(7.25rem+env(safe-area-inset-bottom))]"
+                  : "pb-[calc(5.75rem+env(safe-area-inset-bottom))]"),
+              focused ? "flex flex-col overflow-hidden" : "",
             )}
           >
             {focused ? (
@@ -399,15 +458,29 @@ export function VoiceStage({
                 >
                   {tileFor(focused, { large: true, focused: true, className: "min-h-0 flex-1" })}
                 </ul>
-                {shownTiles.length > 1 ? (
-                  <ul
-                    aria-label={t("voice.stage.participants")}
-                    className="flex shrink-0 list-none gap-2 overflow-x-auto pb-1"
+                {collapsible ? (
+                  <div
+                    id={STRIP_ID}
+                    data-testid="participants-strip"
+                    data-collapsed={collapsed || undefined}
+                    inert={collapsed}
+                    aria-hidden={collapsed || undefined}
+                    className={cn(
+                      "grid shrink-0 transition-[grid-template-rows,opacity] duration-[var(--dur-base)] ease-[var(--ease-out)] motion-reduce:duration-100",
+                      collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+                    )}
                   >
-                    {shownTiles
-                      .filter((t) => t !== focused)
-                      .map((t) => tileFor(t, { width: STRIP_TILE, className: "shrink-0" }))}
-                  </ul>
+                    <div className="min-h-0 overflow-hidden">
+                      <ul
+                        aria-label={t("voice.stage.participants")}
+                        className="flex list-none gap-2 overflow-x-auto pt-3 pb-1"
+                      >
+                        {stripTiles.map((x) =>
+                          tileFor(x, { width: STRIP_TILE, className: "shrink-0" }),
+                        )}
+                      </ul>
+                    </div>
+                  </div>
                 ) : null}
               </>
             ) : (
@@ -432,19 +505,30 @@ export function VoiceStage({
           </div>
 
           {inCall ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-3",
+                collapsible
+                  ? "pb-[max(1.75rem,env(safe-area-inset-bottom))]"
+                  : "pb-[max(1rem,env(safe-area-inset-bottom))]",
+              )}
+            >
               <div
                 {...auto.barProps}
+                data-idle-layer
                 data-testid="stage-controls"
                 data-visible={barVisible}
                 className={cn(
-                  "pointer-events-auto transition-[transform,opacity] duration-[var(--dur-base)] ease-[var(--ease-out)]",
+                  "pointer-events-auto",
+                  IDLE_LAYER,
                   barVisible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
                 )}
               >
                 <ControlBar leaveLabel={leaveLabel} />
               </div>
               <Button
+                {...auto.barProps}
+                data-idle-layer
                 variant="secondary"
                 size="icon-lg"
                 aria-label={
@@ -452,13 +536,51 @@ export function VoiceStage({
                 }
                 aria-pressed={fullscreen}
                 className={cn(
-                  "pointer-events-auto absolute right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] hidden size-11 rounded-full border border-border bg-card/85 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-[var(--dur-base)] sm:inline-flex",
+                  "pointer-events-auto absolute right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] hidden size-11 rounded-full border border-border bg-card/85 shadow-lg backdrop-blur-md sm:inline-flex",
+                  IDLE_LAYER,
                   barVisible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
                 )}
                 onClick={toggleStageFullscreen}
               >
                 {fullscreen ? <Minimize /> : <Expand />}
               </Button>
+              {collapsible ? (
+                <button
+                  {...auto.barProps}
+                  type="button"
+                  data-idle-layer
+                  data-idle-hold
+                  data-testid="strip-toggle"
+                  data-speaking={collapsedSpeaking || undefined}
+                  aria-expanded={!collapsed}
+                  aria-controls={STRIP_ID}
+                  aria-label={
+                    collapsed
+                      ? t("voice.stage.showParticipants")
+                      : t("voice.stage.hideParticipants")
+                  }
+                  title={`${collapsed ? t("voice.stage.showParticipants") : t("voice.stage.hideParticipants")} (P)`}
+                  className={cn(
+                    "pointer-events-auto absolute inset-x-0 bottom-0 mx-auto flex h-6 w-14 items-center justify-center rounded-t-xl border border-b-0 border-border bg-card/85 text-foreground shadow-lg outline-none backdrop-blur-md hover:bg-card focus-visible:ring-[3px] focus-visible:ring-ring",
+                    collapsedSpeaking && "border-speaking text-speaking",
+                    IDLE_LAYER,
+                    barVisible ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
+                  )}
+                  onClick={toggleStrip}
+                >
+                  {collapsed ? (
+                    <ChevronUp className="size-4" />
+                  ) : (
+                    <ChevronDown className="size-4" />
+                  )}
+                  {collapsedSpeaking ? (
+                    <span
+                      aria-hidden
+                      className="absolute -top-1 right-1.5 size-2 animate-speaking rounded-full bg-speaking"
+                    />
+                  ) : null}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>

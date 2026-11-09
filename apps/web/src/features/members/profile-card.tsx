@@ -165,6 +165,7 @@ export function ProfileCard({
               name={name}
               seed={person.id}
               size="lg"
+              animation="always"
               status={status}
               statusLabel={statusLabel[status]}
               statusRingClassName="ring-4 ring-popover"

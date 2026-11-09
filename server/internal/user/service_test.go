@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/devGustavoMuniz/spook/server/internal/platform/events"
 )
 
 type memStore struct{ u User }
@@ -36,6 +38,10 @@ func (f *fakeStorage) PresignPut(_ context.Context, key, _ string, size int64, _
 func (f *fakeStorage) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
 	return "https://s3/get/" + key, nil
 }
+
+func (f *fakeStorage) Get(context.Context, string, int64) ([]byte, error) { return nil, ErrNotFound }
+func (f *fakeStorage) Put(context.Context, string, string, []byte) error  { return nil }
+func (f *fakeStorage) Delete(context.Context, string) error               { return nil }
 
 type seq struct{ n int64 }
 
@@ -194,5 +200,55 @@ func TestReservedUsernames(t *testing.T) {
 		if IsReservedUsername(n) {
 			t.Errorf("%q não deveria ser reservado", n)
 		}
+	}
+}
+
+type fakeAudience struct{ guilds, peers []int64 }
+
+func (f fakeAudience) Audience(context.Context, int64) ([]int64, []int64, error) {
+	return f.guilds, f.peers, nil
+}
+
+type capturePub struct{ evs []events.Event }
+
+func (c *capturePub) Publish(e events.Event) { c.evs = append(c.evs, e) }
+
+func TestUpdateProfilePublishesUserUpdate(t *testing.T) {
+	pub := &capturePub{}
+	svc := NewService(&memStore{u: User{ID: 7, Username: "ana"}}, &fakeStorage{}, &seq{}).
+		WithEvents(pub, fakeAudience{guilds: []int64{100, 101}, peers: []int64{55}})
+
+	if _, err := svc.UpdateProfile(context.Background(), 7, ProfileUpdate{
+		DisplayName: ptr("Ana Nova"), AvatarKey: ptr("avatars/7/9.gif"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.evs) != 1 || pub.evs[0].Type != events.UserUpdate {
+		t.Fatalf("esperava 1 USER_UPDATE, veio %+v", pub.evs)
+	}
+	ev := pub.evs[0]
+	want := []string{"user:7", "guild:100", "guild:101", "user:55"}
+	if len(ev.Topics) != len(want) {
+		t.Fatalf("tópicos = %v, quero %v", ev.Topics, want)
+	}
+	for i := range want {
+		if ev.Topics[i] != want[i] {
+			t.Fatalf("tópicos = %v, quero %v", ev.Topics, want)
+		}
+	}
+	p, ok := ev.Data.(UpdatePayload)
+	if !ok || p.ID != "7" || p.Username != "ana" || p.DisplayName != "Ana Nova" || p.AvatarURL != "https://s3/get/avatars/7/9.gif" {
+		t.Fatalf("payload inesperado: %+v", ev.Data)
+	}
+}
+
+func TestUpdateProfileInvalidDoesNotPublish(t *testing.T) {
+	pub := &capturePub{}
+	svc := NewService(&memStore{u: User{ID: 7}}, &fakeStorage{}, &seq{}).WithEvents(pub, fakeAudience{})
+	if _, err := svc.UpdateProfile(context.Background(), 7, ProfileUpdate{AvatarKey: ptr("avatars/999/x.png")}); err == nil {
+		t.Fatal("chave de outro usuário deveria falhar")
+	}
+	if len(pub.evs) != 0 {
+		t.Fatalf("falha não publica: %+v", pub.evs)
 	}
 }

@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   getGetMeQueryKey,
   type UpdateProfileInputBody,
+  useCropProfileImage,
   useRequestBannerUpload,
   useUpdateMe,
   type View,
@@ -12,6 +13,7 @@ import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { describedBy, Field } from "@/components/form-field";
+import { type CropResult, ImageCropDialog } from "@/components/image-cropper";
 import { avatarColor } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +22,7 @@ import { SettingsGroup } from "@/features/settings/ui";
 import { useT } from "@/i18n";
 import { colorToHex, hexToColor } from "@/lib/colors";
 import { applyServerError, messageFor } from "@/lib/errors";
+import { uploadCropped } from "@/lib/image-upload";
 import {
   BIO_MAX,
   PRONOUNS_MAX,
@@ -27,7 +30,7 @@ import {
   profileTextSchema,
   validateAvatar,
 } from "@/lib/schemas";
-import { putWithProgress } from "@/lib/upload";
+import { applyUserUpdate, profileOf } from "@/lib/user-cache";
 
 /** Grava campos do perfil e atualiza o cache de `GET /users/me`. */
 export function useSaveProfile() {
@@ -36,6 +39,8 @@ export function useSaveProfile() {
   return async (data: UpdateProfileInputBody) => {
     const res = await update.mutateAsync({ data });
     qc.setQueryData(getGetMeQueryKey(), res);
+    // Os outros lugares (membros, mensagens, DMs, chamada) mudam já; o USER_UPDATE do servidor confirma depois.
+    applyUserUpdate(qc, profileOf(res), res.id);
     return res;
   };
 }
@@ -118,6 +123,8 @@ export function BannerCard({ me }: { me: View }) {
   const { t } = useT();
   const save = useSaveProfile();
   const requestUpload = useRequestBannerUpload();
+  const cropGif = useCropProfileImage();
+  const [picked, setPicked] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -130,29 +137,35 @@ export function BannerCard({ me }: { me: View }) {
   const showColor = !me.banner_url && (me.banner_color != null || touched);
   const fallback = avatarColor(me.id);
 
-  async function onFile(file: File | undefined) {
+  function onFile(file: File | undefined) {
     if (!file) return;
     const problem = validateAvatar(file);
     setFileError(problem);
-    if (problem) return;
+    if (fileInput.current) fileInput.current.value = "";
+    if (!problem) setPicked(file);
+  }
+
+  async function upload(result: CropResult) {
+    setPicked(null);
     setProgress(0);
     try {
-      const { upload_url, key } = await requestUpload.mutateAsync({
-        data: {
-          content_type: file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
-          size: file.size,
-        },
+      const { key, fallback } = await uploadCropped({
+        result,
+        presign: (content_type, size) =>
+          requestUpload.mutateAsync({ data: { content_type, size } }),
+        cropGif: (key, r) =>
+          cropGif.mutateAsync({ data: { key, x: r.x, y: r.y, width: r.w, height: r.h } }),
+        onProgress: setProgress,
       });
-      await putWithProgress(upload_url, file, setProgress);
       await save({ banner_key: key });
       toast.success(t("settings.profile.bannerUpdated"));
+      if (fallback) toast.info(t("crop.gifFallback"));
     } catch (e) {
       toast.error(
         e instanceof Error && !("status" in e) ? t("settings.profile.uploadFailed") : messageFor(e),
       );
     } finally {
       setProgress(null);
-      if (fileInput.current) fileInput.current.value = "";
     }
   }
 
@@ -178,7 +191,7 @@ export function BannerCard({ me }: { me: View }) {
         data-testid="banner-preview"
         role="img"
         aria-label={t("settings.profile.bannerPreview")}
-        className="h-24 w-full max-w-md overflow-hidden rounded-lg border border-border bg-cover bg-center"
+        className="aspect-[4/1] w-full max-w-md overflow-hidden rounded-lg border border-border bg-cover bg-center"
         style={{
           background: me.banner_url
             ? undefined
@@ -198,7 +211,7 @@ export function BannerCard({ me }: { me: View }) {
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           className="sr-only"
-          onChange={(e) => void onFile(e.target.files?.[0])}
+          onChange={(e) => onFile(e.target.files?.[0])}
           disabled={busy}
           aria-label={t("settings.profile.bannerUpload")}
         />
@@ -258,6 +271,12 @@ export function BannerCard({ me }: { me: View }) {
           {fileError}
         </p>
       ) : null}
+      <ImageCropDialog
+        file={picked}
+        kind="banner"
+        onCancel={() => setPicked(null)}
+        onApply={(r) => void upload(r)}
+      />
     </SettingsGroup>
   );
 }

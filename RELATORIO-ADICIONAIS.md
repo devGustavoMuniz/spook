@@ -435,3 +435,44 @@ Pedido do dono (2 itens, só web/desktop; sem API, Go ou migrations). Decisões 
 - **Configurações em modal estilo Discord.** Modal grande (`min(1100px,96vw)` x `min(760px,92svh)`; folha em tela cheia abaixo de 768 px com lista -> detalhe) sobre o app, que continua montado (voz, rolagem do chat). Menu agrupado (Conta: Perfil, Bloqueados; App: Notificações, Voz e vídeo, Aparência e idioma, Aplicativo só no desktop), "Sair" em vermelho, botão redondo Esc, menu e conteúdo com rolagem independente, setas no menu, foco preso e devolvido. As rotas `/settings/<seção>` seguem valendo como deep link: o estado é `?settings=` da rota atual, com a URL mascarada; fechar volta à rota anterior sem remontar.
 - **Ponto de atenção.** Segurança (senha, e-mail, sessões, contas vinculadas, excluir conta) continua dentro de "Perfil" (não era seção própria). O Voltar do navegador agora fecha o modal. `return-path.ts` virou só a "última seção vista".
 - **Não verificado aqui.** O WebView do Tauri (usa o mesmo código; só o build `build:desktop` foi conferido) e o comportamento em macOS/Windows reais.
+
+## Palco com participantes recolhíveis e controles que somem (08/11/2026)
+
+Pedido do dono (só front, web e desktop; sem API, Go ou migrations). Decisões em 5.5 ("Adicional: palco com participantes recolhíveis e controles que somem") e em `docs/design/DESIGN-SYSTEM.md` ("Palco de voz").
+
+- **Recolher a faixa dos participantes.** Botão chevron centralizado na borda de baixo do palco (em tela cheia e fora dela) recolhe a faixa de quadrinhos e a tela compartilhada cresce; animação de altura/opacidade, `aria-expanded`, rótulo "Ocultar/Mostrar participantes", tecla P, escolha lembrada em `localStorage`. Recolhido, a fala de quem está na faixa acende o botão.
+- **Auto-ocultar.** Hook `use-idle-controls` (relógio injetável): em tela cheia sempre e, fora dela, só com uma tela em foco, a barra, o botão de tela cheia e o de recolher somem após 3 s parados (fade + deslize; só fade com movimento reduzido) e o cursor some em tela cheia. Mouse, toque, tecla ou foco trazem de volta; menu/diálogo aberto, mouse sobre os controles ou foco neles seguram. Ocultos ficam `inert` + `aria-hidden`.
+- **Botão de sair que muda de papel.** Compartilhando a tela vira "Parar de compartilhar"; assistindo a tela de alguém vira "Sair da transmissão" (para de assistir); fora disso segue "Sair da chamada". Vale na barra do palco e no cartão da lateral. Com o botão principal trocado, um botão secundário "Sair da chamada" fica sempre visível ao lado (nunca sem saída). No desktop nativo (sem escolha de telas) não há "Sair da transmissão".
+- **Mudança de comportamento.** Antes a barra sumia em qualquer grade fora da tela cheia; agora fica fixa quando não há tela em foco (pedido do dono).
+- **Não verificado aqui.** O WebView do Tauri (mesmo código; só `build:desktop`), cursor escondido em tela cheia nativa de macOS/Windows e toque em celular real.
+
+## Recorte de avatar, banner e ícone (08/11/2026)
+
+Pedido do dono: escolher a área exibida (estilo Discord) ao trocar foto de perfil/GIF, banner e ícone de servidor. Decisões em 5.5 ("Adicional: recorte de avatar e banner") e em `docs/design/DESIGN-SYSTEM.md` ("Diálogos").
+
+- **Diálogo de recorte** (`components/image-cropper.tsx`, reutilizado nos três lugares): moldura na proporção real (1:1 com máscara circular/arredondada; banner 4:1), arrastar, pinça, roda do mouse, slider de zoom, prévia ao vivo nos tamanhos de uso, Cancelar/Aplicar, teclado (setas, +/-, Esc), foco preso, tela cheia no celular.
+- **Estáticos:** recorte no navegador por canvas, EXIF aplicado, saída até 512x512 (banner 1280x320), sem ampliar. Bônus: o arquivo novo não carrega EXIF/GPS.
+- **GIF:** o app só guarda o original, sem derivados nem lugar para o enquadramento; por isso há um endpoint novo (`POST /api/users/me/crop-image`) que recorta quadro a quadro com a stdlib do Go, preservando animação, atrasos e laço, **sem redimensionar** (a stdlib não tem quantizador). Limites de lado, quadros, volume, tempo e concorrência; 422 acima deles e o cliente cai no original centralizado, com aviso.
+- **WebP animado e APNG:** não há como recortar sem recodificar e perder a animação (Go só decodifica WebP): usados como estão, com aviso no diálogo.
+- **Não feito.** Girar; reduzir GIF; recortar de novo a partir do arquivo já enviado; apagar imagens antigas ao trocar.
+- **Não verificado aqui.** WebView do Tauri (mesmo código; só `build:desktop`), toque/pinça em celular real, Safari/Firefox (E2E só no Chrome), GIFs reais grandes (só fixtures pequenas), qualidade visual do recorte em fotos reais.
+
+## Perfil em tempo real e avatar GIF só ao falar (08/11/2026)
+
+Pedido do dono (bug + feature; backend e web; sem migration, SQL ou mudança no OpenAPI). Decisões em 5.5 ("Adicional: perfil atualizado em tempo real e avatar GIF animado só ao falar") e em `docs/design/DESIGN-SYSTEM.md` ("Avatar").
+
+- **Bug: nome e avatar novos só mudavam no painel do usuário.** Causa raiz: a edição de perfil não publicava evento nenhum e o cliente atualizava só a query do usuário atual; membros, autores de mensagens, DMs e relacionamentos guardam cópias, e a voz lê delas. Corrigido com o evento `USER_UPDATE` (tópicos: as outras sessões do usuário, cada servidor dele e quem divide DM ou amizade) e `applyUserUpdate` no cliente, que troca nome/avatar nos caches com `setQueryData`, sem refetch em massa. A chave do objeto muda a cada upload, então não houve problema de cache de URL.
+- **Avatar GIF.** Parado (primeiro quadro, num canvas) em toda a interface; anima só enquanto a pessoa fala, dentro da chamada (tile do palco e lista de conectados da minha chamada, com o mesmo sinal do anel verde, inclusive o meu pela detecção local); sempre animado no cartão de perfil e na prévia de Configurações. `prefers-reduced-motion` nunca anima. Prop `animation="never"|"speaking"|"always"` no `Avatar`.
+- **Por que canvas e não derivado no servidor.** Não há infraestrutura de derivados de avatar (o upload vai direto ao S3); um derivado pediria job, chave nova e backfill. O canvas custa uma carga por GIF (cache por URL sem a assinatura) e zero para não-GIF.
+- **Não feito.** WebP/APNG animados (só GIF); manter o frame da animação ao parar/voltar a falar (reinicia).
+- **Não verificado aqui.** WebView do Tauri (mesmo código; só `build:desktop`), Safari/Firefox, o caso de ficar offline durante a edição de outra pessoa (coberto pelo refetch do READY/resume, sem teste dedicado), fala real de microfone (o E2E usa o apito do microfone falso do Chromium).
+
+## Chamados de feedback, sugestões e bugs (08/11/2026)
+
+Pedido do dono: os usuários postam feedback, sugestões e bugs como chamados, e ele vê e responde pelo `/admin`. Decisões em 5.5 ("Adicional: chamados de feedback, sugestões e bugs"); modelo de dados na seção 6 (migration 00017).
+
+- **Usuário.** Configurações > "Ajuda e feedback" (web e desktop): novo chamado (tipo Bug, Sugestão ou Feedback; título; descrição; contexto técnico opcional com prévia e opt-out), "Meus chamados" com estado (Aberto, Em análise, Respondido, Resolvido, Fechado), conversa, resposta, fechar e reabrir. Aviso ao vivo (`TICKET_UPDATE`) com toast e atalho quando a equipe responde.
+- **Admin.** `/admin/tickets`: fila com filtros de estado e tipo, busca por título ou username, ordenação (movimento recente ou mais antigos), paginação por cursor e contagem de abertos no menu; detalhe com autor (nome, username, e-mail), contexto técnico, conversa, notas internas (invisíveis ao usuário), resposta e troca de estado.
+- **Backend.** `server/internal/feedback` (handler -> service -> store), tabelas `tickets` e `ticket_messages`, limites 5 chamados por hora e 20 em andamento por pessoa, título 3-120, mensagem até 4000. Autorização no backend: autor só vê os seus (404 nos dos outros), nota interna nunca vaza, admin 401/403 genérico.
+- **Não feito.** Anexos de captura de tela (o upload existente é preso a canais/mensagens; precisa de escopo próprio); trilha de auditoria global do admin (a existente é por servidor); e-mail ao usuário quando a equipe responde.
+- **Não verificado aqui.** Desktop (Tauri) com o formulário (mesmo código; só `build:desktop`), o contexto técnico lendo a versão nativa em um app real, Safari/Firefox (E2E só no Chrome) e o toast ao vivo em celular real.

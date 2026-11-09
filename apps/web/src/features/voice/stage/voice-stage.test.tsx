@@ -288,6 +288,91 @@ describe("foco e tela", () => {
   });
 });
 
+describe("botão vermelho da barra conforme o estado", () => {
+  const bar = () => within(screen.getByTestId("stage-controls"));
+
+  it("sem tela: 'Sair do canal' e nenhum botão secundário", () => {
+    mount([state(ME), state("7")]);
+    expect(bar().getByRole("button", { name: "Sair do canal" })).toBeInTheDocument();
+    expect(bar().queryByRole("button", { name: "Sair da transmissão" })).not.toBeInTheDocument();
+  });
+
+  it("compartilhando: vira 'Parar de compartilhar' e 'Sair do canal' continua disponível", async () => {
+    const user = userEvent.setup();
+    act(() => useVoiceStore.setState({ screen: true }));
+    mount([state(ME), state("7")]);
+    expect(bar().getByRole("button", { name: "Sair do canal" })).toBeInTheDocument();
+    await user.click(bar().getByRole("button", { name: "Parar de compartilhar" }));
+    await waitFor(() => expect(useVoiceStore.getState().screen).toBe(false));
+    expect(bar().queryByRole("button", { name: "Parar de compartilhar" })).not.toBeInTheDocument();
+  });
+
+  it("assistindo a tela de outra pessoa: 'Sair da transmissão' para de assistir; compartilhar vence", async () => {
+    const user = userEvent.setup();
+    fake.audioCapabilities = { strongNoiseSuppression: false, screenWatch: true };
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    mount([state(ME), state("7", { self_screen: true })]);
+    expect(bar().getByRole("button", { name: "Sair do canal" })).toBeInTheDocument();
+    act(() => useVoiceStore.setState({ screen: true }));
+    expect(bar().getByRole("button", { name: "Parar de compartilhar" })).toBeInTheDocument();
+    expect(bar().queryByRole("button", { name: "Sair da transmissão" })).not.toBeInTheDocument();
+    act(() => useVoiceStore.setState({ screen: false }));
+    await user.click(bar().getByRole("button", { name: "Sair da transmissão" }));
+    expect(fake.watches).toContainEqual(["7", false]);
+  });
+});
+
+describe("faixa de participantes recolhível", () => {
+  const focusScreen = async () => {
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    mount([state(ME), state("7", { self_screen: true })]);
+    fireEvent.click(screen.getByRole("button", { name: "Destacar tela de Bia" }));
+  };
+
+  it("sem tile em foco não há botão de recolher", () => {
+    mount([state(ME), state("7")]);
+    expect(screen.queryByTestId("strip-toggle")).not.toBeInTheDocument();
+  });
+
+  it("recolhe e expande a faixa, com aria-expanded, rótulo e inert, e lembra a escolha", async () => {
+    const user = userEvent.setup();
+    await focusScreen();
+    const toggle = screen.getByTestId("strip-toggle");
+    const strip = screen.getByTestId("participants-strip");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Ocultar participantes");
+    expect(strip).not.toHaveAttribute("inert");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAccessibleName("Mostrar participantes");
+    expect(strip).toHaveAttribute("inert");
+    expect(strip).toHaveAttribute("aria-hidden", "true");
+    expect(localStorage.getItem("spook:voice-strip-collapsed")).toBe("1");
+    await user.click(toggle);
+    expect(strip).not.toHaveAttribute("inert");
+    expect(localStorage.getItem("spook:voice-strip-collapsed")).toBe("0");
+  });
+
+  it("começa recolhida se a escolha foi lembrada e a tecla P alterna", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("spook:voice-strip-collapsed", "1");
+    await focusScreen();
+    expect(screen.getByTestId("strip-toggle")).toHaveAttribute("aria-expanded", "false");
+    screen.getByTestId("strip-toggle").focus();
+    await user.keyboard("p");
+    expect(screen.getByTestId("strip-toggle")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("recolhida, a fala de quem está na faixa aparece no botão", async () => {
+    const user = userEvent.setup();
+    await focusScreen();
+    await user.click(screen.getByTestId("strip-toggle"));
+    expect(screen.getByTestId("strip-toggle")).not.toHaveAttribute("data-speaking");
+    act(() => useVoiceStore.setState({ speaking: new Set([ME]) }));
+    expect(screen.getByTestId("strip-toggle")).toHaveAttribute("data-speaking");
+  });
+});
+
 describe("pedido de foco ('Assistir transmissão')", () => {
   const request = (userId: string, ageMs = 0) =>
     useVoiceStore.setState({
@@ -512,10 +597,48 @@ describe("barra de controles", () => {
 
   describe("auto-ocultar", () => {
     const bar = () => screen.getByTestId("stage-controls");
+    // O auto-ocultar só vale em tela cheia ou com uma tela em foco: estes testes entram em tela cheia.
+    const goFullscreen = () => {
+      const stage = screen.getByRole("region", { name: "Vídeo da chamada" });
+      Object.defineProperty(document, "fullscreenElement", {
+        configurable: true,
+        get: () => stage,
+      });
+      act(() => void document.dispatchEvent(new Event("fullscreenchange")));
+    };
+    afterEach(() => {
+      Reflect.deleteProperty(document, "fullscreenElement");
+    });
+
+    it("fora da tela cheia e sem tela em foco, a barra não some", () => {
+      vi.useFakeTimers();
+      mount([state(ME), state("7")]);
+      act(() => void vi.advanceTimersByTime(10_000));
+      expect(bar()).toHaveAttribute("data-visible", "true");
+      expect(bar()).not.toHaveAttribute("inert");
+    });
+
+    it("com uma tela em foco (fora da tela cheia), a barra some e fica inerte; o mouse a traz de volta", () => {
+      vi.useFakeTimers();
+      act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+      mount([state(ME), state("7", { self_screen: true })]);
+      fireEvent.click(screen.getByRole("button", { name: "Destacar tela de Bia" }));
+      act(() => void vi.advanceTimersByTime(3100));
+      expect(bar()).toHaveAttribute("data-visible", "false");
+      expect(bar()).toHaveAttribute("inert");
+      expect(bar()).toHaveAttribute("aria-hidden", "true");
+      fireEvent.pointerMove(screen.getByRole("region", { name: "Vídeo da chamada" }), {
+        pointerType: "mouse",
+      });
+      expect(bar()).toHaveAttribute("data-visible", "true");
+      expect(bar()).not.toHaveAttribute("inert");
+      expect(bar()).not.toHaveAttribute("aria-hidden");
+    });
 
     it("some após 3 s sem movimento e volta com o mouse", () => {
       vi.useFakeTimers();
       mount([state(ME), state("7")]);
+      goFullscreen();
       expect(bar()).toHaveAttribute("data-visible", "true");
       act(() => void vi.advanceTimersByTime(2900));
       expect(bar()).toHaveAttribute("data-visible", "true");
@@ -532,6 +655,7 @@ describe("barra de controles", () => {
     it("com o mouse sobre a barra, ela não some", () => {
       vi.useFakeTimers();
       mount([state(ME), state("7")]);
+      goFullscreen();
       fireEvent.pointerEnter(bar(), { pointerType: "mouse" });
       act(() => void vi.advanceTimersByTime(10_000));
       expect(bar()).toHaveAttribute("data-visible", "true");
@@ -564,6 +688,7 @@ describe("barra de controles", () => {
     it("em toque, tocar no palco alterna a barra (sem temporizador)", () => {
       vi.useFakeTimers();
       mount([state(ME), state("7")]);
+      goFullscreen();
       const stage = screen.getByRole("region", { name: "Vídeo da chamada" });
       fireEvent.pointerDown(stage, { pointerType: "touch" });
       fireEvent.click(stage);

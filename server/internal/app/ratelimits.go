@@ -37,6 +37,9 @@ var actionRules = []actionRule{
 	{"voice.token", 30, 10, []string{"createVoiceToken"}},
 	{"voice.watch", 180, 60, []string{"putScreenWatch", "deleteScreenWatch"}},
 	{"profile.update", 20, 10, []string{"updateMe"}},
+	{"profile.crop", 10, 5, []string{"cropProfileImage"}},
+	{"tickets.create", 5.0 / 60, 5, []string{"createTicket"}}, // 5 chamados por hora
+	{"tickets.reply", 30, 10, []string{"replyMyTicket", "setMyTicketStatus"}},
 	{"messages.pin", 30, 15, []string{"pinMessage", "unpinMessage"}},
 	// Banir, expulsar, mutar, apelido alheio, overwrites e desconectar da voz já são limitados dentro dos services,
 	// no limitador "moderation" (chave "mod:<usuário>"): não entram aqui para não contar duas vezes.
