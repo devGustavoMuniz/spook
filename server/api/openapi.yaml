@@ -701,6 +701,27 @@ components:
         - position
         - parent_id
       type: object
+    CheckoutBody:
+      additionalProperties: false
+      properties:
+        tier:
+          description: Plano a assinar (30 dias)
+          enum:
+            - nitro
+            - nitro_plus
+          type: string
+      required:
+        - tier
+      type: object
+    CheckoutPayload:
+      additionalProperties: false
+      properties:
+        init_point:
+          description: URL do Checkout Pro do Mercado Pago para onde levar a pessoa
+          type: string
+      required:
+        - init_point
+      type: object
     CodePayload:
       additionalProperties: false
       properties:
@@ -812,6 +833,25 @@ components:
           type: string
       required:
         - username
+      type: object
+    ConfigPayload:
+      additionalProperties: false
+      properties:
+        currency:
+          type: string
+        enabled:
+          description: Pagamento ligado neste servidor
+          type: boolean
+        plans:
+          items:
+            $ref: "#/components/schemas/PlanPrice"
+          type:
+            - array
+            - "null"
+      required:
+        - enabled
+        - currency
+        - plans
       type: object
     ConfirmPasswordInputBody:
       additionalProperties: false
@@ -2448,6 +2488,27 @@ components:
         - expires_at
         - source
         - limits
+      type: object
+    PlanPrice:
+      additionalProperties: false
+      properties:
+        days:
+          description: Dias de plano de um pagamento
+          format: int64
+          type: integer
+        price_cents:
+          description: Preço em centavos (BRL)
+          format: int64
+          type: integer
+        tier:
+          enum:
+            - nitro
+            - nitro_plus
+          type: string
+      required:
+        - tier
+        - price_cents
+        - days
       type: object
     PoolInfo:
       additionalProperties: false
@@ -6052,6 +6113,77 @@ paths:
       summary: Desvincula uma conta social (exige a senha ou a reautenticação social recente)
       tags:
         - auth
+  /api/billing/checkout:
+    post:
+      operationId: createBillingCheckout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutPayload"
+          description: OK
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Abre o Checkout Pro do Mercado Pago para 30 dias de Nitro ou Nitro+ e devolve a URL (503 se o pagamento está desligado). Limite: 10 por hora por usuário"
+      tags:
+        - billing
+  /api/billing/config:
+    get:
+      operationId: getBillingConfig
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigPayload"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: "Pagamento do Nitro: se está ligado, moeda e preços (público; desligado devolve enabled=false)"
+      tags:
+        - billing
   /api/channels/{channel_id}:
     delete:
       operationId: deleteChannel

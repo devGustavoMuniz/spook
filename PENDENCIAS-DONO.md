@@ -26,6 +26,7 @@ Consolidado em 03/11/2026 a partir de `deploy/README.md`, `apps/desktop/README.m
 | C1 | Fase B: benchmarks contra produção | números finais do SPEC (RNF) | 1 a 2 dias |
 | C2 | Decisões de produto e de limites | nada (valem os padrões atuais) | 30 min |
 | D1 | Validação manual (ver `VALIDACAO-MANUAL.md`) | fechar os `[ ]` das fases e dos adicionais | 1 a 2 dias |
+| E1 | Pagamento do Nitro pelo Mercado Pago (opcional) | botão "Assinar" e ativação automática do plano; sem isto só admin e códigos | 1 h teste + conta de produção |
 
 ---
 
@@ -233,3 +234,35 @@ Só o dono consegue conferir (áudio, hardware, SO, produção, aparência). Rot
 - Contas: editores de perfil e cartão em navegador real, exclusão de conta em produção, SMTP e OAuth reais (depois de A3, A5, A6).
 - Menções em massa, mensagem de entrada e tópico; inglês (revisão da tradução); aparência de tudo nos dois temas e em 390 px.
 - `/admin`: números e métricas de mídia contra produção.
+
+---
+
+## E. Pagamento do Nitro (opcional)
+
+### E1. Mercado Pago (Checkout Pro, pagamento único = 30 dias)
+O código está pronto e **desligado**: enquanto `MERCADOPAGO_ACCESS_TOKEN` estiver vazio, produção não mostra botão, não expõe a rota do webhook e `GET /api/billing/config` responde `{"enabled":false}` (SPEC 5.5, bloco "Pagamento"). Nada abaixo cobra de verdade até você trocar para credenciais de **produção** (passo 8). Os nomes e telas do painel do Mercado Pago mudam de tempos em tempos: se algo não bater, siga a documentação em `mercadopago.com.br/developers` (Checkout Pro e Webhooks); o que importa para o Spook são os dados dos passos 2 a 4.
+
+1. **Conta.** Tenha uma conta Mercado Pago (de preferência a da empresa, com a conta vendedora habilitada para receber) e entre no painel de desenvolvedores: `https://www.mercadopago.com.br/developers/panel/app`.
+2. **Criar a aplicação.** "Criar aplicação": nome (ex.: Spook), solução de pagamento **Pagamentos online** e produto **Checkout Pro**. Aceite os termos.
+3. **Credenciais de TESTE primeiro.** Na aplicação, "Credenciais de teste": copie o **Access Token de teste** (começa com `TEST-`). A **chave pública** não é usada pelo Spook. Não cole credenciais em chat, issue ou commit.
+4. **Webhook (notificações).** Na aplicação, "Webhooks" > "Configurar notificações", modo **teste**: URL de produção `https://spook.dottadigital.com/api/billing/webhook` (troque pelo seu domínio se for outro), evento **Pagamentos** (`payment`), salvar. Ao salvar o painel mostra a **chave secreta** (assinatura): essa é a `MERCADOPAGO_WEBHOOK_SECRET`. O botão "Simular notificação" do painel envia um pagamento fictício: o Spook responde 200 e ignora (o pagamento não existe na API); serve para ver a assinatura sendo aceita (o log do servidor não mostra nada) ou recusada (401). A chave de teste e a de produção são diferentes: refaça este passo no modo produção no passo 8.
+5. **Variáveis no GitHub** (os valores não aparecem na tela; `printf %s` evita gravar no histórico do shell se você ler de um arquivo/gerenciador de senhas, ou use `< arquivo`):
+   ```sh
+   gh secret set MERCADOPAGO_ACCESS_TOKEN < arquivo-com-o-token
+   gh secret set MERCADOPAGO_WEBHOOK_SECRET < arquivo-com-a-chave-secreta
+   gh variable set NITRO_PRICE_CENTS --body 1490        # R$ 14,90 (opcional; padrão 1490)
+   gh variable set NITRO_PLUS_PRICE_CENTS --body 2990   # R$ 29,90 (opcional; padrão 2990)
+   ```
+   Refaça o deploy (Actions > Deploy > Run workflow). O servidor **não sobe** se houver token sem chave do webhook, e `PUBLIC_URL` precisa estar correta (A7): ela vira as URLs de retorno e de notificação.
+6. **Usuários de teste.** No painel, "Contas de teste": crie um **vendedor** e um **comprador** (países Brasil). Para pagar, abra uma janela anônima e entre no Mercado Pago **como o comprador de teste** (não use a sua conta real nem o vendedor: o Mercado Pago recusa pagar a si mesmo). Se a documentação atual pedir as credenciais do **vendedor de teste** em vez das da aplicação, use as dele nos passos 3 e 5.
+7. **Testar o fluxo (sem cobrança real).** No Spook, com uma conta comum: Configurações > Nitro > "Assinar Nitro". No checkout, pague com um cartão de teste (ex.: Mastercard `5031 4332 1540 6351` ou Visa `4235 6477 2802 5682`, validade `11/30`, CVV `123`; nome do titular `APRO` = aprovado, `OTHE` = recusado, `CONT` = pendente; CPF de teste `12345678909`; lista atual na documentação "Cartões de teste"). Ao voltar, deve aparecer "Pagamento recebido" e, em segundos, "Plano atual: Nitro" (origem "Pagamento"), com 30 dias. Confira: pagamento recusado não ativa nada; pagar de novo soma 30 dias; estornar o pagamento no painel revoga o plano (webhook `refunded`). No servidor: `docker logs` do app procurando `pagamento:`; no Grafana, a métrica `spook.billing.events`.
+8. **Ir para produção.** Só depois dos testes e do checklist abaixo: no painel, ative as **credenciais de produção** (o Mercado Pago pede dados do negócio), copie o Access Token de produção (começa com `APP_USR-`), configure o webhook também no modo **produção** (nova chave secreta) e atualize os dois secrets (passo 5) e o deploy. Faça um pagamento real do menor valor com a sua conta, confira a ativação e **estorne** no painel para validar o estorno. Para desligar a qualquer momento: apague `MERCADOPAGO_ACCESS_TOKEN` (`gh secret delete MERCADOPAGO_ACCESS_TOKEN`) e refaça o deploy; o botão some e as concessões já feitas continuam valendo.
+9. **Checklist de conformidade (antes de cobrar de verdade).**
+   - Termos de uso e política de privacidade publicados e linkados no cadastro/checkout.
+   - **Política de reembolso e cancelamento** escrita (prazo de arrependimento de 7 dias do CDC para compra online; o estorno pelo painel do Mercado Pago revoga o plano automaticamente).
+   - Nome e descrição do plano claros: o item aparece no extrato do comprador como "Spook Nitro (30 dias)" / "Spook Nitro+ (30 dias)"; confirme o nome fantasia/descritivo da fatura na conta Mercado Pago.
+   - Deixar claro que é **pagamento único de 30 dias, sem renovação automática** (já é o texto da seção Nitro: "Pague uma vez e ganhe 30 dias").
+   - Cadastro fiscal e emissão de nota (MEI/ME) conforme o seu enquadramento; o Spook não emite nota fiscal.
+   - Canal de suporte para pagamento aprovado sem plano ativo (o aviso do app manda procurar o suporte depois de alguns minutos).
+   - Pagamentos aprovados que não ativarem: procure `pagamento:` no log; o pedido fica `pending` no banco (tabela `orders`) e o Mercado Pago reenvia a notificação por dias; o admin também pode conceder o plano em `/admin/nitro`.
+

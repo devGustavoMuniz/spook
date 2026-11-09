@@ -4,6 +4,7 @@
 export * from "./api/endpoints/admin/admin";
 export * from "./api/endpoints/audit/audit";
 export * from "./api/endpoints/auth/auth";
+export * from "./api/endpoints/billing/billing";
 export * from "./api/endpoints/calls/calls";
 export * from "./api/endpoints/channels/channels";
 export * from "./api/endpoints/dms/dms";

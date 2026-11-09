@@ -455,3 +455,43 @@ func (s *Service) ExpireDue(ctx context.Context) (int, error) {
 		}
 	}
 }
+
+// ---- pagamento ----
+
+// GrantPayment concede o plano de um pagamento aprovado (source "payment"): os dias se somam à validade vigente do
+// mesmo plano ou de um maior, como no resgate. Devolve o ID da concessão (para estornar depois).
+func (s *Service) GrantPayment(ctx context.Context, userID int64, tier plan.Tier, days int) (int64, error) {
+	if !validTier(tier) {
+		return 0, ErrInvalidTier
+	}
+	d := days
+	if !validDays(&d) {
+		return 0, ErrInvalidDays
+	}
+	now := s.now()
+	g, err := s.store.Grant(ctx, userID, func(live []Grant) (Grant, error) {
+		return Grant{ID: s.ids.Next(), UserID: userID, Tier: tier, Source: SourcePayment, ExpiresAt: expiry(live, tier, &d, now), CreatedAt: now}, nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	s.count(ctx, "grant", tier, SourcePayment)
+	slog.InfoContext(ctx, "plano concedido por pagamento", "user", userID, "tier", string(tier), "days", days, "grant_id", g.ID)
+	s.notify(ctx, userID, "granted")
+	return g.ID, nil
+}
+
+// RevokePayment revoga a concessão de um pagamento estornado. Já revogada ou vencida não é erro.
+func (s *Service) RevokePayment(ctx context.Context, grantID int64) error {
+	g, err := s.store.RevokeOne(ctx, grantID, s.now())
+	if errors.Is(err, ErrGrantNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.count(ctx, "revoke", g.Tier, g.Source)
+	slog.InfoContext(ctx, "concessão de plano revogada por estorno", "user", g.UserID, "grant_id", grantID)
+	s.notify(ctx, g.UserID, "revoked")
+	return nil
+}

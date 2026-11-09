@@ -1229,6 +1229,10 @@ export type Backend = ReturnType<typeof makeBackend>;
  * sem isso cada teste do painel precisaria registrá-la. `server.use` de um teste a sobrepõe.
  */
 const baseHandlers = [
+  // Pagamento (Mercado Pago): por padrão desligado (sem credenciais); `server.use` sobrepõe.
+  http.get("*/api/billing/config", () =>
+    HttpResponse.json({ enabled: false, currency: "BRL", plans: [] }),
+  ),
   // Plano da pessoa (Nitro): o cliente o busca ao conectar; por padrão, grátis. `server.use` sobrepõe.
   http.get("*/api/me/plan", () =>
     HttpResponse.json({

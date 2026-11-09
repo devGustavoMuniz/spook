@@ -1,6 +1,7 @@
 export * from "./admin/admin";
 export * from "./audit/audit";
 export * from "./auth/auth";
+export * from "./billing/billing";
 export * from "./calls/calls";
 export * from "./channels/channels";
 export * from "./dms/dms";

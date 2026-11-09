@@ -64,6 +64,12 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
       REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      # Pagamento do Nitro (Mercado Pago, Checkout Pro). Opcional: sem MERCADOPAGO_ACCESS_TOKEN fica desligado e invisível
+      # (GET /api/billing/config devolve enabled=false; a rota do webhook nem é registrada). Preços em centavos de BRL.
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
+      NITRO_PRICE_CENTS: ${NITRO_PRICE_CENTS:-}
+      NITRO_PLUS_PRICE_CENTS: ${NITRO_PLUS_PRICE_CENTS:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}

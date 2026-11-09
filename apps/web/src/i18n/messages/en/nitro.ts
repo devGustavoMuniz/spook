@@ -60,6 +60,19 @@ export const nitro = {
   "nitro.subscribe.title": "Subscribe",
   "nitro.subscribe.description": "Pay once and get 30 days of the plan you pick.",
   "nitro.subscribe.cta": "Subscribe to {plan}",
+  "nitro.subscribe.price": "{price} for {days} days",
+  "nitro.subscribe.unavailable": "Payments are unavailable right now. Try again later.",
+  "nitro.subscribe.rateLimited": "Too many payment attempts. Wait a moment and try again.",
+  "nitro.subscribe.failed": "Could not open the payment right now. Try again in a moment.",
+  "nitro.payment.success.title": "Payment received",
+  "nitro.payment.success.waiting": "We are activating your plan. This usually takes a few seconds.",
+  "nitro.payment.success.done": "All set: your {plan} plan is active.",
+  "nitro.payment.success.late":
+    "The payment was approved, but activation has not arrived yet. It is automatic and can take a few minutes; if it takes longer, contact support.",
+  "nitro.payment.failure":
+    "The payment was not completed and nothing was charged. You can try again.",
+  "nitro.payment.pending":
+    "Your payment is pending. As soon as Mercado Pago confirms it, the plan activates by itself.",
   "nitro.toast.activated": "{plan} activated",
   "nitro.toast.expired": "Your Nitro has expired. You are back on the Free plan.",
   "nitro.toast.changed": "Your plan changed to {plan}.",

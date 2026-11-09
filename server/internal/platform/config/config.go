@@ -46,6 +46,16 @@ func (l LiveKit) MonthlyTrafficBytes() int64 { return int64(l.MonthlyTrafficGB *
 
 func (l LiveKit) Enabled() bool { return l.URL != "" && l.APIKey != "" && l.APISecret != "" }
 
+// Billing reúne o pagamento do Nitro pelo Mercado Pago (Checkout Pro). Sem o Access Token fica 100% desligado.
+type Billing struct {
+	AccessToken    string // MERCADOPAGO_ACCESS_TOKEN (segredo; nunca logado)
+	WebhookSecret  string // MERCADOPAGO_WEBHOOK_SECRET (chave secreta da assinatura x-signature; segredo)
+	NitroCents     int    // NITRO_PRICE_CENTS (padrão 1490)
+	NitroPlusCents int    // NITRO_PLUS_PRICE_CENTS (padrão 2990)
+}
+
+func (b Billing) Enabled() bool { return b.AccessToken != "" }
+
 // VAPID reúne as chaves do Web Push (Fase 6b). Sem as três o push fica desligado (os endpoints respondem 503).
 type VAPID struct {
 	PublicKey  string // VAPID_PUBLIC_KEY (base64url, ponto P-256 não comprimido)
@@ -106,6 +116,7 @@ type Config struct {
 	S3           S3
 	LiveKit      LiveKit
 	VAPID        VAPID
+	Billing      Billing
 	// AllowedOrigins são as origens extras aceitas no handshake do gateway, além do próprio host
 	// (SPOOK_ALLOWED_ORIGINS, separadas por vírgula).
 	AllowedOrigins []string
@@ -240,6 +251,9 @@ func Load() (Config, error) {
 	if err := loadLimits(&c); err != nil {
 		return Config{}, err
 	}
+	if err := loadBilling(&c); err != nil {
+		return Config{}, err
+	}
 	if err := loadAdmin(&c); err != nil {
 		return Config{}, err
 	}
@@ -290,6 +304,29 @@ func loadLimits(c *Config) error {
 			return fmt.Errorf("LIMIT_ATTACHMENT_MB inválido (1 a %d): %q", limits.MaxAttachmentMB, v)
 		}
 		c.Limits.AttachmentBytes = int64(n) << 20
+	}
+	return nil
+}
+
+func loadBilling(c *Config) error {
+	c.Billing = Billing{
+		AccessToken: strings.TrimSpace(os.Getenv("MERCADOPAGO_ACCESS_TOKEN")), WebhookSecret: strings.TrimSpace(os.Getenv("MERCADOPAGO_WEBHOOK_SECRET")),
+		NitroCents: 1490, NitroPlusCents: 2990,
+	}
+	for name, dst := range map[string]*int{"NITRO_PRICE_CENTS": &c.Billing.NitroCents, "NITRO_PLUS_PRICE_CENTS": &c.Billing.NitroPlusCents} {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 100 || n > 10_000_000 {
+				return fmt.Errorf("%s inválido (centavos, de 100 a 10000000): %q", name, v)
+			}
+			*dst = n
+		}
+	}
+	if c.Billing.Enabled() && c.Billing.WebhookSecret == "" {
+		return errors.New("MERCADOPAGO_ACCESS_TOKEN definido sem MERCADOPAGO_WEBHOOK_SECRET (o webhook precisa da chave para validar a assinatura)")
+	}
+	if c.Billing.Enabled() && !c.IsDev() && c.PublicURL == "" {
+		return errors.New("PUBLIC_URL é obrigatória com o pagamento (base das URLs de retorno e de notificação)")
 	}
 	return nil
 }

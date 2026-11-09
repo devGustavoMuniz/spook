@@ -319,3 +319,29 @@ func TestLoadGitHubReleasesRepo(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadBilling(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("MERCADOPAGO_ACCESS_TOKEN", "")
+	t.Setenv("MERCADOPAGO_WEBHOOK_SECRET", "")
+	t.Setenv("NITRO_PRICE_CENTS", "")
+	t.Setenv("NITRO_PLUS_PRICE_CENTS", "")
+	c, err := Load()
+	if err != nil || c.Billing.Enabled() || c.Billing.NitroCents != 1490 || c.Billing.NitroPlusCents != 2990 {
+		t.Fatalf("padrão desligado: %+v, %v", c.Billing, err)
+	}
+	t.Setenv("MERCADOPAGO_ACCESS_TOKEN", "TEST-token")
+	if _, err := Load(); err == nil {
+		t.Fatal("token sem chave do webhook deveria falhar")
+	}
+	t.Setenv("MERCADOPAGO_WEBHOOK_SECRET", "chave")
+	t.Setenv("NITRO_PRICE_CENTS", "990")
+	c, err = Load()
+	if err != nil || !c.Billing.Enabled() || c.Billing.NitroCents != 990 {
+		t.Fatalf("ligado: %+v, %v", c.Billing, err)
+	}
+	t.Setenv("NITRO_PLUS_PRICE_CENTS", "abc")
+	if _, err := Load(); err == nil {
+		t.Fatal("preço inválido deveria falhar")
+	}
+}

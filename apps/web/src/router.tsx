@@ -41,9 +41,16 @@ export type RouterContext = { queryClient: QueryClient };
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   // `?settings=` abre o modal de configurações sobre qualquer tela do app (veja `features/settings`).
-  validateSearch: (s: Record<string, unknown>): { settings?: SettingsView } => {
+  // `?payment=` é o retorno do Mercado Pago (Configurações > Nitro); precisa sobreviver ao redirecionamento de /settings/nitro.
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { settings?: SettingsView; payment?: "success" | "failure" | "pending" } => {
     const settings = parseView(s.settings);
-    return settings ? { settings } : {};
+    const payment =
+      s.payment === "success" || s.payment === "failure" || s.payment === "pending"
+        ? s.payment
+        : undefined;
+    return { ...(settings ? { settings } : {}), ...(payment ? { payment } : {}) };
   },
   component: Outlet,
   notFoundComponent: NotFoundPage,

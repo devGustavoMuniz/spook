@@ -203,6 +203,32 @@ type NotificationSetting struct {
 	SuppressEveryone bool
 }
 
+type Order struct {
+	ID             int64
+	UserID         int64
+	Tier           string
+	AmountCents    int32
+	Currency       string
+	Days           int32
+	Status         string
+	MpPreferenceID *string
+	CreatedAt      pgtype.Timestamptz
+	PaidAt         pgtype.Timestamptz
+}
+
+type Payment struct {
+	ID            int64
+	OrderID       int64
+	MpPaymentID   int64
+	Status        string
+	RawStatus     string
+	AmountCents   int32
+	Currency      string
+	EntitlementID *int64
+	CreatedAt     pgtype.Timestamptz
+	RefundedAt    pgtype.Timestamptz
+}
+
 type PushSubscription struct {
 	ID        int64
 	UserID    int64

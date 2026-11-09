@@ -133,6 +133,8 @@ Em **Settings → Secrets and variables → Actions** (repositório). O workflow
 `PUBLIC_URL` (`https://spook.dottadigital.com`), `GARAGE_CAPACITY` (`50GB`), `LIVEKIT_NODE_IP` (`187.127.26.46`),
 `ADMIN_USERNAMES` (vazio; usernames separados por vírgula promovidos a administrador do painel `/admin` no boot do backend: cadastre a conta, defina a Variable e refaça o deploy; nunca rebaixa ninguém, para isso use `UPDATE users SET is_admin = false WHERE username = '...'`), `S3_ENDPOINT` (`https://spook-files.dottadigital.com`), `S3_CORS_ORIGINS` (`https://spook.dottadigital.com,tauri://localhost,http://tauri.localhost`: a web e o app desktop).
 
+**Pagamento do Nitro (Mercado Pago), opcional:** Secrets `MERCADOPAGO_ACCESS_TOKEN` e `MERCADOPAGO_WEBHOOK_SECRET`; Variables `NITRO_PRICE_CENTS` (`1490`) e `NITRO_PLUS_PRICE_CENTS` (`2990`), em centavos de BRL. Sem o Access Token o pagamento fica desligado e invisível (nenhuma rota além de `GET /api/billing/config` com `enabled:false`). Com ele, a chave do webhook é obrigatória e o Mercado Pago precisa alcançar `https://<domínio>/api/billing/webhook` (o Cloudflare Tunnel já expõe o domínio; não bloqueie esse caminho no Cloudflare Access/WAF). Passo a passo: `PENDENCIAS-DONO.md` E1.
+
 `SMTP_HOST` (vazio: modo degradado), `SMTP_PORT` (`587`; `465` usa TLS direto), `SMTP_FROM` (obrigatório com `SMTP_HOST`, ex.: `Spook <no-reply@dottadigital.com>`), `REQUIRE_EMAIL_VERIFICATION` (`false`), `GOOGLE_CLIENT_ID`, `DISCORD_CLIENT_ID` (vazios: provedor desligado).
 
 ### 2.1 E-mail (SMTP) e login social 🔒

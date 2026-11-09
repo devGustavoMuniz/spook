@@ -191,6 +191,98 @@ describe("NitroSection", () => {
   });
 });
 
+const billingOn = () =>
+  http.get("*/api/billing/config", () =>
+    HttpResponse.json({
+      enabled: true,
+      currency: "BRL",
+      plans: [
+        { tier: "nitro", price_cents: 1490, days: 30 },
+        { tier: "nitro_plus", price_cents: 2990, days: 30 },
+      ],
+    }),
+  );
+
+describe("Pagamento (Mercado Pago)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("desligado: nenhum botão Assinar", async () => {
+    renderWith(<NitroSection />);
+    await screen.findByText("Você está no plano Grátis.");
+    expect(screen.queryByTestId("nitro-subscribe")).toBeNull();
+  });
+
+  it("ligado: mostra preços em BRL e leva ao init_point do checkout", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    let body: unknown = null;
+    server.use(
+      billingOn(),
+      http.post("*/api/billing/checkout", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ init_point: "https://mp.test/pay/1" });
+      }),
+    );
+    renderWith(<NitroSection />);
+    const user = userEvent.setup();
+    expect(await screen.findByRole("button", { name: "Assinar Nitro+" })).toBeInTheDocument();
+    expect(screen.getByText(/R\$\s?14,90 por 30 dias/)).toBeInTheDocument();
+    expect(screen.getByText(/R\$\s?29,90 por 30 dias/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Assinar Nitro+" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("https://mp.test/pay/1"));
+    expect(body).toEqual({ tier: "nitro_plus" });
+  });
+
+  it("checkout recusado (503) mostra mensagem clara e não redireciona", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    server.use(
+      billingOn(),
+      http.post("*/api/billing/checkout", () =>
+        HttpResponse.json(
+          { title: "Service Unavailable", status: 503, detail: "x" },
+          { status: 503 },
+        ),
+      ),
+    );
+    renderWith(<NitroSection />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Assinar Nitro" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("O pagamento está indisponível");
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("retorno com sucesso: consulta o plano até subir e avisa", async () => {
+    let calls = 0;
+    server.use(
+      billingOn(),
+      http.get("*/api/me/plan", () => {
+        calls += 1;
+        return calls < 3
+          ? plan("free")
+          : plan("nitro", new Date(Date.now() + 30 * 86_400_000).toISOString(), "payment");
+      }),
+    );
+    renderWith(<NitroSection paymentReturn="success" pollMs={20} />);
+    expect(await screen.findByText(/Estamos ativando o seu plano/)).toBeInTheDocument();
+    expect(await screen.findByText(/seu plano Nitro está ativo/)).toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("retorno com sucesso mas o plano não chega: avisa que é automático", async () => {
+    renderWith(<NitroSection paymentReturn="success" pollMs={10} maxPolls={3} />);
+    expect(await screen.findByText(/ativação ainda não chegou/)).toBeInTheDocument();
+  });
+
+  it("retorno com falha ou pendente: mensagens claras", async () => {
+    const { unmount } = renderWith(<NitroSection paymentReturn="failure" />);
+    expect(await screen.findByText(/nada foi cobrado/)).toBeInTheDocument();
+    unmount();
+    renderWith(<NitroSection paymentReturn="pending" />);
+    expect(await screen.findByText(/pagamento está pendente/)).toBeInTheDocument();
+  });
+});
+
 describe("ENTITLEMENT_UPDATE", () => {
   const ev = (tier: PlanTier, reason: "granted" | "revoked" | "redeemed" | "expired") => ({
     tier,

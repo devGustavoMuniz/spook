@@ -146,6 +146,11 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_FROM: ${{ vars.SMTP_FROM }}
           REQUIRE_EMAIL_VERIFICATION: ${{ vars.REQUIRE_EMAIL_VERIFICATION || 'false' }}
+          # Pagamento do Nitro (Mercado Pago): opcional; sem MERCADOPAGO_ACCESS_TOKEN fica desligado e invisível.
+          MERCADOPAGO_ACCESS_TOKEN: ${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}
+          MERCADOPAGO_WEBHOOK_SECRET: ${{ secrets.MERCADOPAGO_WEBHOOK_SECRET }}
+          NITRO_PRICE_CENTS: ${{ vars.NITRO_PRICE_CENTS }}
+          NITRO_PLUS_PRICE_CENTS: ${{ vars.NITRO_PLUS_PRICE_CENTS }}
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
@@ -215,6 +220,8 @@ jobs:
             # SMTP_FROM entre aspas simples: o remetente tem espaço e <>, e o .env também é lido por scripts sh (garage-init.sh)
             printf 'SMTP_HOST=%s\nSMTP_PORT=%s\nSMTP_USER=%s\nSMTP_PASSWORD=%s\nSMTP_FROM='"'"'%s'"'"'\n' "$SMTP_HOST" "$SMTP_PORT" "$SMTP_USER" "$SMTP_PASSWORD" "$SMTP_FROM"
             printf 'REQUIRE_EMAIL_VERIFICATION=%s\n' "$REQUIRE_EMAIL_VERIFICATION"
+            # Pagamento do Nitro (Mercado Pago; vazio = desligado). Entre aspas simples, como SMTP_FROM: o .env também é lido por scripts sh.
+            printf 'MERCADOPAGO_ACCESS_TOKEN='"'"'%s'"'"'\nMERCADOPAGO_WEBHOOK_SECRET='"'"'%s'"'"'\nNITRO_PRICE_CENTS='"'"'%s'"'"'\nNITRO_PLUS_PRICE_CENTS='"'"'%s'"'"'\n' "$MERCADOPAGO_ACCESS_TOKEN" "$MERCADOPAGO_WEBHOOK_SECRET" "$NITRO_PRICE_CENTS" "$NITRO_PLUS_PRICE_CENTS"
             printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_ID" "$GOOGLE_CLIENT_SECRET"
             printf 'DISCORD_CLIENT_ID=%s\nDISCORD_CLIENT_SECRET=%s\n' "$DISCORD_CLIENT_ID" "$DISCORD_CLIENT_SECRET"
             # Limites opcionais (vazio = padrão): só grava as definidas.

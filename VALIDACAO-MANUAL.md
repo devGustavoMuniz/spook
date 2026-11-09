@@ -470,3 +470,15 @@ Pré-requisito: DUAS pessoas (A transmite, B assiste), build novo do desktop (a 
 - [ ] **Upload sem Nitro:** na conta grátis, escolher um GIF (ou WebP/APNG animado) como avatar ou banner abre "Requer Nitro" com "Ver planos" (leva à seção Nitro) e não abre o recorte; PNG/JPEG/WebP estático continuam livres. Com a conta com Nitro o GIF segue normal.
 - [ ] **Selos:** com Nitro, o selo (raio roxo) aparece ao lado do nome no cartão de perfil, na lista de membros, nas mensagens, na lista de conectados e no tile; com Nitro+ o selo é a coroa em tom quente; o tooltip diz "Nitro" ou "Nitro+"; grátis não mostra selo. Verifique contraste nos temas claro e escuro e que o selo não quebra nomes longos.
 - [ ] **Idioma e celular:** a seção Nitro e os cadeados em inglês; a tabela de planos rola na horizontal sem quebrar o layout em 390 px.
+
+### Nitro e Nitro+: pagamento com Mercado Pago (RF31.6)
+Só depois do passo a passo `PENDENCIAS-DONO.md` E1, com credenciais de TESTE e usuários de teste do Mercado Pago. Nada disto é testável em produção enquanto `MERCADOPAGO_ACCESS_TOKEN` estiver vazio.
+- [ ] **Desligado:** sem o token, `GET /api/billing/config` responde `{"enabled":false,...}`, Configurações > Nitro não mostra "Assinar" e `POST /api/billing/webhook` responde 404.
+- [ ] **Assinar:** com o token de teste, "Assinar Nitro" e "Assinar Nitro+" mostram o preço em R$ e levam ao Checkout Pro do Mercado Pago; pague como comprador de teste com o cartão `APRO`: ao voltar aparece "Pagamento recebido", o plano sobe em segundos para Nitro (origem "Pagamento") com 30 dias, sem recarregar.
+- [ ] **Recusado e pendente:** cartão `OTHE` volta com "nada foi cobrado" e não ativa; `CONT` volta com "pagamento pendente" e não ativa.
+- [ ] **Renovar:** pagar outra vez soma 30 dias à validade.
+- [ ] **Reentrega:** reenviar a mesma notificação pelo painel do Mercado Pago não soma dias de novo.
+- [ ] **Estorno:** estornar o pagamento no painel do Mercado Pago revoga só aquela concessão; a seção Nitro volta ao plano anterior (ou Grátis) ao vivo.
+- [ ] **Assinatura:** `curl -X POST https://<domínio>/api/billing/webhook?data.id=1\&type=payment` sem `x-signature` responde 401.
+- [ ] **Celular (390 px):** os botões "Assinar" e o aviso de retorno cabem sem rolagem horizontal.
+

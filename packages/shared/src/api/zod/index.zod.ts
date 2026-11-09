@@ -1,6 +1,7 @@
 export * from "./admin/admin.zod";
 export * from "./audit/audit.zod";
 export * from "./auth/auth.zod";
+export * from "./billing/billing.zod";
 export * from "./calls/calls.zod";
 export * from "./channels/channels.zod";
 export * from "./dms/dms.zod";
