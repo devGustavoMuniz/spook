@@ -469,6 +469,29 @@ describe('"digitando…"', () => {
   });
 });
 
+describe("ENTITLEMENT_UPDATE (o meu plano mudou)", () => {
+  it("atualiza o cache do plano e o `plan` do meu perfil", () => {
+    qc.setQueryData(queryKeys.me(), { id: "1", username: "ana" });
+    send({
+      t: "ENTITLEMENT_UPDATE",
+      d: {
+        tier: "nitro",
+        expires_at: null,
+        source: "code",
+        reason: "redeemed",
+        limits: {
+          screen_max_height: 1080,
+          screen_max_fps: 60,
+          animated_avatar: true,
+          animated_banner: true,
+        },
+      },
+    });
+    expect(qc.getQueryData(["/api/me/plan"])).toMatchObject({ tier: "nitro", source: "code" });
+    expect(qc.getQueryData<{ plan?: string }>(queryKeys.me())?.plan).toBe("nitro");
+  });
+});
+
 describe("USER_UPDATE (perfil de alguém mudou)", () => {
   const update = (over: Record<string, unknown> = {}) =>
     send({
@@ -535,6 +558,47 @@ describe("USER_UPDATE (perfil de alguém mudou)", () => {
     const r = dmsOf(qc)[0]?.recipients ?? [];
     expect(r.find((x) => x.id === "50")?.display_name).toBe("Bia Nova");
     expect(r.find((x) => x.id === "51")?.display_name).not.toBe("Bia Nova");
+  });
+
+  it("o plano sobrescreve nos membros, autores e DMs; o grátis (ausente) limpa o selo", () => {
+    qc.setQueryData(queryKeys.members("g1"), {
+      members: [{ ...member("50", "bia"), guild_id: "g1", plan: "nitro" }],
+    });
+    addMessage(qc, CH, {
+      ...msg("3002", "oi", "50"),
+      author: { id: "50", username: "bia", plan: "nitro" },
+    });
+    qc.setQueryData(queryKeys.dms(), [
+      {
+        ...dm("d1", [recipient("50", "bia")]),
+        recipients: [{ ...recipient("50", "bia"), plan: "nitro" }],
+      },
+    ]);
+    const plan = () => ({
+      member: qc.getQueryData<{ members: { plan?: string }[] }>(queryKeys.members("g1"))?.members[0]
+        ?.plan,
+      author: history().find((m) => m.id === "3002")?.author.plan,
+      dm: dmsOf(qc)[0]?.recipients?.[0]?.plan,
+    });
+    update({ plan: "nitro_plus" });
+    expect(plan()).toEqual({
+      member: "nitro_plus",
+      author: "nitro_plus",
+      dm: "nitro_plus",
+    });
+    update({ plan: "free" });
+    expect(plan()).toEqual({ member: "free", author: "free", dm: "free" });
+    update({ plan: "nitro" });
+    update({}); // servidor antigo (sem o campo): vale grátis
+    expect(plan().member).toBe("free");
+  });
+
+  it("o meu plano chega no `me` e o grátis limpa o selo", () => {
+    qc.setQueryData(queryKeys.me(), { id: ME, username: "ana", plan: "free" });
+    update({ id: ME, username: "ana", plan: "nitro_plus" });
+    expect(qc.getQueryData<{ plan?: string }>(queryKeys.me())?.plan).toBe("nitro_plus");
+    update({ id: ME, username: "ana" });
+    expect(qc.getQueryData<{ plan?: string }>(queryKeys.me())?.plan).toBe("free");
   });
 
   it("no próprio usuário, atualiza o `me`; no de outro, não mexe nele", () => {

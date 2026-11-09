@@ -1,9 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { channel, guild, ME, member } from "@/test/fixtures";
 import { renderApp } from "@/test/render";
-import type { Backend } from "@/test/server";
+import { type Backend, server } from "@/test/server";
 import { FakeXhr } from "@/test/xhr";
 
 const CORRECT = "senha-correta-1";
@@ -204,7 +205,65 @@ describe("perfil: bio, pronomes e banner", () => {
     expect(state.account.bannerUploads).toHaveLength(0);
   });
 
+  const withNitro = () =>
+    server.use(
+      http.get("*/api/me/plan", () =>
+        HttpResponse.json({
+          tier: "nitro",
+          expires_at: null,
+          source: "admin",
+          limits: {
+            screen_max_height: 1080,
+            screen_max_fps: 60,
+            animated_avatar: true,
+            animated_banner: true,
+          },
+        }),
+      ),
+    );
+
+  it("banner animado sem Nitro: avisa 'Requer Nitro' e nem chega ao envio", async () => {
+    const user = userEvent.setup();
+    const { state } = await open();
+    const input = (await screen.findByLabelText("Enviar imagem de banner")) as HTMLInputElement;
+    await user.upload(input, new File([new Uint8Array(100)], "b.gif", { type: "image/gif" }));
+    const dialog = await screen.findByRole("dialog", { name: "Requer Nitro" });
+    expect(within(dialog).getByRole("button", { name: "Ver planos" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Ajustar banner" })).toBeNull();
+    expect(state.account.bannerUploads).toHaveLength(0);
+  });
+
+  it("o servidor recusa com 403 nitro_required (plano vencido no meio): vira o diálogo 'Requer Nitro'", async () => {
+    withNitro();
+    const user = userEvent.setup();
+    await open();
+    server.use(
+      http.post("*/api/users/me/banner", () =>
+        HttpResponse.json(
+          {
+            title: "403",
+            status: 403,
+            detail: "GIF e imagens animadas em avatar e banner são exclusivos de quem tem Nitro",
+            code: "nitro_required",
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    const input = (await screen.findByLabelText("Enviar imagem de banner")) as HTMLInputElement;
+    await user.upload(input, new File([new Uint8Array(100)], "b.gif", { type: "image/gif" }));
+    const crop = await screen.findByRole("dialog", { name: "Ajustar banner" });
+    const loader = crop.querySelector("img.sr-only") as HTMLImageElement;
+    Object.defineProperty(loader, "naturalWidth", { value: 400 });
+    Object.defineProperty(loader, "naturalHeight", { value: 100 });
+    fireEvent.load(loader);
+    await user.click(within(crop).getByRole("button", { name: "Aplicar" }));
+    expect(await screen.findByRole("dialog", { name: "Requer Nitro" })).toBeInTheDocument();
+    expect(FakeXhr.all).toHaveLength(0);
+  });
+
   it("banner por imagem: pede o upload, envia e grava a chave", async () => {
+    withNitro();
     const user = userEvent.setup();
     const { state } = await open();
     const input = (await screen.findByLabelText("Enviar imagem de banner")) as HTMLInputElement;
@@ -248,7 +307,23 @@ describe("cartão de perfil", () => {
     expect(within(card).getByText("Gosto de café")).toBeInTheDocument();
     expect(within(card).getByText(/ela\/dela/)).toBeInTheDocument();
     const banner = within(card).getByTestId("profile-banner");
+    // Dono sem plano (o membro não traz `plan`): o GIF do banner fica parado, nunca um <img> animado.
+    expect(banner.querySelector("img")).toBeNull();
+  });
+
+  it("dono com Nitro: o banner GIF segue animado no cartão e o selo aparece", async () => {
+    const user = userEvent.setup();
+    await renderApp(path, {
+      signedIn: true,
+      seed: seed({ plan: "nitro", banner_url: "https://s3.test/banners/50/1.gif" }),
+    });
+    const panel = await screen.findByRole("complementary", { name: "Membros" });
+    expect(await within(panel).findByRole("img", { name: "Plano Nitro" })).toBeInTheDocument();
+    await user.click(await within(panel).findByRole("button", { name: "Ver perfil de bia" }));
+    const card = await screen.findByRole("dialog", { name: "Perfil de bia" });
+    const banner = within(card).getByTestId("profile-banner");
     expect(banner.querySelector("img")).toHaveAttribute("src", "https://s3.test/banners/50/1.gif");
+    expect(within(card).getByRole("img", { name: "Plano Nitro" })).toBeInTheDocument();
   });
 
   it("banner de cor sólida e conta removida", async () => {

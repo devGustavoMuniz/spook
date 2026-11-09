@@ -9,6 +9,8 @@ import {
   updateVoiceState,
 } from "@spook/shared";
 import { toast } from "sonner";
+import { effectiveLimits, useLimitsStore } from "@/features/nitro/limits-store";
+import type { PlanLimits } from "@/features/nitro/plans";
 import { t } from "@/i18n";
 import { voiceMessage } from "@/lib/app-errors";
 import { playCallSound } from "./call-sounds";
@@ -39,7 +41,7 @@ import { markJoin } from "./join-perf";
 import { mediaMessage } from "./media-errors";
 import { effectiveVolume, personVolumeOf, useParticipantVolumeStore } from "./participant-volume";
 import { startScreenPreview } from "./screen-preview";
-import { loadScreenQuality, saveScreenQuality } from "./screen-quality";
+import { clampScreenQuality, loadScreenQuality, saveScreenQuality } from "./screen-quality";
 import { startScreenWatchNotifier } from "./screen-watch";
 import { LocalSpeakingDetector, mergeSpeaking, SpeakerHold, sameSet } from "./speaking";
 import {
@@ -208,6 +210,7 @@ export function resetVoiceController() {
   engine = null;
   lastTarget = null;
   useVoiceStore.getState().reset();
+  useLimitsStore.getState().setVoice(null);
 }
 
 async function fetchToken(channelId: string) {
@@ -218,7 +221,7 @@ async function fetchToken(channelId: string) {
 export async function joinVoice(
   target: JoinTarget,
   /** Token já emitido (ex.: pela resposta de "Atender"): usado na primeira tentativa em vez de pedir outro. */
-  prefetched?: { url: string; token: string },
+  prefetched?: { url: string; token: string; limits?: PlanLimits },
 ): Promise<boolean> {
   const s = session();
   if (s.channelId === target.channelId && s.status !== "idle") return true;
@@ -276,14 +279,16 @@ async function connectWithToken(
   eng: VoiceEngine,
   target: JoinTarget,
   gen: number,
-  prefetched?: { url: string; token: string },
+  prefetched?: { url: string; token: string; limits?: PlanLimits },
 ) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    let token: { url: string; token: string };
+    let token: { url: string; token: string; limits?: PlanLimits };
     try {
       markJoin("token:start");
       token = attempt === 0 && prefetched ? prefetched : await fetchToken(target.channelId);
       markJoin("token:end");
+      // O que o plano permite nesta sala (o servidor é quem decide; o motor publica no máximo isto).
+      useLimitsStore.getState().setVoice(token.limits ?? null);
     } catch (err) {
       if (gen === generation) {
         toast.error(voiceMessage(err));
@@ -552,11 +557,12 @@ export async function toggleScreenShare(opts?: {
     (opts?.preview ?? prefs.preview) &&
     engine.audioCapabilities?.screenSharePreview !== false;
   // Só engines que declaram a capacidade recebem a qualidade (o app desktop ainda não a aplica).
+  // O que o motor publica nunca passa do plano: limites do token da sala (senão do plano, senão grátis).
   const quality =
     on && engine.audioCapabilities?.screenShareQuality
-      ? (opts?.quality ?? loadScreenQuality())
+      ? clampScreenQuality(opts?.quality ?? loadScreenQuality(), effectiveLimits())
       : undefined;
-  if (on && opts?.quality) saveScreenQuality(opts.quality);
+  if (on && quality && opts?.quality) saveScreenQuality(quality);
   try {
     await engine.setScreenShareEnabled(on, quality ? { audio, quality } : { audio });
     session().patch({ screen: on, screenPreview: preview, mediaIssue: null });
@@ -933,4 +939,5 @@ export function shutdownVoice() {
   void engine?.disconnect();
   useVoiceStore.getState().reset();
   useVoiceStatesStore.getState().reset();
+  useLimitsStore.getState().setVoice(null);
 }

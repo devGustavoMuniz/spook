@@ -7,9 +7,12 @@ import { toast } from "sonner";
 import { statusLabel } from "@/components/presence-dot";
 import { useMediaQuery } from "@/components/shell";
 import { Avatar, avatarColor } from "@/components/ui/avatar";
+import { BannerImage } from "@/components/ui/banner-image";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { shownName } from "@/features/account/removed-user";
+import { NitroBadge } from "@/features/nitro/nitro-badge";
+import type { PlanTier } from "@/features/nitro/plans";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { usePresence } from "@/features/presence/store";
 import { PersonActions } from "@/features/social/person-actions";
@@ -31,6 +34,8 @@ export type ProfilePerson = {
   bannerUrl?: string;
   /** Cor sólida do banner (RGB), usada quando não há imagem. */
   bannerColor?: number | null;
+  /** Plano de quem é a pessoa (ausente = grátis): define selo e se o GIF anima. */
+  plan?: PlanTier;
 };
 
 export const personOfMember = (m: MemberPayload): ProfilePerson => ({
@@ -42,6 +47,7 @@ export const personOfMember = (m: MemberPayload): ProfilePerson => ({
   pronouns: m.pronouns,
   bannerUrl: m.banner_url,
   bannerColor: m.banner_color,
+  plan: m.plan,
 });
 
 const NARROW_QUERY = "(max-width: 639px)";
@@ -85,6 +91,8 @@ export function ProfileCard({
   const pronouns = (isMe ? me?.pronouns : (member?.pronouns ?? person.pronouns)) || undefined;
   const bannerUrl = (isMe ? me?.banner_url : (member?.banner_url ?? person.bannerUrl)) || undefined;
   const bannerColor = isMe ? me?.banner_color : (member?.banner_color ?? person.bannerColor);
+  // O plano do DONO da imagem decide se o GIF anima (e se há selo), não o de quem está olhando.
+  const plan: PlanTier = (isMe ? me?.plan : (member?.plan ?? person.plan)) ?? "free";
 
   const roles = useMemo(() => {
     if (!guild || !member) return [];
@@ -157,7 +165,9 @@ export function ProfileCard({
                   : `linear-gradient(120deg, ${color.from}, ${color.to})`,
             }}
           >
-            {bannerUrl ? <img src={bannerUrl} alt="" className="size-full object-cover" /> : null}
+            {bannerUrl ? (
+              <BannerImage url={bannerUrl} ownerPlan={plan} className="size-full object-cover" />
+            ) : null}
           </div>
           <div className="relative px-4 pb-4">
             <Avatar
@@ -166,13 +176,17 @@ export function ProfileCard({
               seed={person.id}
               size="lg"
               animation="always"
+              plan={plan}
               status={status}
               statusLabel={statusLabel[status]}
               statusRingClassName="ring-4 ring-popover"
               className="-mt-8 ring-4 ring-popover"
             />
             <div className="mt-2">
-              <p className="truncate text-lg leading-tight font-semibold">{name}</p>
+              <p className="flex items-center gap-1.5 text-lg leading-tight font-semibold">
+                <span className="truncate">{name}</span>
+                <NitroBadge tier={plan} showLabel />
+              </p>
               <p className="truncate text-sm text-muted-foreground">
                 @{person.username}
                 {pronouns ? <span> · {pronouns}</span> : null}

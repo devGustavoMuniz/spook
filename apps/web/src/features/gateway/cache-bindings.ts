@@ -12,6 +12,8 @@ import type {
   VoiceStatePayload,
 } from "@spook/shared";
 import type { QueryClient } from "@tanstack/react-query";
+import { applyEntitlementUpdate } from "@/features/nitro/entitlement";
+import { refreshPlan } from "@/features/nitro/use-plan";
 import { t } from "@/i18n";
 import { bumpDM, findDm, removeDM, setDMs, upsertDM } from "@/lib/dm-cache";
 import {
@@ -74,6 +76,7 @@ const findGuild = (qc: QueryClient, id: string) => guildsOf(qc)?.find((g) => g.i
 /** Eventos perdidos (sessão nova, op 9 ou buraco em `s`): tudo que o cache guarda pode estar velho. */
 export function refreshAfterGap(qc: QueryClient) {
   void refreshGuilds(qc);
+  void refreshPlan(qc); // o plano muda sem READY: uma mudança perdida só aparece buscando de novo
   void qc.invalidateQueries({ queryKey: queryKeys.dms() });
   useTypingStore.getState().reset(); // o fim do "digitando…" pode ter se perdido
   void qc.invalidateQueries({ predicate: (q) => isMessagesKey(q.queryKey) });
@@ -96,6 +99,7 @@ export function applyReady(
 ) {
   const before = guildsOf(qc);
   setGuilds(qc, ready.guilds);
+  void refreshPlan(qc); // o READY não traz o plano: busca ao conectar
   // Snapshot completo: canal ausente = zero não lidas.
   useReadStateStore.getState().replaceAll(ready.read_states ?? []);
   setDMs(qc, ready.private_channels ?? []);
@@ -225,6 +229,8 @@ export function applyGatewayEvent(qc: QueryClient, fx: GatewayEffects, ev: Gatew
       return usePresenceStore.getState().setMine(fx.myId(), ev.d);
     case "USER_UPDATE":
       return applyUserUpdate(qc, ev.d, fx.myId());
+    case "ENTITLEMENT_UPDATE":
+      return applyEntitlementUpdate(qc, ev.d);
     case "NOTIFICATION_SETTINGS_UPDATE":
       return useNotificationSettings.getState().apply(ev.d);
     case "TYPING_START":

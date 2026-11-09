@@ -2,6 +2,7 @@ import { AudioLines, Headphones, MonitorUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { isTauri } from "@/desktop/runtime";
+import { usePlan } from "@/features/nitro/use-plan";
 import { ChoiceCard, Hint, SettingRow, SettingsGroup, selectClass } from "@/features/settings/ui";
 import { CallSoundsGroup } from "@/features/voice/call-sounds-settings";
 import {
@@ -29,6 +30,7 @@ import type {
 } from "@/features/voice/engine";
 import { MicTestSection } from "@/features/voice/mic-test-section";
 import {
+  clampScreenChoice,
   loadScreenChoice,
   type ScreenChoice,
   saveScreenChoice,
@@ -228,7 +230,10 @@ export function VoiceSettingsPage() {
 
 function ScreenShareGroup({ caps }: { caps: AudioCapabilities }) {
   const { t } = useT();
-  const [choice, setChoice] = useState(loadScreenChoice);
+  const plan = usePlan();
+  const [stored, setChoice] = useState(loadScreenChoice);
+  // O que aparece marcado nunca passa do plano (a preferência salva pode ser de quando havia Nitro).
+  const choice = clampScreenChoice(stored, plan.limits);
   const [audio, setAudio] = useState(() => loadScreenSharePrefs().audio);
   const [viewPreviews, setViewPreviews] = useState(loadViewStreamPreviews);
   const canTune = caps.screenShareQuality === true;

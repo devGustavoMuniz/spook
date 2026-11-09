@@ -7,6 +7,7 @@ import {
   Monitor,
   Palette,
   UserRound,
+  Zap,
 } from "lucide-react";
 import type { MessageKey } from "@/i18n";
 
@@ -14,6 +15,7 @@ export type SectionKey =
   | "profile"
   | "notifications"
   | "blocked"
+  | "nitro"
   | "voice"
   | "appearance"
   | "app"
@@ -55,6 +57,13 @@ export const SECTIONS: readonly Section[] = [
     labelKey: "settings.sections.blocked.label",
     descriptionKey: "settings.sections.blocked.description",
     icon: Ban,
+  },
+  {
+    key: "nitro",
+    group: "app",
+    labelKey: "settings.sections.nitro.label",
+    descriptionKey: "settings.sections.nitro.description",
+    icon: Zap,
   },
   {
     key: "voice",

@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useStartDm } from "@/features/dms/use-start-dm";
+import { NitroBadge } from "@/features/nitro/nitro-badge";
 import { CustomStatusText } from "@/features/presence/custom-status-text";
 import { displayStatus, usePresenceStore } from "@/features/presence/store";
 import { formatNumber, useT } from "@/i18n";
@@ -275,6 +276,7 @@ function MemberItem({
               username: m.username,
               displayName: m.nickname || m.display_name || undefined,
               avatarUrl: m.avatar_url,
+              plan: m.plan,
             },
             e.currentTarget,
           )
@@ -298,6 +300,7 @@ function MemberItem({
             style={readable ? { color: readable } : undefined}
           >
             <span className={`truncate ${offline ? "opacity-80" : ""}`}>{name}</span>
+            <NitroBadge tier={m.plan} className={offline ? "opacity-60" : undefined} />
             {m.user_id === guild.owner_id ? (
               <Crown
                 className="size-3.5 shrink-0 text-warning-text"

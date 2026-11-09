@@ -70,8 +70,8 @@ describe("configurações em modal", () => {
       "Perfil",
       "Bloqueados",
       "Notificações",
+      "Nitro",
       "Voz e vídeo",
-      "Aparência e idioma",
     ]);
     expect(within(nav).getByRole("link", { name: "Perfil" })).toHaveAttribute(
       "aria-current",

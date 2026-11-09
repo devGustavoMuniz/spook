@@ -11,6 +11,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { isTauri } from "@/desktop/runtime";
 import { DownloadAppButton } from "@/features/download/download-link";
 import { FeedbackPage } from "@/features/feedback/feedback-page";
+import { NitroSection } from "@/features/nitro/nitro-section";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { AppSettingsPage } from "@/pages/app-settings";
@@ -26,6 +27,7 @@ const PAGES: Record<SectionKey, () => React.ReactNode> = {
   profile: () => <ProfilePage />,
   notifications: () => <NotificationsPage />,
   blocked: () => <BlockedPage />,
+  nitro: () => <NitroSection />,
   voice: () => <VoiceSettingsPage />,
   appearance: () => <AppearancePage />,
   app: () => <AppSettingsPage />,

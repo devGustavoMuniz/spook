@@ -22,6 +22,7 @@ export type FakeUser = {
   pronouns?: string;
   banner_url?: string;
   banner_color?: number;
+  plan?: "free" | "nitro" | "nitro_plus";
   is_admin?: boolean;
   email_verified?: boolean;
   pending_email?: string;
@@ -200,6 +201,12 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
     /** Voz (Fase 5): erro forçado do token, tokens emitidos e PATCH /voice/state / leave recebidos. */
     voice: {
       tokenError: null as null | { status: number; detail: string },
+      /** Plano de quem entra, devolvido no token (Nitro): por padrão grátis. */
+      plan: "free" as "free" | "nitro" | "nitro_plus",
+      limits: { screen_max_height: 720, screen_max_fps: 30 } as {
+        screen_max_height: number;
+        screen_max_fps: number;
+      },
       tokensFor: [] as string[],
       stateBodies: [] as { self_mute: boolean; self_deaf: boolean }[],
       stateStatus: 200,
@@ -718,6 +725,12 @@ export function makeBackend(initial: { signedIn?: boolean } = {}) {
           url: "ws://livekit.test:7880",
           token: `token-${params.channelId}-${state.voice.tokensFor.length}`,
           expires_in: 600,
+          plan: state.voice.plan,
+          limits: {
+            animated_avatar: state.voice.plan !== "free",
+            animated_banner: state.voice.plan !== "free",
+            ...state.voice.limits,
+          },
         });
       }),
       http.patch("*/api/voice/state", async ({ request }) => {
@@ -1216,6 +1229,20 @@ export type Backend = ReturnType<typeof makeBackend>;
  * sem isso cada teste do painel precisaria registrá-la. `server.use` de um teste a sobrepõe.
  */
 const baseHandlers = [
+  // Plano da pessoa (Nitro): o cliente o busca ao conectar; por padrão, grátis. `server.use` sobrepõe.
+  http.get("*/api/me/plan", () =>
+    HttpResponse.json({
+      tier: "free",
+      expires_at: null,
+      source: null,
+      limits: {
+        screen_max_height: 720,
+        screen_max_fps: 30,
+        animated_avatar: false,
+        animated_banner: false,
+      },
+    }),
+  ),
   http.get("*/api/admin/tickets/summary", () =>
     HttpResponse.json({ open: 0, in_review: 0, answered: 0, resolved: 0, closed: 0, total: 0 }),
   ),

@@ -8,6 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { NitroBadge } from "@/features/nitro/nitro-badge";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useVoiceModeration, VoiceModerationItems } from "./moderation";
@@ -109,6 +110,7 @@ export function VoiceParticipants({
             )}
           >
             {person.name}
+            <NitroBadge tier={person.plan} className="mx-1 align-[-0.1em]" />
             {talking ? <span className="sr-only">{t("voice.speaking")}</span> : null}
           </span>
         );
@@ -128,6 +130,7 @@ export function VoiceParticipants({
                   seed={p.user_id}
                   animation={inMyCall ? "speaking" : "never"}
                   animating={talking}
+                  plan={person.plan ?? "free"}
                 />
                 {talking ? (
                   <span

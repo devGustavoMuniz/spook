@@ -24,6 +24,7 @@ export function profileOf(v: View): UserUpdateData {
     pronouns: v.pronouns || undefined,
     banner_url: v.banner_url || undefined,
     banner_color: v.banner_color ?? undefined,
+    plan: v.plan,
   };
 }
 
@@ -33,6 +34,8 @@ const identity = (u: { id: string }, d: UserUpdateData) => ({
   username: d.username,
   display_name: d.display_name,
   avatar_url: d.avatar_url,
+  // Sobrescreve sempre: o plano "grátis" também chega (ausente = grátis) e precisa limpar o selo.
+  plan: d.plan ?? ("free" as const),
 });
 
 const isPinsKey = (key: readonly unknown[]) =>
@@ -76,6 +79,7 @@ export function applyUserUpdate(qc: QueryClient, d: UserUpdateData, myId: string
             pronouns: d.pronouns ?? "",
             banner_url: d.banner_url,
             banner_color: d.banner_color,
+            plan: d.plan ?? "free",
           }
         : old,
     );
@@ -96,6 +100,7 @@ export function applyUserUpdate(qc: QueryClient, d: UserUpdateData, myId: string
                   pronouns: d.pronouns,
                   banner_url: d.banner_url,
                   banner_color: d.banner_color,
+                  plan: d.plan ?? "free",
                 }
               : m,
           ),

@@ -5,6 +5,7 @@ import { crop } from "./crop";
 import { feedback } from "./feedback";
 import { format } from "./format";
 import { guilds } from "./guilds";
+import { nitro } from "./nitro";
 import { people } from "./people";
 import { settings } from "./settings";
 import { shell } from "./shell";
@@ -24,5 +25,6 @@ export const ptBR = {
   ...voice,
   ...settings,
   ...feedback,
+  ...nitro,
   ...system,
 } as const;

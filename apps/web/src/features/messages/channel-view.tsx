@@ -352,6 +352,7 @@ function ChannelViewInner({ guild, dm, channelId, channelName, perf }: ChannelVi
                 username: a.username,
                 displayName: a.display_name,
                 avatarUrl: a.avatar_url,
+                plan: a.plan,
               },
               trigger,
             );

@@ -12,6 +12,7 @@ export * from "./api/endpoints/guilds/guilds";
 export * from "./api/endpoints/invites/invites";
 export * from "./api/endpoints/messages/messages";
 export * from "./api/endpoints/notifications/notifications";
+export * from "./api/endpoints/plan/plan";
 export * from "./api/endpoints/presence/presence";
 export * from "./api/endpoints/relationships/relationships";
 export * from "./api/endpoints/tickets/tickets";

@@ -28,6 +28,7 @@ type SocialActions = {
     username: string;
     display_name?: string;
     avatar_url?: string;
+    plan?: "free" | "nitro" | "nitro_plus";
   }) => void;
   reset: () => void;
 };
@@ -82,6 +83,7 @@ export const useSocialStore = create<SocialState & SocialActions>()((set) => ({
               username: u.username,
               display_name: u.display_name,
               avatar_url: u.avatar_url,
+              plan: u.plan ?? "free",
             },
           },
         },

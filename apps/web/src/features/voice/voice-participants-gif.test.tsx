@@ -10,9 +10,11 @@ const GIF = "https://s3.test/avatars/50/9.gif?sig=abc";
 const fakeFrame = { canvas: document.createElement("canvas"), width: 8, height: 8 };
 const state = (id: string): VoiceStatePayload =>
   ({ user_id: id, channel_id: "v1", guild_id: "g1" }) as VoiceStatePayload;
-const lookup = () => ({ name: "Bia", avatarUrl: GIF });
+let plan: "free" | "nitro" | undefined = "nitro";
+const lookup = () => ({ name: "Bia", avatarUrl: GIF, plan });
 
 beforeEach(() => {
+  plan = "nitro";
   server.use(...makeBackend({ signedIn: true }).handlers);
   vi.spyOn(frames, "paintCover").mockImplementation(() => {});
   vi.spyOn(frames, "peekStaticFrame").mockReturnValue(fakeFrame);
@@ -44,6 +46,13 @@ describe("avatar GIF na lista de participantes", () => {
 
   it("em canal que não é o meu (sem sinal de fala) todos ficam parados", async () => {
     view(undefined);
+    await waitFor(() => expect(document.querySelectorAll("canvas")).toHaveLength(2));
+    expect(document.querySelectorAll("img[data-gif-live]")).toHaveLength(0);
+  });
+
+  it("dono sem Nitro (grátis ou ausente): ninguém anima, nem falando na minha chamada", async () => {
+    plan = "free";
+    view(new Set(["50"]));
     await waitFor(() => expect(document.querySelectorAll("canvas")).toHaveLength(2));
     expect(document.querySelectorAll("img[data-gif-live]")).toHaveLength(0);
   });

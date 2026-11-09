@@ -1,5 +1,6 @@
 import * as React from "react";
 import { LogoMark } from "@/components/brand";
+import { canAnimateAvatar, type PlanTier } from "@/features/nitro/plans";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
@@ -263,6 +264,7 @@ export function Avatar({
   speaking = false,
   animation = "never",
   animating,
+  plan,
   status,
   statusLabel,
   statusRingClassName,
@@ -278,6 +280,12 @@ export function Avatar({
   animation?: AvatarAnimation;
   /** Com `animation="speaking"`: anima enquanto verdadeiro (padrão: o valor de `speaking`). */
   animating?: boolean;
+  /**
+   * Plano do DONO da imagem (não de quem vê). Só quem tem Nitro/Nitro+ anima: sem plano o GIF fica sempre parado
+   * (primeiro quadro), qualquer que seja `animation`. Ausente (`undefined`) = sem restrição, para imagens que não
+   * são de uma pessoa (ícone de servidor); para pessoas passe `plan ?? "free"`.
+   */
+  plan?: PlanTier;
   status?: PresenceStatus;
   statusLabel?: string;
   statusRingClassName?: string;
@@ -287,6 +295,7 @@ export function Avatar({
   const label = t("shell.avatar.of", { name });
   const box: React.CSSProperties = { width: px, height: px };
 
+  const mode: AvatarAnimation = plan === undefined || canAnimateAvatar(plan) ? animation : "never";
   const wrapped = speaking || Boolean(status);
   const faceClass = wrapped ? undefined : className;
   let face: React.ReactNode;
@@ -332,7 +341,7 @@ export function Avatar({
         url={url}
         px={px}
         label={label}
-        animation={animation}
+        animation={mode}
         animating={animating ?? speaking}
         className={faceClass}
         placeholder={initials}

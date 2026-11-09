@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { NitroBadge } from "@/features/nitro/nitro-badge";
+import type { PlanTier } from "@/features/nitro/plans";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { audioCapabilities, participantVolumeMax } from "../controller";
@@ -52,6 +54,8 @@ export type TileModel = {
   userId: string;
   name: string;
   avatarUrl?: string;
+  /** Plano da pessoa (ausente = grátis): selo no nome e se o GIF do avatar anima ao falar. */
+  plan?: PlanTier;
   /** `person`: avatar (ou câmera) da pessoa; `screen`: tela compartilhada. */
   kind: "person" | "screen";
   local: boolean;
@@ -300,6 +304,7 @@ export function ParticipantTile({
                 seed={tile.userId}
                 animation="speaking"
                 animating={speaking}
+                plan={tile.plan ?? "free"}
                 className="shadow-lg ring-2 ring-white/20"
               />
               {speaking ? (
@@ -408,6 +413,7 @@ export function ParticipantTile({
         >
           <Flags tile={tile} />
           <span className="truncate">{caption}</span>
+          {isScreenTile ? null : <NitroBadge tier={tile.plan} />}
           {speaking ? <span className="sr-only">{t("voice.speaking")}</span> : null}
           {isScreen ? (
             <ViewersBadge

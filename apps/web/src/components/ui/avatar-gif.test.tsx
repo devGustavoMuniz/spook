@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Avatar } from "./avatar";
+import { BannerImage } from "./banner-image";
 import * as frames from "./static-frame";
 
 const GIF = "https://s3.test/avatars/50/9.gif?sig=abc";
@@ -101,5 +102,62 @@ describe("avatar GIF", () => {
     await act(async () => {});
     expect(screen.getByRole("img")).toHaveAttribute("data-initials", "BI");
     expect(document.querySelector("img")).toBeNull();
+  });
+
+  it("dono sem plano (grátis ou ausente): fica parado em always e falando; Nitro mantém as regras", async () => {
+    const { rerender } = render(<Avatar url={GIF} name="Bia" animation="always" plan="free" />);
+    await ready();
+    expect(document.querySelector("img")).toBeNull(); // sem <img> animado
+    rerender(<Avatar url={GIF} name="Bia" animation="speaking" animating plan="free" />);
+    expect(live()).toBeNull();
+    rerender(<Avatar url={GIF} name="Bia" animation="speaking" animating plan="nitro" />);
+    expect(live()).toHaveAttribute("src", GIF);
+    rerender(
+      <Avatar url={GIF} name="Bia" animation="speaking" animating={false} plan="nitro_plus" />,
+    );
+    expect(live()).toBeNull(); // Nitro: parado quando não fala
+    rerender(<Avatar url={GIF} name="Bia" animation="always" plan="nitro" />);
+    expect(screen.getByRole("img")).toHaveAttribute("src", GIF);
+  });
+
+  it("sem a prop `plan` (ícone de servidor) nada muda", () => {
+    render(<Avatar url={GIF} name="Bia" animation="always" />);
+    expect(screen.getByRole("img")).toHaveAttribute("src", GIF);
+  });
+});
+
+describe("banner GIF", () => {
+  const BGIF = "https://s3.test/banners/50/9.gif?sig=abc";
+  const BPNG = "https://s3.test/banners/50/9.png?sig=abc";
+  beforeEach(() => {
+    // jsdom não desenha: o quadro estático do banner é copiado para o canvas com este stub.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+  });
+
+  it("dono sem plano: primeiro quadro no canvas, nunca o <img> animado", async () => {
+    render(<BannerImage url={BGIF} ownerPlan="free" />);
+    await ready();
+    expect(document.querySelector("img")).toBeNull();
+    expect(frames.loadStaticFrame).toHaveBeenCalledWith(BGIF, 640);
+  });
+
+  it("dono sem plano e sem o quadro (falha): não mostra nada, nunca cai no GIF animado", async () => {
+    vi.mocked(frames.loadStaticFrame).mockResolvedValue(null);
+    render(<BannerImage url={BGIF} ownerPlan={undefined} />);
+    await waitFor(() => expect(frames.loadStaticFrame).toHaveBeenCalled());
+    expect(document.querySelector("img")).toBeNull();
+    expect(canvas()).toBeNull();
+  });
+
+  it("dono com Nitro ou Nitro+: GIF animado; não-GIF é sempre <img>", () => {
+    const { rerender } = render(<BannerImage url={BGIF} ownerPlan="nitro" />);
+    expect(document.querySelector("img")).toHaveAttribute("src", BGIF);
+    rerender(<BannerImage url={BGIF} ownerPlan="nitro_plus" />);
+    expect(document.querySelector("img")).toHaveAttribute("src", BGIF);
+    rerender(<BannerImage url={BPNG} ownerPlan="free" />);
+    expect(document.querySelector("img")).toHaveAttribute("src", BPNG);
+    expect(frames.loadStaticFrame).not.toHaveBeenCalled();
   });
 });

@@ -35,6 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { shownName } from "@/features/account/removed-user";
 import { MessageAttachments } from "@/features/attachments/message-attachments";
+import { NitroBadge } from "@/features/nitro/nitro-badge";
 import { useIsBlocked } from "@/features/social/store";
 import { t, useT } from "@/i18n";
 import { formatClock, formatFullDate, formatMessageTime } from "@/lib/format";
@@ -234,6 +235,7 @@ export const MessageRow = memo(function MessageRow(p: MessageRowProps) {
                   </span>,
                   "rounded-sm text-left",
                 )}
+                <NitroBadge tier={m.author.plan} className="self-center" />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <time

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clampScreenChoice,
+  clampScreenQuality,
   DEFAULT_SCREEN_CHOICE,
   DEFAULT_SCREEN_QUALITY,
   estimateUplinkKbps,
@@ -99,5 +101,29 @@ describe("qualidade da tela: persistência", () => {
     expect(loadScreenChoice()).toEqual({ height: 1080, fps: 60 });
     localStorage.setItem("spook:voice-screen-quality", "lixo");
     expect(loadScreenChoice()).toEqual(DEFAULT_SCREEN_CHOICE);
+  });
+});
+
+describe("qualidade da tela: limites do plano", () => {
+  const free = { screen_max_height: 720, screen_max_fps: 30 };
+  const nitro = { screen_max_height: 1080, screen_max_fps: 60 };
+  const plus = { screen_max_height: 1440, screen_max_fps: 60 };
+
+  it("reduz resolução e fps ao teto do plano, cada um por si", () => {
+    expect(clampScreenChoice({ height: 1440, fps: 60 }, free)).toEqual({ height: 720, fps: 30 });
+    expect(clampScreenChoice({ height: 1440, fps: 60 }, nitro)).toEqual({ height: 1080, fps: 60 });
+    expect(clampScreenChoice({ height: 1440, fps: 60 }, plus)).toEqual({ height: 1440, fps: 60 });
+    expect(clampScreenChoice({ height: 1080, fps: 15 }, free)).toEqual({ height: 720, fps: 15 });
+  });
+
+  it("o contrato da engine: nada muda dentro do limite; reduzido refaz prioridade e solta o teto manual", () => {
+    const q = { height: 1080, fps: 30, priority: "motion", maxBitrateKbps: 9000 } as const;
+    expect(clampScreenQuality(q, nitro)).toBe(q);
+    expect(clampScreenQuality(q, free)).toEqual({ height: 720, fps: 30, priority: "motion" });
+    expect(clampScreenQuality({ ...q, height: 1440, fps: 60 }, free)).toEqual({
+      height: 720,
+      fps: 30,
+      priority: "motion",
+    });
   });
 });

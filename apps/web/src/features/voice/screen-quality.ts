@@ -46,6 +46,29 @@ export function formatKbps(kbps: number): string {
   return `${formatNumber(kbps / 1000, { maximumFractionDigits: 1 })} Mbps`;
 }
 
+type ScreenCaps = { screen_max_height: number; screen_max_fps: number };
+
+/** Maior valor da lista que cabe no teto (o menor, se nenhum cabe). */
+const capTo = <T extends number>(list: readonly T[], max: number): T =>
+  [...list].reverse().find((v) => v <= max) ?? (list[0] as T);
+
+/** Reduz a escolha ao que o plano permite (resolução e fps independentes). */
+export function clampScreenChoice(c: ScreenChoice, caps: ScreenCaps): ScreenChoice {
+  return {
+    height: Math.min(
+      c.height,
+      capTo(SCREEN_HEIGHTS, caps.screen_max_height),
+    ) as ScreenChoice["height"],
+    fps: Math.min(c.fps, capTo(SCREEN_FPS, caps.screen_max_fps)) as ScreenChoice["fps"],
+  };
+}
+
+/** Idem para o contrato da engine; se algo foi reduzido, a prioridade é refeita e o teto de banda manual cai. */
+export function clampScreenQuality(q: ScreenShareQuality, caps: ScreenCaps): ScreenShareQuality {
+  const c = clampScreenChoice(q, caps);
+  return c.height === q.height && c.fps === q.fps ? q : qualityOf(c);
+}
+
 /** Escolhas que pesam em processador e banda (1440p ou 60 fps): o diálogo avisa. */
 export function isHeavy(q: ScreenChoice): boolean {
   return q.height >= 1440 || q.fps >= 60;

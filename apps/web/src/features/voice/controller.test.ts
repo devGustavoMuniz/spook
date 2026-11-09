@@ -647,6 +647,11 @@ describe("volume por pessoa (controlador)", () => {
 
 describe("qualidade da tela (controlador)", () => {
   const q = { height: 1440, fps: 30, priority: "motion" } as const;
+  // O plano vem no token da sala: aqui quem entra tem Nitro+ (o limite do plano grátis está mais abaixo).
+  beforeEach(() => {
+    backend.state.voice.plan = "nitro_plus";
+    backend.state.voice.limits = { screen_max_height: 1440, screen_max_fps: 60 };
+  });
 
   it("com a capacidade, manda a qualidade escolhida e a persiste", async () => {
     fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
@@ -667,6 +672,27 @@ describe("qualidade da tela (controlador)", () => {
     await joined();
     await toggleScreenShare({ audio: false, quality: q });
     expect(fake.lastScreenOpts).toEqual({ audio: false });
+  });
+
+  it("plano grátis (limites do token): o que o motor publica é reduzido a 720p/30 fps", async () => {
+    backend.state.voice.plan = "free";
+    backend.state.voice.limits = { screen_max_height: 720, screen_max_fps: 30 };
+    fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
+    await joined();
+    await toggleScreenShare({ audio: false, quality: { ...q, fps: 60 } });
+    expect(fake.lastScreenOpts?.quality).toEqual({ height: 720, fps: 30, priority: "motion" });
+    await toggleScreenShare(); // desligar
+    await toggleScreenShare(); // sem escolha: o padrão 1080p/30 também é reduzido
+    expect(fake.lastScreenOpts?.quality).toEqual({ height: 720, fps: 30, priority: "motion" });
+  });
+
+  it("Nitro (1080p/60 fps): 1440p cai para 1080p, o fps de 60 passa", async () => {
+    backend.state.voice.plan = "nitro";
+    backend.state.voice.limits = { screen_max_height: 1080, screen_max_fps: 60 };
+    fake.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
+    await joined();
+    await toggleScreenShare({ audio: false, quality: { ...q, fps: 60 } });
+    expect(fake.lastScreenOpts?.quality).toEqual({ height: 1080, fps: 60, priority: "motion" });
   });
 });
 

@@ -40,7 +40,7 @@ export function peekStaticFrame(url: string): StaticFrame | undefined {
 }
 
 /** Carrega (ou reaproveita) o primeiro quadro. `null` = não foi possível (erro de rede ou sem canvas). */
-export function loadStaticFrame(url: string): Promise<StaticFrame | null> {
+export function loadStaticFrame(url: string, maxSide = MAX_SIDE): Promise<StaticFrame | null> {
   const key = frameKey(url);
   const hit = peekStaticFrame(url);
   if (hit) return Promise.resolve(hit);
@@ -53,7 +53,7 @@ export function loadStaticFrame(url: string): Promise<StaticFrame | null> {
       try {
         const w = img.naturalWidth || 1;
         const h = img.naturalHeight || 1;
-        const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+        const scale = Math.min(1, maxSide / Math.max(w, h));
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(w * scale));
         canvas.height = Math.max(1, Math.round(h * scale));

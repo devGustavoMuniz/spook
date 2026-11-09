@@ -9,6 +9,9 @@ import { describedBy, Field } from "@/components/form-field";
 import { type CropResult, ImageCropDialog } from "@/components/image-cropper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { isAnimatedImage } from "@/features/nitro/animated-file";
+import { isNitroRequired, NitroRequiredDialog } from "@/features/nitro/nitro-required-dialog";
+import { usePlan } from "@/features/nitro/use-plan";
 import { AboutCard, BannerCard, useSaveProfile } from "@/features/settings/profile-fields";
 import { SecuritySection } from "@/features/settings/security";
 import { SettingsGroup } from "@/features/settings/ui";
@@ -134,12 +137,21 @@ function AvatarCard({ me }: { me: View }) {
   const cropGif = useCropProfileImage();
   const [picked, setPicked] = useState<File | null>(null);
 
-  function onFile(file: File | undefined) {
+  const plan = usePlan();
+  const [nitroOpen, setNitroOpen] = useState(false);
+
+  async function onFile(file: File | undefined) {
     if (!file) return;
     const problem = validateAvatar(file);
     setFileError(problem);
     if (fileInput.current) fileInput.current.value = "";
-    if (!problem) setPicked(file);
+    if (problem) return;
+    // Sem Nitro, GIF/WebP/APNG animado nem chega ao envio: avisa antes (o servidor também recusa).
+    if (!plan.limits.animated_avatar && (await isAnimatedImage(file))) {
+      setNitroOpen(true);
+      return;
+    }
+    setPicked(file);
   }
 
   async function upload(result: CropResult) {
@@ -158,9 +170,11 @@ function AvatarCard({ me }: { me: View }) {
       toast.success(t("shell.profile.avatarUpdated"));
       if (fallback) toast.info(t("crop.gifFallback"));
     } catch (e) {
-      toast.error(
-        e instanceof Error && !("status" in e) ? t("shell.profile.uploadFailed") : messageFor(e),
-      );
+      if (isNitroRequired(e)) setNitroOpen(true);
+      else
+        toast.error(
+          e instanceof Error && !("status" in e) ? t("shell.profile.uploadFailed") : messageFor(e),
+        );
     } finally {
       setProgress(null);
     }
@@ -182,7 +196,13 @@ function AvatarCard({ me }: { me: View }) {
       description={t("shell.profile.avatarDesc")}
     >
       <div className="flex flex-wrap items-center gap-4">
-        <Avatar url={me.avatar_url} name={name} size={80} animation="always" />
+        <Avatar
+          url={me.avatar_url}
+          name={name}
+          size={80}
+          animation="always"
+          plan={me.plan ?? "free"}
+        />
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <input
@@ -191,7 +211,7 @@ function AvatarCard({ me }: { me: View }) {
               type="file"
               accept="image/png,image/jpeg,image/webp,image/gif"
               className="sr-only"
-              onChange={(e) => onFile(e.target.files?.[0])}
+              onChange={(e) => void onFile(e.target.files?.[0])}
               disabled={busy}
             />
             <Button
@@ -229,6 +249,7 @@ function AvatarCard({ me }: { me: View }) {
         onCancel={() => setPicked(null)}
         onApply={(r) => void upload(r)}
       />
+      <NitroRequiredDialog open={nitroOpen} onOpenChange={setNitroOpen} />
     </SettingsGroup>
   );
 }

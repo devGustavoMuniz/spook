@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetLimits, useLimitsStore } from "@/features/nitro/limits-store";
+import { PLAN_LIMITS } from "@/features/nitro/plans";
 import {
   type VideoTrackInfo,
   VoiceConnectError,
@@ -250,6 +252,10 @@ describe("NativeVoiceEngine: mídia local", () => {
     expect(mediaMessage(e)).toBe("Não foi possível usar o microfone.");
   });
 });
+
+// Sem plano conhecido vale o grátis (720p/30 fps); a maioria dos testes de captura parte de quem tem Nitro+.
+beforeEach(() => useLimitsStore.getState().setPlan(PLAN_LIMITS.nitro_plus));
+afterEach(() => resetLimits());
 
 describe("NativeVoiceEngine: compartilhar tela", () => {
   it("lista as fontes, deixa escolher e inicia a captura nativa", async () => {
@@ -912,6 +918,47 @@ describe("NativeVoiceEngine: qualidade da tela", () => {
     expect(rust.named("voice_set_screen_share")[0]?.args).toEqual({
       on: true,
       options: { sourceId: "display:1", audio: false },
+    });
+  });
+});
+
+describe("NativeVoiceEngine: limites do plano", () => {
+  it("grátis: a qualidade pedida é reduzida a 720p/30 fps antes de ir ao Rust", async () => {
+    useLimitsStore.getState().setPlan(PLAN_LIMITS.free);
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true, {
+      quality: { height: 1440, fps: 60, priority: "motion", maxBitrateKbps: 9000 },
+    });
+    expect(rust.named("voice_set_screen_share")[0]?.args).toEqual({
+      on: true,
+      options: {
+        sourceId: "display:1",
+        audio: false,
+        quality: { height: 720, fps: 30, priority: "motion" },
+      },
+    });
+  });
+
+  it("grátis e sem qualidade: não deixa o Rust usar o padrão de 1080p", async () => {
+    useLimitsStore.getState().setPlan(PLAN_LIMITS.free);
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true);
+    expect(rust.named("voice_set_screen_share")[0]?.args).toMatchObject({
+      options: { quality: { height: 720, fps: 30 } },
+    });
+  });
+
+  it("o limite do token da sala vale sobre o do plano", async () => {
+    useLimitsStore.getState().setVoice(PLAN_LIMITS.nitro);
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true, {
+      quality: { height: 1440, fps: 60, priority: "motion" },
+    });
+    expect(rust.named("voice_set_screen_share")[0]?.args).toMatchObject({
+      options: { quality: { height: 1080, fps: 60 } },
     });
   });
 });

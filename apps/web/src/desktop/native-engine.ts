@@ -3,6 +3,7 @@
 // `getUserMedia`, `getDisplayMedia` nem `RTCPeerConnection`: o áudio é capturado/tocado no Rust, e o vídeo
 // remoto chega como JPEG que desenhamos num `<canvas>`.
 
+import { effectiveLimits } from "@/features/nitro/limits-store";
 import { loadDevicePrefs } from "@/features/voice/devices";
 import {
   type AudioCapabilities,
@@ -26,6 +27,7 @@ import {
   type VoiceEngineEvents,
   VoiceMediaError,
 } from "@/features/voice/engine";
+import { clampScreenQuality, DEFAULT_SCREEN_QUALITY } from "@/features/voice/screen-quality";
 import { decodeFrame } from "./frame-wire";
 import { createChannel, type IpcChannel, invoke } from "./ipc";
 import { toConnectError, toMediaError } from "./native-errors";
@@ -335,12 +337,20 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
       if (!sourceId) throw new VoiceMediaError("cancelled", "screen");
       // O áudio do sistema ainda não é capturado no desktop (limitação documentada); o Rust ignora o pedido.
       // `quality` ausente = o padrão do Rust (1080p, 15 fps, nitidez), o mesmo de antes do ajuste.
+      // O limite do plano (token de voz, senão o plano, senão grátis) manda: o Rust nunca recebe mais que isso.
+      // Sem `quality`, o Rust usaria 1080p; num plano menor isso passaria do limite, então vai o padrão reduzido.
+      const limits = effectiveLimits();
+      const quality = opts.quality
+        ? clampScreenQuality(opts.quality, limits)
+        : limits.screen_max_height < 1080
+          ? clampScreenQuality(DEFAULT_SCREEN_QUALITY, limits)
+          : undefined;
       await this.deps.invoke("voice_set_screen_share", {
         on: true,
         options: {
           sourceId,
           audio: !!opts.audio,
-          ...(opts.quality ? { quality: opts.quality } : {}),
+          ...(quality ? { quality } : {}),
         },
       });
     } catch (err) {

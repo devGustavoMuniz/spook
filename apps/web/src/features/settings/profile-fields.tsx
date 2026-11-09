@@ -15,9 +15,13 @@ import { toast } from "sonner";
 import { describedBy, Field } from "@/components/form-field";
 import { type CropResult, ImageCropDialog } from "@/components/image-cropper";
 import { avatarColor } from "@/components/ui/avatar";
+import { BannerImage } from "@/components/ui/banner-image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { isAnimatedImage } from "@/features/nitro/animated-file";
+import { isNitroRequired, NitroRequiredDialog } from "@/features/nitro/nitro-required-dialog";
+import { usePlan } from "@/features/nitro/use-plan";
 import { SettingsGroup } from "@/features/settings/ui";
 import { useT } from "@/i18n";
 import { colorToHex, hexToColor } from "@/lib/colors";
@@ -137,12 +141,21 @@ export function BannerCard({ me }: { me: View }) {
   const showColor = !me.banner_url && (me.banner_color != null || touched);
   const fallback = avatarColor(me.id);
 
-  function onFile(file: File | undefined) {
+  const plan = usePlan();
+  const [nitroOpen, setNitroOpen] = useState(false);
+
+  async function onFile(file: File | undefined) {
     if (!file) return;
     const problem = validateAvatar(file);
     setFileError(problem);
     if (fileInput.current) fileInput.current.value = "";
-    if (!problem) setPicked(file);
+    if (problem) return;
+    // Sem Nitro, GIF/WebP/APNG animado nem chega ao envio: avisa antes (o servidor também recusa).
+    if (!plan.limits.animated_banner && (await isAnimatedImage(file))) {
+      setNitroOpen(true);
+      return;
+    }
+    setPicked(file);
   }
 
   async function upload(result: CropResult) {
@@ -161,9 +174,13 @@ export function BannerCard({ me }: { me: View }) {
       toast.success(t("settings.profile.bannerUpdated"));
       if (fallback) toast.info(t("crop.gifFallback"));
     } catch (e) {
-      toast.error(
-        e instanceof Error && !("status" in e) ? t("settings.profile.uploadFailed") : messageFor(e),
-      );
+      if (isNitroRequired(e)) setNitroOpen(true);
+      else
+        toast.error(
+          e instanceof Error && !("status" in e)
+            ? t("settings.profile.uploadFailed")
+            : messageFor(e),
+        );
     } finally {
       setProgress(null);
     }
@@ -201,7 +218,11 @@ export function BannerCard({ me }: { me: View }) {
         }}
       >
         {me.banner_url ? (
-          <img src={me.banner_url} alt="" className="size-full object-cover" />
+          <BannerImage
+            url={me.banner_url}
+            ownerPlan={me.plan ?? "free"}
+            className="size-full object-cover"
+          />
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -211,7 +232,7 @@ export function BannerCard({ me }: { me: View }) {
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           className="sr-only"
-          onChange={(e) => onFile(e.target.files?.[0])}
+          onChange={(e) => void onFile(e.target.files?.[0])}
           disabled={busy}
           aria-label={t("settings.profile.bannerUpload")}
         />
@@ -277,6 +298,7 @@ export function BannerCard({ me }: { me: View }) {
         onCancel={() => setPicked(null)}
         onApply={(r) => void upload(r)}
       />
+      <NitroRequiredDialog open={nitroOpen} onOpenChange={setNitroOpen} />
     </SettingsGroup>
   );
 }

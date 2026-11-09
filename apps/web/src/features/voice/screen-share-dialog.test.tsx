@@ -1,6 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetLimits } from "@/features/nitro/limits-store";
+import { PLAN_LIMITS, type PlanTier } from "@/features/nitro/plans";
 import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { resetVoiceController } from "./controller";
 import { saveDevicePref, saveScreenSharePrefs } from "./devices";
@@ -8,10 +11,29 @@ import { setVoiceEngineFactory } from "./engine-provider";
 import { saveScreenChoice } from "./screen-quality";
 import { ScreenShareDialog } from "./screen-share-dialog";
 
+// O diálogo lê o plano (GET /api/me/plan): cada render tem o seu cache.
+const render = (ui: React.ReactElement) => {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  qc.setQueryData(["/api/me/plan"], {
+    tier,
+    expires_at: null,
+    source: tier === "free" ? null : "admin",
+    limits: PLAN_LIMITS[tier],
+  });
+  return rtlRender(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+};
+
+let tier: PlanTier = "free";
+const asTier = (t: PlanTier) => {
+  tier = t;
+};
+
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
 beforeEach(() => {
   localStorage.clear();
+  resetLimits();
+  asTier("free");
   setVoiceEngineFactory(() => new FakeVoiceEngine());
 });
 afterEach(() => {
@@ -91,6 +113,7 @@ describe("ScreenShareDialog", () => {
 });
 
 describe("ScreenShareDialog: qualidade", () => {
+  beforeEach(() => asTier("nitro_plus")); // aqui o plano não tranca nada: testa a tabela e a persistência
   function withQuality(extra: { screenSharePreview?: boolean } = {}) {
     const eng = new FakeVoiceEngine();
     eng.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true, ...extra };
@@ -246,7 +269,70 @@ describe("ScreenShareDialog: prévia para o canal", () => {
     await user.click(screen.getByRole("button", { name: "Compartilhar" }));
     expect(onConfirm).toHaveBeenCalledWith({
       audio: false,
-      quality: { height: 1080, fps: 30, priority: "motion" },
+      quality: { height: 720, fps: 30, priority: "motion" },
     });
+  });
+});
+
+describe("ScreenShareDialog: limites do plano", () => {
+  beforeEach(() => {
+    const eng = new FakeVoiceEngine();
+    eng.audioCapabilities = { strongNoiseSuppression: false, screenShareQuality: true };
+    setVoiceEngineFactory(() => eng);
+  });
+
+  it("grátis: 720p e 30 fps livres; 1080p, 1440p e 60 fps têm cadeado e o padrão salvo é reduzido", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    saveScreenChoice({ height: 1440, fps: 60 }); // preferência de quando havia plano
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
+    const res = await screen.findByRole("radiogroup", { name: "Resolução" });
+    expect(within(res).getByRole("radio", { name: "720p" })).toBeChecked();
+    for (const label of ["1080p", "1440p"])
+      expect(
+        within(res).getByRole("button", { name: new RegExp(`${label}: requer`) }),
+      ).toBeInTheDocument();
+    const fps = screen.getByRole("radiogroup", { name: "Taxa de quadros" });
+    expect(within(fps).getByRole("radio", { name: "30 fps" })).toBeChecked();
+    expect(within(fps).getByRole("button", { name: /60 fps: requer Nitro/ })).toBeInTheDocument();
+    expect(within(res).getByRole("button", { name: /1440p: requer Nitro\+/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Compartilhar" }));
+    expect(onConfirm.mock.calls[0]?.[0]).toMatchObject({ quality: { height: 720, fps: 30 } });
+  });
+
+  it("o cadeado fecha o diálogo e leva à seção Nitro", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    render(<ScreenShareDialog open onOpenChange={onOpenChange} onConfirm={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /1080p: requer Nitro/ }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(assign).toHaveBeenCalledWith("/settings/nitro");
+    vi.unstubAllGlobals();
+  });
+
+  it("Nitro: 1080p e 60 fps livres; 1440p ainda trancado (só Nitro+)", async () => {
+    asTier("nitro");
+    saveScreenChoice({ height: 1080, fps: 60 });
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={() => {}} />);
+    const res = await screen.findByRole("radiogroup", { name: "Resolução" });
+    expect(within(res).getByRole("radio", { name: "1080p" })).toBeChecked();
+    const fps = screen.getByRole("radiogroup", { name: "Taxa de quadros" });
+    expect(within(fps).getByRole("radio", { name: "60 fps" })).toBeChecked();
+    expect(within(res).getByRole("button", { name: /1440p: requer Nitro\+/ })).toBeInTheDocument();
+  });
+
+  it("Nitro+: nenhuma opção trancada e 1440p/60 fps são enviados", async () => {
+    asTier("nitro_plus");
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    saveScreenChoice({ height: 1440, fps: 60 });
+    render(<ScreenShareDialog open onOpenChange={() => {}} onConfirm={onConfirm} />);
+    const res = await screen.findByRole("radiogroup", { name: "Resolução" });
+    expect(within(res).getByRole("radio", { name: "1440p" })).toBeChecked();
+    expect(screen.queryByRole("button", { name: /requer/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Compartilhar" }));
+    expect(onConfirm.mock.calls[0]?.[0]).toMatchObject({ quality: { height: 1440, fps: 60 } });
   });
 });

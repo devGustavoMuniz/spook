@@ -9,12 +9,14 @@ import {
   DialogHead,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { useOpenNitro } from "@/features/nitro/use-open-nitro";
+import { usePlan } from "@/features/nitro/use-plan";
 import { useT } from "@/i18n";
 import { audioCapabilities, listDevices } from "./controller";
 import { loadDevicePrefs, loadScreenSharePrefs } from "./devices";
 import { outputLooksLikeHeadphones } from "./echo-risk";
 import type { ScreenShareQuality } from "./engine";
-import { loadScreenChoice, qualityOf } from "./screen-quality";
+import { clampScreenChoice, loadScreenChoice, qualityOf } from "./screen-quality";
 import { ScreenQualityFields } from "./screen-share-fields";
 
 /**
@@ -34,7 +36,9 @@ export function ScreenShareDialog({
   const { t } = useT();
   const [audio, setAudio] = useState(false);
   const [preview, setPreview] = useState(true);
-  const [choice, setChoice] = useState(loadScreenChoice);
+  const plan = usePlan();
+  const openNitro = useOpenNitro();
+  const [choice, setChoice] = useState(() => clampScreenChoice(loadScreenChoice(), plan.limits));
   const [headphones, setHeadphones] = useState<boolean | null>(null);
   // O app desktop ainda não captura o áudio do sistema: sem a opção, também não há laço de eco por compartilhar.
   const caps = audioCapabilities();
@@ -43,20 +47,25 @@ export function ScreenShareDialog({
   // O desktop não consegue capturar um quadro da tela para a miniatura.
   const canPreview = caps.screenSharePreview !== false;
 
+  // Dentro do efeito só os números importam (uma lista nova de limites por render não deve refazê-lo).
+  const limits = plan.limits;
+  const maxHeight = limits.screen_max_height;
+  const maxFps = limits.screen_max_fps;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `limits` entra só pelos dois tetos acima
   useEffect(() => {
     if (!open) return;
     let alive = true;
     const prefs = loadScreenSharePrefs();
     setAudio(prefs.audio);
     setPreview(prefs.preview);
-    setChoice(loadScreenChoice());
+    setChoice(clampScreenChoice(loadScreenChoice(), limits));
     void listDevices("audiooutput").then((outs) => {
       if (alive) setHeadphones(outputLooksLikeHeadphones(outs, loadDevicePrefs().audiooutput));
     });
     return () => {
       alive = false;
     };
-  }, [open]);
+  }, [open, maxHeight, maxFps]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,7 +77,15 @@ export function ScreenShareDialog({
         />
         <DialogBody>
           {canTuneQuality ? (
-            <ScreenQualityFields idPrefix="screen-share" choice={choice} onChange={setChoice} />
+            <ScreenQualityFields
+              idPrefix="screen-share"
+              choice={choice}
+              onChange={setChoice}
+              onUpgrade={() => {
+                onOpenChange(false);
+                openNitro();
+              }}
+            />
           ) : (
             <p className="text-xs text-muted-foreground">{t("voice.share.autoQuality")}</p>
           )}
@@ -124,7 +141,9 @@ export function ScreenShareDialog({
               onOpenChange(false);
               onConfirm({
                 audio: audio && !noSystemAudio,
-                ...(canTuneQuality ? { quality: qualityOf(choice) } : {}),
+                ...(canTuneQuality
+                  ? { quality: qualityOf(clampScreenChoice(choice, limits)) }
+                  : {}),
                 ...(canPreview ? { preview } : {}),
               });
             }}

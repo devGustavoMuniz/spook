@@ -7,6 +7,7 @@ import { crop } from "./crop";
 import { feedback } from "./feedback";
 import { format } from "./format";
 import { guilds } from "./guilds";
+import { nitro } from "./nitro";
 import { people } from "./people";
 import { settings } from "./settings";
 import { shell } from "./shell";
@@ -26,5 +27,6 @@ export const en: Record<MessageKey, Message> = {
   ...voice,
   ...settings,
   ...feedback,
+  ...nitro,
   ...system,
 };
