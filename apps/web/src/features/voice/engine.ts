@@ -161,8 +161,8 @@ export type AudioCapabilities = {
    */
   pictureInPicture?: boolean;
   /**
-   * A engine escolhe quais telas de outras pessoas assinar (`setScreenWatching`). Ausente/`false` = assina todas
-   * automaticamente (o desktop nativo, que ainda não expõe assinatura por faixa) e a interface não mostra "Assistir".
+   * A engine escolhe quais telas de outras pessoas assinar (`setScreenWatching`): web e desktop nativo. Ausente/`false`
+   * = assina todas automaticamente e a interface não mostra "Assistir".
    */
   screenWatch?: boolean;
   /** Troca a fonte da tela já compartilhada sem parar a transmissão (`replaceScreenShareSource`). Ausente = não. */

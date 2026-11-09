@@ -140,6 +140,7 @@ pub fn run() {
             vc::voice_set_screen_share,
             vc::voice_list_devices,
             vc::voice_set_device,
+            vc::voice_set_screen_watching,
             vc::voice_video_subscribe,
             vc::voice_video_unsubscribe,
             vc::voice_video_ack

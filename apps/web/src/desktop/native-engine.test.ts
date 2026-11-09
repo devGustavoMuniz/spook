@@ -623,7 +623,113 @@ describe("NativeVoiceEngine: capacidades do contrato adicional", () => {
       screenShareQuality: true,
       screenSharePreview: false,
       pictureInPicture: false,
+      screenWatch: true,
     });
+  });
+});
+
+function deferred() {
+  let release: () => void = () => {};
+  const promise = new Promise<void>((r) => {
+    release = r;
+  });
+  return { promise, release: () => release() };
+}
+
+describe("NativeVoiceEngine: assistir telas sob demanda", () => {
+  const watchCalls = (rust: ReturnType<typeof fakeRust>) =>
+    rust.named("voice_set_screen_watching").map((c) => c.args);
+
+  it("assistir e parar chamam o comando com a identidade e o estado", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    engine.setScreenWatching("42", true);
+    engine.setScreenWatching("42", false);
+    await tick();
+    expect(watchCalls(rust)).toEqual([
+      { participantId: "42", watching: true },
+      { participantId: "42", watching: false },
+    ]);
+  });
+
+  it("os pedidos chegam ao Rust em ordem mesmo com o comando demorando (Tentar de novo)", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    const started: boolean[] = [];
+    const gate = deferred();
+    rust.on("voice_set_screen_watching", (args) => {
+      started.push(args?.watching as boolean);
+      // o primeiro pedido só termina quando liberado: o segundo não pode ultrapassá-lo
+      return started.length === 1 ? gate.promise : undefined;
+    });
+    engine.setScreenWatching("42", true);
+    engine.setScreenWatching("42", false);
+    engine.setScreenWatching("42", true);
+    await tick();
+    expect(started).toEqual([true]);
+    gate.release();
+    await tick();
+    await tick();
+    await tick();
+    expect(started).toEqual([true, false, true]);
+  });
+
+  it("sem sala ativa o pedido é ignorado", async () => {
+    const { rust, engine } = setup();
+    engine.setScreenWatching("42", true);
+    await tick();
+    expect(rust.named("voice_set_screen_watching")).toHaveLength(0);
+  });
+
+  it("pedidos pendentes de uma sala antiga são descartados ao desconectar", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    const gate = deferred();
+    rust.on("voice_set_screen_watching", () => gate.promise);
+    engine.setScreenWatching("1", true);
+    engine.setScreenWatching("2", true);
+    await tick();
+    await engine.disconnect();
+    gate.release();
+    await tick();
+    await tick();
+    expect(watchCalls(rust)).toEqual([{ participantId: "1", watching: true }]);
+  });
+
+  it("falha do comando não derruba a interface nem trava a fila", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    let n = 0;
+    rust.on("voice_set_screen_watching", () => {
+      if (n++ === 0) throw new Error("sem sala");
+      return undefined;
+    });
+    engine.setScreenWatching("1", true);
+    engine.setScreenWatching("2", true);
+    await tick();
+    await tick();
+    expect(watchCalls(rust)).toHaveLength(2);
+  });
+
+  it("a faixa só aparece (e desenha) depois do evento do Rust; remover desinscreve o receptor", async () => {
+    const { rust, engine, seen } = setup();
+    await engine.connect(params);
+    engine.setScreenWatching("42", true);
+    await tick();
+    // assinar não cria a faixa sozinho: quem manda é o evento do Rust
+    expect(seen["video-track-added"] ?? []).toHaveLength(0);
+    rust.emit({
+      type: "video-track-added",
+      id: "TR_9",
+      identity: "42",
+      kind: "screen",
+      local: false,
+    });
+    expect(seen["video-track-added"]).toHaveLength(1);
+    engine.setScreenWatching("42", false);
+    rust.emit({ type: "video-track-removed", id: "TR_9" });
+    await tick();
+    expect(seen["video-track-removed"]).toEqual([{ id: "TR_9" }]);
   });
 });
 

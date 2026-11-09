@@ -3,6 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NativeVoiceEngine } from "@/desktop/native-engine";
 import { createQueryClient } from "@/lib/query";
 import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { guild, ME } from "@/test/fixtures";
@@ -319,6 +320,28 @@ describe("botão vermelho da barra conforme o estado", () => {
     act(() => useVoiceStore.setState({ screen: false }));
     await user.click(bar().getByRole("button", { name: "Sair da transmissão" }));
     expect(fake.watches).toContainEqual(["7", false]);
+  });
+
+  it("com as capacidades do desktop nativo também vira 'Sair da transmissão'; sem a capacidade fica 'Sair do canal'", async () => {
+    const user = userEvent.setup();
+    const native = new NativeVoiceEngine({
+      invoke: vi.fn(),
+      createChannel: vi.fn(),
+      pickScreenSource: vi.fn(),
+    } as never);
+    fake.audioCapabilities = native.audioCapabilities;
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    mount([state(ME), state("7", { self_screen: true })]);
+    await user.click(bar().getByRole("button", { name: "Sair da transmissão" }));
+    expect(fake.watches).toContainEqual(["7", false]);
+  });
+
+  it("engine sem 'screenWatch' (assina tudo) não mostra 'Sair da transmissão'", () => {
+    fake.audioCapabilities = { strongNoiseSuppression: false };
+    act(() => useVoiceStore.setState({ videoTracks: [videoTrack("t1", "7", "screen").info] }));
+    mount([state(ME), state("7", { self_screen: true })]);
+    expect(bar().queryByRole("button", { name: "Sair da transmissão" })).not.toBeInTheDocument();
+    expect(bar().getByRole("button", { name: "Sair do canal" })).toBeInTheDocument();
   });
 });
 

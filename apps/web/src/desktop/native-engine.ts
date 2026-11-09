@@ -364,6 +364,8 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
    * ao compartilhar a tela (limitação documentada): a interface não oferece "Incluir áudio" e explica o porquê.
    * Volume por pessoa (até 200%), porta de ruído, medidor, teste de microfone e qualidade da tela são do Rust.
    * Sem prévia da transmissão (`screenSharePreview: false`): não há como capturar um quadro da tela no WebView.
+   * Telas de outras pessoas sob demanda (`screenWatch`), como na web: o Rust só assina a tela (vídeo e áudio) de
+   * quem a pessoa escolheu assistir (`voice_set_screen_watching`); voz e câmera continuam sempre assinadas.
    * O vídeo é um <canvas>: sem PiP confiável nos WebViews.
    */
   readonly audioCapabilities: AudioCapabilities = {
@@ -375,7 +377,30 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     screenShareQuality: true,
     screenSharePreview: false,
     pictureInPicture: false,
+    screenWatch: true,
   };
+
+  /**
+   * Fila dos pedidos de assistir/parar: os comandos assíncronos do Tauri rodam em paralelo, e "assistir, parar,
+   * assistir" (o "Tentar de novo") não pode chegar ao Rust fora de ordem. Pedidos de uma sala antiga são descartados.
+   */
+  private watchQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * Assiste (`on`) ou para de assistir a tela de `identity`. O Rust assina/cancela a faixa; ela chega (ou sai) pelos
+   * eventos `video-track-added`/`video-track-removed`, como na web. Sem sala o pedido é ignorado: o controlador
+   * reaplica as telas escolhidas quando a conexão termina.
+   */
+  setScreenWatching(identity: string, on: boolean) {
+    if (!this.active) return;
+    const generation = this.generation;
+    this.watchQueue = this.watchQueue.then(async () => {
+      if (generation !== this.generation) return;
+      await this.deps
+        .invoke("voice_set_screen_watching", { participantId: identity, watching: on })
+        .catch(() => {});
+    });
+  }
 
   async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
     try {

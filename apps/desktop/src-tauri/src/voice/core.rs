@@ -36,6 +36,7 @@ use super::quality::ScreenQuality;
 use super::router::{FrameSink, VideoRouter, ViewParams};
 use super::screen;
 use super::synth::{self, SyntheticInputs, ToneTask};
+use super::watch::{decide, SubKind, WatchSet};
 
 pub type Emit = Arc<dyn Fn(VoiceEvent) + Send + Sync>;
 
@@ -102,6 +103,45 @@ struct Shared {
     remote_video: Mutex<HashMap<String, RemoteVideo>>,
     known: Mutex<HashSet<String>>,
     closing: AtomicBool,
+    /// Telas de outras pessoas que o usuário escolheu assistir. As telas começam NÃO assinadas (igual à web):
+    /// assinar gasta banda de download e CPU de decodificação/JPEG, então só vale com alguém assistindo.
+    watching: WatchSet,
+}
+
+/// Sala e estado compartilhado da sessão atual, acessíveis SEM esperar o `session` (que o microfone, a câmera e a
+/// tela seguram durante awaits longos): assistir/parar de assistir precisa ser imediato.
+struct Live {
+    id: u64,
+    room: Arc<Room>,
+    shared: Arc<Shared>,
+}
+
+/// Natureza (para a política de assinatura) de uma publicação remota.
+fn sub_kind(source: TrackSource) -> SubKind {
+    match source {
+        TrackSource::Screenshare => SubKind::ScreenVideo,
+        TrackSource::ScreenshareAudio => SubKind::ScreenAudio,
+        _ => SubKind::Other,
+    }
+}
+
+/// Põe a assinatura de UMA publicação como a política manda: voz e câmera sempre; tela (vídeo e áudio) só
+/// com "assistir". Idempotente. `set_subscribed` usa `tokio::spawn` (envia o pedido ao servidor): só chamar de
+/// dentro do runtime (tarefas async), nunca de um comando Tauri síncrono.
+fn sync_publication(shared: &Shared, identity: &str, publication: &RemoteTrackPublication) {
+    let want = shared
+        .watching
+        .wants(sub_kind(publication.source()), identity);
+    if let Some(on) = decide(want, publication.is_desired(), publication.is_subscribed()) {
+        publication.set_subscribed(on);
+    }
+}
+
+fn sync_participant(shared: &Shared, participant: &RemoteParticipant) {
+    let identity = participant.identity().to_string();
+    for (_, publication) in participant.track_publications() {
+        sync_publication(shared, &identity, &publication);
+    }
 }
 
 /// Código tipado (`"in-use"`, `"permission-denied"`...) de um erro de dispositivo, para o evento `mic-test`.
@@ -253,6 +293,7 @@ impl Session {
 
 pub struct VoiceCore {
     session: tokio::sync::Mutex<Option<Session>>,
+    live: Mutex<Option<Live>>,
     router: Arc<VideoRouter>,
     mixer: Arc<Mutex<Mixer>>,
     prefs: Mutex<DevicePrefs>,
@@ -282,6 +323,7 @@ impl VoiceCore {
     pub fn new() -> Self {
         Self {
             session: tokio::sync::Mutex::new(None),
+            live: Mutex::new(None),
             router: Arc::new(VideoRouter::new()),
             mixer: Arc::new(Mutex::new(Mixer::new())),
             prefs: Mutex::new(DevicePrefs::default()),
@@ -334,7 +376,9 @@ impl VoiceCore {
 
         // `RoomOptions` é `#[non_exhaustive]`: parte do padrão e ajusta os campos.
         let mut options = RoomOptions::default();
-        options.auto_subscribe = true;
+        // Assinatura manual (como a web): o SDK 0.10 só tem auto-subscribe da SALA inteira. Voz e câmera são
+        // assinadas em `sync_publication` assim que a publicação aparece; telas só quando alguém as assiste.
+        options.auto_subscribe = false;
         options.adaptive_stream = false;
         options.dynacast = true;
         let connect_started = Instant::now();
@@ -359,6 +403,7 @@ impl VoiceCore {
             remote_video: Mutex::new(HashMap::new()),
             known: Mutex::new(HashSet::new()),
             closing: AtomicBool::new(false),
+            watching: WatchSet::new(),
         });
         {
             let mut mixer = lock(&self.mixer);
@@ -368,8 +413,10 @@ impl VoiceCore {
         }
 
         // Quem já estava na sala.
-        for (identity, _) in room.remote_participants() {
+        for (identity, participant) in room.remote_participants() {
             let id = identity.to_string();
+            // Com a assinatura manual nada chega sozinho: pede a voz e a câmera de quem já estava.
+            sync_participant(&shared, &participant);
             if lock(&shared.known).insert(id.clone()) {
                 emit(VoiceEvent::ParticipantJoined { identity: id });
             }
@@ -403,6 +450,11 @@ impl VoiceCore {
             shared.clone(),
             rx,
         ));
+        *lock(&self.live) = Some(Live {
+            id,
+            room: room.clone(),
+            shared: shared.clone(),
+        });
         *self.session.lock().await = Some(Session {
             id,
             room,
@@ -451,6 +503,13 @@ impl VoiceCore {
 
     async fn teardown(&self, mut s: Session) {
         s.shared.closing.store(true, Ordering::SeqCst);
+        {
+            let mut live = lock(&self.live);
+            if live.as_ref().is_some_and(|l| l.id == s.id) {
+                *live = None;
+            }
+        }
+        s.shared.watching.clear();
         s.event_task.abort();
         for (_, t) in lock(&s.shared.remote_audio).drain() {
             t.abort();
@@ -1245,6 +1304,29 @@ impl VoiceCore {
         }
     }
 
+    // ----- assistir telas sob demanda -----
+
+    /// Começa (`true`) ou para (`false`) de assistir a tela de `identity`: assina/cancela o vídeo e o áudio da
+    /// tela dessa pessoa no servidor. Parar libera tudo: `set_subscribed(false)` solta a faixa, o evento
+    /// `TrackUnsubscribed` aborta a tarefa de decodificação/JPEG, remove a inscrição do roteador e avisa o webview
+    /// (`video-track-removed`). Idempotente. Se a pessoa não está (ou ainda não publicou), o desejo fica guardado e
+    /// vale quando ela entrar/publicar. Não espera o `session`.
+    pub fn set_screen_watching(&self, identity: &str, watching: bool) -> Result<(), VoiceError> {
+        let (room, shared) = {
+            let live = lock(&self.live);
+            let l = live.as_ref().ok_or_else(VoiceError::no_room)?;
+            (l.room.clone(), l.shared.clone())
+        };
+        shared.watching.set(identity, watching);
+        // Sempre reconcilia (mesmo sem mudança no conjunto): serve ao "Tentar de novo" e a faixas atrasadas.
+        for (id, participant) in room.remote_participants() {
+            if id.to_string() == identity {
+                sync_participant(&shared, &participant);
+            }
+        }
+        Ok(())
+    }
+
     // ----- vídeo para o webview -----
 
     /// O webview vai desenhar a faixa: começa a converter e enviar quadros. Idempotente (reinscrever
@@ -1403,6 +1485,7 @@ async fn run_events(
         match ev {
             RoomEvent::ParticipantConnected(p) => {
                 let id = p.identity().to_string();
+                sync_participant(&shared, &p);
                 if lock(&shared.known).insert(id.clone()) {
                     emit(VoiceEvent::ParticipantJoined { identity: id });
                 }
@@ -1418,11 +1501,37 @@ async fn run_events(
                     identities: speakers.iter().map(|s| s.identity().to_string()).collect(),
                 });
             }
+            RoomEvent::TrackPublished {
+                publication,
+                participant,
+            } => {
+                // Publicação nova (inclusive as iniciais de quem já estava): voz e câmera são assinadas aqui;
+                // a tela só se a pessoa estiver na lista de "assistindo".
+                sync_publication(&shared, participant.identity().as_str(), &publication);
+            }
+            RoomEvent::TrackSubscriptionFailed {
+                participant,
+                error,
+                track_sid,
+            } => {
+                log::warn!(
+                    "voz: falha ao assinar a faixa {track_sid:?} de {}: {error}",
+                    participant.identity()
+                );
+            }
             RoomEvent::TrackSubscribed {
                 track,
                 publication,
                 participant,
             } => {
+                // Faixa de tela que chegou sem ninguém assistindo (assistir e parar antes de ela chegar): descarta.
+                if !shared.watching.wants(
+                    sub_kind(publication.source()),
+                    participant.identity().as_str(),
+                ) {
+                    publication.set_subscribed(false);
+                    continue;
+                }
                 let sid = publication.sid().to_string();
                 match track {
                     RemoteTrack::Audio(t) => {

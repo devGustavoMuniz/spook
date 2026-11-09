@@ -267,6 +267,19 @@ pub async fn voice_set_device(
     state.0.set_device(parse_kind(&kind)?, &id).await
 }
 
+/// Assistir (`watching: true`) ou parar de assistir a tela de uma pessoa (`participant_id` = identidade da sala =
+/// ID do usuário). As telas começam NÃO assinadas; só quem está na lista gasta banda e CPU. `async` de propósito:
+/// `set_subscribed` do SDK faz `tokio::spawn` e comando síncrono roda fora do runtime (foi o crash da 0.1.4).
+/// A faixa chega (ou sai) pelos eventos `video-track-added`/`video-track-removed` do canal da sala.
+#[tauri::command]
+pub async fn voice_set_screen_watching(
+    state: State<'_, VoiceState>,
+    participant_id: String,
+    watching: bool,
+) -> Result<(), VoiceError> {
+    state.0.set_screen_watching(&participant_id, watching)
+}
+
 #[tauri::command]
 pub async fn voice_video_subscribe(
     state: State<'_, VoiceState>,
