@@ -5,6 +5,7 @@ import {
   type Page,
   test,
 } from "@playwright/test";
+import { grantCmd, grantNitro } from "./grant-nitro";
 
 // Perfil ao vivo (adicional ao SPEC, 5.5): A troca nome e avatar (GIF animado) e B, no mesmo servidor, vê a mudança
 // SEM recarregar (lista de membros, autor das mensagens já carregadas, DM); A também a vê em todo lugar. Fora de
@@ -82,6 +83,11 @@ test.afterAll(async () => {
 });
 
 test("A troca nome e avatar GIF: B e A veem em membros, mensagens e DMs sem recarregar", async () => {
+  test.skip(
+    !grantCmd,
+    "defina E2E_GRANT_CMD para conceder Nitro à conta (veja apps/web/README.md)",
+  );
+  grantNitro(name("a"));
   const { a, b } = people as Record<"a" | "b", Person>;
   await a.page.goto(channelUrl);
   await b.page.goto(channelUrl);

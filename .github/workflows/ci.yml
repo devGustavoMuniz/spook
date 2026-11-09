@@ -129,6 +129,8 @@ jobs:
         env:
           # e2e/admin.spec.ts promove a conta do teste direto no banco (o painel /admin exige is_admin).
           E2E_PROMOTE_CMD: psql postgres://spook:spook@localhost:5432/spook -c "UPDATE users SET is_admin = true WHERE username = '{username}'"
+          # GIF animado em avatar/banner exige Nitro (crop.spec.ts e profile-live-update.spec.ts concedem direto no banco).
+          E2E_GRANT_CMD: psql postgres://spook:spook@localhost:5432/spook -c "INSERT INTO entitlements (id, user_id, tier, source) SELECT (extract(epoch from clock_timestamp()) * 1000000)::bigint, id, 'nitro', 'admin' FROM users WHERE username = '{username}'"
         run: pnpm --filter @spook/web e2e
       - name: Derruba o Garage
         if: always()

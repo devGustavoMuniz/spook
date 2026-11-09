@@ -1,5 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
+import { grantCmd, grantNitro } from "./grant-nitro";
 
 // Recorte de avatar, banner e ícone: o diálogo abre ao escolher o arquivo; estáticos saem recortados pelo
 // canvas (tamanho exato), GIF é recortado pelo servidor preservando os quadros; Esc cancela sem enviar.
@@ -100,15 +101,15 @@ async function setup(
   page: Page,
   browserCtx: import("@playwright/test").BrowserContext,
   tag: string,
+  nitro = false,
 ) {
+  const username = `e2e_crop_${tag}_${run}`.slice(0, 32);
   const reg = await browserCtx.request.post("/api/auth/register", {
-    data: {
-      email: `e2e-crop-${tag}-${run}@spook.dev`,
-      username: `e2e_crop_${tag}_${run}`.slice(0, 32),
-      password: PASSWORD,
-    },
+    data: { email: `e2e-crop-${tag}-${run}@spook.dev`, username, password: PASSWORD },
   });
   expect(reg.status()).toBe(201);
+  // GIF animado em avatar exige Nitro: concede direto no banco antes de abrir as configurações.
+  if (nitro) grantNitro(username);
   await page.goto("/settings/profile");
   const modal = page.getByRole("dialog", { name: "Configurações" });
   await expect(modal.getByRole("heading", { level: 1, name: "Perfil" })).toBeVisible();
@@ -225,9 +226,13 @@ test("banner: moldura 4:1 e saída 4:1", async ({ browser }) => {
 test("GIF animado: o servidor recorta todos os quadros e a animação continua", async ({
   browser,
 }) => {
+  test.skip(
+    !grantCmd,
+    "defina E2E_GRANT_CMD para conceder Nitro à conta (veja apps/web/README.md)",
+  );
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
-  const modal = await setup(page, ctx, "gif");
+  const modal = await setup(page, ctx, "gif", true);
   await modal
     .locator("#avatar-file")
     .setInputFiles({ name: "anim.gif", mimeType: "image/gif", buffer: gif(60, 30) });
