@@ -155,6 +155,12 @@ Código em `apps/web/src/features/settings/` (`settings-modal.tsx`, `use-setting
 - **Usuário (Configurações > Ajuda e feedback).** Só peças existentes: `SettingsGroup` para "Novo chamado" e "Meus chamados"; o tipo é um grupo de radios nativos em "pílula" (`has-[:focus-visible]` para o anel, `border-primary bg-accent` quando marcado); o contexto técnico fica numa caixa `border` com `Switch` e a prévia em `dl`. Estado do chamado usa `Badge` (`info` aberto, `warning` em análise, `brand` respondido, `success` resolvido, `secondary` fechado) e "Nova resposta" é `Badge destructive` (sempre com texto, nunca só cor). Conversa: bolhas `bg-accent` (minha) e `border bg-surface-1` (equipe), em lista `ol` com rótulo de quem e quando.
 - **Admin (`/admin/tickets`).** Duas colunas (`lg:grid-cols-[22rem_1fr]`: fila e conversa; abaixo de `lg` mostra uma de cada vez, com "Voltar à fila"). Selects nativos (`selectClass`) para estado, tipo e ordenação. Nota interna: `border-warning-text/40 bg-warning-soft` com `Badge warning` e cadeado ("Nota interna"); resposta da equipe `bg-accent/40`. O item "Chamados" do menu tem o selo de abertos (`bg-primary`, com texto para leitor de tela).
 
+### Nitro no admin (`pages/admin/nitro.tsx`)
+
+- **Abas** `Tabs variant="underline"` (Concessões, Códigos). Formulários em `Section`; selects nativos (`selectClass`); plano em `fieldset` com rádios; duração em select (7/30/90/365, Permanente, Personalizado com campo numérico).
+- **Tabelas** com `DataTable` (opção `hideSearch` quando o servidor não busca por texto). Plano em `Badge` (`info` Nitro, `brand` Nitro+); estado do código em `Badge` (`success` não usado, `secondary` usado, `warning` vencido). Revogar: `AlertDialog` com "Manter" como ação segura.
+- **Códigos recém-gerados:** cartão `border-warning-text/40 bg-warning-soft` com aviso `role="alert"`, `textarea` somente leitura em fonte mono e "Copiar todos".
+
 ## Chat e lista de membros
 
 Código em `apps/web/src/features/messages/`, `features/members/` e `features/attachments/`.

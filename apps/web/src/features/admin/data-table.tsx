@@ -76,6 +76,7 @@ export function DataTable<T>({
   searchLabel,
   empty,
   onRetry,
+  hideSearch,
 }: {
   caption: string;
   columns: Column<T>[];
@@ -90,24 +91,28 @@ export function DataTable<T>({
   searchLabel: string;
   empty: string;
   onRetry?: () => void;
+  /** Esconde a busca por texto quando o servidor não filtra por ela. */
+  hideSearch?: boolean;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-      <div className="relative border-b p-3">
-        <Search
-          className="pointer-events-none absolute top-1/2 left-6 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          type="search"
-          aria-label={searchLabel}
-          placeholder={searchLabel}
-          value={state.q}
-          onChange={(e) => onChange({ q: e.target.value, page: 1 })}
-          className="max-w-sm pl-9"
-        />
-      </div>
+      {hideSearch ? null : (
+        <div className="relative border-b p-3">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-6 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            aria-label={searchLabel}
+            placeholder={searchLabel}
+            value={state.q}
+            onChange={(e) => onChange({ q: e.target.value, page: 1 })}
+            className="max-w-sm pl-9"
+          />
+        </div>
+      )}
       <div className={adminTable.scroll}>
         <table className={adminTable.table}>
           <caption className="sr-only">{caption}</caption>

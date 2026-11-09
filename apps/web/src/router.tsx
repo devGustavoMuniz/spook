@@ -20,6 +20,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { authSearch, safeRedirect } from "@/lib/redirect";
 import { AdminCallsPage } from "@/pages/admin/calls";
 import { AdminDashboardPage } from "@/pages/admin/dashboard";
+import { AdminNitroPage } from "@/pages/admin/nitro";
 import { AdminServersPage } from "@/pages/admin/servers";
 import { AdminTicketsPage } from "@/pages/admin/tickets";
 import { AdminUsersPage } from "@/pages/admin/users";
@@ -266,6 +267,11 @@ const adminTicketsRoute = createRoute({
   path: "tickets",
   component: AdminTicketsPage,
 });
+const adminNitroRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: "nitro",
+  component: AdminNitroPage,
+});
 const adminTicketRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: "tickets/$ticketId",
@@ -294,6 +300,7 @@ const routeTree = rootRoute.addChildren([
     adminCallsRoute,
     adminTicketsRoute,
     adminTicketRoute,
+    adminNitroRoute,
   ]),
   loginRoute,
   registerRoute,

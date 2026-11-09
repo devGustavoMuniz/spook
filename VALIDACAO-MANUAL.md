@@ -451,3 +451,12 @@ Pré-requisito: DUAS pessoas (A transmite, B assiste), build novo do desktop (a 
 - [ ] **Tela acima do plano (LiveKit real):** com conta grátis, force uma tela 1080p (cliente alterado ou DevTools) e confirme que o LiveKit registra a faixa silenciada e a chamada continua; confira nos logs `tela acima do limite do plano silenciada`. Conferir também que o webhook de produção traz `width`/`height` na faixa de tela (se vier 0, o servidor não faz nada e vale só o clamp do cliente).
 - [ ] **Vencimento:** conceda 1 dia e antecipe `expires_at` no banco para o passado; em até 1 minuto a pessoa recebe `ENTITLEMENT_UPDATE` com `reason: expired` e `GET /api/me/plan` já volta ao grátis (mesmo sem o job).
 - [ ] **Migration 00019 em produção:** aditiva (duas tabelas e a função `user_plan`); conferir que `\df user_plan` existe depois do deploy e que o Deploy não recria o LiveKit.
+
+### Nitro e Nitro+: admin visual (/admin/nitro)
+- [ ] **Menu e acesso:** com a conta admin, o menu do /admin tem "Nitro"; com conta comum, `/admin/nitro` redireciona para a home.
+- [ ] **Conceder:** na aba Concessões busque um usuário (2+ letras), escolha Nitro+ e "Personalizado" com 45 dias, conceda: aparece o aviso, a linha entra em "Ativas" com origem "Administração", vencimento relativo ("em 45 dias") e a data; a pessoa (outra janela) recebe o plano ao vivo. Repita com "Permanente" (mostra "Permanente / sem vencimento").
+- [ ] **Revogar:** "Revogar" abre a confirmação com foco em "Manter"; Esc/Manter não faz nada; Revogar tira a linha de "Ativas" e a mostra em "Inativas" como "Revogada". Se a pessoa tinha outra concessão ativa, o plano dela continua.
+- [ ] **Filtros e paginação:** alterne Ativas/Inativas/Todas, plano e a busca por username; com mais de 25 concessões, Anterior/Próxima.
+- [ ] **Gerar códigos:** aba Códigos, gere 3 de Nitro com 30 dias e validade de 14 dias: a caixa mostra os 3 textos, avisa que não serão mostrados de novo e "Copiar todos" põe os 3 (um por linha) na área de transferência; feche, recarregue a página e confira que o texto nunca mais aparece (a lista mostra só `SPOOK-····-XXXX`). Resgate um deles no app e veja-o em "Usados" com quem resgatou.
+- [ ] **Erros:** quantidade 0 ou 101 e dias fora de 1..3650 desabilitam o botão; conceder a uma conta apagada mostra "Usuário não encontrado".
+- [ ] **Celular (390 px):** formulários e tabelas sem rolagem horizontal da página (a tabela rola dentro do cartão); leitor de tela anuncia as tabelas pelo nome e os botões "Revogar Nitro de @usuario".

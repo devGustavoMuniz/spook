@@ -8,6 +8,7 @@ import {
   PanelLeft,
   Phone,
   Server,
+  Sparkles,
   Users,
 } from "lucide-react";
 import { useState } from "react";
@@ -24,6 +25,7 @@ const NAV = [
   { to: "/admin/servers", label: "Servidores", icon: Server, exact: false },
   { to: "/admin/calls", label: "Chamadas", icon: Phone, exact: false },
   { to: "/admin/tickets", label: "Chamados", icon: LifeBuoy, exact: false },
+  { to: "/admin/nitro", label: "Nitro", icon: Sparkles, exact: false },
 ] as const;
 
 const wide = () => typeof window === "undefined" || window.innerWidth >= 768;
