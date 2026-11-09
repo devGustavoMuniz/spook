@@ -488,6 +488,11 @@ Pedido do dono: o app desktop deve se comportar como a web, assinando a tela de 
 - **Não verificado aqui.** A compilação do Rust com tauri/livekit (só no workflow Desktop do CI), qualquer execução com LiveKit real, a economia de banda/CPU e a latência até o primeiro quadro.
 - **Não feito.** Prévia da própria tela no desktop que transmite (`screenSharePreview` segue falso); cenário de integração Rust para tela sob demanda.
 
+
+## Ideias de recursos para Nitro e Nitro+
+
+Pesquisa de 09/11/2026 (sem código) em `docs/NITRO-IDEIAS.md`: tabela do que o Discord dá no Nitro Basic, no Nitro e nos Server Boosts, o que o Spook já tem para virar privilégio, 30 ideias avaliadas (esforço, valor, infra, abuso), priorização em 3 ondas e cuidados de produto. Base obrigatória: módulo de entitlements por plano, checado sempre no backend. As 8 primeiras sugeridas: entitlements com concessão e códigos; tela 1080p/60 e 1440p por plano; avatar/banner animados; selo; upload maior com cota; mensagens mais longas; cor e estilo de nome; teste gratuito com expiração suave. Nunca vender moderação nem segurança.
+
 ## Nitro e Nitro+: núcleo do backend (09/11/2026)
 
 Pedido do dono: planos pagos opcionais. Grátis = tela 720p/30 fps e GIF só estático; Nitro = 1080p/60 fps + GIF/WebP animado em avatar e banner + selo; Nitro+ = Nitro + 1440p. Esta entrega é a Task 1 do plano `docs/superpowers/plans/2026-11-09-nitro.md` (só backend e contratos); interface, admin visual e pagamento vêm depois. Decisões completas no SPEC (5.5 "Adicional: Nitro e Nitro+", 6, 7.14, 7.17, RF31).
@@ -497,6 +502,10 @@ Pedido do dono: planos pagos opcionais. Grátis = tela 720p/30 fps e GIF só est
 - **Testes.** Unitários (plan, entitlement, user, voice, gateway) e de integração em banco novo (`app/nitro_integration_test.go`: autorização, eventos, resgate concorrente com um único vencedor, rate limit por usuário e IP, `user_plan` SQL igual ao Go, job de vencimento, upload e crop sem e com Nitro). `TestCropAnimatedGIFProfileImage` e `TestProfileBioPronounsBannerAndAnimatedAvatar` passaram a conceder Nitro antes de subir GIF; `TestAdminEveryRouteIsGuarded` cobre as rotas novas.
 - **Limitações.** O webhook do LiveKit não traz a taxa de quadros: os 30/60 fps só são limitados pelo cliente; a altura é a declarada pelo cliente ao publicar (melhor esforço, nunca derruba a chamada). O reenvio de um arquivo na mesma chave do avatar dentro dos 5 min da URL de PUT escapa da conferência por bytes (a exibição estática por plano no cliente cobre). Banidos, auditoria e a prévia da citação não levam `plan`.
 - **Não verificado aqui.** Silenciamento real no LiveKit (só fake e twirp simulado), o hash com `SPOOK_SECRET_KEY` de produção, e tudo da interface (ainda não existe).
+
+## Nitro e Nitro+: admin visual (09/11/2026)
+
+Task 3 do plano `docs/superpowers/plans/2026-11-09-nitro.md` (parte do admin; o E2E fica para a verificação final). Nova tela `/admin/nitro` (`apps/web/src/pages/admin/nitro.tsx`) com item "Nitro" no menu: aba Concessões (buscar usuário, conceder com 7/30/90/365 dias, permanente ou dias personalizados, tabela com filtros, origem, vencimento relativo e absoluto, revogar com confirmação, paginação) e aba Códigos (gerar com plano, dias, quantidade e validade; texto exibido uma única vez com "Copiar todos"; lista com filtros mostrando só o final). `DataTable` ganhou a opção `hideSearch`. Testes: `apps/web/src/admin-nitro.test.tsx` (Vitest + MSW, 20 testes: conceder, permanente, validação, revogar, filtros, paginação, copiar, erros 403/404/422). Coluna de plano na lista de usuários: não feita, porque `GET /api/admin/users` não devolve `plan` (ponto de extensão registrado no SPEC 5.5). Não verificado: layout real em 390 px no navegador e o fluxo ponta a ponta contra o backend.
 
 ## Nitro e Nitro+: cliente web e desktop (09/11/2026)
 
