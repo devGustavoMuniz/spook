@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   getGetMyTicketQueryKey,
+  isApiError,
   type TicketMessagePayload,
   useGetMyTicket,
   useReplyMyTicket,
@@ -20,9 +21,13 @@ import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { MessageAttachments } from "../attachments/message-attachments";
+import { AttachmentPicker, attachmentDropProps } from "./attachment-picker";
+import { pinAttachmentUrls } from "./attachments";
 import { kindKey, STATUS_VARIANT, statusKey } from "./labels";
 import { ContextRows } from "./new-ticket-form";
 import { BODY_MAX, type ReplyForm, replySchema } from "./schema";
+import { useTicketAttachments } from "./use-ticket-attachments";
 
 /** Conversa de um chamado: abrir marca como lido (o servidor faz); responder, fechar e reabrir. */
 export function TicketThread({ id, onBack }: { id: string; onBack: () => void }) {
@@ -31,6 +36,7 @@ export function TicketThread({ id, onBack }: { id: string; onBack: () => void })
   const q = useGetMyTicket(id);
   const reply = useReplyMyTicket();
   const setStatus = useSetMyTicketStatus();
+  const att = useTicketAttachments(id);
   const {
     register,
     handleSubmit,
@@ -54,13 +60,22 @@ export function TicketThread({ id, onBack }: { id: string; onBack: () => void })
   }
 
   const send = handleSubmit(async ({ body }) => {
+    const ids = att.readyIds();
+    if (!ids) return;
     try {
-      await reply.mutateAsync({ id, data: { body } });
+      await reply.mutateAsync({
+        id,
+        data: { body, ...(ids.length > 0 ? { attachment_ids: ids } : {}) },
+      });
       reset();
+      att.done();
       toast.success(t("feedback.thread.replySent"));
       await refresh();
     } catch (e) {
       toast.error(messageFor(e));
+      if (ids.length > 0 && isApiError(e) && e.status >= 400 && e.status < 500) {
+        att.rejected(t("feedback.attach.rejected"));
+      }
     }
   });
 
@@ -113,7 +128,12 @@ export function TicketThread({ id, onBack }: { id: string; onBack: () => void })
           {q.data.status === "closed" ? (
             <p className="text-sm text-muted-foreground">{t("feedback.thread.closedHint")}</p>
           ) : (
-            <form onSubmit={send} noValidate className="flex flex-col gap-2">
+            <form
+              onSubmit={send}
+              noValidate
+              className="flex flex-col gap-2"
+              {...attachmentDropProps(att)}
+            >
               <label htmlFor="ticket-reply" className="text-sm font-medium">
                 {t("feedback.thread.reply")}
               </label>
@@ -138,6 +158,7 @@ export function TicketThread({ id, onBack }: { id: string; onBack: () => void })
                   {`${length}/${BODY_MAX}`}
                 </span>
               </div>
+              <AttachmentPicker att={att} />
               <Button type="submit" className="self-start" loading={reply.isPending}>
                 {t("feedback.thread.reply")}
               </Button>
@@ -189,6 +210,7 @@ function MessageBubble({ message }: { message: TicketMessagePayload }) {
       >
         {message.body}
       </p>
+      <MessageAttachments attachments={pinAttachmentUrls(message.attachments)} />
     </li>
   );
 }

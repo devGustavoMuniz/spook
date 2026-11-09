@@ -575,6 +575,22 @@ export const AdminGetTicketResponse = zod.object({
   messages: zod
     .array(
       zod.object({
+        attachments: zod
+          .array(
+            zod.object({
+              content_type: zod.string(),
+              filename: zod.string(),
+              id: zod.string(),
+              size: zod.int(),
+              url: zod
+                .string()
+                .describe(
+                  "GET pré-assinado, válido por 15 min (a conversa é recarregada ao abrir)",
+                ),
+            }),
+          )
+          .nullable()
+          .describe("Imagens anexadas à mensagem (as de notas internas só aparecem aqui)"),
         body: zod.string(),
         created_at: zod.iso.datetime({ offset: true }),
         id: zod.string(),
@@ -595,14 +611,38 @@ export const AdminReplyTicketParams = zod.object({
   id: zod.string().describe("ID do chamado"),
 });
 
+export const adminReplyTicketBodyAttachmentIdsMax = 3;
+
 export const adminReplyTicketBodyBodyMax = 4000;
 
 export const AdminReplyTicketBody = zod.object({
+  attachment_ids: zod
+    .array(zod.string())
+    .max(adminReplyTicketBodyAttachmentIdsMax)
+    .nullish()
+    .describe("Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)"),
   body: zod.string().min(1).max(adminReplyTicketBodyBodyMax).describe("Texto da mensagem"),
-  internal: zod.boolean().optional().describe("true = nota interna, invisível para o autor"),
+  internal: zod
+    .boolean()
+    .optional()
+    .describe("true = nota interna, invisível para o autor (as imagens dela também)"),
 });
 
 export const AdminReplyTicketResponse = zod.object({
+  attachments: zod
+    .array(
+      zod.object({
+        content_type: zod.string(),
+        filename: zod.string(),
+        id: zod.string(),
+        size: zod.int(),
+        url: zod
+          .string()
+          .describe("GET pré-assinado, válido por 15 min (a conversa é recarregada ao abrir)"),
+      }),
+    )
+    .nullable()
+    .describe("Imagens anexadas à mensagem (as de notas internas só aparecem aqui)"),
   body: zod.string(),
   created_at: zod.iso.datetime({ offset: true }),
   id: zod.string(),

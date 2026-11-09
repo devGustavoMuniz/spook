@@ -5,6 +5,7 @@ import {
   type AdminTicketPayload,
   adminListTickets,
   getAdminGetTicketQueryKey,
+  isApiError,
   useAdminGetTicket,
   useAdminReplyTicket,
   useAdminSetTicketStatus,
@@ -21,6 +22,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorNote, LiveStatus, PageHeader } from "@/features/admin/ui";
 import { useDebounced } from "@/features/admin/use-debounced";
+import { MessageAttachments } from "@/features/attachments/message-attachments";
+import { AttachmentPicker, attachmentDropProps } from "@/features/feedback/attachment-picker";
+import { pinAttachmentUrls } from "@/features/feedback/attachments";
+import { useTicketAttachments } from "@/features/feedback/use-ticket-attachments";
 import { messageFor } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -233,19 +238,29 @@ function TicketDetail({ id }: { id: string }) {
   const q = useAdminGetTicket(id, { query: { refetchInterval: 15_000 } });
   const reply = useAdminReplyTicket();
   const setStatus = useAdminSetTicketStatus();
+  const att = useTicketAttachments(id);
   const [body, setBody] = useState("");
   const [internal, setInternal] = useState(false);
 
   async function send() {
     const text = body.trim();
     if (!text) return;
+    const ids = att.readyIds();
+    if (!ids) return;
     try {
-      await reply.mutateAsync({ id, data: { body: text, internal } });
+      await reply.mutateAsync({
+        id,
+        data: { body: text, internal, ...(ids.length > 0 ? { attachment_ids: ids } : {}) },
+      });
       setBody("");
+      att.done();
       toast.success(internal ? "Nota interna registrada." : "Resposta enviada ao usuário.");
       await invalidateTickets(qc);
     } catch (e) {
       toast.error(messageFor(e));
+      if (ids.length > 0 && isApiError(e) && e.status >= 400 && e.status < 500) {
+        att.rejected("Os anexos foram recusados: envie as imagens de novo.");
+      }
     }
   }
 
@@ -350,6 +365,7 @@ function TicketDetail({ id }: { id: string }) {
               <span>{formatDateTime(m.created_at)}</span>
             </span>
             <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>
+            <MessageAttachments attachments={pinAttachmentUrls(m.attachments)} />
           </li>
         ))}
       </ol>
@@ -359,6 +375,7 @@ function TicketDetail({ id }: { id: string }) {
           e.preventDefault();
           void send();
         }}
+        {...attachmentDropProps(att)}
       >
         <label htmlFor="admin-ticket-reply" className="text-sm font-medium">
           {internal ? "Nota interna" : "Responder ao usuário"}
@@ -371,6 +388,7 @@ function TicketDetail({ id }: { id: string }) {
           onChange={(e) => setBody(e.target.value)}
           placeholder={internal ? "Só administradores veem esta nota." : "O usuário será avisado."}
         />
+        <AttachmentPicker att={att} />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input

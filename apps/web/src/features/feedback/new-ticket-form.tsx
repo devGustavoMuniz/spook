@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { getListMyTicketsQueryKey, useCreateTicket } from "@spook/shared";
+import { getListMyTicketsQueryKey, isApiError, useCreateTicket } from "@spook/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
@@ -13,9 +13,11 @@ import { SettingsGroup } from "@/features/settings/ui";
 import { useT } from "@/i18n";
 import { messageFor } from "@/lib/errors";
 import { cn } from "@/lib/utils";
+import { AttachmentPicker, attachmentDropProps } from "./attachment-picker";
 import { KINDS } from "./labels";
 import { BODY_MAX, type NewTicketForm, newTicketSchema, TITLE_MAX } from "./schema";
 import { useTechContext } from "./tech-context";
+import { useTicketAttachments } from "./use-ticket-attachments";
 
 /** Formulário de novo chamado: tipo, título, descrição e o contexto técnico (ligado por padrão, com prévia). */
 export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }) {
@@ -23,6 +25,7 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
   const qc = useQueryClient();
   const create = useCreateTicket();
   const tech = useTechContext();
+  const att = useTicketAttachments();
   const {
     register,
     handleSubmit,
@@ -38,6 +41,9 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
   const descriptionLength = [...(watch("description") ?? "")].length;
 
   const onSubmit = handleSubmit(async (v) => {
+    const ids = att.readyIds();
+    if (!ids) return;
+    const draftId = att.getDraftId();
     try {
       const ticket = await create.mutateAsync({
         data: {
@@ -45,14 +51,19 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
           title: v.title,
           description: v.description,
           ...(v.includeContext ? { context: tech } : {}),
+          ...(ids.length > 0 && draftId ? { draft_id: draftId, attachment_ids: ids } : {}),
         },
       });
       toast.success(t("feedback.new.sent"));
       reset();
+      att.done();
       void qc.invalidateQueries({ queryKey: getListMyTicketsQueryKey() });
       onCreated(ticket.id);
     } catch (e) {
       toast.error(messageFor(e));
+      if (ids.length > 0 && isApiError(e) && e.status >= 400 && e.status < 500) {
+        att.rejected(t("feedback.attach.rejected"));
+      }
     }
   });
 
@@ -62,7 +73,12 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
       title={t("feedback.new.title")}
       description={t("feedback.new.help")}
     >
-      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+      <form
+        onSubmit={onSubmit}
+        noValidate
+        className="flex flex-col gap-4"
+        {...attachmentDropProps(att)}
+      >
         <Controller
           control={control}
           name="kind"
@@ -113,7 +129,7 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
           id="ticket-description"
           label={t("feedback.new.description")}
           error={errors.description?.message}
-          hint={t("feedback.new.attachmentsNote")}
+          hint={t("feedback.attach.pasteHint")}
         >
           <Textarea
             id="ticket-description"
@@ -124,7 +140,7 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
             aria-describedby={describedBy(
               "ticket-description",
               errors.description?.message,
-              t("feedback.new.attachmentsNote"),
+              t("feedback.attach.pasteHint"),
             )}
             {...register("description")}
           />
@@ -132,6 +148,7 @@ export function NewTicketCard({ onCreated }: { onCreated: (id: string) => void }
             {`${descriptionLength}/${BODY_MAX}`}
           </p>
         </Field>
+        <AttachmentPicker att={att} />
         <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
           <div className="flex items-start justify-between gap-4">
             <label

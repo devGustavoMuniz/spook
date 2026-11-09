@@ -35,6 +35,15 @@ const full = {
       body: "Suspeita: driver de vídeo.",
       created_at: at,
       username: "ana",
+      attachments: [
+        {
+          id: "a9",
+          filename: "driver.png",
+          content_type: "image/png",
+          size: 2048,
+          url: "https://storage.test/tickets/t1/a9.png",
+        },
+      ],
     },
   ],
 };
@@ -184,6 +193,17 @@ describe("/admin/tickets", () => {
     await waitFor(() =>
       expect(hits.replies.at(-1)).toEqual({ body: "Falar com o Gustavo.", internal: true }),
     );
+  });
+
+  it("mostra a miniatura das imagens anexadas (inclusive na nota interna)", async () => {
+    api();
+    await renderApp("/admin/tickets/t1", { signedIn: true, seed: asAdmin });
+    const thumb = await screen.findByRole("button", { name: /driver\.png/ });
+    expect(thumb.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://storage.test/tickets/t1/a9.png",
+    );
+    expect(screen.getByRole("button", { name: "Anexar imagens" })).toBeInTheDocument();
   });
 
   it("muda o estado do chamado", async () => {

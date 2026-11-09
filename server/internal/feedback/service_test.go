@@ -19,12 +19,13 @@ type fakeStore struct {
 	msgs    map[int64][]Message
 	names   map[int64]string
 	clock   time.Time
+	atts    map[int64]*Attachment
 }
 
 func newFake() *fakeStore {
 	return &fakeStore{
 		tickets: map[int64]*Ticket{}, msgs: map[int64][]Message{},
-		names: map[int64]string{1: "ana", 2: "beto", 9: "admin"}, clock: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		atts: map[int64]*Attachment{}, names: map[int64]string{1: "ana", 2: "beto", 9: "admin"}, clock: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -36,6 +37,11 @@ func (f *fakeStore) Create(_ context.Context, n NewTicket) (Ticket, error) {
 	f.tickets[n.ID] = t
 	a := n.AuthorID
 	f.msgs[n.ID] = []Message{{ID: n.MessageID, TicketID: n.ID, AuthorID: &a, Kind: MsgUser, Body: n.Body, CreatedAt: now}}
+	if err := f.claim(n.Claim, n.ID, n.MessageID); err != nil {
+		delete(f.tickets, n.ID)
+		delete(f.msgs, n.ID)
+		return Ticket{}, err
+	}
 	return *t, nil
 }
 
@@ -105,6 +111,9 @@ func (f *fakeStore) AddMessage(_ context.Context, m NewMessage) (Message, Ticket
 	}
 	dec, err := m.Decide(*t)
 	if err != nil {
+		return Message{}, Ticket{}, err
+	}
+	if err := f.claim(m.Claim, m.TicketID, m.ID); err != nil {
 		return Message{}, Ticket{}, err
 	}
 	a := m.AuthorID
@@ -177,7 +186,7 @@ func (a admins) IsAdmin(_ context.Context, id int64) (bool, error) { return a[id
 
 func setup() (*Service, *fakeStore, *recorder) {
 	f, r := newFake(), &recorder{}
-	return NewService(f, &seq{}, r, admins{9: true}), f, r
+	return NewService(f, &seq{}, r, admins{9: true}, nil), f, r
 }
 
 func wantKind(t *testing.T, err error, k apperr.Kind) {
@@ -190,22 +199,22 @@ func wantKind(t *testing.T, err error, k apperr.Kind) {
 func TestCreateValidatesAndTrims(t *testing.T) {
 	s, _, _ := setup()
 	ctx := context.Background()
-	if _, err := s.Create(ctx, 1, "xx", "Título ok", "corpo", nil); !errors.Is(err, ErrInvalidKind) {
+	if _, err := s.Create(ctx, 1, "xx", "Título ok", "corpo", nil, Attach{}); !errors.Is(err, ErrInvalidKind) {
 		t.Fatalf("tipo inválido: %v", err)
 	}
-	if _, err := s.Create(ctx, 1, KindBug, "ab", "corpo", nil); !errors.Is(err, ErrInvalidTitle) {
+	if _, err := s.Create(ctx, 1, KindBug, "ab", "corpo", nil, Attach{}); !errors.Is(err, ErrInvalidTitle) {
 		t.Fatalf("título curto: %v", err)
 	}
-	if _, err := s.Create(ctx, 1, KindBug, strings.Repeat("a", 121), "corpo", nil); !errors.Is(err, ErrInvalidTitle) {
+	if _, err := s.Create(ctx, 1, KindBug, strings.Repeat("a", 121), "corpo", nil, Attach{}); !errors.Is(err, ErrInvalidTitle) {
 		t.Fatalf("título longo: %v", err)
 	}
-	if _, err := s.Create(ctx, 1, KindBug, "Título", "   ", nil); !errors.Is(err, ErrInvalidBody) {
+	if _, err := s.Create(ctx, 1, KindBug, "Título", "   ", nil, Attach{}); !errors.Is(err, ErrInvalidBody) {
 		t.Fatalf("corpo vazio: %v", err)
 	}
-	if _, err := s.Create(ctx, 1, KindBug, "Título", strings.Repeat("é", BodyMax+1), nil); !errors.Is(err, ErrInvalidBody) {
+	if _, err := s.Create(ctx, 1, KindBug, "Título", strings.Repeat("é", BodyMax+1), nil, Attach{}); !errors.Is(err, ErrInvalidBody) {
 		t.Fatalf("corpo longo (conta runas): %v", err)
 	}
-	d, err := s.Create(ctx, 1, KindBug, "  Título  ", " corpo ", &TicketContext{AppVersion: strings.Repeat("9", 80), Route: "/app"})
+	d, err := s.Create(ctx, 1, KindBug, "  Título  ", " corpo ", &TicketContext{AppVersion: strings.Repeat("9", 80), Route: "/app"}, Attach{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +224,7 @@ func TestCreateValidatesAndTrims(t *testing.T) {
 	if len(d.Context.AppVersion) != 32 {
 		t.Fatalf("o contexto deveria ser truncado: %d", len(d.Context.AppVersion))
 	}
-	if d2, _ := s.Create(ctx, 1, KindBug, "Outro título", "x", &TicketContext{}); d2.Context != nil {
+	if d2, _ := s.Create(ctx, 1, KindBug, "Outro título", "x", &TicketContext{}, Attach{}); d2.Context != nil {
 		t.Fatal("contexto vazio não deve ser gravado")
 	}
 }
@@ -224,15 +233,15 @@ func TestCreateLimitsActiveTickets(t *testing.T) {
 	s, _, _ := setup()
 	ctx := context.Background()
 	for i := 0; i < MaxActivePerUser; i++ {
-		if _, err := s.Create(ctx, 1, KindFeedback, "Chamado", "x", nil); err != nil {
+		if _, err := s.Create(ctx, 1, KindFeedback, "Chamado", "x", nil, Attach{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err := s.Create(ctx, 1, KindFeedback, "Chamado", "x", nil)
+	_, err := s.Create(ctx, 1, KindFeedback, "Chamado", "x", nil, Attach{})
 	if !errors.Is(err, ErrTooManyActive) {
 		t.Fatalf("esperava o limite, veio %v", err)
 	}
-	if _, err := s.Create(ctx, 2, KindFeedback, "Chamado", "x", nil); err != nil {
+	if _, err := s.Create(ctx, 2, KindFeedback, "Chamado", "x", nil, Attach{}); err != nil {
 		t.Fatalf("o limite é por pessoa: %v", err)
 	}
 }
@@ -240,12 +249,12 @@ func TestCreateLimitsActiveTickets(t *testing.T) {
 func TestOnlyAuthorSeesAndTouchesTicket(t *testing.T) {
 	s, _, _ := setup()
 	ctx := context.Background()
-	d, _ := s.Create(ctx, 1, KindBug, "Bug", "descrição", nil)
+	d, _ := s.Create(ctx, 1, KindBug, "Bug", "descrição", nil, Attach{})
 	id := mustID(t, d.ID)
 	if _, err := s.Get(ctx, 2, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("outro usuário vê o chamado: %v", err)
 	}
-	if _, err := s.Reply(ctx, 2, id, "oi"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Reply(ctx, 2, id, "oi", Attach{}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("outro usuário responde: %v", err)
 	}
 	if _, err := s.SetOwnStatus(ctx, 2, id, StatusClosed); !errors.Is(err, ErrNotFound) {
@@ -259,10 +268,10 @@ func TestOnlyAuthorSeesAndTouchesTicket(t *testing.T) {
 func TestInternalNotesNeverReachTheAuthor(t *testing.T) {
 	s, f, r := setup()
 	ctx := context.Background()
-	d, _ := s.Create(ctx, 1, KindBug, "Bug", "descrição", nil)
+	d, _ := s.Create(ctx, 1, KindBug, "Bug", "descrição", nil, Attach{})
 	id := mustID(t, d.ID)
 	before := len(r.evs)
-	if _, err := s.AdminReply(ctx, 9, id, "segredo interno", true); err != nil {
+	if _, err := s.AdminReply(ctx, 9, id, "segredo interno", true, Attach{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.evs) != before {
@@ -286,9 +295,9 @@ func TestInternalNotesNeverReachTheAuthor(t *testing.T) {
 func TestAdminReplyFlowAndNotification(t *testing.T) {
 	s, f, r := setup()
 	ctx := context.Background()
-	d, _ := s.Create(ctx, 1, KindSuggestion, "Ideia", "descrição", nil)
+	d, _ := s.Create(ctx, 1, KindSuggestion, "Ideia", "descrição", nil, Attach{})
 	id := mustID(t, d.ID)
-	if _, err := s.AdminReply(ctx, 9, id, "obrigado!", false); err != nil {
+	if _, err := s.AdminReply(ctx, 9, id, "obrigado!", false, Attach{}); err != nil {
 		t.Fatal(err)
 	}
 	if tk := f.tickets[id]; tk.Status != StatusAnswered || !tk.UserUnread || tk.MessageCount != 2 {
@@ -305,7 +314,7 @@ func TestAdminReplyFlowAndNotification(t *testing.T) {
 		t.Fatalf("depois de abrir: %+v", got)
 	}
 	// O autor responde: volta a aberto.
-	if _, err := s.Reply(ctx, 1, id, "mais um detalhe"); err != nil {
+	if _, err := s.Reply(ctx, 1, id, "mais um detalhe", Attach{}); err != nil {
 		t.Fatal(err)
 	}
 	if f.tickets[id].Status != StatusOpen {
@@ -316,7 +325,7 @@ func TestAdminReplyFlowAndNotification(t *testing.T) {
 func TestClosedTicketRules(t *testing.T) {
 	s, _, _ := setup()
 	ctx := context.Background()
-	d, _ := s.Create(ctx, 1, KindBug, "Bug", "x", nil)
+	d, _ := s.Create(ctx, 1, KindBug, "Bug", "x", nil, Attach{})
 	id := mustID(t, d.ID)
 	if _, err := s.SetOwnStatus(ctx, 1, id, StatusResolved); err == nil {
 		t.Fatal("o autor não pode marcar como resolvido")
@@ -329,13 +338,13 @@ func TestClosedTicketRules(t *testing.T) {
 	if _, err := s.SetOwnStatus(ctx, 1, id, StatusClosed); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Reply(ctx, 1, id, "ainda?"); !errors.Is(err, ErrClosed) {
+	if _, err := s.Reply(ctx, 1, id, "ainda?", Attach{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("responder fechado: %v", err)
 	}
-	if _, err := s.AdminReply(ctx, 9, id, "oi", false); !errors.Is(err, ErrClosed) {
+	if _, err := s.AdminReply(ctx, 9, id, "oi", false, Attach{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("admin responder fechado: %v", err)
 	}
-	if _, err := s.AdminReply(ctx, 9, id, "nota", true); err != nil {
+	if _, err := s.AdminReply(ctx, 9, id, "nota", true, Attach{}); err != nil {
 		t.Fatalf("nota em chamado fechado é permitida: %v", err)
 	}
 	if _, err := s.SetOwnStatus(ctx, 1, id, StatusClosed); !errors.Is(err, ErrBadTransition) {
@@ -349,7 +358,7 @@ func TestClosedTicketRules(t *testing.T) {
 func TestAdminStatusChangeNotifiesOnResolve(t *testing.T) {
 	s, f, r := setup()
 	ctx := context.Background()
-	d, _ := s.Create(ctx, 1, KindBug, "Bug", "x", nil)
+	d, _ := s.Create(ctx, 1, KindBug, "Bug", "x", nil, Attach{})
 	id := mustID(t, d.ID)
 	if _, err := s.AdminSetStatus(ctx, 9, id, "lixo"); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("estado inválido: %v", err)
@@ -377,10 +386,10 @@ func TestAdminStatusChangeNotifiesOnResolve(t *testing.T) {
 func TestMessageLimit(t *testing.T) {
 	s, f, _ := setup()
 	ctx := context.Background()
-	d, _ := s.Create(ctx, 1, KindBug, "Bug", "x", nil)
+	d, _ := s.Create(ctx, 1, KindBug, "Bug", "x", nil, Attach{})
 	id := mustID(t, d.ID)
 	f.tickets[id].MessageCount = MaxPublicMessages
-	if _, err := s.Reply(ctx, 1, id, "x"); !errors.Is(err, ErrTooManyMessages) {
+	if _, err := s.Reply(ctx, 1, id, "x", Attach{}); !errors.Is(err, ErrTooManyMessages) {
 		t.Fatalf("limite de mensagens: %v", err)
 	}
 }
@@ -389,7 +398,7 @@ func TestPaginationCursor(t *testing.T) {
 	s, _, _ := setup()
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
-		if _, err := s.Create(ctx, 1, KindFeedback, "Chamado", "x", nil); err != nil {
+		if _, err := s.Create(ctx, 1, KindFeedback, "Chamado", "x", nil, Attach{}); err != nil {
 			t.Fatal(err)
 		}
 	}

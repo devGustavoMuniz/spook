@@ -166,10 +166,11 @@ type TicketPayload struct {
 
 // TicketMessagePayload é uma mensagem para o autor: sem a identidade do administrador.
 type TicketMessagePayload struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind" enum:"user,admin" doc:"user = o autor; admin = a equipe (sem identificar quem)"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string                    `json:"id"`
+	Kind        string                    `json:"kind" enum:"user,admin" doc:"user = o autor; admin = a equipe (sem identificar quem)"`
+	Body        string                    `json:"body"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	Attachments []TicketAttachmentPayload `json:"attachments" doc:"Imagens anexadas à mensagem"`
 }
 
 // TicketDetail é o chamado com a conversa, para o autor.
@@ -201,11 +202,12 @@ type AdminTicketPayload struct {
 
 // TicketAdminMessagePayload é uma mensagem para o administrador (inclui notas internas e o autor de cada uma).
 type TicketAdminMessagePayload struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind" enum:"user,admin,internal"`
-	Body      string    `json:"body"`
-	CreatedAt time.Time `json:"created_at"`
-	Username  string    `json:"username,omitempty" doc:"Quem escreveu (vazio se a conta foi excluída)"`
+	ID          string                    `json:"id"`
+	Kind        string                    `json:"kind" enum:"user,admin,internal"`
+	Body        string                    `json:"body"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	Username    string                    `json:"username,omitempty" doc:"Quem escreveu (vazio se a conta foi excluída)"`
+	Attachments []TicketAttachmentPayload `json:"attachments" doc:"Imagens anexadas à mensagem (as de notas internas só aparecem aqui)"`
 }
 
 // AdminTicketDetail é o chamado completo para o administrador.

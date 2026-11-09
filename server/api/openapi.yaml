@@ -131,13 +131,21 @@ components:
     AdminTicketMessageBody:
       additionalProperties: false
       properties:
+        attachment_ids:
+          description: Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)
+          items:
+            type: string
+          maxItems: 3
+          type:
+            - array
+            - "null"
         body:
           description: Texto da mensagem
           maxLength: 4000
           minLength: 1
           type: string
         internal:
-          description: true = nota interna, invisível para o autor
+          description: true = nota interna, invisível para o autor (as imagens dela também)
           type: boolean
       required:
         - body
@@ -828,6 +836,14 @@ components:
     CreateTicketBody:
       additionalProperties: false
       properties:
+        attachment_ids:
+          description: Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)
+          items:
+            type: string
+          maxItems: 3
+          type:
+            - array
+            - "null"
         context:
           $ref: "#/components/schemas/TicketContext"
           description: Contexto técnico opcional (o usuário pode desligar)
@@ -835,6 +851,9 @@ components:
           description: Descrição (vira a primeira mensagem)
           maxLength: 4000
           minLength: 1
+          type: string
+        draft_id:
+          description: "Com attachment_ids: o ticket_id devolvido pelos pedidos de upload; vira o ID do chamado"
           type: string
         kind:
           description: Tipo do chamado
@@ -3087,6 +3106,13 @@ components:
     TicketAdminMessagePayload:
       additionalProperties: false
       properties:
+        attachments:
+          description: Imagens anexadas à mensagem (as de notas internas só aparecem aqui)
+          items:
+            $ref: "#/components/schemas/TicketAttachmentPayload"
+          type:
+            - array
+            - "null"
         body:
           type: string
         created_at:
@@ -3108,6 +3134,29 @@ components:
         - kind
         - body
         - created_at
+        - attachments
+      type: object
+    TicketAttachmentPayload:
+      additionalProperties: false
+      properties:
+        content_type:
+          type: string
+        filename:
+          type: string
+        id:
+          type: string
+        size:
+          format: int64
+          type: integer
+        url:
+          description: GET pré-assinado, válido por 15 min (a conversa é recarregada ao abrir)
+          type: string
+      required:
+        - id
+        - filename
+        - content_type
+        - size
+        - url
       type: object
     TicketAuthorPayload:
       additionalProperties: false
@@ -3224,6 +3273,14 @@ components:
     TicketMessageBody:
       additionalProperties: false
       properties:
+        attachment_ids:
+          description: Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)
+          items:
+            type: string
+          maxItems: 3
+          type:
+            - array
+            - "null"
         body:
           description: Texto da mensagem
           maxLength: 4000
@@ -3235,6 +3292,13 @@ components:
     TicketMessagePayload:
       additionalProperties: false
       properties:
+        attachments:
+          description: Imagens anexadas à mensagem
+          items:
+            $ref: "#/components/schemas/TicketAttachmentPayload"
+          type:
+            - array
+            - "null"
         body:
           type: string
         created_at:
@@ -3253,6 +3317,7 @@ components:
         - kind
         - body
         - created_at
+        - attachments
       type: object
     TicketPage:
       additionalProperties: false
@@ -3345,6 +3410,63 @@ components:
         - resolved
         - closed
         - total
+      type: object
+    TicketUploadBody:
+      additionalProperties: false
+      properties:
+        content_type:
+          description: PNG, JPEG ou WebP; a extensão do nome precisa combinar
+          enum:
+            - image/png
+            - image/jpeg
+            - image/webp
+          type: string
+        filename:
+          description: Nome original; o servidor tira caminho e caracteres de controle
+          maxLength: 255
+          minLength: 1
+          type: string
+        size:
+          description: Tamanho em bytes (máximo 5 MB)
+          format: int64
+          maximum: 5242880
+          minimum: 1
+          type: integer
+        ticket_id:
+          description: "Chamado que recebe a imagem (autor ou admin). Vazio = chamado novo: o servidor reserva o ID e o devolve"
+          type: string
+      required:
+        - filename
+        - content_type
+        - size
+      type: object
+    TicketUploadPayload:
+      additionalProperties: false
+      properties:
+        expires_in:
+          description: Segundos até a URL de PUT expirar
+          format: int64
+          type: integer
+        headers:
+          additionalProperties:
+            type: string
+          description: Cabeçalhos que o PUT precisa enviar exatamente assim
+          type: object
+        id:
+          description: Use em attachment_ids ao abrir o chamado ou responder
+          type: string
+        ticket_id:
+          description: "Chamado do anexo. Em um chamado novo é o ID reservado (rascunho): reenvie em ticket_id nos próximos uploads e em draft_id ao criar"
+          type: string
+        upload_url:
+          description: PUT pré-assinado; envie o arquivo cru como corpo
+          type: string
+      required:
+        - id
+        - ticket_id
+        - upload_url
+        - headers
+        - expires_in
       type: object
     TokenResponse:
       additionalProperties: false
@@ -9329,6 +9451,70 @@ paths:
         - cookieAuth: []
         - bearerAuth: []
       summary: "Abre um chamado de feedback, sugestão ou bug. Limite: 5 por hora por usuário e 20 em andamento"
+      tags:
+        - tickets
+  /api/tickets/uploads:
+    post:
+      operationId: requestTicketUpload
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketUploadBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketUploadPayload"
+          description: Created
+        "401":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unauthorized
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Unprocessable Entity
+        "429":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Too Many Requests
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Service Unavailable
+      security:
+        - cookieAuth: []
+        - bearerAuth: []
+      summary: "Pede uma URL pré-assinada de PUT para anexar uma imagem (captura de tela) a um chamado. Limite: 20 por minuto"
       tags:
         - tickets
   /api/tickets/{id}:

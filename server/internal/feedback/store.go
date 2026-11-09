@@ -83,10 +83,112 @@ func (s *PGStore) Create(ctx context.Context, n NewTicket) (Ticket, error) {
 	}); err != nil {
 		return Ticket{}, wrap("inserir mensagem", err)
 	}
+	if err := claim(ctx, q, n.Claim, n.ID, n.MessageID); err != nil {
+		return Ticket{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Ticket{}, wrap("confirmar", err)
 	}
 	return toTicket(row), nil
+}
+
+// claim liga os anexos à mensagem recém-inserida. Anexo que sumiu, é de outro ou já foi usado desfaz a transação.
+func claim(ctx context.Context, q *dbgen.Queries, c *Claim, ticketID, messageID int64) error {
+	if c == nil || len(c.IDs) == 0 {
+		return nil
+	}
+	n, err := q.CountTicketAttachments(ctx, ticketID)
+	if err != nil {
+		return wrap("contar anexos", err)
+	}
+	if int(n)+len(c.IDs) > MaxAttachmentsPerTicket {
+		return ErrTicketAttachLimit
+	}
+	rows, err := q.ClaimTicketAttachments(ctx, dbgen.ClaimTicketAttachmentsParams{
+		MessageID: &messageID, Ids: c.IDs, UploaderID: c.UploaderID, TicketID: ticketID, Since: pgtype.Timestamptz{Time: c.Since, Valid: true},
+	})
+	if err != nil {
+		return wrap("ligar anexos", err)
+	}
+	if len(rows) != len(c.IDs) {
+		return ErrInvalidAttachments
+	}
+	return nil
+}
+
+func toAttachment(r dbgen.TicketAttachment) Attachment {
+	return Attachment{
+		ID: r.ID, TicketID: r.TicketID, MessageID: r.MessageID, UploaderID: r.UploaderID, ObjectKey: r.ObjectKey,
+		Filename: r.Filename, ContentType: r.ContentType, Size: r.SizeBytes, CreatedAt: ts(r.CreatedAt),
+	}
+}
+
+func toAttachments(rs []dbgen.TicketAttachment) []Attachment {
+	out := make([]Attachment, len(rs))
+	for i, r := range rs {
+		out[i] = toAttachment(r)
+	}
+	return out
+}
+
+func tsv(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
+
+func (s *PGStore) InsertAttachment(ctx context.Context, a Attachment) error {
+	err := s.q.InsertTicketAttachment(ctx, dbgen.InsertTicketAttachmentParams{
+		ID: a.ID, TicketID: a.TicketID, UploaderID: a.UploaderID, ObjectKey: a.ObjectKey, Filename: a.Filename, ContentType: a.ContentType, SizeBytes: a.Size,
+	})
+	if err != nil {
+		return wrap("gravar anexo", err)
+	}
+	return nil
+}
+
+func (s *PGStore) CountPending(ctx context.Context, uploaderID int64, since time.Time) (int, error) {
+	n, err := s.q.CountPendingTicketAttachments(ctx, dbgen.CountPendingTicketAttachmentsParams{UploaderID: uploaderID, Since: tsv(since)})
+	if err != nil {
+		return 0, wrap("contar anexos pendentes", err)
+	}
+	return int(n), nil
+}
+
+func (s *PGStore) CountPendingFor(ctx context.Context, uploaderID, ticketID int64, since time.Time) (int, error) {
+	n, err := s.q.CountPendingTicketAttachmentsForTicket(ctx, dbgen.CountPendingTicketAttachmentsForTicketParams{UploaderID: uploaderID, TicketID: ticketID, Since: tsv(since)})
+	if err != nil {
+		return 0, wrap("contar anexos do rascunho", err)
+	}
+	return int(n), nil
+}
+
+func (s *PGStore) Pending(ctx context.Context, ids []int64, uploaderID, ticketID int64, since time.Time) ([]Attachment, error) {
+	rs, err := s.q.ListPendingTicketAttachments(ctx, dbgen.ListPendingTicketAttachmentsParams{Ids: ids, UploaderID: uploaderID, TicketID: ticketID, Since: tsv(since)})
+	if err != nil {
+		return nil, wrap("buscar anexos pendentes", err)
+	}
+	return toAttachments(rs), nil
+}
+
+func (s *PGStore) Attachments(ctx context.Context, ticketID int64) ([]Attachment, error) {
+	rs, err := s.q.ListTicketAttachments(ctx, ticketID)
+	if err != nil {
+		return nil, wrap("listar anexos", err)
+	}
+	return toAttachments(rs), nil
+}
+
+func (s *PGStore) Orphans(ctx context.Context, before time.Time, limit int) ([]Attachment, error) {
+	rs, err := s.q.ListOrphanTicketAttachments(ctx, dbgen.ListOrphanTicketAttachmentsParams{Before: tsv(before), MaxRows: int32(limit)})
+	if err != nil {
+		return nil, wrap("listar anexos órfãos", err)
+	}
+	return toAttachments(rs), nil
+}
+
+// DeletePending apaga as linhas ainda sem mensagem.
+func (s *PGStore) DeletePending(ctx context.Context, ids []int64) error {
+	if _, err := s.q.DeleteTicketAttachments(ctx, ids); err != nil {
+		return wrap("apagar anexos", err)
+	}
+	return nil
 }
 
 func (s *PGStore) ActiveCount(ctx context.Context, authorID int64) (int64, error) {
@@ -186,6 +288,9 @@ func (s *PGStore) AddMessage(ctx context.Context, m NewMessage) (Message, Ticket
 	})
 	if err != nil {
 		return Message{}, Ticket{}, wrap("inserir mensagem", err)
+	}
+	if err := claim(ctx, q, m.Claim, m.TicketID, m.ID); err != nil {
+		return Message{}, Ticket{}, err
 	}
 	if dec.Touch {
 		upd, err := q.UpdateTicketActivity(ctx, dbgen.UpdateTicketActivityParams{

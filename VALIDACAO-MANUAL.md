@@ -316,7 +316,7 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 ### Voz no backend, histórico do admin e rate limits (RF28)
 - [ ] **Espectadores com LiveKit real (duas contas, dois navegadores):** A compartilha a tela; B clica em "Assistir": no tile da tela de A e no cartão da transmissão aparece "Assistindo: 1" com o avatar de B e o nome no tooltip; B para de assistir (ou sai da chamada, ou fecha a aba): a contagem cai em até ~45 s (fechar a aba sem sair é o caso mais lento). Uma terceira conta C que só vê o canal enxerga "Assistindo: 1" sem a lista de avatares (só o transmissor vê quem). Em 390 px o selo cabe no rótulo do tile sem rolagem horizontal.
 - [ ] **Várias pessoas assistindo:** com 5 ou mais espectadores, o transmissor vê 4 avatares e "+N"; a contagem bate com o número real.
-- [ ] **Desktop (assina todas as telas):** com o app desktop em B, A também vê "Assistindo: 1" sem B clicar em nada (o desktop avisa todas as telas do canal).
+- [ ] **Desktop (telas sob demanda):** com o app desktop em B, A NÃO vê "Assistindo" até B clicar em "Assistir"; depois mostra "Assistindo: 1" e volta a zero quando B para (ver "Telas sob demanda no desktop nativo" abaixo).
 - [ ] **Reconciliação em produção:** nos logs/métricas, `spook.voice.reconcile.runs{result="ok"}` sobe a cada minuto; derrubar o container do LiveKit por um minuto deve registrar `result="unreachable"` e **não** desconectar ninguém do estado do backend; ao voltar, quem reconectou reaparece sozinho. Reiniciar só o backend com gente em chamada: em até 1 min a lista de quem está em voz volta (participantes "desconhecidos" registrados).
 - [ ] **Mute do servidor reaplicado:** mutar alguém pela moderação e conferir que o microfone dele continua cortado depois de ele reconectar e depois de um ciclo do reconciliador.
 - [ ] **Histórico do LiveKit no painel:** depois de algumas horas com tráfego, `/admin` mostra participantes, tráfego de saída e pessoas online nas janelas 24 h, 7 dias e 30 dias (7 dias e 30 dias só terão pontos depois de dias de coleta); "Coletando dados…" some assim que há 2 amostras. Conferir os valores contra o Grafana/`livekit_*` do Prometheus e contra o painel do provedor da VPS (tráfego do mês).
@@ -332,6 +332,18 @@ Pré-requisitos: secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KE
 - [ ] Depois do deploy: o LiveKit foi recriado (chamadas caem por segundos e voltam sozinhas); conferir o log do container e uma chamada de teste.
 - [ ] Entrada: clicar no canal de voz e medir a percepção (palco e item na lista aparecem de imediato; microfone pronto logo após conectar). No desktop, ver os `voz: ... levou N ms` no log do app (Room::connect, microfone, publicação). Com microfone USB/Bluetooth lento, conferir que a luz de microfone do SO acende ao clicar e apaga se a entrada falhar.
 - [ ] Desktop (Rust compilado só no CI): entrar mudo, entrar com microfone ausente (entra mudo e explica) e sair no meio da conexão (o microfone solta).
+
+### Telas sob demanda no desktop nativo (dois desktops, A e B, LiveKit real)
+
+- [ ] A compartilha a tela. Em B (desktop) o tile aparece como transmissão com "Assistir" e a prévia, SEM vídeo rodando; no monitor de rede de B o download não sobe e a CPU do app não sobe (medir antes/depois com o Monitor de Atividade/Gerenciador de Tarefas).
+- [ ] B clica em "Assistir": aparece "Carregando transmissão…" e logo o vídeo; A vê "Assistindo: 1". O áudio da tela de A só toca para B depois de assistir.
+- [ ] B clica em "Parar de assistir" (e em "Sair da transmissão" na barra vermelha): o vídeo some, A volta a "Assistindo: 0" e o download/CPU de B voltam ao nível anterior (a tela não pode continuar chegando).
+- [ ] Clicar "Assistir" e "Parar" várias vezes seguidas, e "Tentar de novo": termina no último estado pedido, sem tela assinada "fantasma" (conferir banda) nem travar.
+- [ ] A para de compartilhar e volta a compartilhar com B ainda marcado como assistindo: o vídeo volta sozinho. B entra na chamada depois de A (e de ter escolhido assistir antes): o vídeo aparece ao conectar.
+- [ ] Voz e câmera de A continuam chegando para B sem clicar em nada (entrar na sala com gente já falando e ligar a câmera depois); derrubar e voltar a rede de B por ~20 s: voz, câmera e a tela assistida voltam.
+- [ ] Tela preta/qualidade: assistir uma tela 1080p/30 e conferir que a imagem não fica preta nem congela; trocar a fonte de A (se houver) mantém o vídeo.
+- [ ] A transmite pelo web e B está no desktop (e vice-versa): o comportamento sob demanda é o mesmo nos dois.
+- [ ] Rust compilado só no CI: abrir o app, entrar numa chamada e conferir que NÃO fecha (comando novo é async) e que o log mostra a assinatura/cancelamento ao clicar.
 
 ## Pendências gerais de configuração
 
@@ -425,5 +437,8 @@ Pré-requisito: DUAS pessoas (A transmite, B assiste), build novo do desktop (a 
 - [ ] **Nota interna:** marque "Nota interna" e salve: a nota aparece destacada para o admin e nunca na conversa do usuário nem no aviso.
 - [ ] **Estados:** o admin troca para Em análise, Resolvido e Fechado; resolver e fechar avisam o usuário. O usuário responde (volta a Aberto), fecha e reabre o próprio chamado; fechado não aceita resposta até reabrir.
 - [ ] **Limites:** o 6º chamado na mesma hora recebe "muitas tentativas"; título curto ou descrição vazia mostram o erro no formulário.
+- [ ] **Anexos (capturas de tela):** ao abrir um chamado, tire um print e cole no formulário com Ctrl+V (também teste arrastar um arquivo e o botão "Anexar imagens"): aparece a miniatura com progresso e "Pronto"; um 4º arquivo, um GIF/PDF e uma imagem acima de 5 MB são recusados com aviso. Envie: a conversa do usuário mostra as miniaturas, que abrem em tamanho cheio (setas e Esc). Repita ao responder.
+- [ ] **Anexos no /admin:** o admin vê as mesmas imagens na conversa (as miniaturas não piscam durante os 15 s de recarga automática), abre em tamanho cheio, responde com uma imagem (o usuário a vê) e salva uma nota interna com imagem (o usuário **não** a vê, nem a URL aparece na resposta da API dele). Uma segunda conta comum não consegue pedir upload para o chamado de outra pessoa (404).
+- [ ] **Anexos: limpeza e produção:** com o storage de produção, anexe uma imagem e feche o formulário sem enviar; em até ~1 h10 o objeto some do bucket (job `ticket_attachment_cleanup`). Confira que a URL de uma imagem do chamado expira em ~15 min e que o CORS do bucket aceita o PUT a partir do domínio do app (o mesmo dos anexos de mensagens).
 - [ ] **Celular (390 px) e idioma:** o formulário e a conversa sem rolagem horizontal; em inglês a seção toda vem traduzida (o /admin é só em português).
 - [ ] **Botão vermelho:** sem tela, "Sair da chamada" na lateral e na barra. Compartilhando, vira "Parar de compartilhar" (para a publicação; volta a "Sair da chamada"). Assistindo a tela de outra pessoa, vira "Sair da transmissão" (para de assistir, o palco volta à grade). Nos dois casos o botão discreto "Sair da chamada" ao lado sai da chamada. Compartilhando e assistindo ao mesmo tempo: "Parar de compartilhar". No app desktop o botão segue "Sair da chamada" ao assistir.

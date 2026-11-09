@@ -1,4 +1,4 @@
-import { isApiError, type UploadBody, type UploadPayload } from "@spook/shared";
+import { isApiError } from "@spook/shared";
 import { t } from "@/i18n";
 import { formatBytes } from "@/lib/file-size";
 import { type PutOptions, UploadAbortError, UploadError } from "@/lib/upload";
@@ -23,8 +23,23 @@ export type PendingFile = {
   error?: string;
 };
 
+/** Pedido de URL pré-assinada (canal ou chamado): o que a fila precisa de um e de outro. */
+export type UploadRequestBody = { filename: string; content_type: string; size: number };
+export type UploadGrant = { id: string; upload_url: string; headers: Record<string, string> };
+
+/** Regras do destino: mensagens de canal (padrão) ou imagens de chamado (feedback). */
+export type QueueRules = {
+  maxFiles: number;
+  validate: (file: File) => string | null;
+  /** Tipo que vai no PUT; o padrão é o das mensagens (`resolveContentType`). */
+  contentType?: (file: File) => string;
+};
+
 export type QueueDeps = {
-  requestUpload: (channelId: string, body: UploadBody) => Promise<UploadPayload>;
+  requestUpload: (scope: string, body: UploadRequestBody) => Promise<UploadGrant>;
+  rules?: QueueRules;
+  /** Texto de uma falha de upload; o padrão é o das mensagens (`uploadErrorMessage`). */
+  describeError?: (e: unknown) => string;
   put: (
     url: string,
     file: File,
@@ -85,7 +100,7 @@ export class UploadQueue {
   private seq = 0;
 
   constructor(
-    private readonly channelId: string,
+    private readonly scope: string,
     private readonly deps: QueueDeps,
   ) {}
 
@@ -118,11 +133,12 @@ export class UploadQueue {
   add(files: File[]): AddResult {
     const rejected: string[] = [];
     for (const file of files) {
-      if (this.items.length >= MAX_ATTACHMENTS) {
-        rejected.push(t("chat.upload.maxFiles", { max: MAX_ATTACHMENTS }));
+      const max = this.deps.rules?.maxFiles ?? MAX_ATTACHMENTS;
+      if (this.items.length >= max) {
+        rejected.push(t("chat.upload.maxFiles", { max }));
         break;
       }
-      const problem = validateFile(file);
+      const problem = (this.deps.rules?.validate ?? validateFile)(file);
       if (problem) {
         rejected.push(problem);
         continue;
@@ -136,7 +152,7 @@ export class UploadQueue {
           file,
           name: file.name,
           size: file.size,
-          contentType: resolveContentType(file),
+          contentType: (this.deps.rules?.contentType ?? resolveContentType)(file),
           previewUrl: isImage ? this.deps.createPreviewUrl?.(file) : undefined,
           status: "uploading",
           progress: 0,
@@ -226,7 +242,7 @@ export class UploadQueue {
     const ctl = new AbortController();
     this.aborts.set(id, ctl);
     try {
-      const payload = await this.deps.requestUpload(this.channelId, {
+      const payload = await this.deps.requestUpload(this.scope, {
         filename: item.name,
         content_type: item.contentType,
         size: item.size,
@@ -243,7 +259,10 @@ export class UploadQueue {
     } catch (e) {
       // Removido pelo usuário: nada a mostrar.
       if (ctl.signal.aborted || e instanceof UploadAbortError || !this.find(id)) return;
-      this.patch(id, { status: "error", error: uploadErrorMessage(e) });
+      this.patch(id, {
+        status: "error",
+        error: (this.deps.describeError ?? uploadErrorMessage)(e),
+      });
     } finally {
       this.aborts.delete(id);
     }

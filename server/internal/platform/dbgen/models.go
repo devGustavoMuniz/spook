@@ -262,6 +262,18 @@ type Ticket struct {
 	LastActivityAt pgtype.Timestamptz
 }
 
+type TicketAttachment struct {
+	ID          int64
+	TicketID    int64
+	MessageID   *int64
+	UploaderID  int64
+	ObjectKey   string
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	CreatedAt   pgtype.Timestamptz
+}
+
 type TicketMessage struct {
 	ID        int64
 	TicketID  int64

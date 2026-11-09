@@ -13,8 +13,16 @@ export const feedback = {
   "feedback.status.in_review": "Em análise",
   "feedback.status.open": "Aberto",
   "feedback.status.resolved": "Resolvido",
-  "feedback.new.attachmentsNote":
-    "Anexos ainda não são aceitos: descreva o que viu (passos, mensagem de erro) ou cole um link para a imagem.",
+  "feedback.attach.add": "Anexar imagens",
+  "feedback.attach.hint":
+    "PNG, JPEG ou WebP, até 5 MB cada, no máximo {max} por mensagem. Você também pode colar (Ctrl+V) ou arrastar as imagens.",
+  "feedback.attach.pasteHint":
+    "Cole (Ctrl+V) ou arraste capturas de tela para anexá-las; também dá para escolher arquivos abaixo.",
+  "feedback.attach.rejected": "O servidor recusou os anexos. Envie as imagens de novo.",
+  "feedback.attach.ticketGone": "Este chamado não está mais disponível.",
+  "feedback.attach.typeNotAllowed": "{name}: só são aceitas imagens PNG, JPEG ou WebP.",
+  "feedback.attach.wait": "Aguarde o envio das imagens terminar.",
+  "feedback.attach.fix": "Remova ou tente de novo as imagens com erro antes de enviar.",
   "feedback.new.context": "Incluir informações técnicas",
   "feedback.new.contextHint":
     "Versão do app, sistema, navegador, idioma e a tela em que você está. Ajuda a equipe a reproduzir o problema; nada além disso é enviado.",

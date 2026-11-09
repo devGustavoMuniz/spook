@@ -8,6 +8,12 @@ import type { CreateTicketBodyKind } from "./createTicketBodyKind";
 import type { TicketContext } from "./ticketContext";
 
 export interface CreateTicketBody {
+  /**
+   * Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)
+   * @maxItems 3
+   * @nullable
+   */
+  attachment_ids?: string[] | null;
   /** Contexto técnico opcional (o usuário pode desligar) */
   context?: TicketContext;
   /**
@@ -16,6 +22,8 @@ export interface CreateTicketBody {
    * @maxLength 4000
    */
   description: string;
+  /** Com attachment_ids: o ticket_id devolvido pelos pedidos de upload; vira o ID do chamado */
+  draft_id?: string;
   /** Tipo do chamado */
   kind: CreateTicketBodyKind;
   /**

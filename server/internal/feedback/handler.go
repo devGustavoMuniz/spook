@@ -48,19 +48,31 @@ func parseID(s string) (int64, error) {
 
 // CreateTicketBody é o corpo de POST /api/tickets.
 type CreateTicketBody struct {
-	Kind        string         `json:"kind" enum:"bug,suggestion,feedback" doc:"Tipo do chamado"`
-	Title       string         `json:"title" minLength:"3" maxLength:"120" doc:"Resumo curto"`
-	Description string         `json:"description" minLength:"1" maxLength:"4000" doc:"Descrição (vira a primeira mensagem)"`
-	Context     *TicketContext `json:"context,omitempty" doc:"Contexto técnico opcional (o usuário pode desligar)"`
+	Kind          string         `json:"kind" enum:"bug,suggestion,feedback" doc:"Tipo do chamado"`
+	Title         string         `json:"title" minLength:"3" maxLength:"120" doc:"Resumo curto"`
+	Description   string         `json:"description" minLength:"1" maxLength:"4000" doc:"Descrição (vira a primeira mensagem)"`
+	Context       *TicketContext `json:"context,omitempty" doc:"Contexto técnico opcional (o usuário pode desligar)"`
+	DraftID       string         `json:"draft_id,omitempty" doc:"Com attachment_ids: o ticket_id devolvido pelos pedidos de upload; vira o ID do chamado"`
+	AttachmentIDs []string       `json:"attachment_ids,omitempty" maxItems:"3" doc:"Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)"`
 }
 
 type TicketMessageBody struct {
-	Body string `json:"body" minLength:"1" maxLength:"4000" doc:"Texto da mensagem"`
+	Body          string   `json:"body" minLength:"1" maxLength:"4000" doc:"Texto da mensagem"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty" maxItems:"3" doc:"Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)"`
+}
+
+// TicketUploadBody é o corpo do pedido de upload de uma imagem de chamado.
+type TicketUploadBody struct {
+	TicketID    string `json:"ticket_id,omitempty" doc:"Chamado que recebe a imagem (autor ou admin). Vazio = chamado novo: o servidor reserva o ID e o devolve"`
+	Filename    string `json:"filename" minLength:"1" maxLength:"255" doc:"Nome original; o servidor tira caminho e caracteres de controle"`
+	ContentType string `json:"content_type" enum:"image/png,image/jpeg,image/webp" doc:"PNG, JPEG ou WebP; a extensão do nome precisa combinar"`
+	Size        int64  `json:"size" minimum:"1" maximum:"5242880" doc:"Tamanho em bytes (máximo 5 MB)"`
 }
 
 type AdminTicketMessageBody struct {
-	Body     string `json:"body" minLength:"1" maxLength:"4000" doc:"Texto da mensagem"`
-	Internal bool   `json:"internal,omitempty" doc:"true = nota interna, invisível para o autor"`
+	Body          string   `json:"body" minLength:"1" maxLength:"4000" doc:"Texto da mensagem"`
+	Internal      bool     `json:"internal,omitempty" doc:"true = nota interna, invisível para o autor (as imagens dela também)"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty" maxItems:"3" doc:"Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)"`
 }
 
 func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[string][]string) {
@@ -76,11 +88,21 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 	huma.Register(api, op("createTicket", http.MethodPost, "/api/tickets",
 		"Abre um chamado de feedback, sugestão ou bug. Limite: 5 por hora por usuário e 20 em andamento", http.StatusCreated, invalid, conflict, tooMany),
 		func(ctx context.Context, in *struct{ Body CreateTicketBody }) (*struct{ Body TicketDetail }, error) {
-			d, err := h.svc.Create(ctx, h.userID(ctx), Kind(in.Body.Kind), in.Body.Title, in.Body.Description, in.Body.Context)
+			d, err := h.svc.Create(ctx, h.userID(ctx), Kind(in.Body.Kind), in.Body.Title, in.Body.Description, in.Body.Context, Attach{DraftID: in.Body.DraftID, IDs: in.Body.AttachmentIDs})
 			if err != nil {
 				return nil, httpx.Err(err)
 			}
 			return &struct{ Body TicketDetail }{Body: d}, nil
+		})
+
+	huma.Register(api, op("requestTicketUpload", http.MethodPost, "/api/tickets/uploads",
+		"Pede uma URL pré-assinada de PUT para anexar uma imagem (captura de tela) a um chamado. Limite: 20 por minuto", http.StatusCreated, notFound, invalid, conflict, tooMany, http.StatusServiceUnavailable),
+		func(ctx context.Context, in *struct{ Body TicketUploadBody }) (*struct{ Body TicketUploadPayload }, error) {
+			p, err := h.svc.RequestUpload(ctx, h.userID(ctx), in.Body.TicketID, in.Body.Filename, in.Body.ContentType, in.Body.Size)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body TicketUploadPayload }{Body: p}, nil
 		})
 
 	huma.Register(api, op("listMyTickets", http.MethodGet, "/api/tickets",
@@ -121,7 +143,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			if err != nil {
 				return nil, err
 			}
-			m, err := h.svc.Reply(ctx, h.userID(ctx), id, in.Body.Body)
+			m, err := h.svc.Reply(ctx, h.userID(ctx), id, in.Body.Body, Attach{IDs: in.Body.AttachmentIDs})
 			if err != nil {
 				return nil, httpx.Err(err)
 			}
@@ -208,7 +230,7 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			if err != nil {
 				return nil, err
 			}
-			m, err := h.svc.AdminReply(ctx, h.userID(ctx), id, in.Body.Body, in.Body.Internal)
+			m, err := h.svc.AdminReply(ctx, h.userID(ctx), id, in.Body.Body, in.Body.Internal, Attach{IDs: in.Body.AttachmentIDs})
 			if err != nil {
 				return nil, httpx.Err(err)
 			}

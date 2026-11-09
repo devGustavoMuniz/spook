@@ -489,7 +489,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	}
 	adminH := admin.NewHandler(adminSvc, auth.UserID)
 	// Chamados de feedback, sugestões e bugs: o autor usa /api/tickets; o administrador, /api/admin/tickets.
-	feedbackH := feedback.NewHandler(feedback.NewService(feedback.NewStore(pool), ids, bus, adminSvc), auth.UserID)
+	feedbackSvc := feedback.NewService(feedback.NewStore(pool), ids, bus, adminSvc, objects)
+	feedbackH := feedback.NewHandler(feedbackSvc, auth.UserID)
 
 	var jobClient *jobs.Client
 	reconcileByJob := false
@@ -513,6 +514,8 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 		if objects != nil {
 			attachment.RegisterWorkers(workers, attachmentSvc, messageSvc)
 			periodic = append(periodic, attachment.PeriodicJobs()...)
+			feedback.RegisterWorkers(workers, feedbackSvc)
+			periodic = append(periodic, feedback.PeriodicJobs()...)
 			account.RegisterWorkers(workers, objects)
 		}
 		if notifySvc.PushEnabled() {

@@ -7,11 +7,17 @@
 
 export interface AdminTicketMessageBody {
   /**
+   * Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)
+   * @maxItems 3
+   * @nullable
+   */
+  attachment_ids?: string[] | null;
+  /**
    * Texto da mensagem
    * @minLength 1
    * @maxLength 4000
    */
   body: string;
-  /** true = nota interna, invisível para o autor */
+  /** true = nota interna, invisível para o autor (as imagens dela também) */
   internal?: boolean;
 }

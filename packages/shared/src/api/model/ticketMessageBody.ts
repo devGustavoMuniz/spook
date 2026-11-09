@@ -7,6 +7,12 @@
 
 export interface TicketMessageBody {
   /**
+   * Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)
+   * @maxItems 3
+   * @nullable
+   */
+  attachment_ids?: string[] | null;
+  /**
    * Texto da mensagem
    * @minLength 1
    * @maxLength 4000

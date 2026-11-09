@@ -56,6 +56,8 @@ export const ListMyTicketsResponse = zod.object({
 /**
  * @summary Abre um chamado de feedback, sugestão ou bug. Limite: 5 por hora por usuário e 20 em andamento
  */
+export const createTicketBodyAttachmentIdsMax = 3;
+
 export const createTicketBodyContextAppVersionMax = 32;
 
 export const createTicketBodyContextBrowserMax = 160;
@@ -74,6 +76,11 @@ export const createTicketBodyTitleMin = 3;
 export const createTicketBodyTitleMax = 120;
 
 export const CreateTicketBody = zod.object({
+  attachment_ids: zod
+    .array(zod.string())
+    .max(createTicketBodyAttachmentIdsMax)
+    .nullish()
+    .describe("Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)"),
   context: zod
     .object({
       app_version: zod
@@ -110,6 +117,12 @@ export const CreateTicketBody = zod.object({
     .min(1)
     .max(createTicketBodyDescriptionMax)
     .describe("Descrição (vira a primeira mensagem)"),
+  draft_id: zod
+    .string()
+    .optional()
+    .describe(
+      "Com attachment_ids: o ticket_id devolvido pelos pedidos de upload; vira o ID do chamado",
+    ),
   kind: zod.enum(["bug", "suggestion", "feedback"]).describe("Tipo do chamado"),
   title: zod
     .string()
@@ -173,6 +186,22 @@ export const CreateTicketResponse = zod.object({
   messages: zod
     .array(
       zod.object({
+        attachments: zod
+          .array(
+            zod.object({
+              content_type: zod.string(),
+              filename: zod.string(),
+              id: zod.string(),
+              size: zod.int(),
+              url: zod
+                .string()
+                .describe(
+                  "GET pré-assinado, válido por 15 min (a conversa é recarregada ao abrir)",
+                ),
+            }),
+          )
+          .nullable()
+          .describe("Imagens anexadas à mensagem"),
         body: zod.string(),
         created_at: zod.iso.datetime({ offset: true }),
         id: zod.string(),
@@ -185,6 +214,49 @@ export const CreateTicketResponse = zod.object({
   status: zod.enum(["open", "in_review", "answered", "resolved", "closed"]),
   title: zod.string(),
   unread: zod.boolean().describe("A equipe respondeu e o autor ainda não abriu o chamado"),
+});
+
+/**
+ * @summary Pede uma URL pré-assinada de PUT para anexar uma imagem (captura de tela) a um chamado. Limite: 20 por minuto
+ */
+export const requestTicketUploadBodyFilenameMax = 255;
+
+export const requestTicketUploadBodySizeMax = 5242880;
+
+export const RequestTicketUploadBody = zod.object({
+  content_type: zod
+    .enum(["image/png", "image/jpeg", "image/webp"])
+    .describe("PNG, JPEG ou WebP; a extensão do nome precisa combinar"),
+  filename: zod
+    .string()
+    .min(1)
+    .max(requestTicketUploadBodyFilenameMax)
+    .describe("Nome original; o servidor tira caminho e caracteres de controle"),
+  size: zod
+    .int()
+    .min(1)
+    .max(requestTicketUploadBodySizeMax)
+    .describe("Tamanho em bytes (máximo 5 MB)"),
+  ticket_id: zod
+    .string()
+    .optional()
+    .describe(
+      "Chamado que recebe a imagem (autor ou admin). Vazio = chamado novo: o servidor reserva o ID e o devolve",
+    ),
+});
+
+export const RequestTicketUploadResponse = zod.object({
+  expires_in: zod.int().describe("Segundos até a URL de PUT expirar"),
+  headers: zod
+    .record(zod.string(), zod.string())
+    .describe("Cabeçalhos que o PUT precisa enviar exatamente assim"),
+  id: zod.string().describe("Use em attachment_ids ao abrir o chamado ou responder"),
+  ticket_id: zod
+    .string()
+    .describe(
+      "Chamado do anexo. Em um chamado novo é o ID reservado (rascunho): reenvie em ticket_id nos próximos uploads e em draft_id ao criar",
+    ),
+  upload_url: zod.string().describe("PUT pré-assinado; envie o arquivo cru como corpo"),
 });
 
 /**
@@ -249,6 +321,22 @@ export const GetMyTicketResponse = zod.object({
   messages: zod
     .array(
       zod.object({
+        attachments: zod
+          .array(
+            zod.object({
+              content_type: zod.string(),
+              filename: zod.string(),
+              id: zod.string(),
+              size: zod.int(),
+              url: zod
+                .string()
+                .describe(
+                  "GET pré-assinado, válido por 15 min (a conversa é recarregada ao abrir)",
+                ),
+            }),
+          )
+          .nullable()
+          .describe("Imagens anexadas à mensagem"),
         body: zod.string(),
         created_at: zod.iso.datetime({ offset: true }),
         id: zod.string(),
@@ -270,13 +358,34 @@ export const ReplyMyTicketParams = zod.object({
   id: zod.string().describe("ID do chamado"),
 });
 
+export const replyMyTicketBodyAttachmentIdsMax = 3;
+
 export const replyMyTicketBodyBodyMax = 4000;
 
 export const ReplyMyTicketBody = zod.object({
+  attachment_ids: zod
+    .array(zod.string())
+    .max(replyMyTicketBodyAttachmentIdsMax)
+    .nullish()
+    .describe("Até 3 imagens já enviadas ao storage (POST /api/tickets/uploads)"),
   body: zod.string().min(1).max(replyMyTicketBodyBodyMax).describe("Texto da mensagem"),
 });
 
 export const ReplyMyTicketResponse = zod.object({
+  attachments: zod
+    .array(
+      zod.object({
+        content_type: zod.string(),
+        filename: zod.string(),
+        id: zod.string(),
+        size: zod.int(),
+        url: zod
+          .string()
+          .describe("GET pré-assinado, válido por 15 min (a conversa é recarregada ao abrir)"),
+      }),
+    )
+    .nullable()
+    .describe("Imagens anexadas à mensagem"),
   body: zod.string(),
   created_at: zod.iso.datetime({ offset: true }),
   id: zod.string(),

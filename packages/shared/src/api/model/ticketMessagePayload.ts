@@ -4,9 +4,15 @@
  * Spook API
  * OpenAPI spec version: 0.1.0
  */
+import type { TicketAttachmentPayload } from "./ticketAttachmentPayload";
 import type { TicketMessagePayloadKind } from "./ticketMessagePayloadKind";
 
 export interface TicketMessagePayload {
+  /**
+   * Imagens anexadas à mensagem
+   * @nullable
+   */
+  attachments: TicketAttachmentPayload[] | null;
   body: string;
   created_at: string;
   id: string;

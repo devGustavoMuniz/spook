@@ -88,3 +88,46 @@ WHERE t.id = $1;
 
 -- name: AdminTicketCounts :many
 SELECT status, count(*)::bigint AS total FROM tickets GROUP BY status;
+
+-- ---- anexos dos chamados ----
+
+-- name: InsertTicketAttachment :exec
+INSERT INTO ticket_attachments (id, ticket_id, uploader_id, object_key, filename, content_type, size_bytes)
+VALUES ($1, $2, $3, $4, $5, $6, $7);
+
+-- Anexos do usuário ainda sem mensagem, criados depois de $2 (limite de pendentes).
+-- name: CountPendingTicketAttachments :one
+SELECT count(*)::bigint FROM ticket_attachments
+WHERE uploader_id = sqlc.arg(uploader_id) AND message_id IS NULL AND created_at > sqlc.arg(since);
+
+-- Pendentes do usuário num chamado (ou rascunho); prova que o ID de rascunho é dele.
+-- name: CountPendingTicketAttachmentsForTicket :one
+SELECT count(*)::bigint FROM ticket_attachments
+WHERE uploader_id = sqlc.arg(uploader_id) AND ticket_id = sqlc.arg(ticket_id) AND message_id IS NULL AND created_at > sqlc.arg(since);
+
+-- Anexos já ligados a mensagens do chamado (teto por chamado).
+-- name: CountTicketAttachments :one
+SELECT count(*)::bigint FROM ticket_attachments WHERE ticket_id = $1 AND message_id IS NOT NULL;
+
+-- name: ListPendingTicketAttachments :many
+SELECT * FROM ticket_attachments
+WHERE id = ANY(sqlc.arg(ids)::bigint[]) AND uploader_id = sqlc.arg(uploader_id) AND ticket_id = sqlc.arg(ticket_id)
+  AND message_id IS NULL AND created_at > sqlc.arg(since)
+ORDER BY id;
+
+-- Liga os anexos à mensagem (na mesma transação que a insere); só vale para anexos livres, do usuário e do chamado.
+-- name: ClaimTicketAttachments :many
+UPDATE ticket_attachments SET message_id = sqlc.arg(message_id)
+WHERE id = ANY(sqlc.arg(ids)::bigint[]) AND uploader_id = sqlc.arg(uploader_id) AND ticket_id = sqlc.arg(ticket_id)
+  AND message_id IS NULL AND created_at > sqlc.arg(since)
+RETURNING *;
+
+-- Anexos de todas as mensagens do chamado; quem filtra as notas internas é o service (só lista mensagens visíveis).
+-- name: ListTicketAttachments :many
+SELECT * FROM ticket_attachments WHERE ticket_id = $1 AND message_id IS NOT NULL ORDER BY id;
+
+-- name: ListOrphanTicketAttachments :many
+SELECT * FROM ticket_attachments WHERE message_id IS NULL AND created_at < sqlc.arg(before) ORDER BY created_at LIMIT sqlc.arg(max_rows);
+
+-- name: DeleteTicketAttachments :execrows
+DELETE FROM ticket_attachments WHERE id = ANY(sqlc.arg(ids)::bigint[]) AND message_id IS NULL;

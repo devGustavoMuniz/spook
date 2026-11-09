@@ -13,8 +13,16 @@ export const feedback = {
   "feedback.status.in_review": "In review",
   "feedback.status.open": "Open",
   "feedback.status.resolved": "Resolved",
-  "feedback.new.attachmentsNote":
-    "Attachments are not supported yet: describe what you saw (steps, error message) or paste a link to the image.",
+  "feedback.attach.add": "Attach images",
+  "feedback.attach.hint":
+    "PNG, JPEG or WebP, up to 5 MB each, at most {max} per message. You can also paste (Ctrl+V) or drag images in.",
+  "feedback.attach.pasteHint":
+    "Paste (Ctrl+V) or drag screenshots to attach them; you can also pick files below.",
+  "feedback.attach.rejected": "The server rejected the attachments. Upload the images again.",
+  "feedback.attach.ticketGone": "This ticket is no longer available.",
+  "feedback.attach.typeNotAllowed": "{name}: only PNG, JPEG or WebP images are accepted.",
+  "feedback.attach.wait": "Wait for the images to finish uploading.",
+  "feedback.attach.fix": "Remove or retry the images with errors before sending.",
   "feedback.new.context": "Include technical information",
   "feedback.new.contextHint":
     "App version, system, browser, language and the screen you are on. It helps the team reproduce the problem; nothing else is sent.",

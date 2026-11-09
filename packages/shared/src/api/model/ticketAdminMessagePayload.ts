@@ -5,8 +5,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TicketAdminMessagePayloadKind } from "./ticketAdminMessagePayloadKind";
+import type { TicketAttachmentPayload } from "./ticketAttachmentPayload";
 
 export interface TicketAdminMessagePayload {
+  /**
+   * Imagens anexadas à mensagem (as de notas internas só aparecem aqui)
+   * @nullable
+   */
+  attachments: TicketAttachmentPayload[] | null;
   body: string;
   created_at: string;
   id: string;

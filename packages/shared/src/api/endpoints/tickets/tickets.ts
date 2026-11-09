@@ -31,6 +31,8 @@ import type {
   TicketMessagePayload,
   TicketPage,
   TicketPayload,
+  TicketUploadBody,
+  TicketUploadPayload,
 } from "../../model";
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
@@ -280,6 +282,111 @@ export const useCreateTicket = <TError = ErrorModel, TContext = unknown>(
   TContext
 > => {
   return useMutation(getCreateTicketMutationOptions(options), queryClient);
+};
+export const getRequestTicketUploadUrl = () => {
+  return `/api/tickets/uploads`;
+};
+
+/**
+ * @summary Pede uma URL pré-assinada de PUT para anexar uma imagem (captura de tela) a um chamado. Limite: 20 por minuto
+ */
+export const requestTicketUpload = async (
+  ticketUploadBody: TicketUploadBody,
+  options?: Parameters<typeof http>[1],
+): Promise<TicketUploadPayload> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<TicketUploadPayload>(getRequestTicketUploadUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(ticketUploadBody),
+  });
+};
+
+export const getRequestTicketUploadMutationKey = () => ["requestTicketUpload"] as const;
+
+export const getRequestTicketUploadMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestTicketUpload>>,
+    TError,
+    RequestTicketUploadMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestTicketUpload>>,
+  TError,
+  RequestTicketUploadMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRequestTicketUploadMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestTicketUpload>>,
+    RequestTicketUploadMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return requestTicketUpload(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestTicketUploadMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestTicketUpload>>
+>;
+export type RequestTicketUploadMutationBody = TicketUploadBody;
+export type RequestTicketUploadMutationError = ErrorModel;
+export type RequestTicketUploadMutationVariables = { data: TicketUploadBody };
+
+/**
+ * @summary Pede uma URL pré-assinada de PUT para anexar uma imagem (captura de tela) a um chamado. Limite: 20 por minuto
+ */
+export const useRequestTicketUpload = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof requestTicketUpload>>,
+      TError,
+      RequestTicketUploadMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof requestTicketUpload>>,
+  TError,
+  RequestTicketUploadMutationVariables,
+  TContext
+> => {
+  return useMutation(getRequestTicketUploadMutationOptions(options), queryClient);
 };
 export const getGetMyTicketUrl = (id: string) => {
   return `/api/tickets/${id}`;

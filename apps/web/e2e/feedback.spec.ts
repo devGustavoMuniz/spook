@@ -9,6 +9,11 @@ import { expect, test } from "@playwright/test";
 
 const PASSWORD = "senha-forte-123";
 const run = Date.now().toString(36);
+// PNG de 1x1 pixel (assinatura válida: o servidor confere os primeiros bytes).
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 async function signUp(browser: import("@playwright/test").Browser, prefix: string) {
   const username = `${prefix}_${run}`.slice(0, 32);
@@ -53,9 +58,15 @@ test("usuário abre um chamado, o admin responde e o usuário vê a resposta", a
   await upage.getByLabel("Título").fill(title);
   await upage.getByLabel("Descrição").fill("Ao compartilhar a tela inteira o vídeo fica preto.");
   await expect(upage.getByLabel("O que será enviado")).toBeVisible();
+  // Captura de tela anexada ao abrir o chamado.
+  await upage
+    .locator('input[type="file"]')
+    .setInputFiles({ name: "captura.png", mimeType: "image/png", buffer: PNG_1X1 });
+  await expect(upage.getByText("Pronto")).toBeVisible();
   await upage.getByRole("button", { name: "Enviar chamado" }).click();
   await expect(upage.getByRole("heading", { level: 2, name: title })).toBeVisible();
   await expect(upage.getByText("Ao compartilhar a tela inteira o vídeo fica preto.")).toBeVisible();
+  await expect(upage.getByRole("button", { name: /captura\.png/ })).toBeVisible();
 
   // Volta à lista: assim a resposta chega como "não lida" (com a conversa aberta ela já nasce lida).
   await upage.getByRole("button", { name: "Voltar aos chamados" }).click();
@@ -75,6 +86,7 @@ test("usuário abre um chamado, o admin responde e o usuário vê a resposta", a
   await expect(apage.getByRole("heading", { level: 2, name: title })).toBeVisible();
   await expect(apage.getByText(`@${user.username}`).first()).toBeVisible();
   await expect(apage.getByRole("link", { name: `${user.username}@spook.dev` })).toBeVisible();
+  await expect(apage.getByRole("button", { name: /captura\.png/ })).toBeVisible();
 
   await apage.getByRole("checkbox", { name: /Nota interna/ }).check();
   await apage

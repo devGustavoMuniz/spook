@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -29,6 +30,7 @@ type NewTicket struct {
 	Title     string
 	Body      string
 	Context   *TicketContext
+	Claim     *Claim // anexos (já verificados) a ligar à primeira mensagem
 }
 
 // NewMessage é uma mensagem a gravar. Decide recebe o chamado travado e devolve o estado, a marca de "não lido" e se
@@ -40,6 +42,7 @@ type NewMessage struct {
 	Kind     MessageKind
 	Body     string
 	Decide   func(cur Ticket) (Decision, error)
+	Claim    *Claim // anexos (já verificados) a ligar à mensagem
 }
 
 // Decision é o efeito de uma mensagem no chamado. Nota interna não muda nada (Touch=false).
@@ -61,6 +64,15 @@ type Store interface {
 	// SetStatus troca o estado sob trava; decide devolve o estado e a marca de "não lido" finais.
 	SetStatus(ctx context.Context, id int64, decide func(cur Ticket) (Status, bool, error)) (Ticket, error)
 	MarkRead(ctx context.Context, id int64) error
+
+	// Anexos (imagens) dos chamados.
+	InsertAttachment(ctx context.Context, a Attachment) error
+	CountPending(ctx context.Context, uploaderID int64, since time.Time) (int, error)
+	CountPendingFor(ctx context.Context, uploaderID, ticketID int64, since time.Time) (int, error)
+	Pending(ctx context.Context, ids []int64, uploaderID, ticketID int64, since time.Time) ([]Attachment, error)
+	Attachments(ctx context.Context, ticketID int64) ([]Attachment, error)
+	Orphans(ctx context.Context, before time.Time, limit int) ([]Attachment, error)
+	DeletePending(ctx context.Context, ids []int64) error
 	AdminList(ctx context.Context, f AdminFilter, after *Cursor, limit int) ([]AdminTicket, error)
 	Counts(ctx context.Context) (TicketSummary, error)
 }
@@ -87,12 +99,18 @@ type Service struct {
 	ids    IDGenerator
 	pub    events.Publisher
 	admins Admins
+	// objects é o storage das imagens; nil = anexos desligados.
+	objects Objects
+	now     func() time.Time
 
-	changes metric.Int64Counter
+	changes     metric.Int64Counter
+	attachments metric.Int64Counter
 }
 
-func NewService(store Store, ids IDGenerator, pub events.Publisher, admins Admins) *Service {
-	s := &Service{store: store, ids: ids, pub: pub, admins: admins}
+func NewService(store Store, ids IDGenerator, pub events.Publisher, admins Admins, objects Objects) *Service {
+	s := &Service{store: store, ids: ids, pub: pub, admins: admins, objects: objects, now: time.Now}
+	s.attachments, _ = otel.Meter("spook/feedback").Int64Counter("spook.feedback.attachments",
+		metric.WithDescription("Imagens anexadas a chamados, por resultado (requested, rejected, orphan_deleted)"))
 	s.changes, _ = otel.Meter("spook/feedback").Int64Counter("spook.feedback.changes",
 		metric.WithDescription("Mudanças em chamados, por ação (create, reply, admin_reply, note, status)"))
 	return s
@@ -146,7 +164,7 @@ func (s *Service) emit(t Ticket, byAdmin bool) {
 // ---- autor ----
 
 // Create abre um chamado com a primeira mensagem (a descrição).
-func (s *Service) Create(ctx context.Context, userID int64, kind Kind, title, body string, c *TicketContext) (TicketDetail, error) {
+func (s *Service) Create(ctx context.Context, userID int64, kind Kind, title, body string, c *TicketContext, att Attach) (TicketDetail, error) {
 	ctx, span := tracer.Start(ctx, "feedback.Create")
 	defer span.End()
 	if !kind.valid() {
@@ -167,8 +185,30 @@ func (s *Service) Create(ctx context.Context, userID int64, kind Kind, title, bo
 	if active >= MaxActivePerUser {
 		return TicketDetail{}, ErrTooManyActive
 	}
+	attIDs, draft, err := parseAttach(att)
+	if err != nil {
+		return TicketDetail{}, err
+	}
+	ticketID := s.ids.Next()
+	var claim *Claim
+	if len(attIDs) > 0 {
+		// O ID de rascunho reservado no primeiro upload vira o ID do chamado (a chave dos objetos já o contém).
+		if draft == 0 {
+			return TicketDetail{}, ErrInvalidAttachments
+		}
+		if _, err := s.store.Get(ctx, draft); err == nil {
+			return TicketDetail{}, ErrInvalidAttachments
+		} else if !errors.Is(err, ErrNotFound) {
+			return TicketDetail{}, err
+		}
+		cl, err := s.verify(ctx, userID, draft, attIDs)
+		if err != nil {
+			return TicketDetail{}, err
+		}
+		claim, ticketID = &cl, draft
+	}
 	t, err := s.store.Create(ctx, NewTicket{
-		ID: s.ids.Next(), MessageID: s.ids.Next(), AuthorID: userID, Kind: kind, Title: title, Body: body, Context: cleanContext(c),
+		ID: ticketID, MessageID: s.ids.Next(), AuthorID: userID, Kind: kind, Title: title, Body: body, Context: cleanContext(c), Claim: claim,
 	})
 	if err != nil {
 		return TicketDetail{}, err
@@ -236,12 +276,20 @@ func (s *Service) detail(ctx context.Context, t Ticket, markRead bool) (TicketDe
 		}
 		t.UserUnread = false
 	}
+	atts, err := s.attachmentsByMessage(ctx, t.ID)
+	if err != nil {
+		return TicketDetail{}, err
+	}
 	out := make([]TicketMessagePayload, 0, len(msgs))
 	for _, m := range msgs {
 		if m.Kind == MsgInternal {
 			continue // defesa em profundidade: o store já filtra
 		}
-		out = append(out, TicketMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt})
+		ap, err := s.attachmentPayloads(ctx, atts[m.ID]) // só de mensagens visíveis ao autor
+		if err != nil {
+			return TicketDetail{}, err
+		}
+		out = append(out, TicketMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt, Attachments: ap})
 	}
 	return TicketDetail{TicketPayload: payload(t), Context: t.Context, Messages: out}, nil
 }
@@ -258,7 +306,7 @@ func (s *Service) Get(ctx context.Context, userID, id int64) (TicketDetail, erro
 }
 
 // Reply registra uma resposta do autor. Chamado fechado exige reabrir antes; respondido/resolvido volta a "aberto".
-func (s *Service) Reply(ctx context.Context, userID, id int64, body string) (TicketMessagePayload, error) {
+func (s *Service) Reply(ctx context.Context, userID, id int64, body string, att Attach) (TicketMessagePayload, error) {
 	ctx, span := tracer.Start(ctx, "feedback.Reply")
 	defer span.End()
 	body, err := cleanBody(body)
@@ -268,8 +316,12 @@ func (s *Service) Reply(ctx context.Context, userID, id int64, body string) (Tic
 	if _, err := s.own(ctx, userID, id); err != nil {
 		return TicketMessagePayload{}, err
 	}
+	claim, err := s.claimFor(ctx, userID, id, att)
+	if err != nil {
+		return TicketMessagePayload{}, err
+	}
 	m, t, err := s.store.AddMessage(ctx, NewMessage{
-		ID: s.ids.Next(), TicketID: id, AuthorID: userID, Kind: MsgUser, Body: body,
+		ID: s.ids.Next(), TicketID: id, AuthorID: userID, Kind: MsgUser, Body: body, Claim: claim,
 		Decide: func(cur Ticket) (Decision, error) {
 			if cur.AuthorID != userID {
 				return Decision{}, ErrNotFound
@@ -289,7 +341,11 @@ func (s *Service) Reply(ctx context.Context, userID, id int64, body string) (Tic
 	}
 	s.count(ctx, "reply")
 	s.emit(t, false)
-	return TicketMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt}, nil
+	ap, err := s.messageAttachments(ctx, id, m.ID)
+	if err != nil {
+		return TicketMessagePayload{}, err
+	}
+	return TicketMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt, Attachments: ap}, nil
 }
 
 // SetOwnStatus deixa o autor fechar o chamado ou reabri-lo (resolvido/fechado → aberto).
@@ -400,15 +456,23 @@ func (s *Service) AdminGet(ctx context.Context, id int64) (AdminTicketDetail, er
 	if err != nil {
 		return AdminTicketDetail{}, err
 	}
+	atts, err := s.attachmentsByMessage(ctx, id)
+	if err != nil {
+		return AdminTicketDetail{}, err
+	}
 	out := make([]TicketAdminMessagePayload, len(msgs))
 	for i, m := range msgs {
-		out[i] = TicketAdminMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt, Username: m.AuthorUsername}
+		ap, err := s.attachmentPayloads(ctx, atts[m.ID])
+		if err != nil {
+			return AdminTicketDetail{}, err
+		}
+		out[i] = TicketAdminMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt, Username: m.AuthorUsername, Attachments: ap}
 	}
 	return AdminTicketDetail{AdminTicketPayload: adminPayload(t), Context: t.Context, Messages: out}, nil
 }
 
 // AdminReply grava uma resposta pública (avisa o autor e move para "respondido") ou uma nota interna (não muda nada).
-func (s *Service) AdminReply(ctx context.Context, adminID, id int64, body string, internal bool) (TicketAdminMessagePayload, error) {
+func (s *Service) AdminReply(ctx context.Context, adminID, id int64, body string, internal bool, att Attach) (TicketAdminMessagePayload, error) {
 	ctx, span := tracer.Start(ctx, "feedback.AdminReply")
 	defer span.End()
 	body, err := cleanBody(body)
@@ -419,8 +483,12 @@ func (s *Service) AdminReply(ctx context.Context, adminID, id int64, body string
 	if internal {
 		kind = MsgInternal
 	}
+	claim, err := s.claimFor(ctx, adminID, id, att)
+	if err != nil {
+		return TicketAdminMessagePayload{}, err
+	}
 	m, t, err := s.store.AddMessage(ctx, NewMessage{
-		ID: s.ids.Next(), TicketID: id, AuthorID: adminID, Kind: kind, Body: body,
+		ID: s.ids.Next(), TicketID: id, AuthorID: adminID, Kind: kind, Body: body, Claim: claim,
 		Decide: func(cur Ticket) (Decision, error) {
 			if internal {
 				return Decision{}, nil
@@ -446,7 +514,11 @@ func (s *Service) AdminReply(ctx context.Context, adminID, id int64, body string
 		s.count(ctx, "admin_reply")
 		s.emit(t, true)
 	}
-	return TicketAdminMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt}, nil
+	ap, err := s.messageAttachments(ctx, id, m.ID)
+	if err != nil {
+		return TicketAdminMessagePayload{}, err
+	}
+	return TicketAdminMessagePayload{ID: httpx.ID(m.ID), Kind: string(m.Kind), Body: m.Body, CreatedAt: m.CreatedAt, Attachments: ap}, nil
 }
 
 // AdminSetStatus muda o estado para qualquer um dos cinco. Resolver ou fechar marca "não lido" para o autor.
@@ -473,6 +545,22 @@ func (s *Service) AdminSetStatus(ctx context.Context, adminID, id int64, status 
 		return AdminTicketPayload{}, err
 	}
 	return adminPayload(full), nil
+}
+
+// claimFor valida os anexos de uma resposta num chamado que já existe (404 se não existir); sem anexos, nil.
+func (s *Service) claimFor(ctx context.Context, userID, ticketID int64, att Attach) (*Claim, error) {
+	ids, _, err := parseAttach(Attach{IDs: att.IDs})
+	if err != nil || len(ids) == 0 {
+		return nil, err
+	}
+	if _, err := s.store.Get(ctx, ticketID); err != nil {
+		return nil, err
+	}
+	cl, err := s.verify(ctx, userID, ticketID, ids)
+	if err != nil {
+		return nil, err
+	}
+	return &cl, nil
 }
 
 // ---- paginação ----

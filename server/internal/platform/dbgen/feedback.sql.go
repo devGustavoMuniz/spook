@@ -246,6 +246,58 @@ func (q *Queries) AdminTicketCounts(ctx context.Context) ([]AdminTicketCountsRow
 	return items, nil
 }
 
+const claimTicketAttachments = `-- name: ClaimTicketAttachments :many
+UPDATE ticket_attachments SET message_id = $1
+WHERE id = ANY($2::bigint[]) AND uploader_id = $3 AND ticket_id = $4
+  AND message_id IS NULL AND created_at > $5
+RETURNING id, ticket_id, message_id, uploader_id, object_key, filename, content_type, size_bytes, created_at
+`
+
+type ClaimTicketAttachmentsParams struct {
+	MessageID  *int64
+	Ids        []int64
+	UploaderID int64
+	TicketID   int64
+	Since      pgtype.Timestamptz
+}
+
+// Liga os anexos à mensagem (na mesma transação que a insere); só vale para anexos livres, do usuário e do chamado.
+func (q *Queries) ClaimTicketAttachments(ctx context.Context, arg ClaimTicketAttachmentsParams) ([]TicketAttachment, error) {
+	rows, err := q.db.Query(ctx, claimTicketAttachments,
+		arg.MessageID,
+		arg.Ids,
+		arg.UploaderID,
+		arg.TicketID,
+		arg.Since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TicketAttachment
+	for rows.Next() {
+		var i TicketAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.TicketID,
+			&i.MessageID,
+			&i.UploaderID,
+			&i.ObjectKey,
+			&i.Filename,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countActiveTicketsByAuthor = `-- name: CountActiveTicketsByAuthor :one
 SELECT count(*)::bigint FROM tickets WHERE author_id = $1 AND status IN ('open', 'in_review', 'answered')
 `
@@ -268,6 +320,67 @@ func (q *Queries) CountInternalTicketMessages(ctx context.Context, ticketID int6
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const countPendingTicketAttachments = `-- name: CountPendingTicketAttachments :one
+SELECT count(*)::bigint FROM ticket_attachments
+WHERE uploader_id = $1 AND message_id IS NULL AND created_at > $2
+`
+
+type CountPendingTicketAttachmentsParams struct {
+	UploaderID int64
+	Since      pgtype.Timestamptz
+}
+
+// Anexos do usuário ainda sem mensagem, criados depois de $2 (limite de pendentes).
+func (q *Queries) CountPendingTicketAttachments(ctx context.Context, arg CountPendingTicketAttachmentsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingTicketAttachments, arg.UploaderID, arg.Since)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countPendingTicketAttachmentsForTicket = `-- name: CountPendingTicketAttachmentsForTicket :one
+SELECT count(*)::bigint FROM ticket_attachments
+WHERE uploader_id = $1 AND ticket_id = $2 AND message_id IS NULL AND created_at > $3
+`
+
+type CountPendingTicketAttachmentsForTicketParams struct {
+	UploaderID int64
+	TicketID   int64
+	Since      pgtype.Timestamptz
+}
+
+// Pendentes do usuário num chamado (ou rascunho); prova que o ID de rascunho é dele.
+func (q *Queries) CountPendingTicketAttachmentsForTicket(ctx context.Context, arg CountPendingTicketAttachmentsForTicketParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingTicketAttachmentsForTicket, arg.UploaderID, arg.TicketID, arg.Since)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countTicketAttachments = `-- name: CountTicketAttachments :one
+SELECT count(*)::bigint FROM ticket_attachments WHERE ticket_id = $1 AND message_id IS NOT NULL
+`
+
+// Anexos já ligados a mensagens do chamado (teto por chamado).
+func (q *Queries) CountTicketAttachments(ctx context.Context, ticketID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countTicketAttachments, ticketID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const deleteTicketAttachments = `-- name: DeleteTicketAttachments :execrows
+DELETE FROM ticket_attachments WHERE id = ANY($1::bigint[]) AND message_id IS NULL
+`
+
+func (q *Queries) DeleteTicketAttachments(ctx context.Context, ids []int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTicketAttachments, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getTicket = `-- name: GetTicket :one
@@ -357,6 +470,36 @@ func (q *Queries) InsertTicket(ctx context.Context, arg InsertTicketParams) (Tic
 	return i, err
 }
 
+const insertTicketAttachment = `-- name: InsertTicketAttachment :exec
+
+INSERT INTO ticket_attachments (id, ticket_id, uploader_id, object_key, filename, content_type, size_bytes)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+`
+
+type InsertTicketAttachmentParams struct {
+	ID          int64
+	TicketID    int64
+	UploaderID  int64
+	ObjectKey   string
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+}
+
+// ---- anexos dos chamados ----
+func (q *Queries) InsertTicketAttachment(ctx context.Context, arg InsertTicketAttachmentParams) error {
+	_, err := q.db.Exec(ctx, insertTicketAttachment,
+		arg.ID,
+		arg.TicketID,
+		arg.UploaderID,
+		arg.ObjectKey,
+		arg.Filename,
+		arg.ContentType,
+		arg.SizeBytes,
+	)
+	return err
+}
+
 const insertTicketMessage = `-- name: InsertTicketMessage :one
 INSERT INTO ticket_messages (id, ticket_id, author_id, kind, body)
 VALUES ($1, $2, $3, $4, $5)
@@ -389,6 +532,129 @@ func (q *Queries) InsertTicketMessage(ctx context.Context, arg InsertTicketMessa
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listOrphanTicketAttachments = `-- name: ListOrphanTicketAttachments :many
+SELECT id, ticket_id, message_id, uploader_id, object_key, filename, content_type, size_bytes, created_at FROM ticket_attachments WHERE message_id IS NULL AND created_at < $1 ORDER BY created_at LIMIT $2
+`
+
+type ListOrphanTicketAttachmentsParams struct {
+	Before  pgtype.Timestamptz
+	MaxRows int32
+}
+
+func (q *Queries) ListOrphanTicketAttachments(ctx context.Context, arg ListOrphanTicketAttachmentsParams) ([]TicketAttachment, error) {
+	rows, err := q.db.Query(ctx, listOrphanTicketAttachments, arg.Before, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TicketAttachment
+	for rows.Next() {
+		var i TicketAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.TicketID,
+			&i.MessageID,
+			&i.UploaderID,
+			&i.ObjectKey,
+			&i.Filename,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingTicketAttachments = `-- name: ListPendingTicketAttachments :many
+SELECT id, ticket_id, message_id, uploader_id, object_key, filename, content_type, size_bytes, created_at FROM ticket_attachments
+WHERE id = ANY($1::bigint[]) AND uploader_id = $2 AND ticket_id = $3
+  AND message_id IS NULL AND created_at > $4
+ORDER BY id
+`
+
+type ListPendingTicketAttachmentsParams struct {
+	Ids        []int64
+	UploaderID int64
+	TicketID   int64
+	Since      pgtype.Timestamptz
+}
+
+func (q *Queries) ListPendingTicketAttachments(ctx context.Context, arg ListPendingTicketAttachmentsParams) ([]TicketAttachment, error) {
+	rows, err := q.db.Query(ctx, listPendingTicketAttachments,
+		arg.Ids,
+		arg.UploaderID,
+		arg.TicketID,
+		arg.Since,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TicketAttachment
+	for rows.Next() {
+		var i TicketAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.TicketID,
+			&i.MessageID,
+			&i.UploaderID,
+			&i.ObjectKey,
+			&i.Filename,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTicketAttachments = `-- name: ListTicketAttachments :many
+SELECT id, ticket_id, message_id, uploader_id, object_key, filename, content_type, size_bytes, created_at FROM ticket_attachments WHERE ticket_id = $1 AND message_id IS NOT NULL ORDER BY id
+`
+
+// Anexos de todas as mensagens do chamado; quem filtra as notas internas é o service (só lista mensagens visíveis).
+func (q *Queries) ListTicketAttachments(ctx context.Context, ticketID int64) ([]TicketAttachment, error) {
+	rows, err := q.db.Query(ctx, listTicketAttachments, ticketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TicketAttachment
+	for rows.Next() {
+		var i TicketAttachment
+		if err := rows.Scan(
+			&i.ID,
+			&i.TicketID,
+			&i.MessageID,
+			&i.UploaderID,
+			&i.ObjectKey,
+			&i.Filename,
+			&i.ContentType,
+			&i.SizeBytes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listTicketMessages = `-- name: ListTicketMessages :many
