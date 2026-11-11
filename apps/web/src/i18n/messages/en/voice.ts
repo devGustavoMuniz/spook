@@ -67,6 +67,33 @@ export const voice = {
     " with audio: only that tab's sound is sent, without the call's voices. When sharing your entire screen or a window with audio, use headphones.",
   "voice.share.speakerWarning":
     "Your audio output looks like a speaker. With shared audio, use headphones to avoid echo.",
+  "voice.appAudio.advanced": "Advanced settings",
+  "voice.appAudio.title": "Application audio",
+  "voice.appAudio.hint":
+    "Sends your computer's sound along with the screen. Spook itself is never part of the shared audio, so the call can't come back as echo.",
+  "voice.appAudio.mode": "What to share",
+  "voice.appAudio.modeSystem": "Entire system",
+  "voice.appAudio.modeApps": "Selected applications",
+  "voice.appAudio.systemHint": "All of your computer's sound is sent, except Spook's own.",
+  "voice.appAudio.master": "Master volume",
+  "voice.appAudio.list": "Applications with audio",
+  "voice.appAudio.volumeOf": "Volume of {name}",
+  "voice.appAudio.percent": "{value}%",
+  "voice.appAudio.playing": "playing",
+  "voice.appAudio.notOpen": "not playing",
+  "voice.appAudio.empty": "No application with audio right now",
+  "voice.appAudio.loading": "Looking for applications...",
+  "voice.appAudio.error": "Couldn't list the applications. Try refreshing.",
+  "voice.appAudio.refresh": "Refresh list",
+  "voice.appAudio.noneSelected":
+    "Check at least one application; otherwise only the picture is shared.",
+  "voice.appAudio.selfExcluded": "Spook never shows up in this list or in the audio.",
+  "voice.appAudio.unsupported.platform":
+    "Per-application audio is only available on Windows 10 and 11 for now. On this computer only the picture is shared.",
+  "voice.appAudio.unsupported.windows-version":
+    "Per-application audio needs Windows 10 version 2004 or newer. Update Windows to use it; for now only the picture is shared.",
+  "voice.appAudio.unsupported.error":
+    "Couldn't start audio capture on this computer. Only the picture will be shared.",
   "voice.share.preview": "Show a preview to the channel",
   "voice.share.previewHint":
     "People in the server see a thumbnail of your screen before joining the stream. Turn off for sensitive content.",

@@ -138,6 +138,7 @@ pub fn run() {
             vc::voice_screen_source_thumbnails,
             vc::voice_cancel_screen_thumbnails,
             vc::app_open_screen_recording_settings,
+            vc::voice_list_audio_apps,
             vc::voice_set_screen_share,
             vc::voice_list_devices,
             vc::voice_set_device,

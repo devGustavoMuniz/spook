@@ -6,6 +6,8 @@
 import { effectiveLimits } from "@/features/nitro/limits-store";
 import { loadDevicePrefs } from "@/features/voice/devices";
 import {
+  type AppAudioOptions,
+  type AudioAppsResult,
   type AudioCapabilities,
   type AudioProcessingOptions,
   type AudioSource,
@@ -48,6 +50,24 @@ export type NativeEvent =
   | { type: "disconnected"; reason: DisconnectReason }
   | { type: "input-level"; db: number; gateOpen: boolean }
   | { type: "mic-test"; phase: MicTestPhase; remainingMs?: number; error?: MediaErrorCode };
+
+/** Porcentagem inteira de 0 a 100 (NaN vira 100). */
+const percent = (n: number) =>
+  Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : 100;
+
+/** Formato do parâmetro `audioApps` de `voice_set_screen_share` (camelCase, executável em minúsculas, sem duplicados). */
+export function normalizeAppAudio(a: AppAudioOptions) {
+  const apps = new Map<string, number>();
+  for (const x of a.apps) {
+    const exe = x.exe.trim().toLowerCase();
+    if (exe) apps.set(exe, percent(x.volume));
+  }
+  return {
+    mode: a.mode,
+    master: percent(a.master),
+    apps: [...apps].map(([exe, volume]) => ({ exe, volume })),
+  };
+}
 
 /** Maior volume por pessoa no desktop (200%): o mixer do Rust só multiplica com saturação. */
 export const NATIVE_MAX_PARTICIPANT_VOLUME = 2;
@@ -330,7 +350,7 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
 
   async setScreenShareEnabled(
     enabled: boolean,
-    opts: { audio?: boolean; quality?: ScreenShareQuality } = {},
+    opts: { audio?: boolean; quality?: ScreenShareQuality; appAudio?: AppAudioOptions } = {},
   ) {
     this.requireRoom();
     try {
@@ -341,7 +361,8 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
       const sources = await this.deps.invoke<ScreenSource[]>("voice_list_screen_sources");
       const sourceId = await this.deps.pickScreenSource(sources);
       if (!sourceId) throw new VoiceMediaError("cancelled", "screen");
-      // O áudio do sistema ainda não é capturado no desktop (limitação documentada); o Rust ignora o pedido.
+      // Áudio (Windows 10 2004+/11): `audio: true` sozinho = todo o sistema menos o Spook (formato antigo, aceito);
+      // `audioApps` escolhe só aplicativos e os volumes. Nas outras plataformas o Rust ignora o pedido.
       // `quality` ausente = o padrão do Rust (1080p, 15 fps, nitidez), o mesmo de antes do ajuste.
       // O limite do plano (token de voz, senão o plano, senão grátis) manda: o Rust nunca recebe mais que isso.
       // Sem `quality`, o Rust usaria 1080p; num plano menor isso passaria do limite, então vai o padrão reduzido.
@@ -356,12 +377,18 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
         options: {
           sourceId,
           audio: !!opts.audio,
+          ...(opts.audio && opts.appAudio ? { audioApps: normalizeAppAudio(opts.appAudio) } : {}),
           ...(quality ? { quality } : {}),
         },
       });
     } catch (err) {
       throw toMediaError(err, "screen");
     }
+  }
+
+  /** Aplicativos com sessão de áudio agora (`voice_list_audio_apps`); o Rust já tira o próprio Spook da lista. */
+  async listAudioApps(): Promise<AudioAppsResult> {
+    return this.deps.invoke<AudioAppsResult>("voice_list_audio_apps");
   }
 
   setDeafened(deafened: boolean) {
@@ -376,8 +403,10 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   async resumeAudio() {}
 
   /**
-   * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust). O desktop ainda não captura o áudio do sistema
-   * ao compartilhar a tela (limitação documentada): a interface não oferece "Incluir áudio" e explica o porquê.
+   * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust). O áudio da tela é por aplicativo
+   * (`screenShareAppAudio`, só no Windows 10 2004+/11; o Rust diz em `voice_list_audio_apps` se a plataforma
+   * suporta): o interruptor "Incluir áudio" simples não existe aqui, a escolha mora na seção "Configurações
+   * avançadas" do diálogo (`screenShareAudio` fica `false` de propósito).
    * Volume por pessoa (até 200%), porta de ruído, medidor, teste de microfone e qualidade da tela são do Rust.
    * Sem prévia da transmissão (`screenSharePreview: false`): não há como capturar um quadro da tela no WebView.
    * Telas de outras pessoas sob demanda (`screenWatch`), como na web: o Rust só assina a tela (vídeo e áudio) de
@@ -387,6 +416,7 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   readonly audioCapabilities: AudioCapabilities = {
     strongNoiseSuppression: true,
     screenShareAudio: false,
+    screenShareAppAudio: true,
     participantVolume: { max: NATIVE_MAX_PARTICIPANT_VOLUME },
     inputSensitivity: true,
     micTest: true,

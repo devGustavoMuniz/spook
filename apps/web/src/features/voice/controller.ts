@@ -23,6 +23,8 @@ import {
   saveScreenSharePrefs,
 } from "./devices";
 import {
+  type AppAudioOptions,
+  type AudioAppsResult,
   type AudioCapabilities,
   type AudioProcessingOptions,
   type AudioProcessingStatus,
@@ -539,6 +541,8 @@ export async function toggleCamera() {
 export async function toggleScreenShare(opts?: {
   audio?: boolean;
   quality?: ScreenShareQuality;
+  /** Áudio por aplicativo (só repassado a engines com `screenShareAppAudio`). */
+  appAudio?: AppAudioOptions;
   /** Enviar a prévia (miniatura) da tela ao canal; ausente = a última escolha (padrão: ligada). */
   preview?: boolean;
 }) {
@@ -564,7 +568,15 @@ export async function toggleScreenShare(opts?: {
       : undefined;
   if (on && quality && opts?.quality) saveScreenQuality(quality);
   try {
-    await engine.setScreenShareEnabled(on, quality ? { audio, quality } : { audio });
+    const appAudio =
+      on && audio && opts?.appAudio && engine.audioCapabilities?.screenShareAppAudio
+        ? opts.appAudio
+        : undefined;
+    await engine.setScreenShareEnabled(on, {
+      audio,
+      ...(quality ? { quality } : {}),
+      ...(appAudio ? { appAudio } : {}),
+    });
     session().patch({ screen: on, screenPreview: preview, mediaIssue: null });
     if (!on) toast.dismiss(SCREEN_BLACK_TOAST);
   } catch (err) {
@@ -783,6 +795,13 @@ export function audioCapabilities(): AudioCapabilities {
   } catch {
     return { strongNoiseSuppression: false };
   }
+}
+
+/** Aplicativos com som agora, para o diálogo de compartilhar tela (vazio e "sem suporte" quando a engine não lista). */
+export async function listAudioApps(): Promise<AudioAppsResult> {
+  const e = ensureEngine();
+  if (!e.listAudioApps) return { supported: false, reason: "platform", apps: [] };
+  return e.listAudioApps();
 }
 
 export function listDevices(kind: DeviceKind) {

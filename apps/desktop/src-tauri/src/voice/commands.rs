@@ -8,6 +8,7 @@ use tauri::ipc::{Channel, InvokeResponseBody, JavaScriptChannelId};
 use tauri::State;
 
 use super::apm::{AudioProcessingSettings, NoiseSuppressionLevel};
+use super::appaudio::AudioAppsResponse;
 use super::audio::DeviceInfo;
 use super::core::{DeviceKind, Emit, ScreenOptions, ViewOptions, VoiceCore};
 use super::error::{ConnectCode, VoiceError};
@@ -15,6 +16,7 @@ use super::events::VoiceEvent;
 use super::gate::InputSensitivity;
 use super::mixer::AudioSource;
 use super::screen::{self, ScreenSource};
+use super::screen_audio;
 use super::thumbnail::ScreenThumbnail;
 
 pub struct VoiceState(pub Arc<VoiceCore>);
@@ -238,6 +240,17 @@ pub fn voice_cancel_screen_thumbnails() {
 #[tauri::command]
 pub fn app_open_screen_recording_settings() {
     screen::open_screen_recording_settings();
+}
+
+/// Aplicativos com sessão de áudio agora (para escolher qual som compartilhar com a tela), sem o próprio Spook.
+/// `{ supported, reason?, apps: [{ id, name, exe, icon?, playing }] }`; `supported: false` fora do Windows 10 2004+/11
+/// (`reason`: `platform` | `windows-version` | `error`). `async` de propósito (comando síncrono roda fora do runtime)
+/// e a enumeração (COM) vai para a thread de bloqueio.
+#[tauri::command]
+pub async fn voice_list_audio_apps() -> Result<AudioAppsResponse, VoiceError> {
+    tokio::task::spawn_blocking(screen_audio::list_apps)
+        .await
+        .map_err(|e| VoiceError::other(e.to_string()))
 }
 
 #[tauri::command]

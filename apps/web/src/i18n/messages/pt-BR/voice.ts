@@ -67,6 +67,33 @@ export const voice = {
     " do navegador com áudio: só o som daquela aba vai, sem a voz da chamada. Ao compartilhar a tela inteira ou uma janela com áudio, use fones de ouvido.",
   "voice.share.speakerWarning":
     "Sua saída de áudio parece ser uma caixa de som. Com áudio compartilhado, use fones para evitar eco.",
+  "voice.appAudio.advanced": "Configurações avançadas",
+  "voice.appAudio.title": "Áudio de aplicativos",
+  "voice.appAudio.hint":
+    "Envia o som do computador junto com a tela. O Spook nunca entra no áudio compartilhado, para a chamada não voltar como eco.",
+  "voice.appAudio.mode": "O que compartilhar",
+  "voice.appAudio.modeSystem": "Todo o sistema",
+  "voice.appAudio.modeApps": "Aplicativos selecionados",
+  "voice.appAudio.systemHint": "Todo o som do computador vai, menos o do próprio Spook.",
+  "voice.appAudio.master": "Volume master",
+  "voice.appAudio.list": "Aplicativos com áudio",
+  "voice.appAudio.volumeOf": "Volume de {name}",
+  "voice.appAudio.percent": "{value}%",
+  "voice.appAudio.playing": "tocando",
+  "voice.appAudio.notOpen": "não está tocando",
+  "voice.appAudio.empty": "Nenhum aplicativo com áudio agora",
+  "voice.appAudio.loading": "Procurando aplicativos...",
+  "voice.appAudio.error": "Não foi possível listar os aplicativos. Tente atualizar.",
+  "voice.appAudio.refresh": "Atualizar lista",
+  "voice.appAudio.noneSelected":
+    "Marque ao menos um aplicativo; sem isso, só a imagem é compartilhada.",
+  "voice.appAudio.selfExcluded": "O Spook nunca aparece nesta lista nem entra no áudio.",
+  "voice.appAudio.unsupported.platform":
+    "O áudio por aplicativo só existe no Windows 10 e 11 por enquanto. Neste computador só a imagem é compartilhada.",
+  "voice.appAudio.unsupported.windows-version":
+    "O áudio por aplicativo precisa do Windows 10 versão 2004 ou mais novo. Atualize o Windows para usar; por enquanto só a imagem é compartilhada.",
+  "voice.appAudio.unsupported.error":
+    "Não foi possível iniciar a captura de áudio neste computador. Só a imagem será compartilhada.",
   "voice.share.preview": "Mostrar prévia para o canal",
   "voice.share.previewHint":
     "Quem está no servidor vê uma miniatura da sua tela antes de entrar na transmissão. Desligue para conteúdo sensível.",

@@ -234,6 +234,14 @@ Código em `apps/web/src/components/charts/` (SVG e CSS próprios, sem bibliotec
 - **`StatCard`** ganhou `spark` (miniatura) e seta `ArrowUpRight`/`ArrowDownRight` quando `tone` é `up`/`down` (variação percentual).
 - **Dashboard** (`/admin`) em grupos com `h2`: Resumo, Ao vivo agora, Crescimento, Conteúdo, Mídia, Aplicação e armazenamento. Chamadas (`/admin/calls`) ganhou barras de pessoas por sala e duração.
 
+### Compartilhar tela: "Configurações avançadas" e áudio de aplicativos (`features/voice/screen-share-app-audio.tsx`)
+
+- **Seção recolhível** no fim do corpo do diálogo de compartilhar tela (só no desktop): título `h3` com um botão de largura total (`aria-expanded`, `aria-controls`, `ChevronDown` que gira 180 graus), fechada por padrão (opção de nicho).
+- **Interruptor** "Áudio de aplicativos" (`Switch`, rótulo + dica em duas linhas), desligado por padrão; desabilitado com `<output>` de borda `destructive/40` quando o SO não suporta.
+- **Modo** como o seletor segmentado da qualidade (rádios de verdade com cara de botões, `bg-primary` no ativo, `min-h-9` para o texto longo quebrar sem estourar). **Volume master** e **volume por aplicativo** são `input type="range"` com `accent-primary` (mesmo padrão do volume por pessoa), rótulo à esquerda, valor em `tabular-nums` à direita; o rótulo do aplicativo é só para leitor de tela (`sr-only`: "Volume de {nome}").
+- **Lista** `ul` com borda, `max-h-52` e `overflow-y-auto` (rola só na vertical); cada linha: caixa de seleção (`size-4`, `accent-primary`), ícone opcional, nome (`min-w-0 flex-1 truncate`), estado ("tocando"/"não está tocando") e o controle de volume abaixo. Estado vazio/carregando/erro como uma linha centralizada em `text-xs text-muted-foreground`. Sem larguras fixas em px: cabe em 390 px sem rolagem horizontal.
+- Teclado: Tab percorre cabeçalho, interruptor, rádios (setas trocam), caixas e sliders (setas); foco visível com anel `ring`.
+
 ## Pendências para as etapas seguintes
 
 - (feito na etapa de chat) Avatar sem imagem agora usa iniciais coloridas por padrão em todo o app.

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetLimits, useLimitsStore } from "@/features/nitro/limits-store";
 import { PLAN_LIMITS } from "@/features/nitro/plans";
 import {
+  type AppAudioOptions,
   type VideoTrackInfo,
   VoiceConnectError,
   type VoiceEngineEvents,
@@ -630,6 +631,7 @@ describe("NativeVoiceEngine: capacidades do contrato adicional", () => {
     expect(engine.audioCapabilities).toEqual({
       strongNoiseSuppression: true,
       screenShareAudio: false,
+      screenShareAppAudio: true,
       participantVolume: { max: 2 },
       inputSensitivity: true,
       micTest: true,
@@ -1017,5 +1019,78 @@ describe("NativeVoiceEngine: captura preta e estatísticas", () => {
     });
     const mine = seen["video-track-added"]?.[1] as VideoTrackInfo;
     expect((await mine.source.stats?.())?.role).toBe("send");
+  });
+});
+
+describe("NativeVoiceEngine: áudio por aplicativo", () => {
+  const appAudio: AppAudioOptions = {
+    mode: "apps",
+    master: 80,
+    apps: [
+      { exe: "Spotify.exe", volume: 40 },
+      { exe: " chrome.exe ", volume: 130 },
+      { exe: "spotify.exe", volume: 55 },
+      { exe: "", volume: 10 },
+    ],
+  };
+
+  it("declara a capacidade e mantém o interruptor simples desligado", () => {
+    const { engine } = setup();
+    expect(engine.audioCapabilities.screenShareAppAudio).toBe(true);
+    expect(engine.audioCapabilities.screenShareAudio).toBe(false);
+  });
+
+  it("lista os aplicativos pelo comando e devolve o formato do Rust", async () => {
+    const { rust, engine } = setup();
+    const result = {
+      supported: true,
+      apps: [{ id: "spotify.exe", name: "Spotify", exe: "spotify.exe", playing: true }],
+    };
+    rust.on("voice_list_audio_apps", () => result);
+    expect(await engine.listAudioApps()).toEqual(result);
+    expect(rust.named("voice_list_audio_apps")).toHaveLength(1);
+  });
+
+  it("envia audioApps normalizado (minúsculo, 0 a 100, sem duplicados) junto com audio: true", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true, { audio: true, appAudio });
+    expect(rust.named("voice_set_screen_share")[0]?.args).toEqual({
+      on: true,
+      options: {
+        sourceId: "display:1",
+        audio: true,
+        audioApps: {
+          mode: "apps",
+          master: 80,
+          apps: [
+            { exe: "spotify.exe", volume: 55 },
+            { exe: "chrome.exe", volume: 100 },
+          ],
+        },
+      },
+    });
+  });
+
+  it("retrocompatível: só audio: true não manda audioApps; sem áudio, também não", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true, { audio: true });
+    await engine.setScreenShareEnabled(true, { audio: false, appAudio });
+    const [a, b] = rust.named("voice_set_screen_share");
+    expect(a?.args).toEqual({ on: true, options: { sourceId: "display:1", audio: true } });
+    expect(b?.args).toEqual({ on: true, options: { sourceId: "display:1", audio: false } });
+  });
+
+  it("modo sistema vai como mode: system, sem aplicativos", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.setScreenShareEnabled(true, {
+      audio: true,
+      appAudio: { mode: "system", master: 100, apps: [] },
+    });
+    expect(rust.named("voice_set_screen_share")[0]?.args).toMatchObject({
+      options: { audioApps: { mode: "system", master: 100, apps: [] } },
+    });
   });
 });

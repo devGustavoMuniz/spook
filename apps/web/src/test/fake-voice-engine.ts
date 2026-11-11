@@ -1,4 +1,6 @@
 import {
+  type AppAudioOptions,
+  type AudioAppsResult,
   type AudioCapabilities,
   type AudioSource,
   type ConnectionState,
@@ -38,7 +40,18 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
   micTests = 0;
   micTestCancels = 0;
   /** Opções da última chamada de `setScreenShareEnabled(true, ...)`. */
-  lastScreenOpts: { audio?: boolean; quality?: ScreenShareQuality } | undefined;
+  lastScreenOpts:
+    | { audio?: boolean; quality?: ScreenShareQuality; appAudio?: AppAudioOptions }
+    | undefined;
+  /** `listAudioApps` (desktop): a resposta atual, quantas chamadas e uma falha opcional. */
+  audioApps: AudioAppsResult = { supported: true, apps: [] };
+  audioAppsCalls = 0;
+  failAudioApps = false;
+  async listAudioApps() {
+    this.audioAppsCalls++;
+    if (this.failAudioApps) throw new Error("falha");
+    return this.audioApps;
+  }
   /** `setScreenWatching`, `replaceScreenShareSource` e `getConnectionStats` (lote 2). */
   watches: [string, boolean][] = [];
   swaps: ({ audio?: boolean } | undefined)[] = [];
@@ -88,7 +101,7 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
   }
   async setScreenShareEnabled(
     on: boolean,
-    opts?: { audio?: boolean; quality?: ScreenShareQuality },
+    opts?: { audio?: boolean; quality?: ScreenShareQuality; appAudio?: AppAudioOptions },
   ) {
     if (on && this.failScreen) throw this.failScreen;
     if (on) this.lastScreenOpts = opts;

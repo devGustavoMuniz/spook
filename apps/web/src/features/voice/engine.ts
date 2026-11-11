@@ -117,6 +117,29 @@ export type ScreenShareQuality = {
   maxBitrateKbps?: number;
 };
 
+/** O que o compartilhamento de tela leva de áudio: todo o sistema (menos o Spook) ou só aplicativos escolhidos. */
+export type AppAudioMode = "system" | "apps";
+
+/**
+ * Áudio por aplicativo (só no desktop com `audioCapabilities.screenShareAppAudio`). `master` e `volume` vão de 0 a
+ * 100 (%). Aplicativos são identificados pelo nome do executável (`exe`, minúsculo), nunca por PID.
+ */
+export type AppAudioOptions = {
+  mode: AppAudioMode;
+  master: number;
+  apps: { exe: string; volume: number }[];
+};
+
+/** Aplicativo com sessão de áudio (`listAudioApps`). `id` é estável entre execuções (o próprio `exe`). */
+export type AudioApp = { id: string; name: string; exe: string; icon?: string; playing?: boolean };
+
+/** Resposta de `listAudioApps`; `supported: false` explica o motivo para a interface mostrar o aviso. */
+export type AudioAppsResult = {
+  supported: boolean;
+  reason?: "platform" | "windows-version" | "error";
+  apps: AudioApp[];
+};
+
 /** Nível do microfone já processado (o que a porta enxerga), para o medidor da interface. */
 export type InputLevel = { db: number; gateOpen: boolean };
 
@@ -138,6 +161,12 @@ export type AudioCapabilities = {
   strongUnavailableReason?: string;
   /** A engine consegue enviar o áudio do sistema/aba ao compartilhar a tela (ausente = sim). O desktop não. */
   screenShareAudio?: boolean;
+  /**
+   * Áudio por aplicativo no compartilhamento de tela (`listAudioApps` + `setScreenShareEnabled(..., { appAudio })`),
+   * a seção "Configurações avançadas" do diálogo. Só o desktop declara; ausente = a seção não aparece (a web não
+   * consegue capturar o som de um aplicativo isolado).
+   */
+  screenShareAppAudio?: boolean;
   /**
    * Volume por participante (`setParticipantVolume`). `max` é o maior valor aceito (1 = 100%). Ausente = a engine
    * não ajusta volume por pessoa e a interface esconde os controles.
@@ -297,8 +326,10 @@ export interface VoiceEngine {
    */
   setScreenShareEnabled(
     enabled: boolean,
-    opts?: { audio?: boolean; quality?: ScreenShareQuality },
+    opts?: { audio?: boolean; quality?: ScreenShareQuality; appAudio?: AppAudioOptions },
   ): Promise<void>;
+  /** Aplicativos com som agora (só onde `audioCapabilities.screenShareAppAudio`). */
+  listAudioApps?(): Promise<AudioAppsResult>;
   /** Ensurdecer: silencia localmente todo o áudio remoto. Não mexe no microfone (isso é do controlador). */
   setDeafened(deafened: boolean): void;
   /** Retoma o áudio depois de `audio-blocked`. */

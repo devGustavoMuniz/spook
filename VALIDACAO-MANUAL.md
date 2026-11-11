@@ -504,3 +504,20 @@ Com o app local (`pnpm dev`; o padrão é 14 dias de Nitro+) ou em produção de
 - [ ] **Vencimento:** com a cortesia vencendo (ou ajustando `expires_at` da linha `trial` no banco de teste), a seção Nitro avisa nos últimos 7 dias, e ao vencer chega "Seu Nitro venceu" e os GIFs passam a aparecer parados.
 - [ ] **Desligar:** com `NITRO_TRIAL_DAYS=0` uma conta nova nasce no Grátis e sem faixa; `NITRO_TRIAL_TIER=nitro` dá Nitro; valor inválido (ex.: `abc`, `free`) impede o boot com mensagem clara.
 - [ ] **Métricas:** `spook.entitlement.changes{action="trial"}` sobe a cada conta nova; `spook.entitlement.trial_failed` fica em zero.
+
+### Áudio por aplicativo no compartilhamento de tela (desktop, Windows)
+
+Nada disto foi executado: o Rust com tauri/windows só compila no workflow Desktop do CI e a captura exige um Windows de verdade. Preparação: instale o app desktop numa máquina com Windows 10 2004+ ou 11, abra Spotify, um navegador (YouTube) e um jogo (ou outro app com som), e entre numa chamada com um amigo (ou uma segunda conta no navegador, ouvindo).
+
+- [ ] **Seção recolhida:** no diálogo de compartilhar tela do desktop a seção "Configurações avançadas" vem fechada; abre com Enter/Espaço pelo teclado; não existe "Incluir áudio" solto nem o aviso "só a imagem". Na web a seção não aparece.
+- [ ] **Só um aplicativo:** interruptor "Áudio de aplicativos" ligado, "Aplicativos selecionados", marque SÓ o Spotify, compartilhe a tela: quem assiste ouve o Spotify e NÃO ouve o navegador nem o jogo. Repita marcando só o navegador, e só o jogo.
+- [ ] **Volumes:** com Spotify e navegador marcados, Spotify a 20% e navegador a 100%: o Spotify chega bem mais baixo. Volume master a 50% baixa os dois; 0% silencia. Som alto nos dois ao mesmo tempo não estoura (sem chiado/clipping).
+- [ ] **O Spook não entra:** com a voz do amigo falando na chamada, compartilhe em "Todo o sistema" e em "Aplicativos selecionados": o amigo NÃO se ouve de volta (sem eco) e o Spook não aparece na lista. O som de entrar/sair da chamada também não vai na transmissão.
+- [ ] **Todo o sistema:** ouve Spotify, navegador e jogo juntos (menos o Spook).
+- [ ] **Abrir e fechar durante a transmissão:** compartilhe com o Spotify marcado MAS FECHADO: abra o Spotify e toque algo; em até ~2 s o som passa a ir. Feche o Spotify e reabra: volta sozinho. Com o navegador (vários processos) o som não dobra.
+- [ ] **Lista:** aplicativos que tocam aparecem primeiro com "tocando"; abrir um novo app com som o faz aparecer em até 3 s com a seção aberta; "Atualizar lista" atualiza na hora; sem nenhum aplicativo com áudio aparece "Nenhum aplicativo com áudio agora"; um aplicativo marcado e fechado continua na lista como "não está tocando".
+- [ ] **Lembrar escolhas:** feche e abra o diálogo (e o app): modo, master, aplicativos marcados e volumes voltam como estavam (por executável).
+- [ ] **Windows antigo:** num Windows 10 anterior à 2004 (ou VM) o interruptor fica desabilitado com o aviso de versão, e a tela é compartilhada só com imagem. Em macOS/Linux, o aviso "só existe no Windows 10 e 11".
+- [ ] **Estabilidade:** compartilhar e parar 5 vezes seguidas, ou encerrar o app durante a transmissão, não trava nem deixa o som do sistema alterado; o Gerenciador de Tarefas não mostra o Spook com CPU alta parado.
+- [ ] **Largura de 390 px:** com a janela do desktop estreita (ou a web em 390 px, para o layout), o diálogo não tem rolagem horizontal e a lista de aplicativos rola na vertical.
+

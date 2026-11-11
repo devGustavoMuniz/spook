@@ -12,11 +12,13 @@ import { Switch } from "@/components/ui/switch";
 import { useOpenNitro } from "@/features/nitro/use-open-nitro";
 import { usePlan } from "@/features/nitro/use-plan";
 import { useT } from "@/i18n";
+import { type AppAudioPrefs, buildAppAudioOptions, loadAppAudioPrefs } from "./app-audio";
 import { audioCapabilities, listDevices } from "./controller";
 import { loadDevicePrefs, loadScreenSharePrefs } from "./devices";
 import { outputLooksLikeHeadphones } from "./echo-risk";
-import type { ScreenShareQuality } from "./engine";
+import type { AppAudioOptions, ScreenShareQuality } from "./engine";
 import { clampScreenChoice, loadScreenChoice, qualityOf } from "./screen-quality";
+import { ScreenShareAppAudio } from "./screen-share-app-audio";
 import { ScreenQualityFields } from "./screen-share-fields";
 
 /**
@@ -31,7 +33,13 @@ export function ScreenShareDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (opts: { audio: boolean; quality?: ScreenShareQuality; preview?: boolean }) => void;
+  onConfirm: (opts: {
+    audio: boolean;
+    quality?: ScreenShareQuality;
+    preview?: boolean;
+    /** Só no desktop (seção "Configurações avançadas"): o que compartilhar de áudio e os volumes. */
+    appAudio?: AppAudioOptions;
+  }) => void;
 }) {
   const { t } = useT();
   const [audio, setAudio] = useState(false);
@@ -40,9 +48,14 @@ export function ScreenShareDialog({
   const openNitro = useOpenNitro();
   const [choice, setChoice] = useState(() => clampScreenChoice(loadScreenChoice(), plan.limits));
   const [headphones, setHeadphones] = useState<boolean | null>(null);
+  const [appPrefs, setAppPrefs] = useState<AppAudioPrefs>(() => loadAppAudioPrefs());
+  // O motor diz (ao listar os aplicativos) se este computador consegue capturar áudio por aplicativo.
+  const [appSupported, setAppSupported] = useState(true);
   // O app desktop ainda não captura o áudio do sistema: sem a opção, também não há laço de eco por compartilhar.
   const caps = audioCapabilities();
-  const noSystemAudio = caps.screenShareAudio === false;
+  // Desktop: o áudio é por aplicativo e mora nas "Configurações avançadas" (o interruptor simples não existe).
+  const hasAppAudio = caps.screenShareAppAudio === true;
+  const noSystemAudio = caps.screenShareAudio === false && !hasAppAudio;
   const canTuneQuality = caps.screenShareQuality === true;
   // O desktop não consegue capturar um quadro da tela para a miniatura.
   const canPreview = caps.screenSharePreview !== false;
@@ -58,6 +71,7 @@ export function ScreenShareDialog({
     const prefs = loadScreenSharePrefs();
     setAudio(prefs.audio);
     setPreview(prefs.preview);
+    setAppPrefs(loadAppAudioPrefs());
     setChoice(clampScreenChoice(loadScreenChoice(), limits));
     void listDevices("audiooutput").then((outs) => {
       if (alive) setHeadphones(outputLooksLikeHeadphones(outs, loadDevicePrefs().audiooutput));
@@ -89,7 +103,7 @@ export function ScreenShareDialog({
           ) : (
             <p className="text-xs text-muted-foreground">{t("voice.share.autoQuality")}</p>
           )}
-          {noSystemAudio ? (
+          {hasAppAudio ? null : noSystemAudio ? (
             <p className="text-sm">{t("voice.share.noSystemAudio")}</p>
           ) : (
             <>
@@ -131,6 +145,15 @@ export function ScreenShareDialog({
               </span>
             </div>
           </div>
+          {hasAppAudio ? (
+            <ScreenShareAppAudio
+              audio={audio}
+              onAudioChange={setAudio}
+              prefs={appPrefs}
+              onPrefsChange={setAppPrefs}
+              onSupportChange={setAppSupported}
+            />
+          ) : null}
         </DialogBody>
         <DialogActions>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -139,8 +162,10 @@ export function ScreenShareDialog({
           <Button
             onClick={() => {
               onOpenChange(false);
+              const audioOn = audio && (hasAppAudio ? appSupported : !noSystemAudio);
               onConfirm({
-                audio: audio && !noSystemAudio,
+                audio: audioOn,
+                ...(hasAppAudio && audioOn ? { appAudio: buildAppAudioOptions(appPrefs) } : {}),
                 ...(canTuneQuality
                   ? { quality: qualityOf(clampScreenChoice(choice, limits)) }
                   : {}),

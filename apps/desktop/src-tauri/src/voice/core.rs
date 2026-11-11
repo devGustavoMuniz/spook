@@ -23,6 +23,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use super::apm::{ApmBridge, AudioProcessingSettings};
+use super::appaudio::{self, AppAudioOptions, CapturePlan};
 use super::audio::{self, Direction, MicCapture, Playback, FRAME_SAMPLES, SAMPLE_RATE};
 use super::camera;
 use super::capture::VideoOut;
@@ -35,6 +36,7 @@ use super::mixer::{AudioSource, Mixer};
 use super::quality::ScreenQuality;
 use super::router::{FrameSink, VideoRouter, ViewParams};
 use super::screen;
+use super::screen_audio::{self, AudioCapture};
 use super::synth::{self, SyntheticInputs, ToneTask};
 use super::watch::{decide, SubKind, WatchSet};
 
@@ -73,8 +75,12 @@ pub struct DevicePrefs {
 #[serde(rename_all = "camelCase", default)]
 pub struct ScreenOptions {
     pub source_id: String,
-    /// Áudio do sistema: sem suporte nesta versão (aceito e ignorado).
+    /// Compartilhar áudio junto da tela. No Windows 10 2004+/11 vira uma faixa `ScreenshareAudio` (por padrão todo o
+    /// sistema, MENOS o Spook); nas outras plataformas é aceito e ignorado (só a imagem vai).
     pub audio: bool,
+    /// Áudio por aplicativo (`{ mode: "system" | "apps", master, apps: [{ exe, volume }] }`). Ausente = formato
+    /// antigo (`audio: true` = todo o sistema).
+    pub audio_apps: Option<AppAudioOptions>,
     /// Qualidade (altura, fps, prioridade, bitrate). Ausente = 1080p, 15 fps, nitidez (o que sempre foi).
     pub quality: Option<ScreenQuality>,
 }
@@ -212,11 +218,26 @@ struct ScreenState {
     /// Registra no log a cada poucos segundos o que o codificador realmente entrega (resolução, fps, bitrate,
     /// motivo de limitação). Para junto com a tela.
     stats_task: JoinHandle<()>,
+    /// Áudio da tela (faixa `ScreenshareAudio`), quando pedido e suportado.
+    audio: Option<ScreenAudio>,
 }
 
 impl Drop for ScreenState {
     fn drop(&mut self) {
         self.stats_task.abort();
+    }
+}
+
+/// Faixa de áudio da tela: a captura (threads WASAPI), a tarefa que entrega os blocos ao LiveKit e a publicação.
+struct ScreenAudio {
+    sid: TrackSid,
+    _capture: AudioCapture,
+    pump: JoinHandle<()>,
+}
+
+impl Drop for ScreenAudio {
+    fn drop(&mut self) {
+        self.pump.abort();
     }
 }
 
@@ -1237,9 +1258,6 @@ impl VoiceCore {
         if s.screen.is_some() {
             return Ok(());
         }
-        if opts.audio {
-            log::info!("áudio do sistema não é suportado nesta versão; compartilhando só o vídeo");
-        }
         // Sem `quality` vale o que sempre foi: 1080p, 15 fps, nitidez, 2,5 Mbps.
         let quality = opts.quality.unwrap_or_default().normalized();
         let fps = quality.fps;
@@ -1297,10 +1315,13 @@ impl VoiceCore {
                 log::warn!("falha ao publicar a tela: {e}");
                 VoiceError::media(MediaCode::Unknown, MediaDevice::Screen)
             })?;
+        // O áudio vem depois do vídeo e NUNCA derruba a transmissão: qualquer falha vira log e só a imagem vai.
+        let audio = self.start_screen_audio(s, &opts).await;
         s.screen = Some(ScreenState {
             sid: publication.sid(),
             _capture: capture,
             stats_task: spawn_screen_stats(stats_track, quality),
+            audio,
         });
         (s.shared.emit)(VoiceEvent::VideoTrackAdded {
             id: LOCAL_SCREEN_ID.into(),
@@ -1312,10 +1333,80 @@ impl VoiceCore {
         Ok(())
     }
 
+    /// Captura e publica o áudio da tela conforme o plano (`appaudio::decide`). `None` = sem áudio (não pedido,
+    /// plataforma sem suporte, nenhum aplicativo marcado ou falha, sempre registrada no log).
+    async fn start_screen_audio(&self, s: &Session, opts: &ScreenOptions) -> Option<ScreenAudio> {
+        let plan = appaudio::decide(
+            opts.audio,
+            opts.audio_apps.as_ref(),
+            screen_audio::os_support(),
+        );
+        if let CapturePlan::Off(reason) = &plan {
+            if opts.audio {
+                log::info!("áudio da tela não iniciado ({reason:?}); compartilhando só o vídeo");
+            }
+            return None;
+        }
+        if self.synthetic().is_some() {
+            return None;
+        }
+        let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
+        let capture = match screen_audio::start(plan, tx) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("não foi possível capturar o áudio da tela: {e}");
+                return None;
+            }
+        };
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, 2, 100);
+        let track = LocalAudioTrack::create_audio_track(
+            "screen_audio",
+            RtcAudioSource::Native(source.clone()),
+        );
+        let publish = TrackPublishOptions {
+            source: TrackSource::ScreenshareAudio,
+            ..Default::default()
+        };
+        let publication = match s
+            .room
+            .local_participant()
+            .publish_track(LocalTrack::Audio(track), publish)
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("falha ao publicar o áudio da tela: {e}");
+                return None;
+            }
+        };
+        let pump = tokio::spawn(async move {
+            while let Some(pcm) = rx.recv().await {
+                let frame = AudioFrame {
+                    data: Cow::Owned(pcm),
+                    sample_rate: SAMPLE_RATE,
+                    num_channels: 2,
+                    samples_per_channel: appaudio::BLOCK_FRAMES as u32,
+                };
+                if source.capture_frame(&frame).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Some(ScreenAudio {
+            sid: publication.sid(),
+            _capture: capture,
+            pump,
+        })
+    }
+
     async fn stop_screen_locked(&self, s: &mut Session) {
-        if let Some(scr) = s.screen.take() {
+        if let Some(mut scr) = s.screen.take() {
             let sid = scr.sid.clone();
+            let audio_sid = scr.audio.take().map(|a| a.sid.clone());
             drop(scr);
+            if let Some(audio_sid) = audio_sid {
+                let _ = s.room.local_participant().unpublish_track(&audio_sid).await;
+            }
             let _ = s.room.local_participant().unpublish_track(&sid).await;
             self.router.unsubscribe(LOCAL_SCREEN_ID);
             (s.shared.emit)(VoiceEvent::VideoTrackRemoved {

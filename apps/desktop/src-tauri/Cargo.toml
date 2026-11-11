@@ -60,6 +60,20 @@ image = { version = "0.25", optional = true, default-features = false, features 
 # exigir 8 e quebra a build no Windows. Fixado na última 1.4.x (não é usado diretamente por nós).
 [target.'cfg(windows)'.dependencies]
 windows-capture = "=1.4.4"
+# Áudio por aplicativo no compartilhamento de tela (WASAPI "process loopback" + sessões de áudio). Mesma versão
+# que o `scap` já traz (0.58.0 no Cargo.lock): não entra nenhuma versão nova; só habilita mais módulos da API.
+# `implement`: o manipulador de conclusão da ativação assíncrona é um objeto COM nosso.
+windows = { version = "=0.58.0", features = [
+    "implement",
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Wdk_System_SystemServices",
+] }
+windows-core = "=0.58.0"
 
 [dev-dependencies]
 # Só nos testes: mintar tokens do LiveKit de dev e decodificar os JPEG gerados.
