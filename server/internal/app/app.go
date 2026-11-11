@@ -408,7 +408,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	voiceSvc := voice.NewService(voice.Deps{
 		Provider: voiceProv, Store: voicememory.New(), Previews: voicememory.NewPreviews(), Pub: bus,
 		Access: voiceAccess{channels: channelSvc, guilds: guildSvc, dmBlocked: relSvc.PairBlocked}, Users: voiceUsers{users: userSvc}, Audit: auditSvc,
-		Plans: entSvc,
+		Plans: entSvc, EnforceScreen: d.Cfg.NitroEnforceScreen,
 	})
 	cancelVoice := bus.Subscribe(voiceSvc.OnEvent) // reavalia quem está em voz quando permissões mudam
 	go func() { <-ctx.Done(); cancelVoice() }()

@@ -23,7 +23,7 @@ func (failingTiers) Tier(context.Context, int64) (plan.Tier, error) {
 func envWithPlans(t *testing.T, p voice.Plans) *env {
 	t.Helper()
 	e := newEnv(t)
-	e.svc = voice.NewService(voice.Deps{Provider: e.prov, Store: memory.New(), Previews: e.pv, Access: e.acc, Users: fakeUsers{}, Pub: e.pub, Plans: p, Now: e.clk.now})
+	e.svc = voice.NewService(voice.Deps{Provider: e.prov, Store: memory.New(), Previews: e.pv, Access: e.acc, Users: fakeUsers{}, Pub: e.pub, Plans: p, EnforceScreen: true, Now: e.clk.now})
 	return e
 }
 
@@ -119,5 +119,18 @@ func TestScreenEnforcementIsBestEffort(t *testing.T) {
 	e3.publishScreen(t, alice, voiceA, "TR_A", 3840, 2160)
 	if len(e3.prov.muted) != 0 {
 		t.Fatal("sem PlanSource, nada é imposto")
+	}
+}
+
+// Sem NITRO_ENFORCE_SCREEN (padrão), a tela acima do plano NÃO é silenciada: clientes antigos não conhecem os
+// limites e a faixa silenciada deixa quem assiste carregando para sempre.
+func TestScreenAbovePlanIsNotMutedWithoutEnforcement(t *testing.T) {
+	e := newEnv(t)
+	e.svc = voice.NewService(voice.Deps{Provider: e.prov, Store: memory.New(), Previews: e.pv, Access: e.acc, Users: fakeUsers{}, Pub: e.pub, Plans: fixedTiers{alice: plan.Free}, Now: e.clk.now})
+	e.token(t, alice, voiceA)
+	e.join(t, alice, voiceA, "PA_"+itoa(alice))
+	e.publishScreen(t, alice, voiceA, "TR_A", 1920, 1080)
+	if len(e.prov.muted) != 0 {
+		t.Fatalf("faixa silenciada com a imposição desligada: %v", e.prov.muted)
 	}
 }

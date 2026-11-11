@@ -127,6 +127,9 @@ type Config struct {
 	// AuthRatePerMin é o limite de requisições por minuto, por IP, em /api/auth/* (SPOOK_AUTH_RATE_PER_MIN;
 	// zero = padrão de 10). Existe para o E2E, onde todas as contas saem do mesmo IP; em produção deixe sem definir.
 	AuthRatePerMin int
+	// NitroEnforceScreen liga o silenciamento, no servidor, da tela publicada acima do limite do plano
+	// (NITRO_ENFORCE_SCREEN=true; padrão desligado até todos os clientes aplicarem o limite).
+	NitroEnforceScreen bool
 	// AuditRetentionDays é por quantos dias o registro de auditoria é guardado (AUDIT_RETENTION_DAYS; padrão 90).
 	AuditRetentionDays int
 	// AdminUsernames (ADMIN_USERNAMES, separados por vírgula) são promovidos a administradores do painel
@@ -235,6 +238,7 @@ func Load() (Config, error) {
 		}
 		c.AuthRatePerMin = n
 	}
+	c.NitroEnforceScreen = os.Getenv("NITRO_ENFORCE_SCREEN") == "true"
 	c.AuditRetentionDays = 90
 	if v := os.Getenv("AUDIT_RETENTION_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)

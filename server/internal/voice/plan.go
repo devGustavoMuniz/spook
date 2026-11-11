@@ -16,13 +16,15 @@ const screenHeightSlack = 10 // por cento
 
 // enforceScreenLimit confere, em track_published de tela, se a altura informada passa do limite do plano de quem
 // publicou; se passar, silencia a faixa no LiveKit e registra. É melhor esforço e NUNCA derruba a chamada nem
-// devolve erro: o limite de verdade é o clamp do cliente (com `limits` do token).
+// devolve erro: o limite de verdade é o clamp do cliente (com `limits` do token). Só age com NITRO_ENFORCE_SCREEN
+// ligado: clientes antigos (sem o clamp) compartilham em 1080p e a faixa silenciada deixa os espectadores
+// carregando para sempre.
 //
 // Limitações: o webhook traz a largura e a altura que o cliente declarou ao publicar, mas não a taxa de quadros,
 // então os 30/60 fps não são conferidos aqui; um cliente adulterado pode declarar menos do que envia, e quem
 // reconectar a faixa pode desmutá-la. Sem LiveKit com dimensões no webhook (altura 0), nada é feito.
 func (s *Service) enforceScreenLimit(ctx context.Context, ev RoomEvent) {
-	if s.plans == nil || ev.Type != EventTrackPublished || ev.Source != SourceScreenShare || ev.TrackHeight <= 0 || ev.TrackSID == "" {
+	if !s.enforceScreen || s.plans == nil || ev.Type != EventTrackPublished || ev.Source != SourceScreenShare || ev.TrackHeight <= 0 || ev.TrackSID == "" {
 		return
 	}
 	userID, ok := parseID(ev.Identity)

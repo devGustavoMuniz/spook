@@ -35,9 +35,11 @@ type Deps struct {
 	Access   Access
 	Users    Users
 	Pub      events.Publisher
-	Audit    Auditor          // opcional
-	Plans    Plans            // opcional: limites de plano (Nitro) no token e na faixa de tela
-	Now      func() time.Time // opcional (testes)
+	Audit    Auditor // opcional
+	Plans    Plans   // opcional: limites de plano (Nitro) no token e na faixa de tela
+	// EnforceScreen liga o silenciamento da tela acima do plano (NITRO_ENFORCE_SCREEN; padrão desligado).
+	EnforceScreen bool
+	Now           func() time.Time // opcional (testes)
 }
 
 // Service são os casos de uso da voz.
@@ -50,7 +52,10 @@ type Service struct {
 	pub      events.Publisher
 	audit    Auditor
 	plans    Plans
-	now      func() time.Time
+	// enforceScreen liga o silenciamento de tela acima do plano (plan.go). Desligado por padrão: clientes antigos não
+	// conhecem os limites e a faixa silenciada deixa quem assiste carregando para sempre.
+	enforceScreen bool
+	now           func() time.Time
 
 	locks [lockStripes]sync.Mutex
 
@@ -67,7 +72,7 @@ type Service struct {
 
 func NewService(d Deps) *Service {
 	s := &Service{
-		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, audit: d.Audit, plans: d.Plans, now: d.Now,
+		prov: d.Provider, store: d.Store, previews: d.Previews, access: d.Access, users: d.Users, pub: d.Pub, audit: d.Audit, plans: d.Plans, enforceScreen: d.EnforceScreen, now: d.Now,
 		seen: newDedupe(2048), lastPut: map[int64]time.Time{}, watch: newWatchers(),
 	}
 	if s.now == nil {
