@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -45,6 +46,13 @@ type Service struct {
 	pepper   []byte
 	now      func() time.Time
 
+	// Avisos em segundo plano (concessão e revogação em massa): um aviso a cada notifyGap, para não travar o
+	// gateway nem o banco em bases grandes. bg conta as rotinas em andamento (testes e desligamento esperam).
+	notifyGap time.Duration
+	bg        sync.WaitGroup
+	stop      chan struct{}
+	stopOnce  sync.Once
+
 	changes metric.Int64Counter
 	redeems metric.Int64Counter
 }
@@ -53,10 +61,10 @@ func NewService(store Store, ids IDGenerator, pub events.Publisher, profiles Pro
 	if pub == nil {
 		pub = events.Discard{}
 	}
-	s := &Service{store: store, ids: ids, pub: pub, profiles: profiles, now: time.Now}
+	s := &Service{store: store, ids: ids, pub: pub, profiles: profiles, now: time.Now, notifyGap: NotifyGap, stop: make(chan struct{})}
 	m := otel.Meter("spook/entitlement")
 	s.changes, _ = m.Int64Counter("spook.entitlement.changes",
-		metric.WithDescription("Mudanças de plano por ação (grant, revoke, redeem, expire, codes_created), plano e origem"))
+		metric.WithDescription("Mudanças de plano por ação (grant, grant_all, revoke, revoke_batch, redeem, expire, codes_created), plano e origem"))
 	s.redeems, _ = m.Int64Counter("spook.entitlement.redeem_failed",
 		metric.WithDescription("Resgates recusados, por motivo (invalid, used, expired)"))
 	return s

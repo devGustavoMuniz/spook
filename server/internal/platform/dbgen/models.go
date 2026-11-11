@@ -104,6 +104,18 @@ type Entitlement struct {
 	RevokedAt        pgtype.Timestamptz
 	ExpiryNotifiedAt pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
+	BatchID          *int64
+}
+
+type EntitlementBatch struct {
+	ID           int64
+	Tier         string
+	Days         int32
+	CreatedBy    *int64
+	CreatedAt    pgtype.Timestamptz
+	GrantedCount int32
+	SkippedCount int32
+	RevokedAt    pgtype.Timestamptz
 }
 
 type Friendship struct {

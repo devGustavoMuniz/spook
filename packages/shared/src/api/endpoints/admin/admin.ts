@@ -35,11 +35,14 @@ import type {
   AdminTicketPage,
   AdminTicketPayload,
   AdminUsersParams,
+  BatchList,
   Calls,
   CodesPage,
   CreateCodesBody,
   ErrorModel,
   GatewayHistory,
+  GrantAllBody,
+  GrantAllResult,
   GrantBody,
   GrantPayload,
   GrantsPage,
@@ -48,6 +51,7 @@ import type {
   LiveKitPlan,
   NewCodesPayload,
   Overview,
+  RevokeBatchResult,
   RevokeResult,
   ServersBody,
   System,
@@ -318,6 +322,217 @@ export function useAdminCalls<TData = Awaited<ReturnType<typeof adminCalls>>, TE
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getAdminListEntitlementBatchesUrl = () => {
+  return `/api/admin/entitlement-batches`;
+};
+
+/**
+ * @summary Lotes de concessão em massa (os 50 mais recentes) e quantas contas ativas um novo lote atingiria
+ */
+export const adminListEntitlementBatches = async (
+  options?: Parameters<typeof http>[1],
+): Promise<BatchList> => {
+  return http<BatchList>(getAdminListEntitlementBatchesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getAdminListEntitlementBatchesQueryKey = () => {
+  return [`/api/admin/entitlement-batches`] as const;
+};
+
+export const getAdminListEntitlementBatchesQueryOptions = <
+  TData = Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+  TError = ErrorModel,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlementBatches>>, TError, TData>
+  >;
+  request?: SecondParameter<typeof http>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAdminListEntitlementBatchesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListEntitlementBatches>>> = ({
+    signal,
+  }) => adminListEntitlementBatches({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type AdminListEntitlementBatchesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof adminListEntitlementBatches>>
+>;
+export type AdminListEntitlementBatchesQueryError = ErrorModel;
+
+export function useAdminListEntitlementBatches<
+  TData = Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+  TError = ErrorModel,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlementBatches>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+          TError,
+          Awaited<ReturnType<typeof adminListEntitlementBatches>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminListEntitlementBatches<
+  TData = Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlementBatches>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+          TError,
+          Awaited<ReturnType<typeof adminListEntitlementBatches>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAdminListEntitlementBatches<
+  TData = Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlementBatches>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary Lotes de concessão em massa (os 50 mais recentes) e quantas contas ativas um novo lote atingiria
+ */
+
+export function useAdminListEntitlementBatches<
+  TData = Awaited<ReturnType<typeof adminListEntitlementBatches>>,
+  TError = ErrorModel,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof adminListEntitlementBatches>>, TError, TData>
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getAdminListEntitlementBatchesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getAdminRevokeEntitlementBatchUrl = (id: string) => {
+  return `/api/admin/entitlement-batches/${id}`;
+};
+
+/**
+ * @summary Revoga as concessões ativas de um lote inteiro e avisa quem perdeu o plano. 404 se o lote não existe, 409 se já foi revogado. Limite: 10 por hora por administrador
+ */
+export const adminRevokeEntitlementBatch = async (
+  id: string,
+  options?: Parameters<typeof http>[1],
+): Promise<RevokeBatchResult> => {
+  return http<RevokeBatchResult>(getAdminRevokeEntitlementBatchUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getAdminRevokeEntitlementBatchMutationKey = () =>
+  ["adminRevokeEntitlementBatch"] as const;
+
+export const getAdminRevokeEntitlementBatchMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminRevokeEntitlementBatch>>,
+    TError,
+    AdminRevokeEntitlementBatchMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminRevokeEntitlementBatch>>,
+  TError,
+  AdminRevokeEntitlementBatchMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAdminRevokeEntitlementBatchMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminRevokeEntitlementBatch>>,
+    AdminRevokeEntitlementBatchMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return adminRevokeEntitlementBatch(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminRevokeEntitlementBatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminRevokeEntitlementBatch>>
+>;
+
+export type AdminRevokeEntitlementBatchMutationError = ErrorModel;
+export type AdminRevokeEntitlementBatchMutationVariables = { id: string };
+
+/**
+ * @summary Revoga as concessões ativas de um lote inteiro e avisa quem perdeu o plano. 404 se o lote não existe, 409 se já foi revogado. Limite: 10 por hora por administrador
+ */
+export const useAdminRevokeEntitlementBatch = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof adminRevokeEntitlementBatch>>,
+      TError,
+      AdminRevokeEntitlementBatchMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof adminRevokeEntitlementBatch>>,
+  TError,
+  AdminRevokeEntitlementBatchMutationVariables,
+  TContext
+> => {
+  return useMutation(getAdminRevokeEntitlementBatchMutationOptions(options), queryClient);
+};
 export const getAdminListEntitlementsUrl = (params?: AdminListEntitlementsParams) => {
   const normalizedParams = new URLSearchParams();
 
@@ -463,6 +678,111 @@ export function useAdminListEntitlements<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const getAdminGrantAllEntitlementsUrl = () => {
+  return `/api/admin/entitlements/grant-all`;
+};
+
+/**
+ * @summary Concede Nitro ou Nitro+ por N dias a TODAS as contas ativas (uma concessão por conta, em lote). Exige confirm: true; idempotente: o mesmo plano e prazo em até 24 h devolve o lote existente (already_applied) sem gravar. Os avisos em tempo real saem em segundo plano. Limite: 3 por hora por administrador
+ */
+export const adminGrantAllEntitlements = async (
+  grantAllBody: GrantAllBody,
+  options?: Parameters<typeof http>[1],
+): Promise<GrantAllResult> => {
+  const getHeaders = (
+    h?: NonNullable<RequestInit["headers"]>,
+  ): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(
+          h as Iterable<Iterable<string>>,
+          (entry) => Array.from(entry) as [string, string],
+        ),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+  return http<GrantAllResult>(getAdminGrantAllEntitlementsUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getHeaders(options?.headers) },
+    body: JSON.stringify(grantAllBody),
+  });
+};
+
+export const getAdminGrantAllEntitlementsMutationKey = () => ["adminGrantAllEntitlements"] as const;
+
+export const getAdminGrantAllEntitlementsMutationOptions = <
+  TError = ErrorModel,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminGrantAllEntitlements>>,
+    TError,
+    AdminGrantAllEntitlementsMutationVariables,
+    TContext
+  >;
+  request?: SecondParameter<typeof http>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminGrantAllEntitlements>>,
+  TError,
+  AdminGrantAllEntitlementsMutationVariables,
+  TContext
+> => {
+  const mutationKey = getAdminGrantAllEntitlementsMutationKey();
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminGrantAllEntitlements>>,
+    AdminGrantAllEntitlementsMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return adminGrantAllEntitlements(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminGrantAllEntitlementsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminGrantAllEntitlements>>
+>;
+export type AdminGrantAllEntitlementsMutationBody = GrantAllBody;
+export type AdminGrantAllEntitlementsMutationError = ErrorModel;
+export type AdminGrantAllEntitlementsMutationVariables = { data: GrantAllBody };
+
+/**
+ * @summary Concede Nitro ou Nitro+ por N dias a TODAS as contas ativas (uma concessão por conta, em lote). Exige confirm: true; idempotente: o mesmo plano e prazo em até 24 h devolve o lote existente (already_applied) sem gravar. Os avisos em tempo real saem em segundo plano. Limite: 3 por hora por administrador
+ */
+export const useAdminGrantAllEntitlements = <TError = ErrorModel, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof adminGrantAllEntitlements>>,
+      TError,
+      AdminGrantAllEntitlementsMutationVariables,
+      TContext
+    >;
+    request?: SecondParameter<typeof http>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof adminGrantAllEntitlements>>,
+  TError,
+  AdminGrantAllEntitlementsMutationVariables,
+  TContext
+> => {
+  return useMutation(getAdminGrantAllEntitlementsMutationOptions(options), queryClient);
+};
 export const getAdminRevokeEntitlementGrantUrl = (id: string) => {
   return `/api/admin/entitlements/${id}`;
 };

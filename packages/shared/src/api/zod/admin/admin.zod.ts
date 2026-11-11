@@ -60,6 +60,46 @@ export const AdminCallsResponse = zod.object({
 });
 
 /**
+ * @summary Lotes de concessão em massa (os 50 mais recentes) e quantas contas ativas um novo lote atingiria
+ */
+export const AdminListEntitlementBatchesResponse = zod.object({
+  eligible_users: zod.int().describe("Contas ativas (não excluídas) que um novo lote atingiria"),
+  items: zod
+    .array(
+      zod.object({
+        created_at: zod.iso.datetime({ offset: true }),
+        created_by: zod
+          .string()
+          .optional()
+          .describe("Username de quem criou (vazio se a conta saiu)"),
+        days: zod.int(),
+        granted: zod.int(),
+        id: zod.string(),
+        revoked_at: zod.iso
+          .datetime({ offset: true })
+          .nullable()
+          .describe("Preenchido se o lote foi revogado"),
+        skipped: zod.int(),
+        tier: zod.enum(["nitro", "nitro_plus"]),
+      }),
+    )
+    .nullable()
+    .describe("Os 50 lotes mais recentes"),
+});
+
+/**
+ * @summary Revoga as concessões ativas de um lote inteiro e avisa quem perdeu o plano. 404 se o lote não existe, 409 se já foi revogado. Limite: 10 por hora por administrador
+ */
+export const AdminRevokeEntitlementBatchParams = zod.object({
+  id: zod.string().describe("ID do lote"),
+});
+
+export const AdminRevokeEntitlementBatchResponse = zod.object({
+  batch_id: zod.string(),
+  revoked: zod.int().describe("Concessões ativas do lote que foram revogadas"),
+});
+
+/**
  * @summary Concessões de plano (ativas por padrão) com busca por username/nome, filtro por plano e página
  */
 export const adminListEntitlementsQueryStateDefault = `active`;
@@ -105,6 +145,38 @@ export const AdminListEntitlementsResponse = zod.object({
   page: zod.int(),
   page_size: zod.int(),
   total: zod.int(),
+});
+
+/**
+ * @summary Concede Nitro ou Nitro+ por N dias a TODAS as contas ativas (uma concessão por conta, em lote). Exige confirm: true; idempotente: o mesmo plano e prazo em até 24 h devolve o lote existente (already_applied) sem gravar. Os avisos em tempo real saem em segundo plano. Limite: 3 por hora por administrador
+ */
+export const adminGrantAllEntitlementsBodyDaysMax = 3650;
+
+export const AdminGrantAllEntitlementsBody = zod.object({
+  confirm: zod
+    .boolean()
+    .describe("Precisa ser true: ação ampla, sem confirmação explícita responde 422"),
+  days: zod
+    .int()
+    .min(1)
+    .max(adminGrantAllEntitlementsBodyDaysMax)
+    .describe(
+      "Dias de plano (obrigatório; não existe lote permanente). Somam-se à validade vigente do mesmo plano ou de um maior",
+    ),
+  tier: zod.enum(["nitro", "nitro_plus"]).describe("Plano a conceder a todas as contas ativas"),
+});
+
+export const AdminGrantAllEntitlementsResponse = zod.object({
+  already_applied: zod
+    .boolean()
+    .describe(
+      "true = já havia um lote igual (mesmo plano e prazo, não revogado) nas últimas 24 h; nada foi gravado",
+    ),
+  batch_id: zod.string().describe("ID do lote (Snowflake, string)"),
+  granted: zod.int().describe("Concessões criadas (uma por conta ativa)"),
+  skipped: zod
+    .int()
+    .describe("Contas ativas puladas por já terem o mesmo plano ou um maior de forma permanente"),
 });
 
 /**

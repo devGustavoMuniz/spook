@@ -41,8 +41,10 @@ var actionRules = []actionRule{
 	{"tickets.create", 5.0 / 60, 5, []string{"createTicket"}},   // 5 chamados por hora
 	{"tickets.upload", 20, 10, []string{"requestTicketUpload"}}, // imagens de chamados: 20 pedidos por minuto
 	{"tickets.reply", 30, 10, []string{"replyMyTicket", "setMyTicketStatus"}},
-	{"plan.redeem", 5, 5, []string{"redeemPlanCode"}},                      // 5 resgates por minuto por usuário (e 20 por hora por IP: plan.redeem_ip)
-	{"billing.checkout", 10.0 / 60, 10, []string{"createBillingCheckout"}}, // 10 checkouts por hora por usuário
+	{"plan.redeem", 5, 5, []string{"redeemPlanCode"}},                             // 5 resgates por minuto por usuário (e 20 por hora por IP: plan.redeem_ip)
+	{"billing.checkout", 10.0 / 60, 10, []string{"createBillingCheckout"}},        // 10 checkouts por hora por usuário
+	{"plan.grant_all", 3.0 / 60, 3, []string{"adminGrantAllEntitlements"}},        // concessão em massa: 3 por hora por administrador
+	{"plan.batch_revoke", 10.0 / 60, 10, []string{"adminRevokeEntitlementBatch"}}, // revogar lote: 10 por hora por administrador
 	{"messages.pin", 30, 15, []string{"pinMessage", "unpinMessage"}},
 	// Banir, expulsar, mutar, apelido alheio, overwrites e desconectar da voz já são limitados dentro dos services,
 	// no limitador "moderation" (chave "mod:<usuário>"): não entram aqui para não contar duas vezes.

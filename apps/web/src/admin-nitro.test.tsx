@@ -389,3 +389,167 @@ describe("/admin/nitro", () => {
     });
   });
 });
+
+const batch = (id: string, over: Record<string, unknown> = {}) => ({
+  id,
+  tier: "nitro_plus",
+  days: 30,
+  created_by: "gustavo",
+  created_at: at,
+  granted: 12,
+  skipped: 1,
+  revoked_at: null,
+  ...over,
+});
+
+function bulkApi(
+  over: { batches?: unknown[]; eligible?: number; grantAllStatus?: number; already?: boolean } = {},
+) {
+  const hits = { grantAll: [] as unknown[], revoked: [] as string[] };
+  api();
+  server.use(
+    http.get("*/api/admin/entitlement-batches", () =>
+      HttpResponse.json({
+        items: over.batches ?? [batch("b1")],
+        eligible_users: over.eligible ?? 13,
+      }),
+    ),
+    http.post("*/api/admin/entitlements/grant-all", async ({ request }) => {
+      hits.grantAll.push(await request.json());
+      if (over.grantAllStatus)
+        return HttpResponse.json(
+          { title: "x", status: over.grantAllStatus, detail: "x" },
+          { status: over.grantAllStatus },
+        );
+      return HttpResponse.json({
+        batch_id: "b2",
+        granted: 12,
+        skipped: 1,
+        already_applied: over.already ?? false,
+      });
+    }),
+    http.delete("*/api/admin/entitlement-batches/:id", ({ params }) => {
+      hits.revoked.push(String(params.id));
+      return HttpResponse.json({ batch_id: String(params.id), revoked: 12 });
+    }),
+  );
+  return hits;
+}
+
+describe("/admin/nitro: aba Em massa", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function openBulk() {
+    const user = userEvent.setup();
+    await open();
+    await user.click(await screen.findByRole("tab", { name: "Em massa" }));
+    return user;
+  }
+
+  async function confirmGrant(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: "Conceder a todos…" }));
+    await user.type(await screen.findByLabelText(/Digite CONCEDER/), "CONCEDER");
+    await user.click(screen.getByRole("button", { name: "Conceder a todos" }));
+  }
+
+  it("padrão Nitro+ 30 dias; o diálogo mostra quantos serão afetados e exige CONCEDER", async () => {
+    const hits = bulkApi();
+    const user = await openBulk();
+    expect(screen.getByRole("radio", { name: "Nitro+" })).toBeChecked();
+    expect(screen.getByLabelText("Dias (1 a 3650)")).toHaveValue(30);
+    await user.click(screen.getByRole("button", { name: "Conceder a todos…" }));
+    const dlg = await screen.findByRole("alertdialog");
+    await waitFor(() => expect(dlg).toHaveTextContent("Isto afeta 13 pessoas"));
+    expect(dlg).toHaveTextContent("30 dias de Nitro+");
+    const go = within(dlg).getByRole("button", { name: "Conceder a todos" });
+    expect(go).toBeDisabled();
+    const field = within(dlg).getByLabelText(/Digite CONCEDER/);
+    await user.type(field, "conceder");
+    expect(go).toBeDisabled(); // a caixa importa
+    await user.clear(field);
+    await user.type(field, "CONCEDER");
+    expect(go).toBeEnabled();
+    await user.click(go);
+    await waitFor(() =>
+      expect(hits.grantAll).toEqual([{ tier: "nitro_plus", days: 30, confirm: true }]),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Nitro+ por 30 dias concedido a 12 pessoas. 1 pessoa foi pulada",
+    );
+  });
+
+  it("cancelar não chama a API e limpa a palavra digitada", async () => {
+    const hits = bulkApi();
+    const user = await openBulk();
+    await user.click(screen.getByRole("button", { name: "Conceder a todos…" }));
+    await user.type(await screen.findByLabelText(/Digite CONCEDER/), "CONCED");
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(hits.grantAll).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Conceder a todos…" }));
+    expect(await screen.findByLabelText(/Digite CONCEDER/)).toHaveValue("");
+  });
+
+  it("dias fora de 1..3650 desabilitam o botão; plano e dias vão no corpo", async () => {
+    const hits = bulkApi();
+    const user = await openBulk();
+    const days = screen.getByLabelText("Dias (1 a 3650)");
+    await user.clear(days);
+    await user.type(days, "0");
+    expect(screen.getByRole("button", { name: "Conceder a todos…" })).toBeDisabled();
+    await user.clear(days);
+    await user.type(days, "3651");
+    expect(screen.getByRole("button", { name: "Conceder a todos…" })).toBeDisabled();
+    await user.clear(days);
+    await user.type(days, "7");
+    await user.click(screen.getByRole("radio", { name: "Nitro" }));
+    await confirmGrant(user);
+    await waitFor(() => expect(hits.grantAll).toEqual([{ tier: "nitro", days: 7, confirm: true }]));
+  });
+
+  it("repetição dentro de 24 h avisa que nada foi gravado", async () => {
+    bulkApi({ already: true });
+    const user = await openBulk();
+    await confirmGrant(user);
+    expect(await screen.findByRole("status")).toHaveTextContent("Já existia um lote igual");
+  });
+
+  it("erro 429 avisa e não mostra sucesso", async () => {
+    bulkApi({ grantAllStatus: 429 });
+    const user = await openBulk();
+    await confirmGrant(user);
+    expect(await screen.findByText(/Muitas tentativas/)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("lista os lotes e revoga com confirmação digitada", async () => {
+    const hits = bulkApi({
+      batches: [batch("b1"), batch("b0", { revoked_at: at, tier: "nitro", days: 7 })],
+    });
+    const user = await openBulk();
+    const table = await screen.findByRole("table", { name: "Lotes de concessão em massa" });
+    expect(await within(table).findAllByText("@gustavo")).toHaveLength(2);
+    expect(within(table).getAllByText("12 (1 pulada)")).toHaveLength(2);
+    expect(within(table).getAllByRole("button", { name: /Revogar lote/ })).toHaveLength(1); // o revogado não tem botão
+    const trigger = () =>
+      within(table).getByRole("button", { name: "Revogar lote Nitro+ por 30 dias" });
+    await user.click(trigger());
+    const dlg = await screen.findByRole("alertdialog");
+    expect(within(dlg).getByRole("button", { name: "Revogar lote" })).toBeDisabled();
+    await user.click(within(dlg).getByRole("button", { name: "Manter" }));
+    expect(hits.revoked).toEqual([]);
+    await user.click(trigger());
+    const dlg2 = await screen.findByRole("alertdialog");
+    await user.type(within(dlg2).getByLabelText(/Digite REVOGAR/), "REVOGAR");
+    await user.click(within(dlg2).getByRole("button", { name: "Revogar lote" }));
+    await waitFor(() => expect(hits.revoked).toEqual(["b1"]));
+    expect(await screen.findByText(/Lote revogado: 12 pessoas/)).toBeInTheDocument();
+  });
+
+  it("sem lotes mostra o vazio", async () => {
+    bulkApi({ batches: [] });
+    await openBulk();
+    expect(await screen.findByText("Nenhum lote ainda.")).toBeInTheDocument();
+  });
+});

@@ -155,6 +155,9 @@ type App struct {
 // Close para o processamento de jobs: espera os em andamento terminarem (ou ctx expirar). Chame antes de
 // fechar o pool de conexões.
 func (a *App) Close(ctx context.Context) error {
+	if a.plans != nil {
+		a.plans.Close() // avisos em massa de plano ainda pendentes (segundo plano) param antes do banco fechar
+	}
 	if a.notify != nil {
 		a.notify.Stop() // antes dos jobs: o que ainda está na fila pode enfileirar push
 	}

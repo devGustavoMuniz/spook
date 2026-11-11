@@ -87,3 +87,88 @@ WHERE (sqlc.arg(state)::text = 'all'
   AND (sqlc.arg(tier)::text = '' OR c.tier = sqlc.arg(tier)::text)
 ORDER BY c.created_at DESC, c.id DESC
 LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(page_offset);
+
+-- ---- concessão em massa (lotes) ----
+
+-- Serializa a criação de lotes (a checagem de idempotência e o insert do lote viram uma fila).
+-- name: LockEntitlementBatches :exec
+SELECT pg_advisory_xact_lock(hashtext('entitlement_batches'));
+
+-- Lote não revogado com o mesmo plano e prazo criado depois de since (idempotência).
+-- name: FindRecentEntitlementBatch :one
+SELECT * FROM entitlement_batches
+WHERE tier = sqlc.arg(tier) AND days = sqlc.arg(days) AND revoked_at IS NULL AND created_at > sqlc.arg(since)
+ORDER BY created_at DESC LIMIT 1;
+
+-- name: InsertEntitlementBatch :one
+INSERT INTO entitlement_batches (id, tier, days, created_by, created_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
+
+-- name: GetEntitlementBatch :one
+SELECT * FROM entitlement_batches WHERE id = $1;
+
+-- name: FinishEntitlementBatch :exec
+UPDATE entitlement_batches SET granted_count = $2, skipped_count = $3 WHERE id = $1;
+
+-- Desfaz um lote que falhou no meio (concessões e o próprio lote).
+-- name: DeleteEntitlementsByBatch :exec
+DELETE FROM entitlements WHERE batch_id = $1;
+
+-- name: DeleteEntitlementBatch :exec
+DELETE FROM entitlement_batches WHERE id = $1;
+
+-- Pessoas que podem receber o plano: contas não excluídas/anonimizadas (deleted_at nulo), paginadas por ID.
+-- name: ListEntitlementTargetUsers :many
+SELECT id FROM users WHERE deleted_at IS NULL AND id > sqlc.arg(after_id) ORDER BY id LIMIT sqlc.arg(page_size);
+
+-- name: CountEntitlementTargetUsers :one
+SELECT count(*)::bigint FROM users WHERE deleted_at IS NULL;
+
+-- Concede o lote a uma página de pessoas numa instrução. Trava as linhas (em ordem de ID, como as demais
+-- concessões) e calcula a validade com a mesma regra do service: os dias começam no fim da validade mais longa entre
+-- as concessões ativas do mesmo plano ou de um maior (ou agora, se não houver). Quem tem concessão permanente do
+-- mesmo plano ou de um maior é pulado (nada a somar). Devolve só as concessões criadas.
+-- name: BulkGrantEntitlements :many
+WITH target AS (
+    SELECT u.id FROM users u
+    WHERE u.id = ANY(sqlc.arg(user_ids)::bigint[]) AND u.deleted_at IS NULL
+    ORDER BY u.id FOR NO KEY UPDATE OF u
+), arr AS (
+    SELECT sqlc.arg(user_ids)::bigint[] AS user_ids, sqlc.arg(grant_ids)::bigint[] AS grant_ids
+), ids AS (
+    SELECT uu.user_id, gg.grant_id
+    FROM arr, unnest(arr.user_ids) WITH ORDINALITY AS uu(user_id, n)
+    JOIN LATERAL unnest(arr.grant_ids) WITH ORDINALITY AS gg(grant_id, n) ON gg.n = uu.n
+), cover AS (
+    SELECT t.id AS user_id, COALESCE(bool_or(e.expires_at IS NULL), false) AS permanent, max(e.expires_at) AS until
+    FROM target t
+    JOIN entitlements e ON e.user_id = t.id AND e.revoked_at IS NULL AND (e.expires_at IS NULL OR e.expires_at > sqlc.arg(now))
+        AND (CASE e.tier WHEN 'nitro_plus' THEN 2 ELSE 1 END) >= sqlc.arg(min_rank)::int
+    GROUP BY t.id
+)
+INSERT INTO entitlements (id, user_id, tier, source, expires_at, granted_by, batch_id, created_at)
+SELECT ids.grant_id, t.id, sqlc.arg(tier)::text, 'admin',
+       GREATEST(COALESCE(c.until, sqlc.arg(now)::timestamptz), sqlc.arg(now)::timestamptz) + sqlc.arg(days)::int * interval '24 hours',
+       sqlc.arg(granted_by), sqlc.arg(batch_id), sqlc.arg(now)
+FROM target t
+JOIN ids ON ids.user_id = t.id
+LEFT JOIN cover c ON c.user_id = t.id
+WHERE NOT COALESCE(c.permanent, false)
+RETURNING user_id;
+
+-- Revoga as concessões ativas de um lote. Devolve quem perdeu (para os avisos).
+-- name: RevokeEntitlementsByBatch :many
+UPDATE entitlements SET revoked_at = sqlc.arg(now)
+WHERE batch_id = sqlc.arg(batch_id) AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > sqlc.arg(now))
+RETURNING user_id, tier;
+
+-- name: MarkEntitlementBatchRevoked :exec
+UPDATE entitlement_batches SET revoked_at = $2 WHERE id = $1;
+
+-- name: AdminListEntitlementBatches :many
+SELECT b.id, b.tier, b.days, b.created_at, b.granted_count, b.skipped_count, b.revoked_at, u.username AS created_by_username
+FROM entitlement_batches b
+LEFT JOIN users u ON u.id = b.created_by
+ORDER BY b.created_at DESC, b.id DESC
+LIMIT sqlc.arg(max_rows);

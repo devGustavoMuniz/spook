@@ -3,14 +3,18 @@ import {
   type AdminListEntitlementsTier,
   type AdminListRedeemCodesState,
   type AdminListRedeemCodesTier,
+  type BatchPayload,
   type CodePayload,
   type GrantPayload,
   isApiError,
   type NewCodePayload,
   useAdminCreateRedeemCodes,
+  useAdminGrantAllEntitlements,
   useAdminGrantEntitlement,
+  useAdminListEntitlementBatches,
   useAdminListEntitlements,
   useAdminListRedeemCodes,
+  useAdminRevokeEntitlementBatch,
   useAdminRevokeEntitlementGrant,
   useAdminUsers,
 } from "@spook/shared";
@@ -733,6 +737,274 @@ function CodesList() {
   );
 }
 
+/* ------------------------------ Em massa ------------------------------ */
+
+/** Palavra que o administrador digita para liberar a concessão em massa. */
+export const BULK_CONFIRM_WORD = "CONCEDER";
+
+const BATCH_PREFIX = "/api/admin/entitlement";
+
+/** "1 pessoa" / "12 pessoas". */
+function people(n: number): string {
+  return `${n} ${n === 1 ? "pessoa" : "pessoas"}`;
+}
+
+function BulkGrantForm() {
+  const qc = useQueryClient();
+  const [tier, setTier] = useState<Tier>("nitro_plus");
+  const [days, setDays] = useState("30");
+  const [typed, setTyped] = useState("");
+  const [open, setOpen] = useState(false);
+  const [done, setDone] = useState<{
+    tier: Tier;
+    days: number;
+    granted: number;
+    skipped: number;
+    already: boolean;
+  } | null>(null);
+  const id = useId();
+  const batches = useAdminListEntitlementBatches({ query: { staleTime: 10_000 } });
+  const eligible = batches.data?.eligible_users;
+  const n = Number.parseInt(days, 10);
+  const valid = Number.isInteger(n) && n >= 1 && n <= 3650;
+  const grant = useAdminGrantAllEntitlements({
+    mutation: {
+      onSuccess: (res, vars) => {
+        setDone({
+          tier: vars.data.tier,
+          days: vars.data.days,
+          granted: res.granted,
+          skipped: res.skipped,
+          already: res.already_applied,
+        });
+        void invalidate(qc, BATCH_PREFIX);
+      },
+      onError: (err) => toast.error(adminErrorText(err)),
+      onSettled: () => {
+        setOpen(false);
+        setTyped("");
+      },
+    },
+  });
+  return (
+    <section aria-label="Conceder a todos" className="flex flex-col gap-4 rounded-lg border p-4">
+      <div>
+        <h2 className="text-base font-semibold">Conceder a todos os usuários</h2>
+        <p className="text-sm text-muted-foreground">
+          Cria uma concessão para cada conta ativa. Os dias somam-se à validade que a pessoa já tem
+          do mesmo plano (ou de um maior); quem já tem esse plano permanente é pulado. Repetir o
+          mesmo pedido em 24 h não duplica.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-4">
+        <TierField value={tier} onChange={setTier} />
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${id}-days`}>Dias (1 a 3650)</Label>
+          <Input
+            id={`${id}-days`}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={3650}
+            className="w-28"
+            value={days}
+            aria-invalid={days !== "" && !valid}
+            onChange={(e) => setDays(e.target.value)}
+          />
+        </div>
+        <AlertDialog
+          open={open}
+          onOpenChange={(o) => {
+            setOpen(o);
+            if (!o) setTyped("");
+          }}
+        >
+          <AlertDialogTrigger asChild>
+            <Button type="button" disabled={!valid}>
+              Conceder a todos…
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogTitle>Conceder {TIER_LABEL[tier]} a todos?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {eligible === undefined
+                ? "Isto afeta todas as contas ativas."
+                : `Isto afeta ${people(eligible)} (todas as contas ativas).`}{" "}
+              Cada uma ganha {valid ? n : "—"} dias de {TIER_LABEL[tier]}. Você pode desfazer
+              revogando o lote depois.
+            </AlertDialogDescription>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={`${id}-confirm`}>Digite {BULK_CONFIRM_WORD} para confirmar</Label>
+              <Input
+                id={`${id}-confirm`}
+                autoComplete="off"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={typed !== BULK_CONFIRM_WORD || grant.isPending || !valid}
+                onClick={(e) => {
+                  e.preventDefault();
+                  grant.mutate({ data: { tier, days: n, confirm: true } });
+                }}
+              >
+                {grant.isPending ? "Concedendo…" : "Conceder a todos"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+      {done ? (
+        <output className="flex items-start justify-between gap-3 rounded-md bg-success-soft p-3 text-sm text-success-text">
+          <p>
+            {done.already
+              ? `Já existia um lote igual nas últimas 24 h: nada foi gravado de novo. Ele deu ${TIER_LABEL[done.tier]} por ${done.days} dias a ${people(done.granted)}.`
+              : `${TIER_LABEL[done.tier]} por ${done.days} dias concedido a ${people(done.granted)}.`}
+            {done.skipped > 0
+              ? ` ${people(done.skipped)} ${done.skipped === 1 ? "foi pulada" : "foram puladas"} por já ter${done.skipped === 1 ? "" : "em"} esse plano permanente.`
+              : ""}{" "}
+            As pessoas conectadas são avisadas em segundo plano.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Fechar resumo"
+            onClick={() => setDone(null)}
+          >
+            <X aria-hidden />
+          </Button>
+        </output>
+      ) : null}
+    </section>
+  );
+}
+
+function RevokeBatchButton({ batch }: { batch: BatchPayload }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const id = useId();
+  const revoke = useAdminRevokeEntitlementBatch({
+    mutation: {
+      onSuccess: (res) => {
+        toast.success(`Lote revogado: ${people(res.revoked)} perderam o plano deste lote.`);
+        void invalidate(qc, "/api/admin/entitlement");
+      },
+      onError: (err) => {
+        toast.error(adminErrorText(err, "Este lote não existe mais."));
+        void invalidate(qc, BATCH_PREFIX);
+      },
+      onSettled: () => {
+        setOpen(false);
+        setTyped("");
+      },
+    },
+  });
+  const label = `${TIER_LABEL[batch.tier]} por ${batch.days} dias`;
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setTyped("");
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" size="sm" aria-label={`Revogar lote ${label}`}>
+          Revogar lote
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogTitle>Revogar este lote?</AlertDialogTitle>
+        <AlertDialogDescription>
+          {`As ${batch.granted} concessões do lote (${label}) ainda ativas são revogadas agora. Quem tem outra concessão ativa continua com ela.`}
+        </AlertDialogDescription>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${id}-revoke`}>Digite REVOGAR para confirmar</Label>
+          <Input
+            id={`${id}-revoke`}
+            autoComplete="off"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Manter</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={typed !== "REVOGAR" || revoke.isPending}
+            onClick={(e) => {
+              e.preventDefault();
+              revoke.mutate({ id: batch.id });
+            }}
+          >
+            {revoke.isPending ? "Revogando…" : "Revogar lote"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+const BATCH_COLUMNS: Column<BatchPayload>[] = [
+  { key: "created", label: "Quando", render: (b) => formatDateTime(b.created_at) },
+  { key: "by", label: "Quem", render: (b) => (b.created_by ? `@${b.created_by}` : "—") },
+  { key: "tier", label: "Plano", render: (b) => <TierBadge tier={b.tier} /> },
+  { key: "days", label: "Dias", render: (b) => String(b.days) },
+  {
+    key: "granted",
+    label: "Concedidas",
+    render: (b) =>
+      b.skipped > 0
+        ? `${b.granted} (${b.skipped} ${b.skipped === 1 ? "pulada" : "puladas"})`
+        : String(b.granted),
+  },
+  {
+    key: "state",
+    label: "Situação",
+    render: (b) =>
+      b.revoked_at ? (
+        <Badge variant="secondary">{`Revogado em ${formatDateTime(b.revoked_at)}`}</Badge>
+      ) : (
+        <Badge variant="success">Ativo</Badge>
+      ),
+  },
+  {
+    key: "actions",
+    label: "Ações",
+    render: (b) => (b.revoked_at ? null : <RevokeBatchButton batch={b} />),
+  },
+];
+
+function BatchesList() {
+  const [state, setState] = useState<TableState>({ q: "", sort: "", order: "desc", page: 1 });
+  const query = useAdminListEntitlementBatches({ query: { staleTime: 10_000 } });
+  const items = query.data?.items ?? [];
+  return (
+    <section aria-label="Lotes" className="flex flex-col gap-3">
+      <DataTable
+        caption="Lotes de concessão em massa"
+        columns={BATCH_COLUMNS}
+        rows={items}
+        total={items.length}
+        pageSize={Math.max(items.length, 1)}
+        state={state}
+        onChange={(next) => setState((s) => ({ ...s, ...next }))}
+        rowKey={(b) => b.id}
+        loading={query.isPending}
+        error={query.isError}
+        onRetry={() => void query.refetch()}
+        searchLabel="Sem busca nos lotes"
+        empty="Nenhum lote ainda."
+        hideSearch
+      />
+    </section>
+  );
+}
+
 /* -------------------------------- Página ------------------------------ */
 
 export function AdminNitroPage() {
@@ -741,7 +1013,7 @@ export function AdminNitroPage() {
     <>
       <PageHeader
         title="Nitro"
-        subtitle="Conceda Nitro e Nitro+, revogue e gere códigos de resgate."
+        subtitle="Conceda Nitro e Nitro+ (a uma pessoa ou a todos), revogue e gere códigos de resgate."
       />
       <Tabs defaultValue="grants" className="flex flex-col gap-4">
         <TabsList variant="underline" aria-label="Seções do Nitro">
@@ -750,6 +1022,9 @@ export function AdminNitroPage() {
           </TabsTrigger>
           <TabsTrigger variant="underline" value="codes">
             Códigos
+          </TabsTrigger>
+          <TabsTrigger variant="underline" value="bulk">
+            Em massa
           </TabsTrigger>
         </TabsList>
         <TabsContent value="grants" className="flex flex-col gap-4">
@@ -762,6 +1037,10 @@ export function AdminNitroPage() {
             <NewCodesBox codes={fresh} onDismiss={() => setFresh(null)} />
           ) : null}
           <CodesList />
+        </TabsContent>
+        <TabsContent value="bulk" className="flex flex-col gap-4">
+          <BulkGrantForm />
+          <BatchesList />
         </TabsContent>
       </Tabs>
     </>

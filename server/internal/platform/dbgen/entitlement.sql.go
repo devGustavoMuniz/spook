@@ -11,6 +11,54 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adminListEntitlementBatches = `-- name: AdminListEntitlementBatches :many
+SELECT b.id, b.tier, b.days, b.created_at, b.granted_count, b.skipped_count, b.revoked_at, u.username AS created_by_username
+FROM entitlement_batches b
+LEFT JOIN users u ON u.id = b.created_by
+ORDER BY b.created_at DESC, b.id DESC
+LIMIT $1
+`
+
+type AdminListEntitlementBatchesRow struct {
+	ID                int64
+	Tier              string
+	Days              int32
+	CreatedAt         pgtype.Timestamptz
+	GrantedCount      int32
+	SkippedCount      int32
+	RevokedAt         pgtype.Timestamptz
+	CreatedByUsername *string
+}
+
+func (q *Queries) AdminListEntitlementBatches(ctx context.Context, maxRows int32) ([]AdminListEntitlementBatchesRow, error) {
+	rows, err := q.db.Query(ctx, adminListEntitlementBatches, maxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminListEntitlementBatchesRow
+	for rows.Next() {
+		var i AdminListEntitlementBatchesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Tier,
+			&i.Days,
+			&i.CreatedAt,
+			&i.GrantedCount,
+			&i.SkippedCount,
+			&i.RevokedAt,
+			&i.CreatedByUsername,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const adminListEntitlements = `-- name: AdminListEntitlements :many
 SELECT e.id, e.user_id, e.tier, e.source, e.expires_at, e.revoked_at, e.created_at,
        u.username, u.display_name,
@@ -168,6 +216,79 @@ func (q *Queries) AdminListRedeemCodes(ctx context.Context, arg AdminListRedeemC
 	return items, nil
 }
 
+const bulkGrantEntitlements = `-- name: BulkGrantEntitlements :many
+WITH target AS (
+    SELECT u.id FROM users u
+    WHERE u.id = ANY($6::bigint[]) AND u.deleted_at IS NULL
+    ORDER BY u.id FOR NO KEY UPDATE OF u
+), arr AS (
+    SELECT $6::bigint[] AS user_ids, $7::bigint[] AS grant_ids
+), ids AS (
+    SELECT uu.user_id, gg.grant_id
+    FROM arr, unnest(arr.user_ids) WITH ORDINALITY AS uu(user_id, n)
+    JOIN LATERAL unnest(arr.grant_ids) WITH ORDINALITY AS gg(grant_id, n) ON gg.n = uu.n
+), cover AS (
+    SELECT t.id AS user_id, COALESCE(bool_or(e.expires_at IS NULL), false) AS permanent, max(e.expires_at) AS until
+    FROM target t
+    JOIN entitlements e ON e.user_id = t.id AND e.revoked_at IS NULL AND (e.expires_at IS NULL OR e.expires_at > $2)
+        AND (CASE e.tier WHEN 'nitro_plus' THEN 2 ELSE 1 END) >= $8::int
+    GROUP BY t.id
+)
+INSERT INTO entitlements (id, user_id, tier, source, expires_at, granted_by, batch_id, created_at)
+SELECT ids.grant_id, t.id, $1::text, 'admin',
+       GREATEST(COALESCE(c.until, $2::timestamptz), $2::timestamptz) + $3::int * interval '24 hours',
+       $4, $5, $2
+FROM target t
+JOIN ids ON ids.user_id = t.id
+LEFT JOIN cover c ON c.user_id = t.id
+WHERE NOT COALESCE(c.permanent, false)
+RETURNING user_id
+`
+
+type BulkGrantEntitlementsParams struct {
+	Tier      string
+	Now       pgtype.Timestamptz
+	Days      int32
+	GrantedBy *int64
+	BatchID   *int64
+	UserIds   []int64
+	GrantIds  []int64
+	MinRank   int32
+}
+
+// Concede o lote a uma página de pessoas numa instrução. Trava as linhas (em ordem de ID, como as demais
+// concessões) e calcula a validade com a mesma regra do service: os dias começam no fim da validade mais longa entre
+// as concessões ativas do mesmo plano ou de um maior (ou agora, se não houver). Quem tem concessão permanente do
+// mesmo plano ou de um maior é pulado (nada a somar). Devolve só as concessões criadas.
+func (q *Queries) BulkGrantEntitlements(ctx context.Context, arg BulkGrantEntitlementsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, bulkGrantEntitlements,
+		arg.Tier,
+		arg.Now,
+		arg.Days,
+		arg.GrantedBy,
+		arg.BatchID,
+		arg.UserIds,
+		arg.GrantIds,
+		arg.MinRank,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var user_id int64
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimExpiredEntitlements = `-- name: ClaimExpiredEntitlements :many
 UPDATE entitlements SET expiry_notified_at = $1
 WHERE id IN (
@@ -249,6 +370,36 @@ func (q *Queries) ClaimRedeemCode(ctx context.Context, arg ClaimRedeemCodeParams
 	return i, err
 }
 
+const countEntitlementTargetUsers = `-- name: CountEntitlementTargetUsers :one
+SELECT count(*)::bigint FROM users WHERE deleted_at IS NULL
+`
+
+func (q *Queries) CountEntitlementTargetUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countEntitlementTargetUsers)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const deleteEntitlementBatch = `-- name: DeleteEntitlementBatch :exec
+DELETE FROM entitlement_batches WHERE id = $1
+`
+
+func (q *Queries) DeleteEntitlementBatch(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteEntitlementBatch, id)
+	return err
+}
+
+const deleteEntitlementsByBatch = `-- name: DeleteEntitlementsByBatch :exec
+DELETE FROM entitlements WHERE batch_id = $1
+`
+
+// Desfaz um lote que falhou no meio (concessões e o próprio lote).
+func (q *Queries) DeleteEntitlementsByBatch(ctx context.Context, batchID *int64) error {
+	_, err := q.db.Exec(ctx, deleteEntitlementsByBatch, batchID)
+	return err
+}
+
 const entitlementUserExists = `-- name: EntitlementUserExists :one
 SELECT id, username, display_name FROM users WHERE id = $1 AND deleted_at IS NULL
 `
@@ -263,6 +414,70 @@ func (q *Queries) EntitlementUserExists(ctx context.Context, id int64) (Entitlem
 	row := q.db.QueryRow(ctx, entitlementUserExists, id)
 	var i EntitlementUserExistsRow
 	err := row.Scan(&i.ID, &i.Username, &i.DisplayName)
+	return i, err
+}
+
+const findRecentEntitlementBatch = `-- name: FindRecentEntitlementBatch :one
+SELECT id, tier, days, created_by, created_at, granted_count, skipped_count, revoked_at FROM entitlement_batches
+WHERE tier = $1 AND days = $2 AND revoked_at IS NULL AND created_at > $3
+ORDER BY created_at DESC LIMIT 1
+`
+
+type FindRecentEntitlementBatchParams struct {
+	Tier  string
+	Days  int32
+	Since pgtype.Timestamptz
+}
+
+// Lote não revogado com o mesmo plano e prazo criado depois de since (idempotência).
+func (q *Queries) FindRecentEntitlementBatch(ctx context.Context, arg FindRecentEntitlementBatchParams) (EntitlementBatch, error) {
+	row := q.db.QueryRow(ctx, findRecentEntitlementBatch, arg.Tier, arg.Days, arg.Since)
+	var i EntitlementBatch
+	err := row.Scan(
+		&i.ID,
+		&i.Tier,
+		&i.Days,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.GrantedCount,
+		&i.SkippedCount,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const finishEntitlementBatch = `-- name: FinishEntitlementBatch :exec
+UPDATE entitlement_batches SET granted_count = $2, skipped_count = $3 WHERE id = $1
+`
+
+type FinishEntitlementBatchParams struct {
+	ID           int64
+	GrantedCount int32
+	SkippedCount int32
+}
+
+func (q *Queries) FinishEntitlementBatch(ctx context.Context, arg FinishEntitlementBatchParams) error {
+	_, err := q.db.Exec(ctx, finishEntitlementBatch, arg.ID, arg.GrantedCount, arg.SkippedCount)
+	return err
+}
+
+const getEntitlementBatch = `-- name: GetEntitlementBatch :one
+SELECT id, tier, days, created_by, created_at, granted_count, skipped_count, revoked_at FROM entitlement_batches WHERE id = $1
+`
+
+func (q *Queries) GetEntitlementBatch(ctx context.Context, id int64) (EntitlementBatch, error) {
+	row := q.db.QueryRow(ctx, getEntitlementBatch, id)
+	var i EntitlementBatch
+	err := row.Scan(
+		&i.ID,
+		&i.Tier,
+		&i.Days,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.GrantedCount,
+		&i.SkippedCount,
+		&i.RevokedAt,
+	)
 	return i, err
 }
 
@@ -291,7 +506,7 @@ func (q *Queries) GetRedeemCodeByHash(ctx context.Context, codeHash string) (Red
 const insertEntitlement = `-- name: InsertEntitlement :one
 INSERT INTO entitlements (id, user_id, tier, source, expires_at, granted_by, redeem_code_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at
+RETURNING id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at, batch_id
 `
 
 type InsertEntitlementParams struct {
@@ -326,6 +541,43 @@ func (q *Queries) InsertEntitlement(ctx context.Context, arg InsertEntitlementPa
 		&i.RevokedAt,
 		&i.ExpiryNotifiedAt,
 		&i.CreatedAt,
+		&i.BatchID,
+	)
+	return i, err
+}
+
+const insertEntitlementBatch = `-- name: InsertEntitlementBatch :one
+INSERT INTO entitlement_batches (id, tier, days, created_by, created_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, tier, days, created_by, created_at, granted_count, skipped_count, revoked_at
+`
+
+type InsertEntitlementBatchParams struct {
+	ID        int64
+	Tier      string
+	Days      int32
+	CreatedBy *int64
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertEntitlementBatch(ctx context.Context, arg InsertEntitlementBatchParams) (EntitlementBatch, error) {
+	row := q.db.QueryRow(ctx, insertEntitlementBatch,
+		arg.ID,
+		arg.Tier,
+		arg.Days,
+		arg.CreatedBy,
+		arg.CreatedAt,
+	)
+	var i EntitlementBatch
+	err := row.Scan(
+		&i.ID,
+		&i.Tier,
+		&i.Days,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.GrantedCount,
+		&i.SkippedCount,
+		&i.RevokedAt,
 	)
 	return i, err
 }
@@ -374,8 +626,38 @@ func (q *Queries) InsertRedeemCode(ctx context.Context, arg InsertRedeemCodePara
 	return i, err
 }
 
+const listEntitlementTargetUsers = `-- name: ListEntitlementTargetUsers :many
+SELECT id FROM users WHERE deleted_at IS NULL AND id > $1 ORDER BY id LIMIT $2
+`
+
+type ListEntitlementTargetUsersParams struct {
+	AfterID  int64
+	PageSize int32
+}
+
+// Pessoas que podem receber o plano: contas não excluídas/anonimizadas (deleted_at nulo), paginadas por ID.
+func (q *Queries) ListEntitlementTargetUsers(ctx context.Context, arg ListEntitlementTargetUsersParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listEntitlementTargetUsers, arg.AfterID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLiveEntitlementsByUser = `-- name: ListLiveEntitlementsByUser :many
-SELECT id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at FROM entitlements WHERE user_id = $1 AND revoked_at IS NULL
+SELECT id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at, batch_id FROM entitlements WHERE user_id = $1 AND revoked_at IS NULL
 `
 
 // Concessões que ainda não foram revogadas (vencidas ou não: quem decide é plan.Effective, com o relógio do service).
@@ -399,6 +681,7 @@ func (q *Queries) ListLiveEntitlementsByUser(ctx context.Context, userID int64) 
 			&i.RevokedAt,
 			&i.ExpiryNotifiedAt,
 			&i.CreatedAt,
+			&i.BatchID,
 		); err != nil {
 			return nil, err
 		}
@@ -408,6 +691,18 @@ func (q *Queries) ListLiveEntitlementsByUser(ctx context.Context, userID int64) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockEntitlementBatches = `-- name: LockEntitlementBatches :exec
+
+SELECT pg_advisory_xact_lock(hashtext('entitlement_batches'))
+`
+
+// ---- concessão em massa (lotes) ----
+// Serializa a criação de lotes (a checagem de idempotência e o insert do lote viram uma fila).
+func (q *Queries) LockEntitlementBatches(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockEntitlementBatches)
+	return err
 }
 
 const lockUserForEntitlement = `-- name: LockUserForEntitlement :one
@@ -424,10 +719,24 @@ func (q *Queries) LockUserForEntitlement(ctx context.Context, id int64) (int64, 
 	return id_2, err
 }
 
+const markEntitlementBatchRevoked = `-- name: MarkEntitlementBatchRevoked :exec
+UPDATE entitlement_batches SET revoked_at = $2 WHERE id = $1
+`
+
+type MarkEntitlementBatchRevokedParams struct {
+	ID        int64
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) MarkEntitlementBatchRevoked(ctx context.Context, arg MarkEntitlementBatchRevokedParams) error {
+	_, err := q.db.Exec(ctx, markEntitlementBatchRevoked, arg.ID, arg.RevokedAt)
+	return err
+}
+
 const revokeActiveEntitlementsByUser = `-- name: RevokeActiveEntitlementsByUser :many
 UPDATE entitlements SET revoked_at = $1
 WHERE user_id = $2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $1)
-RETURNING id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at
+RETURNING id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at, batch_id
 `
 
 type RevokeActiveEntitlementsByUserParams struct {
@@ -456,6 +765,7 @@ func (q *Queries) RevokeActiveEntitlementsByUser(ctx context.Context, arg Revoke
 			&i.RevokedAt,
 			&i.ExpiryNotifiedAt,
 			&i.CreatedAt,
+			&i.BatchID,
 		); err != nil {
 			return nil, err
 		}
@@ -470,7 +780,7 @@ func (q *Queries) RevokeActiveEntitlementsByUser(ctx context.Context, arg Revoke
 const revokeEntitlementByID = `-- name: RevokeEntitlementByID :one
 UPDATE entitlements SET revoked_at = $1
 WHERE id = $2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $1)
-RETURNING id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at
+RETURNING id, user_id, tier, source, expires_at, granted_by, redeem_code_id, revoked_at, expiry_notified_at, created_at, batch_id
 `
 
 type RevokeEntitlementByIDParams struct {
@@ -492,6 +802,44 @@ func (q *Queries) RevokeEntitlementByID(ctx context.Context, arg RevokeEntitleme
 		&i.RevokedAt,
 		&i.ExpiryNotifiedAt,
 		&i.CreatedAt,
+		&i.BatchID,
 	)
 	return i, err
+}
+
+const revokeEntitlementsByBatch = `-- name: RevokeEntitlementsByBatch :many
+UPDATE entitlements SET revoked_at = $1
+WHERE batch_id = $2 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $1)
+RETURNING user_id, tier
+`
+
+type RevokeEntitlementsByBatchParams struct {
+	Now     pgtype.Timestamptz
+	BatchID *int64
+}
+
+type RevokeEntitlementsByBatchRow struct {
+	UserID int64
+	Tier   string
+}
+
+// Revoga as concessões ativas de um lote. Devolve quem perdeu (para os avisos).
+func (q *Queries) RevokeEntitlementsByBatch(ctx context.Context, arg RevokeEntitlementsByBatchParams) ([]RevokeEntitlementsByBatchRow, error) {
+	rows, err := q.db.Query(ctx, revokeEntitlementsByBatch, arg.Now, arg.BatchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RevokeEntitlementsByBatchRow
+	for rows.Next() {
+		var i RevokeEntitlementsByBatchRow
+		if err := rows.Scan(&i.UserID, &i.Tier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

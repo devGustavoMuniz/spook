@@ -482,3 +482,14 @@ Só depois do passo a passo `PENDENCIAS-DONO.md` E1, com credenciais de TESTE e 
 - [ ] **Assinatura:** `curl -X POST https://<domínio>/api/billing/webhook?data.id=1\&type=payment` sem `x-signature` responde 401.
 - [ ] **Celular (390 px):** os botões "Assinar" e o aviso de retorno cabem sem rolagem horizontal.
 
+### Nitro+: concessão em massa (/admin/nitro, aba "Em massa")
+Faça primeiro em ambiente de teste (ou local com `pnpm dev`) com 3 contas: A (grátis, conectada no app), B (com Nitro+ por 10 dias, dado pelo /admin) e C (com Nitro+ permanente). Só depois em produção.
+- [ ] **Diálogo:** aba "Em massa", padrão Nitro+ e 30 dias. "Conceder a todos..." abre o diálogo com "Isto afeta N pessoas" (N = contas ativas, sem as excluídas); o botão fica desabilitado até digitar `CONCEDER` em maiúsculas; Cancelar não grava nada.
+- [ ] **Aplicar:** conceda Nitro+ por 30 dias. O resumo mostra "concedido a N-1 pessoas" e "1 pessoa foi pulada" (a conta C, Nitro+ permanente). Na lista de lotes aparece a linha com quem, plano, dias e quantidade.
+- [ ] **Aviso ao vivo:** na conta A (já aberta, sem recarregar) o selo Nitro+ aparece e a seção Nitro mostra o plano (vence em 30 dias, origem Administração); outra conta no mesmo servidor vê o selo de A na lista de membros sem recarregar.
+- [ ] **Soma:** a conta B vence daqui a 40 dias (10 + 30); a conta C continua permanente e sem linha nova.
+- [ ] **Idempotência:** repita o mesmo pedido (Nitro+ 30 dias): o resumo diz "Já existia um lote igual nas últimas 24 h" e nada muda (a lista não ganha lote novo nem as datas mudam). Com 29 dias ou com Nitro (outro plano) vira outro lote.
+- [ ] **Limite:** o 4º pedido de conceder em uma hora responde "Muitas tentativas".
+- [ ] **Revogar lote:** "Revogar lote" na linha pede digitar `REVOGAR`; depois, A volta ao Grátis na hora (aviso ao vivo, selo some), B volta ao Nitro+ dos 10 dias originais, C continua Nitro+ permanente, e a linha mostra "Revogado em ...". Revogar de novo não é possível (sem botão); repetir o pedido de conceder volta a funcionar.
+- [ ] **Produção:** conferir o número do diálogo com o total de contas ativas do /admin antes de confirmar; em seguida, `spook.entitlement.changes{action="grant_all"}` no Grafana e o log "plano concedido em massa pela equipe".
+- [ ] **Celular (390 px):** o formulário e a lista de lotes cabem sem rolagem horizontal da página.

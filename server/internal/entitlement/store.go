@@ -16,6 +16,7 @@ import (
 
 // Store é o que o service precisa do banco.
 type Store interface {
+	BatchStore
 	// Live devolve as concessões da pessoa que não foram revogadas (vencidas ou não).
 	Live(ctx context.Context, userID int64) ([]Grant, error)
 	Account(ctx context.Context, userID int64) (Account, error) // ErrUserNotFound
@@ -66,7 +67,7 @@ func ptr(t pgtype.Timestamptz) *time.Time {
 func toGrant(r dbgen.Entitlement) Grant {
 	return Grant{
 		ID: r.ID, UserID: r.UserID, Tier: plan.Tier(r.Tier), Source: Source(r.Source), ExpiresAt: ptr(r.ExpiresAt),
-		GrantedBy: r.GrantedBy, RedeemCodeID: r.RedeemCodeID, RevokedAt: ptr(r.RevokedAt), CreatedAt: r.CreatedAt.Time,
+		GrantedBy: r.GrantedBy, RedeemCodeID: r.RedeemCodeID, BatchID: r.BatchID, RevokedAt: ptr(r.RevokedAt), CreatedAt: r.CreatedAt.Time,
 	}
 }
 

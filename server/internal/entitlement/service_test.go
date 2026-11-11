@@ -22,6 +22,9 @@ type fakeStore struct {
 	grants   []Grant
 	codes    map[string]*Code // por hash
 	notified map[int64]bool
+	batches  []*Batch
+	deleted  map[int64]bool // contas excluídas
+	failPage int            // >0: a página de concessão em massa de número failPage falha
 }
 
 func newFakeStore(userIDs ...int64) *fakeStore {

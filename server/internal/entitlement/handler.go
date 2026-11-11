@@ -139,6 +139,44 @@ func (h *Handler) Register(api huma.API, mw huma.Middlewares, security []map[str
 			return &struct{ Body GrantPayload }{Body: g}, nil
 		})
 
+	huma.Register(api, aop("adminGrantAllEntitlements", http.MethodPost, "/api/admin/entitlements/grant-all",
+		"Concede Nitro ou Nitro+ por N dias a TODAS as contas ativas (uma concessão por conta, em lote). Exige confirm: true; idempotente: o mesmo plano e prazo em até 24 h devolve o lote existente (already_applied) sem gravar. Os avisos em tempo real saem em segundo plano. Limite: 3 por hora por administrador",
+		http.StatusOK, invalid, tooMany),
+		func(ctx context.Context, in *struct{ Body GrantAllBody }) (*struct{ Body GrantAllResult }, error) {
+			b := in.Body
+			out, err := h.svc.GrantAll(ctx, h.userID(ctx), plan.Tier(b.Tier), b.Days, b.Confirm)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body GrantAllResult }{Body: out}, nil
+		})
+
+	huma.Register(api, aop("adminListEntitlementBatches", http.MethodGet, "/api/admin/entitlement-batches",
+		"Lotes de concessão em massa (os 50 mais recentes) e quantas contas ativas um novo lote atingiria", 0),
+		func(ctx context.Context, _ *struct{}) (*struct{ Body BatchList }, error) {
+			out, err := h.svc.ListBatches(ctx)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body BatchList }{Body: out}, nil
+		})
+
+	huma.Register(api, aop("adminRevokeEntitlementBatch", http.MethodDelete, "/api/admin/entitlement-batches/{id}",
+		"Revoga as concessões ativas de um lote inteiro e avisa quem perdeu o plano. 404 se o lote não existe, 409 se já foi revogado. Limite: 10 por hora por administrador", 0, notFound, conflict, tooMany),
+		func(ctx context.Context, in *struct {
+			ID string `path:"id" doc:"ID do lote"`
+		}) (*struct{ Body RevokeBatchResult }, error) {
+			id, ok := httpx.ParseID(in.ID)
+			if !ok {
+				return nil, httpx.Err(ErrBatchNotFound)
+			}
+			out, err := h.svc.RevokeBatch(ctx, h.userID(ctx), id)
+			if err != nil {
+				return nil, httpx.Err(err)
+			}
+			return &struct{ Body RevokeBatchResult }{Body: out}, nil
+		})
+
 	huma.Register(api, aop("adminRevokeEntitlement", http.MethodDelete, "/api/admin/users/{id}/entitlement",
 		"Revoga todas as concessões ativas do usuário (volta ao plano Grátis). 404 se não havia plano ativo", 0, notFound),
 		func(ctx context.Context, in *userPath) (*struct{ Body RevokeResult }, error) {

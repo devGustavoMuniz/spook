@@ -57,6 +57,7 @@ type Grant struct {
 	ExpiresAt    *time.Time // nulo = permanente
 	GrantedBy    *int64
 	RedeemCodeID *int64
+	BatchID      *int64 // lote de concessão em massa que a criou, se houver
 	RevokedAt    *time.Time
 	CreatedAt    time.Time
 }
