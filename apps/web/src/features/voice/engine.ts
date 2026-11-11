@@ -285,6 +285,11 @@ export interface VoiceEngine {
   prewarm?(url?: string): void;
   /** Rejeitam com `VoiceMediaError` (permissão negada, sem dispositivo, seleção de tela cancelada). */
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
+  /**
+   * Descarta a faixa do microfone publicada (o servidor mutou a pessoa e o LiveKit derrubou a faixa): ao liberar, a
+   * próxima ligada publica uma faixa nova em vez de "desmutar" uma que não existe mais.
+   */
+  resetMicrophone?(): Promise<void>;
   setCameraEnabled(enabled: boolean): Promise<void>;
   /**
    * Com `audio: true` pede o áudio do sistema quando a plataforma permite. `quality` só vale onde a engine declara

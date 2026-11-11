@@ -313,6 +313,12 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
     }
   }
 
+  /** Descarta a faixa do microfone (o servidor mutou): a próxima ligada publica uma nova. */
+  async resetMicrophone() {
+    this.requireRoom();
+    await this.deps.invoke("voice_reset_microphone").catch(() => {});
+  }
+
   async setCameraEnabled(enabled: boolean) {
     this.requireRoom();
     try {

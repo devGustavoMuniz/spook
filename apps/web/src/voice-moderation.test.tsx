@@ -123,6 +123,9 @@ describe("quando o moderador me muta", () => {
     serverSends(sock, "VOICE_STATE_UPDATE", 2, voiceState(ME, VOICE));
     serverSends(sock, "VOICE_STATE_UPDATE", 3, voiceState(ME, VOICE, { server_muted: true }));
     await waitFor(() => expect(fake.mic).toBe(false));
+    // o LiveKit derruba a faixa ao revogar a permissão: a nossa é descartada, para a próxima ligada publicar uma nova
+    await waitFor(() => expect(fake.calls).toContain("mic:reset"));
+    expect(fake.calls.indexOf("mic:reset")).toBeGreaterThan(fake.calls.lastIndexOf("mic:false"));
     expect(useVoiceStore.getState().selfMute).toBe(true);
     expect(await screen.findByText(/Um moderador mutou você/)).toBeInTheDocument();
 

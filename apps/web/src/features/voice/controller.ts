@@ -876,7 +876,11 @@ function syncServerMute(muted: boolean) {
   if (muted) {
     session().patch({ selfMute: true, muteBeforeDeaf: true });
     publishSpeaking();
-    void engine?.setMicrophoneEnabled(false).catch(() => {});
+    // O servidor derruba a faixa ao revogar a permissão: descarta a nossa para a próxima ligada publicar uma nova.
+    void engine
+      ?.setMicrophoneEnabled(false)
+      .then(() => engine?.resetMicrophone?.())
+      .catch(() => {});
     void syncState();
     toast.warning(t("voice.toast.modMuted"));
   } else {

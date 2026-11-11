@@ -77,6 +77,10 @@ export class FakeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voice
     this.calls.push(`mic:${on}`);
     this.mic = on;
   }
+  /** O servidor mutou: a faixa publicada é descartada (a próxima ligada publica uma nova). */
+  async resetMicrophone() {
+    this.calls.push("mic:reset");
+  }
   async setCameraEnabled(on: boolean) {
     if (on && this.failCamera) throw this.failCamera;
     this.calls.push(`camera:${on}`);

@@ -209,6 +209,13 @@ describe("NativeVoiceEngine: mídia local", () => {
     expect(rust.named("voice_set_deafened")[0]?.args).toEqual({ deafened: true });
   });
 
+  it("resetMicrophone descarta a faixa no Rust (mute pelo servidor)", async () => {
+    const { rust, engine } = setup();
+    await engine.connect(params);
+    await engine.resetMicrophone();
+    expect(rust.named("voice_reset_microphone")).toHaveLength(1);
+  });
+
   it("traduz permissão negada do SO para VoiceMediaError com a mensagem do Rust", async () => {
     const { rust, engine } = setup();
     await engine.connect(params);

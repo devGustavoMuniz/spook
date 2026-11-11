@@ -623,6 +623,26 @@ impl VoiceCore {
         Ok(())
     }
 
+    /// Descarta a faixa do microfone (para a captura e despublica). Usado quando o servidor muta a pessoa: o
+    /// LiveKit derruba a faixa ao revogar a permissão, mas o `MicState` continuava guardado e, ao liberar, o
+    /// "desmutar" só reativava uma faixa que não existia mais (sem áudio até sair e voltar). Sem faixa guardada, a
+    /// próxima ligada publica uma nova.
+    pub async fn reset_microphone(&self) -> Result<(), VoiceError> {
+        let mut guard = self.session.lock().await;
+        let s = guard.as_mut().ok_or_else(VoiceError::no_room)?;
+        if let Some(mut mic) = s.mic.take() {
+            if let Some(p) = mic.pump.take() {
+                p.abort();
+            }
+            mic.capture = None; // solta o microfone
+            let sid = mic.track.sid();
+            let _ = s.room.local_participant().unpublish_track(&sid).await; // já pode ter sido derrubada
+        }
+        s.emit_local_media();
+        let _ = self.refresh_preview(false).await;
+        Ok(())
+    }
+
     async fn start_mic_locked(&self, s: &mut Session) -> Result<(), VoiceError> {
         if s.mic.as_ref().is_some_and(|m| m.capture.is_some()) {
             return Ok(());

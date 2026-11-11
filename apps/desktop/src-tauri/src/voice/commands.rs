@@ -87,6 +87,12 @@ pub async fn voice_set_microphone(
     state.0.set_microphone(enabled).await
 }
 
+/// Descarta a faixa do microfone (mute pelo servidor): a próxima ligada publica uma faixa nova. Idempotente.
+#[tauri::command]
+pub async fn voice_reset_microphone(state: State<'_, VoiceState>) -> Result<(), VoiceError> {
+    state.0.reset_microphone().await
+}
+
 /// Abre o microfone em paralelo com a conexão (não bloqueia; o `voice_set_microphone(true)` seguinte o usa).
 /// `async` de propósito: comando síncrono roda FORA do runtime do Tokio e o `tokio::spawn` de dentro entrava em pânico
 /// ("no reactor running"), o que fechava o app ao entrar numa chamada.

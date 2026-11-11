@@ -717,6 +717,13 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     this.refreshMonitor();
   }
 
+  async resetMicrophone() {
+    const lp = this.room?.localParticipant;
+    const track = lp?.getTrackPublication(Track.Source.Microphone)?.track;
+    if (lp && track) await lp.unpublishTrack(track, true).catch(() => {});
+    this.refreshMonitor();
+  }
+
   async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
     const prev = this.audio;
     const wantsStrong = options.noiseSuppression === "strong";
