@@ -14,12 +14,12 @@ describe("SpeakerHold (anti-pisca do servidor)", () => {
     expect(h.active(1000)).toEqual(["a"]);
   });
 
-  it("só apaga depois de 250 ms sem aparecer", () => {
+  it("só apaga depois de 600 ms sem aparecer", () => {
     const h = new SpeakerHold();
     h.push(["a"], 1000);
     h.push([], 1200); // atualização do servidor sem "a": segura
     expect(h.active(1200)).toEqual(["a"]);
-    expect(h.active(1249)).toEqual(["a"]);
+    expect(h.active(1599)).toEqual(["a"]);
     expect(h.active(1000 + SPEAKING_HOLD_MS)).toEqual([]);
   });
 
@@ -27,8 +27,8 @@ describe("SpeakerHold (anti-pisca do servidor)", () => {
     const h = new SpeakerHold();
     h.push(["a", "b"], 0);
     h.push(["a"], 200);
-    expect(h.active(300).sort()).toEqual(["a"]);
-    expect(h.nextExpiry()).toBe(450);
+    expect(h.active(650).sort()).toEqual(["a"]);
+    expect(h.nextExpiry()).toBe(800);
     h.clear();
     expect(h.nextExpiry()).toBeNull();
   });
@@ -52,13 +52,13 @@ describe("LocalSpeakingDetector", () => {
     expect(d.update(loud, 80)).toBe(false);
   });
 
-  it("apaga só 250 ms depois da última leitura acima do limiar", () => {
+  it("apaga só 600 ms depois da última leitura acima do limiar", () => {
     const d = new LocalSpeakingDetector({ gate: false });
     d.update(loud, 0);
     d.update(loud, 100);
     expect(d.update(quiet, 150)).toBe(true);
-    expect(d.update(quiet, 340)).toBe(true);
-    expect(d.update(quiet, 351)).toBe(false);
+    expect(d.update(quiet, 699)).toBe(true);
+    expect(d.update(quiet, 701)).toBe(false);
     expect(d.nextExpiry()).toBeNull();
   });
 
@@ -74,7 +74,7 @@ describe("LocalSpeakingDetector", () => {
     for (let t = 150; t < 1000; t += 50) on.update(mid, t);
     expect(on.speaking).toBe(true);
     on.update({ db: -55, gateOpen: true }, 1000);
-    expect(on.tick(1300)).toBe(false);
+    expect(on.tick(1700)).toBe(false);
   });
 
   it("com porta ligada exige a porta aberta (limiar -55 dB)", () => {
@@ -94,9 +94,9 @@ describe("LocalSpeakingDetector", () => {
     const d = new LocalSpeakingDetector({ gate: false });
     d.update(loud, 0);
     d.update(loud, 100);
-    expect(d.nextExpiry()).toBe(350);
-    expect(d.tick(349)).toBe(true);
-    expect(d.tick(350)).toBe(false);
+    expect(d.nextExpiry()).toBe(700);
+    expect(d.tick(699)).toBe(true);
+    expect(d.tick(700)).toBe(false);
   });
 
   it("nível não finito (NaN) não acende", () => {
@@ -123,5 +123,30 @@ describe("mergeSpeaking", () => {
   it("sameSet compara por conteúdo", () => {
     expect(sameSet(new Set(["a", "b"]), new Set(["b", "a"]))).toBe(true);
     expect(sameSet(new Set(["a"]), new Set(["a", "b"]))).toBe(false);
+  });
+});
+
+describe("fala contínua não pisca", () => {
+  it("lacunas de até 500 ms (vogal sustentada) não apagam o anel local", () => {
+    const d = new LocalSpeakingDetector({ gate: false });
+    const loud = { db: -30, gateOpen: true };
+    const quiet = { db: -80, gateOpen: false };
+    d.update(loud, 0);
+    d.update(loud, 100);
+    expect(d.speaking).toBe(true);
+    // fala contínua com quedas de nível de 450 ms entre picos: nunca apaga
+    for (let t = 150; t < 4000; t += 500) {
+      expect(d.update(quiet, t + 450 - 50)).toBe(true);
+      expect(d.update(loud, t + 450)).toBe(true);
+    }
+  });
+
+  it("lacunas do servidor de até 500 ms não apagam o anel remoto", () => {
+    const h = new SpeakerHold();
+    for (let t = 0; t < 4000; t += 500) {
+      h.push(["a"], t);
+      h.push([], t + 200);
+      expect(h.active(t + 499)).toEqual(["a"]);
+    }
   });
 });

@@ -9,8 +9,12 @@
 
 import type { InputLevel } from "./engine";
 
-/** Tempo sem aparecer antes de apagar o anel (cobre a lacuna de uma atualização do servidor). */
-export const SPEAKING_HOLD_MS = 250;
+/**
+ * Tempo sem aparecer antes de apagar o anel. Cobre a lacuna entre atualizações do servidor e as oscilações do
+ * nível numa fala contínua (uma vogal sustentada, "aaaa", cai abaixo do limiar por instantes): com 250 ms o anel
+ * piscava nessas falas. O anel acende na hora; só apaga depois de uma pausa real.
+ */
+export const SPEAKING_HOLD_MS = 600;
 /** O nível precisa ficar acima do limiar por este tempo antes de acender (evita estalos e tosses curtas). */
 export const SPEAKING_MIN_ON_MS = 60;
 /** Limiar de nível (dBFS) para abrir quando NÃO há porta de ruído (o medidor é o único critério). */

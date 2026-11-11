@@ -918,7 +918,7 @@ describe("indicador de falando", () => {
   const speakers = (ids: string[]) => fake.fire("speakers-changed", { identities: ids });
   const level = (db: number, gateOpen = true) => fake.fire("input-level", { db, gateOpen });
 
-  it("o servidor acende na hora e só apaga 250 ms depois (hold anti-pisca)", async () => {
+  it("o servidor acende na hora e só apaga 600 ms depois (hold anti-pisca)", async () => {
     await joined(A);
     vi.useFakeTimers();
     try {
@@ -926,9 +926,9 @@ describe("indicador de falando", () => {
       expect([...s().speaking]).toEqual(["2"]);
       speakers([]); // a atualização seguinte não traz "2": segura
       expect([...s().speaking]).toEqual(["2"]);
-      vi.advanceTimersByTime(200);
+      vi.advanceTimersByTime(500);
       expect([...s().speaking]).toEqual(["2"]);
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(150);
       expect([...s().speaking]).toEqual([]);
     } finally {
       vi.useRealTimers();
@@ -950,6 +950,8 @@ describe("indicador de falando", () => {
       level(-80, false);
       expect(s().speaking.has(ME)).toBe(true); // hold
       vi.advanceTimersByTime(300);
+      expect(s().speaking.has(ME)).toBe(true);
+      vi.advanceTimersByTime(400);
       expect(s().speaking.has(ME)).toBe(false);
     } finally {
       vi.useRealTimers();
