@@ -1316,7 +1316,7 @@ impl VoiceCore {
                 VoiceError::media(MediaCode::Unknown, MediaDevice::Screen)
             })?;
         // O áudio vem depois do vídeo e NUNCA derruba a transmissão: qualquer falha vira log e só a imagem vai.
-        let audio = self.start_screen_audio(s, &opts).await;
+        let audio = self.start_screen_audio(s.room.clone(), &opts).await;
         s.screen = Some(ScreenState {
             sid: publication.sid(),
             _capture: capture,
@@ -1335,7 +1335,12 @@ impl VoiceCore {
 
     /// Captura e publica o áudio da tela conforme o plano (`appaudio::decide`). `None` = sem áudio (não pedido,
     /// plataforma sem suporte, nenhum aplicativo marcado ou falha, sempre registrada no log).
-    async fn start_screen_audio(&self, s: &Session, opts: &ScreenOptions) -> Option<ScreenAudio> {
+    // Recebe só a sala (clonada): `&Session` não é `Sync` e segurá-la entre awaits tornava o comando não-`Send`.
+    async fn start_screen_audio(
+        &self,
+        room: Arc<Room>,
+        opts: &ScreenOptions,
+    ) -> Option<ScreenAudio> {
         let plan = appaudio::decide(
             opts.audio,
             opts.audio_apps.as_ref(),
@@ -1367,8 +1372,7 @@ impl VoiceCore {
             source: TrackSource::ScreenshareAudio,
             ..Default::default()
         };
-        let publication = match s
-            .room
+        let publication = match room
             .local_participant()
             .publish_track(LocalTrack::Audio(track), publish)
             .await
