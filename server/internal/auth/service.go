@@ -141,6 +141,9 @@ type Service struct {
 	onRevokeKey func(userID int64, key string)
 	// onRegistered roda depois de um cadastro com senha (ex.: enviar o e-mail de verificação); erros só viram log.
 	onRegistered func(ctx context.Context, u user.User)
+	// onAccountCreated roda logo depois da criação da conta, ANTES da sessão e da resposta (ex.: período de
+	// cortesia do Nitro, para a pessoa já ver o plano ao abrir o app). Não pode falhar o cadastro.
+	onAccountCreated func(ctx context.Context, userID int64)
 	// dummyHash é verificado quando o e-mail não existe, para o tempo de resposta não revelar contas.
 	dummyHash string
 }
@@ -168,11 +171,20 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 	if err != nil {
 		return user.User{}, "", err
 	}
+	if s.onAccountCreated != nil {
+		s.onAccountCreated(ctx, u.ID)
+	}
 	token, err := s.newSession(ctx, u.ID, userAgent, remember)
 	if err == nil && s.onRegistered != nil {
 		s.onRegistered(ctx, u)
 	}
 	return u, token, err
+}
+
+// OnAccountCreated registra o gancho de conta nova, rodado antes da sessão (nil desliga). Quem registra garante
+// que o gancho não falha o cadastro (erro vira log).
+func (s *Service) OnAccountCreated(fn func(ctx context.Context, userID int64)) {
+	s.onAccountCreated = fn
 }
 
 // OnRegistered registra o gancho pós-cadastro (nil desliga).

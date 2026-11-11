@@ -10,6 +10,7 @@
 package entitlement
 
 import (
+	"errors"
 	"time"
 
 	"github.com/devGustavoMuniz/spook/server/internal/plan"
@@ -33,11 +34,13 @@ const (
 	SourceAdmin   Source = "admin"
 	SourceCode    Source = "code"
 	SourcePayment Source = "payment"
+	SourceTrial   Source = "trial" // período de cortesia de conta nova
 )
 
 var (
 	ErrUserNotFound  = apperr.NotFound("usuário não encontrado")
 	ErrGrantNotFound = apperr.NotFound("concessão não encontrada")
+	ErrTrialExists   = errors.New("a pessoa já teve o período de cortesia")
 	ErrNoActive      = apperr.NotFound("esta pessoa não tem plano ativo")
 	ErrCodeInvalid   = apperr.NotFound("código de resgate inválido")
 	ErrCodeUsed      = apperr.Conflict("este código já foi usado")
@@ -125,7 +128,7 @@ type CodeFilter struct {
 type PlanPayload struct {
 	Tier      string      `json:"tier" enum:"free,nitro,nitro_plus" doc:"Plano efetivo agora"`
 	ExpiresAt *time.Time  `json:"expires_at" doc:"Quando o plano vence. Nulo = permanente (ou plano grátis)"`
-	Source    *string     `json:"source" enum:"admin,code,payment" doc:"De onde veio a concessão que define o plano (nulo no plano grátis)"`
+	Source    *string     `json:"source" enum:"admin,code,payment,trial" doc:"De onde veio a concessão que define o plano (nulo no plano grátis)"`
 	Limits    plan.Limits `json:"limits" doc:"O que o plano libera"`
 }
 
@@ -142,7 +145,7 @@ type GrantPayload struct {
 	Username    string     `json:"username"`
 	DisplayName string     `json:"display_name,omitempty"`
 	Tier        string     `json:"tier" enum:"nitro,nitro_plus"`
-	Source      string     `json:"source" enum:"admin,code,payment"`
+	Source      string     `json:"source" enum:"admin,code,payment,trial"`
 	ExpiresAt   *time.Time `json:"expires_at" doc:"Nulo = permanente"`
 	GrantedBy   string     `json:"granted_by,omitempty" doc:"Username de quem concedeu (vazio se foi resgate ou a conta saiu)"`
 	RevokedAt   *time.Time `json:"revoked_at"`

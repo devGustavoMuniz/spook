@@ -135,7 +135,7 @@ export const AdminListEntitlementsResponse = zod.object({
           .describe("Username de quem concedeu (vazio se foi resgate ou a conta saiu)"),
         id: zod.string().describe("ID Snowflake (string)"),
         revoked_at: zod.iso.datetime({ offset: true }).nullable(),
-        source: zod.enum(["admin", "code", "payment"]),
+        source: zod.enum(["admin", "code", "payment", "trial"]),
         tier: zod.enum(["nitro", "nitro_plus"]),
         user_id: zod.string(),
         username: zod.string(),
@@ -210,6 +210,7 @@ export const AdminRevokeEntitlementGrantResponse = zod.object({
           zod.literal("admin"),
           zod.literal("code"),
           zod.literal("payment"),
+          zod.literal("trial"),
           zod.literal(null),
         ])
         .nullable()
@@ -1004,6 +1005,7 @@ export const AdminRevokeEntitlementResponse = zod.object({
           zod.literal("admin"),
           zod.literal("code"),
           zod.literal("payment"),
+          zod.literal("trial"),
           zod.literal(null),
         ])
         .nullable()
@@ -1046,7 +1048,7 @@ export const AdminGrantEntitlementResponse = zod.object({
     .describe("Username de quem concedeu (vazio se foi resgate ou a conta saiu)"),
   id: zod.string().describe("ID Snowflake (string)"),
   revoked_at: zod.iso.datetime({ offset: true }).nullable(),
-  source: zod.enum(["admin", "code", "payment"]),
+  source: zod.enum(["admin", "code", "payment", "trial"]),
   tier: zod.enum(["nitro", "nitro_plus"]),
   user_id: zod.string(),
   username: zod.string(),

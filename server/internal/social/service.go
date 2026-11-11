@@ -82,6 +82,9 @@ type Deps struct {
 	Sessions  Sessions
 	IDs       IDGenerator
 	Now       func() time.Time
+	// OnCreated roda logo depois que uma conta nova é criada pelo login social, antes da sessão (nil = nada).
+	// Não pode falhar o cadastro: quem passa o gancho trata o erro (log).
+	OnCreated func(ctx context.Context, userID int64)
 }
 
 type Service struct{ d Deps }
@@ -368,6 +371,9 @@ func (s *Service) Complete(ctx context.Context, pendingToken, username string, u
 	u, err := s.d.Store.Complete(ctx, hash(pendingToken), s.d.IDs.Next(), s.d.IDs.Next(), username)
 	if err != nil {
 		return user.User{}, "", err
+	}
+	if s.d.OnCreated != nil {
+		s.d.OnCreated(ctx, u.ID)
 	}
 	tok, err := s.d.Sessions.NewSession(ctx, u.ID, ua)
 	return u, tok, err

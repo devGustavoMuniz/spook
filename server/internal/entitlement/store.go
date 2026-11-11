@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/devGustavoMuniz/spook/server/internal/plan"
@@ -22,6 +23,8 @@ type Store interface {
 	Account(ctx context.Context, userID int64) (Account, error) // ErrUserNotFound
 	// Grant grava, sob trava da pessoa, a concessão que build monta a partir das concessões vivas dela.
 	Grant(ctx context.Context, userID int64, build func(live []Grant) (Grant, error)) (Grant, error)
+	// GrantTrial grava o período de cortesia (no máximo um por pessoa, mesmo revogado): ErrTrialExists se já houve.
+	GrantTrial(ctx context.Context, userID int64, build func(live []Grant) (Grant, error)) (Grant, error)
 	// Redeem consome o código (atômico: um só vence a corrida) e grava a concessão que build monta. Erros:
 	// ErrCodeInvalid, ErrCodeUsed e ErrCodeExpired.
 	Redeem(ctx context.Context, hash string, userID int64, now time.Time, build func(live []Grant, c Code) (Grant, error)) (Grant, Code, error)
@@ -154,6 +157,45 @@ func (s *PGStore) Grant(ctx context.Context, userID int64, build func(live []Gra
 		return Grant{}, err
 	}
 	row, err := q.InsertEntitlement(ctx, insertParams(g))
+	if err != nil {
+		return Grant{}, wrap("gravar concessão", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Grant{}, wrap("confirmar", err)
+	}
+	return toGrant(row), nil
+}
+
+func (s *PGStore) GrantTrial(ctx context.Context, userID int64, build func(live []Grant) (Grant, error)) (Grant, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Grant{}, wrap("iniciar transação", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	if err := lock(ctx, q, userID); err != nil {
+		return Grant{}, err
+	}
+	had, err := q.HasTrialEntitlement(ctx, userID)
+	if err != nil {
+		return Grant{}, wrap("conferir período de cortesia", err)
+	}
+	if had {
+		return Grant{}, ErrTrialExists
+	}
+	live, err := q.ListLiveEntitlementsByUser(ctx, userID)
+	if err != nil {
+		return Grant{}, wrap("listar concessões", err)
+	}
+	g, err := build(toGrants(live))
+	if err != nil {
+		return Grant{}, err
+	}
+	row, err := q.InsertEntitlement(ctx, insertParams(g))
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // índice único parcial: outra gravação chegou antes
+		return Grant{}, ErrTrialExists
+	}
 	if err != nil {
 		return Grant{}, wrap("gravar concessão", err)
 	}

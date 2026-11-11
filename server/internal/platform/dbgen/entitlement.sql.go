@@ -503,6 +503,18 @@ func (q *Queries) GetRedeemCodeByHash(ctx context.Context, codeHash string) (Red
 	return i, err
 }
 
+const hasTrialEntitlement = `-- name: HasTrialEntitlement :one
+SELECT EXISTS (SELECT 1 FROM entitlements WHERE user_id = $1 AND source = 'trial')::boolean
+`
+
+// Período de cortesia: já existe (mesmo revogada ou vencida) a concessão 'trial' da pessoa?
+func (q *Queries) HasTrialEntitlement(ctx context.Context, userID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, hasTrialEntitlement, userID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const insertEntitlement = `-- name: InsertEntitlement :one
 INSERT INTO entitlements (id, user_id, tier, source, expires_at, granted_by, redeem_code_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

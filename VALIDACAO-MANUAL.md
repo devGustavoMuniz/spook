@@ -493,3 +493,14 @@ Faça primeiro em ambiente de teste (ou local com `pnpm dev`) com 3 contas: A (g
 - [ ] **Revogar lote:** "Revogar lote" na linha pede digitar `REVOGAR`; depois, A volta ao Grátis na hora (aviso ao vivo, selo some), B volta ao Nitro+ dos 10 dias originais, C continua Nitro+ permanente, e a linha mostra "Revogado em ...". Revogar de novo não é possível (sem botão); repetir o pedido de conceder volta a funcionar.
 - [ ] **Produção:** conferir o número do diálogo com o total de contas ativas do /admin antes de confirmar; em seguida, `spook.entitlement.changes{action="grant_all"}` no Grafana e o log "plano concedido em massa pela equipe".
 - [ ] **Celular (390 px):** o formulário e a lista de lotes cabem sem rolagem horizontal da página.
+
+### Nitro+: período de cortesia de conta nova
+Com o app local (`pnpm dev`; o padrão é 14 dias de Nitro+) ou em produção depois do deploy (sem `NITRO_TRIAL_DAYS` definido = 14 dias).
+- [ ] **Cadastro por e-mail e senha:** crie uma conta nova. Já na primeira tela aparece a faixa "Bem-vindo! Você ganhou 14 dias de Nitro+" com "Ver o que inclui" e o botão de dispensar; o selo Nitro+ aparece no seu perfil e em Configurações > Nitro a origem é "Período de cortesia" com a validade daqui a 14 dias.
+- [ ] **Uma vez só:** dispense (ou clique em "Ver o que inclui", que abre Configurações > Nitro) e recarregue: a faixa não volta; em outro navegador a faixa volta uma vez (é por navegador).
+- [ ] **Login social novo:** entre com Google e com Discord numa conta que ainda não existe, escolha o username: a conta já nasce com Nitro+ (14 dias). Entrar de novo pelo provedor, ou com a senha, não concede nada e não duplica.
+- [ ] **Conta antiga:** uma conta criada antes do deploy continua como estava (Grátis ou o que tinha); vincular o Google/Discord a ela pelo e-mail não concede cortesia.
+- [ ] **Soma:** resgate um código de Nitro+ de 30 dias na conta nova: a validade passa a 44 dias; a concessão em massa por cima soma de novo.
+- [ ] **Vencimento:** com a cortesia vencendo (ou ajustando `expires_at` da linha `trial` no banco de teste), a seção Nitro avisa nos últimos 7 dias, e ao vencer chega "Seu Nitro venceu" e os GIFs passam a aparecer parados.
+- [ ] **Desligar:** com `NITRO_TRIAL_DAYS=0` uma conta nova nasce no Grátis e sem faixa; `NITRO_TRIAL_TIER=nitro` dá Nitro; valor inválido (ex.: `abc`, `free`) impede o boot com mensagem clara.
+- [ ] **Métricas:** `spook.entitlement.changes{action="trial"}` sobe a cada conta nova; `spook.entitlement.trial_failed` fica em zero.

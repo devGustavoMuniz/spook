@@ -29,6 +29,7 @@ export const nitro = {
   "nitro.source.admin": "Granted by the Spook team",
   "nitro.source.code": "Redeem code",
   "nitro.source.payment": "Payment",
+  "nitro.source.trial": "Welcome trial",
   "nitro.expiring.title": "Your {plan} is about to expire",
   "nitro.expiring.body":
     "It expires on {date}. After that you go back to the Free plan: your GIFs show as still images and screen sharing returns to 720p at 30 fps. Nothing is deleted, and everything animates again once the plan is renewed.",
@@ -75,6 +76,14 @@ export const nitro = {
     "Your payment is pending. As soon as Mercado Pago confirms it, the plan activates by itself.",
   "nitro.toast.activated": "{plan} activated",
   "nitro.toast.expired": "Your Nitro has expired. You are back on the Free plan.",
+  "nitro.welcome.title": {
+    one: "Welcome! You got {count} day of {plan}",
+    other: "Welcome! You got {count} days of {plan}",
+  },
+  "nitro.welcome.body":
+    "It is a welcome gift: enjoy animated GIFs and high-quality screen sharing.",
+  "nitro.welcome.cta": "See what is included",
+  "nitro.welcome.dismiss": "Dismiss the welcome notice",
   "nitro.toast.changed": "Your plan changed to {plan}.",
   "voice.quality.lockedHint":
     "Locked options need Nitro (up to 1080p and 60 fps) or Nitro+ (1440p). Tap one to see the plans.",

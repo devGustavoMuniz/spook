@@ -130,6 +130,11 @@ type Config struct {
 	// NitroEnforceScreen liga o silenciamento, no servidor, da tela publicada acima do limite do plano
 	// (NITRO_ENFORCE_SCREEN=true; padrão desligado até todos os clientes aplicarem o limite).
 	NitroEnforceScreen bool
+	// NitroTrialDays e NitroTrialTier definem o período de cortesia de conta nova (NITRO_TRIAL_DAYS, padrão 14,
+	// 0 = desligado; NITRO_TRIAL_TIER, padrão nitro_plus, aceita nitro ou nitro_plus). Os padrões valem só em
+	// Load(): um Config montado à mão (testes) tem zero dia e o período de cortesia fica DESLIGADO.
+	NitroTrialDays int
+	NitroTrialTier string
 	// AuditRetentionDays é por quantos dias o registro de auditoria é guardado (AUDIT_RETENTION_DAYS; padrão 90).
 	AuditRetentionDays int
 	// AdminUsernames (ADMIN_USERNAMES, separados por vírgula) são promovidos a administradores do painel
@@ -239,6 +244,9 @@ func Load() (Config, error) {
 		c.AuthRatePerMin = n
 	}
 	c.NitroEnforceScreen = os.Getenv("NITRO_ENFORCE_SCREEN") == "true"
+	if err := loadTrial(&c); err != nil {
+		return Config{}, err
+	}
 	c.AuditRetentionDays = 90
 	if v := os.Getenv("AUDIT_RETENTION_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -308,6 +316,24 @@ func loadLimits(c *Config) error {
 			return fmt.Errorf("LIMIT_ATTACHMENT_MB inválido (1 a %d): %q", limits.MaxAttachmentMB, v)
 		}
 		c.Limits.AttachmentBytes = int64(n) << 20
+	}
+	return nil
+}
+
+func loadTrial(c *Config) error {
+	c.NitroTrialDays, c.NitroTrialTier = 14, "nitro_plus"
+	if v := strings.TrimSpace(os.Getenv("NITRO_TRIAL_DAYS")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 3650 {
+			return fmt.Errorf("NITRO_TRIAL_DAYS inválido (0 a 3650; 0 desliga): %q", v)
+		}
+		c.NitroTrialDays = n
+	}
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("NITRO_TRIAL_TIER"))); v != "" {
+		if v != "nitro" && v != "nitro_plus" {
+			return fmt.Errorf("NITRO_TRIAL_TIER inválido (use nitro ou nitro_plus): %q", v)
+		}
+		c.NitroTrialTier = v
 	}
 	return nil
 }

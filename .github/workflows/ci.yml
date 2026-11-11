@@ -114,6 +114,7 @@ jobs:
           SPOOK_WEB_DIR: ${{ github.workspace }}/apps/web/dist
           SPOOK_PRESENCE_OFFLINE_GRACE: 2s # só o E2E: offline em 2 s em vez dos 15 s de produção
           SPOOK_AUTH_RATE_PER_MIN: "1000" # só o E2E: todas as contas saem do mesmo IP (padrão de produção: 10/min)
+          NITRO_TRIAL_DAYS: "0" # só o E2E: sem o período de cortesia (padrão 14), as contas ficam no plano Grátis e o bloqueio de GIF/tela continua testável
         run: |
           S3_ENDPOINT="$(sed -n 's/^S3_ENDPOINT=//p' .env)"
           S3_REGION="$(sed -n 's/^S3_REGION=//p' .env)"

@@ -29,6 +29,7 @@ export const nitro = {
   "nitro.source.admin": "Concedido pela equipe do Spook",
   "nitro.source.code": "Código de resgate",
   "nitro.source.payment": "Pagamento",
+  "nitro.source.trial": "Período de cortesia",
   "nitro.expiring.title": "Seu {plan} está perto de vencer",
   "nitro.expiring.body":
     "Vence em {date}. Depois disso você volta ao plano Grátis: seus GIFs passam a aparecer parados e a tela volta a 720p com 30 fps. Nada é apagado, e tudo volta a animar quando o plano for renovado.",
@@ -77,6 +78,14 @@ export const nitro = {
     "Seu pagamento está pendente. Assim que o Mercado Pago confirmar, o plano é ativado sozinho.",
   "nitro.toast.activated": "{plan} ativado",
   "nitro.toast.expired": "Seu Nitro venceu. Você voltou ao plano Grátis.",
+  "nitro.welcome.title": {
+    one: "Bem-vindo! Você ganhou {count} dia de {plan}",
+    other: "Bem-vindo! Você ganhou {count} dias de {plan}",
+  },
+  "nitro.welcome.body":
+    "É um presente de boas-vindas: aproveite GIFs animados e tela em alta qualidade.",
+  "nitro.welcome.cta": "Ver o que inclui",
+  "nitro.welcome.dismiss": "Dispensar aviso de boas-vindas",
   "nitro.toast.changed": "Seu plano mudou para {plan}.",
   "voice.quality.lockedHint":
     "Opções com cadeado precisam de Nitro (até 1080p e 60 fps) ou Nitro+ (1440p). Toque em uma para ver os planos.",

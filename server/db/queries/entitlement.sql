@@ -172,3 +172,7 @@ FROM entitlement_batches b
 LEFT JOIN users u ON u.id = b.created_by
 ORDER BY b.created_at DESC, b.id DESC
 LIMIT sqlc.arg(max_rows);
+
+-- Período de cortesia: já existe (mesmo revogada ou vencida) a concessão 'trial' da pessoa?
+-- name: HasTrialEntitlement :one
+SELECT EXISTS (SELECT 1 FROM entitlements WHERE user_id = $1 AND source = 'trial')::boolean;

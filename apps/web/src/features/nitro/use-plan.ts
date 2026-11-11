@@ -10,7 +10,7 @@ import { useEffect } from "react";
 import { useLimitsStore } from "./limits-store";
 import { limitsOf, type PlanLimits, tierAtLeast } from "./plans";
 
-export type PlanSource = "admin" | "code" | "payment" | null;
+export type PlanSource = "admin" | "code" | "payment" | "trial" | null;
 
 export type PlanState = {
   tier: PlanTier;

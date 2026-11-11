@@ -49,6 +49,7 @@ const SOURCE_LABEL: Record<string, string> = {
   admin: "Administração",
   code: "Código de resgate",
   payment: "Pagamento",
+  trial: "Período de cortesia",
 };
 const CODE_STATE_LABEL = { unused: "Não usado", used: "Usado", expired: "Vencido" } as const;
 const CODE_STATE_VARIANT = { unused: "success", used: "secondary", expired: "warning" } as const;

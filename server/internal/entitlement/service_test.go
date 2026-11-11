@@ -75,6 +75,25 @@ func (f *fakeStore) Grant(_ context.Context, userID int64, build func([]Grant) (
 	return g, nil
 }
 
+func (f *fakeStore) GrantTrial(_ context.Context, userID int64, build func([]Grant) (Grant, error)) (Grant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.users[userID]; !ok {
+		return Grant{}, ErrUserNotFound
+	}
+	for _, g := range f.grants {
+		if g.UserID == userID && g.Source == SourceTrial {
+			return Grant{}, ErrTrialExists
+		}
+	}
+	g, err := build(f.live(userID))
+	if err != nil {
+		return Grant{}, err
+	}
+	f.grants = append(f.grants, g)
+	return g, nil
+}
+
 func (f *fakeStore) Redeem(_ context.Context, hash string, userID int64, now time.Time, build func([]Grant, Code) (Grant, error)) (Grant, Code, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

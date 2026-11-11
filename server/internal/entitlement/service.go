@@ -53,8 +53,13 @@ type Service struct {
 	stop      chan struct{}
 	stopOnce  sync.Once
 
-	changes metric.Int64Counter
-	redeems metric.Int64Counter
+	// Período de cortesia de conta nova (zero dias = desligado, o padrão de quem monta o Service sem WithTrial).
+	trialTier plan.Tier
+	trialDays int
+
+	changes     metric.Int64Counter
+	redeems     metric.Int64Counter
+	trialFailed metric.Int64Counter
 }
 
 func NewService(store Store, ids IDGenerator, pub events.Publisher, profiles Profiles) *Service {
@@ -67,6 +72,14 @@ func NewService(store Store, ids IDGenerator, pub events.Publisher, profiles Pro
 		metric.WithDescription("Mudanças de plano por ação (grant, grant_all, revoke, revoke_batch, redeem, expire, codes_created), plano e origem"))
 	s.redeems, _ = m.Int64Counter("spook.entitlement.redeem_failed",
 		metric.WithDescription("Resgates recusados, por motivo (invalid, used, expired)"))
+	s.trialFailed, _ = m.Int64Counter("spook.entitlement.trial_failed",
+		metric.WithDescription("Períodos de cortesia que falharam ao ser concedidos a uma conta nova (o cadastro segue)"))
+	return s
+}
+
+// WithTrial liga o período de cortesia: toda conta nova ganha tier por days dias (days <= 0 desliga).
+func (s *Service) WithTrial(tier plan.Tier, days int) *Service {
+	s.trialTier, s.trialDays = tier, days
 	return s
 }
 
@@ -465,6 +478,41 @@ func (s *Service) ExpireDue(ctx context.Context) (int, error) {
 }
 
 // ---- pagamento ----
+
+// ---- período de cortesia ----
+
+// GrantTrial concede o período de cortesia a uma conta nova (source "trial"): idempotente por pessoa (no máximo um,
+// garantido por índice único parcial; ErrTrialExists na repetição). Desligado (0 dia) não faz nada e devolve false.
+func (s *Service) GrantTrial(ctx context.Context, userID int64) (bool, error) {
+	if s.trialDays <= 0 || !validTier(s.trialTier) {
+		return false, nil
+	}
+	d, tier, now := s.trialDays, s.trialTier, s.now()
+	g, err := s.store.GrantTrial(ctx, userID, func(live []Grant) (Grant, error) {
+		return Grant{ID: s.ids.Next(), UserID: userID, Tier: tier, Source: SourceTrial, ExpiresAt: expiry(live, tier, &d, now), CreatedAt: now}, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	s.count(ctx, "trial", tier, SourceTrial)
+	slog.InfoContext(ctx, "período de cortesia concedido", "user", userID, "tier", string(tier), "days", d, "grant_id", g.ID)
+	s.notify(ctx, userID, "granted")
+	return true, nil
+}
+
+// OnAccountCreated é o gancho de conta nova (cadastro por senha e por login social): concede o período de cortesia.
+// Nunca falha o cadastro: erro vira log e métrica (spook.entitlement.trial_failed); repetição é ignorada.
+func (s *Service) OnAccountCreated(ctx context.Context, userID int64) {
+	if s.trialDays <= 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if _, err := s.GrantTrial(ctx, userID); err != nil && !errors.Is(err, ErrTrialExists) {
+		s.trialFailed.Add(ctx, 1)
+		slog.ErrorContext(ctx, "período de cortesia: não foi possível conceder", "user", userID, "err", err)
+	}
+}
 
 // GrantPayment concede o plano de um pagamento aprovado (source "payment"): os dias se somam à validade vigente do
 // mesmo plano ou de um maior, como no resgate. Devolve o ID da concessão (para estornar depois).

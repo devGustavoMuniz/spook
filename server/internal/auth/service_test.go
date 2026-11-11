@@ -374,3 +374,16 @@ func TestRegisterRejectsReservedUsernameAndShortPassword(t *testing.T) {
 		t.Fatalf("senha curta: %v", err)
 	}
 }
+
+func TestRegisterCallsAccountCreatedHookBeforeSessionAndLoginDoesNot(t *testing.T) {
+	svc, _ := newSvc(t)
+	var created []int64
+	svc.OnAccountCreated(func(_ context.Context, id int64) { created = append(created, id) })
+	u, _, err := svc.Register(context.Background(), "novo@x.com", "novo", "senha-longa-123", nil, true)
+	if err != nil || len(created) != 1 || created[0] != u.ID {
+		t.Fatalf("cadastro deve chamar o gancho uma vez: %v %v", created, err)
+	}
+	if _, _, err := svc.Login(context.Background(), "novo@x.com", "senha-longa-123", nil, true); err != nil || len(created) != 1 {
+		t.Fatalf("login em conta existente não chama o gancho: %v %v", created, err)
+	}
+}

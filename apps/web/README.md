@@ -53,6 +53,7 @@ Variável: `E2E_BASE_URL` (padrão `http://localhost:8090`).
          SPOOK_WEB_DIR: /web
          SPOOK_PRESENCE_OFFLINE_GRACE: 2s
          SPOOK_AUTH_RATE_PER_MIN: "1000"
+         NITRO_TRIAL_DAYS: "0"
    YML
    docker compose --env-file .env -f deploy/docker-compose.yml -f /tmp/spook-e2e.yml up -d --build server
    ```
@@ -99,6 +100,7 @@ O navegador do container precisa alcançar o LiveKit e o backend pela rede do Co
          SPOOK_WEB_DIR: /web
          SPOOK_PRESENCE_OFFLINE_GRACE: 2s
          SPOOK_AUTH_RATE_PER_MIN: "1000"
+         NITRO_TRIAL_DAYS: "0"
          LIVEKIT_URL: ws://livekit:7880
    YML
    docker compose --env-file .env -f deploy/docker-compose.yml -f /tmp/spook-e2e-voice.yml up -d --build server

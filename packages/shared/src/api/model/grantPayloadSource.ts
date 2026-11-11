@@ -11,4 +11,5 @@ export const GrantPayloadSource = {
   admin: "admin",
   code: "code",
   payment: "payment",
+  trial: "trial",
 } as const;

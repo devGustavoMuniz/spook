@@ -25,7 +25,13 @@ export const GetMyPlanResponse = zod.object({
     })
     .describe("O que o plano libera"),
   source: zod
-    .union([zod.literal("admin"), zod.literal("code"), zod.literal("payment"), zod.literal(null)])
+    .union([
+      zod.literal("admin"),
+      zod.literal("code"),
+      zod.literal("payment"),
+      zod.literal("trial"),
+      zod.literal(null),
+    ])
     .nullable()
     .describe("De onde veio a concessão que define o plano (nulo no plano grátis)"),
   tier: zod.enum(["free", "nitro", "nitro_plus"]).describe("Plano efetivo agora"),
@@ -62,7 +68,13 @@ export const RedeemPlanCodeResponse = zod.object({
     })
     .describe("O que o plano libera"),
   source: zod
-    .union([zod.literal("admin"), zod.literal("code"), zod.literal("payment"), zod.literal(null)])
+    .union([
+      zod.literal("admin"),
+      zod.literal("code"),
+      zod.literal("payment"),
+      zod.literal("trial"),
+      zod.literal(null),
+    ])
     .nullable()
     .describe("De onde veio a concessão que define o plano (nulo no plano grátis)"),
   tier: zod.enum(["free", "nitro", "nitro_plus"]).describe("Plano efetivo agora"),

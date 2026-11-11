@@ -151,6 +151,9 @@ jobs:
           MERCADOPAGO_WEBHOOK_SECRET: ${{ secrets.MERCADOPAGO_WEBHOOK_SECRET }}
           NITRO_PRICE_CENTS: ${{ vars.NITRO_PRICE_CENTS }}
           NITRO_PLUS_PRICE_CENTS: ${{ vars.NITRO_PLUS_PRICE_CENTS }}
+          # Período de cortesia de conta nova (Variables, não são segredo; vazio = padrão do app: 14 dias de nitro_plus).
+          NITRO_TRIAL_DAYS: ${{ vars.NITRO_TRIAL_DAYS }}
+          NITRO_TRIAL_TIER: ${{ vars.NITRO_TRIAL_TIER }}
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
@@ -222,6 +225,8 @@ jobs:
             printf 'REQUIRE_EMAIL_VERIFICATION=%s\n' "$REQUIRE_EMAIL_VERIFICATION"
             # Pagamento do Nitro (Mercado Pago; vazio = desligado). Entre aspas simples, como SMTP_FROM: o .env também é lido por scripts sh.
             printf 'MERCADOPAGO_ACCESS_TOKEN='"'"'%s'"'"'\nMERCADOPAGO_WEBHOOK_SECRET='"'"'%s'"'"'\nNITRO_PRICE_CENTS='"'"'%s'"'"'\nNITRO_PLUS_PRICE_CENTS='"'"'%s'"'"'\n' "$MERCADOPAGO_ACCESS_TOKEN" "$MERCADOPAGO_WEBHOOK_SECRET" "$NITRO_PRICE_CENTS" "$NITRO_PLUS_PRICE_CENTS"
+            # Período de cortesia (vazio = padrão do app), entre aspas simples como as demais.
+            printf 'NITRO_TRIAL_DAYS='"'"'%s'"'"'\nNITRO_TRIAL_TIER='"'"'%s'"'"'\n' "$NITRO_TRIAL_DAYS" "$NITRO_TRIAL_TIER"
             printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_ID" "$GOOGLE_CLIENT_SECRET"
             printf 'DISCORD_CLIENT_ID=%s\nDISCORD_CLIENT_SECRET=%s\n' "$DISCORD_CLIENT_ID" "$DISCORD_CLIENT_SECRET"
             # Limites opcionais (vazio = padrão): só grava as definidas.

@@ -42,6 +42,7 @@ import (
 	"github.com/devGustavoMuniz/spook/server/internal/message"
 	"github.com/devGustavoMuniz/spook/server/internal/notification"
 	"github.com/devGustavoMuniz/spook/server/internal/perm"
+	"github.com/devGustavoMuniz/spook/server/internal/plan"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/config"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/cors"
 	"github.com/devGustavoMuniz/spook/server/internal/platform/db"
@@ -218,10 +219,14 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	// service avisa o perfil ao mudar (userSvc.Republish) e o administrador entra depois, quando o admin existe.
 	entSvc := entitlement.NewService(entitlement.NewStore(pool), ids, bus, userSvc).WithPepper(d.Cfg.SecretKey)
 	userSvc.WithPlans(entSvc)
+	// Período de cortesia de conta nova (cadastro com senha e login social). O Cfg de testes (struct literal) tem
+	// NitroTrialDays zero: desligado. O padrão de 14 dias só existe em config.Load().
+	entSvc.WithTrial(plan.Tier(d.Cfg.NitroTrialTier), d.Cfg.NitroTrialDays)
 	authSvc, err := auth.NewService(ctx, userSvc, auth.NewStore(pool), auth.NewHasher(4), ids)
 	if err != nil {
 		return nil, err
 	}
+	authSvc.OnAccountCreated(entSvc.OnAccountCreated)
 	authSvc.StartJanitor(ctx, time.Hour)
 
 	// E-mail (mailflow) e login social (social). O River só existe com o pool do pgx; sem ele o e-mail sai direto.
@@ -288,6 +293,7 @@ func Build(ctx context.Context, d Deps) (*App, error) {
 	socialStore := social.NewStore(pool)
 	socialSvc := social.NewService(social.Deps{
 		Providers: providers, PublicURL: d.Cfg.PublicURL, Box: box, Store: socialStore, Sessions: authSvc, IDs: ids,
+		OnCreated: entSvc.OnAccountCreated,
 	})
 	go func() { // limpeza horária de tokens de e-mail e cadastros sociais vencidos
 		t := time.NewTicker(time.Hour)

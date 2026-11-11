@@ -8,6 +8,7 @@ import { ConfirmPasswordProvider } from "@/features/account/confirm-password";
 import { VerifyEmailBanner } from "@/features/account/verify-banner";
 import { GatewayProvider } from "@/features/gateway/gateway-provider";
 import { ServerRail } from "@/features/guilds/server-rail";
+import { WelcomeTrialBanner } from "@/features/nitro/welcome-trial";
 import { useUnreadTitle } from "@/features/notifications/use-unread-title";
 import { usePushSync } from "@/features/push/use-push";
 import { SettingsModal } from "@/features/settings/settings-modal";
@@ -45,6 +46,7 @@ function Frame({ guilds, onSlot }: { guilds: Guild[]; onSlot: (el: HTMLElement |
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <VerifyEmailBanner />
+      <WelcomeTrialBanner />
       <div className="flex min-h-0 flex-1">
         {compact ? null : rail}
         <div className="min-w-0 flex-1" inert={compact && shell?.navOpen}>

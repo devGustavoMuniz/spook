@@ -1558,6 +1558,7 @@ components:
             - admin
             - code
             - payment
+            - trial
           type: string
         tier:
           enum:
@@ -2577,6 +2578,7 @@ components:
             - admin
             - code
             - payment
+            - trial
           type:
             - string
             - "null"

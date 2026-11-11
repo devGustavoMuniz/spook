@@ -345,3 +345,26 @@ func TestLoadBilling(t *testing.T) {
 		t.Fatal("preço inválido deveria falhar")
 	}
 }
+
+func TestLoadTrial(t *testing.T) {
+	t.Setenv("SPOOK_DATABASE_URL", "postgres://x")
+	t.Setenv("NITRO_TRIAL_DAYS", "")
+	t.Setenv("NITRO_TRIAL_TIER", "")
+	c, err := Load()
+	if err != nil || c.NitroTrialDays != 14 || c.NitroTrialTier != "nitro_plus" {
+		t.Fatalf("padrão 14 dias de nitro_plus: %d %q %v", c.NitroTrialDays, c.NitroTrialTier, err)
+	}
+	t.Setenv("NITRO_TRIAL_DAYS", "0")
+	t.Setenv("NITRO_TRIAL_TIER", "NITRO")
+	c, err = Load()
+	if err != nil || c.NitroTrialDays != 0 || c.NitroTrialTier != "nitro" {
+		t.Fatalf("0 desliga e o plano é normalizado: %d %q %v", c.NitroTrialDays, c.NitroTrialTier, err)
+	}
+	for _, bad := range [][2]string{{"abc", ""}, {"-1", ""}, {"3651", ""}, {"7", "free"}, {"7", "premium"}} {
+		t.Setenv("NITRO_TRIAL_DAYS", bad[0])
+		t.Setenv("NITRO_TRIAL_TIER", bad[1])
+		if _, err := Load(); err == nil {
+			t.Fatalf("%v deveria recusar o boot", bad)
+		}
+	}
+}
