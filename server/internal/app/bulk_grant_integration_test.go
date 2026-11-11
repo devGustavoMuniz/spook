@@ -44,6 +44,7 @@ func (e *testEnv) giveGrant(t *testing.T, a *actor, tier string, expires any) {
 
 func TestGrantAllAuthAndValidation(t *testing.T) {
 	e := nitroEnv(t)
+	e.resetPlans(t) // o banco é compartilhado com os outros testes do pacote: parte de zero
 	plain, adm := e.newActor(t, "comum"), e.newActor(t, "adm")
 	e.makeAdmin(t, adm)
 	ok := J{"tier": "nitro_plus", "days": 30, "confirm": true}

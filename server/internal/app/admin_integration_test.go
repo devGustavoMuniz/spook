@@ -387,7 +387,8 @@ func TestAdminEveryRouteIsGuarded(t *testing.T) {
 		resp, b = adm.do(t, o.method, path, body)
 		// O mesmo vale para as ações do plano que precisam de alvo e corpo válidos (nitro_integration_test.go).
 		perTicket := strings.HasPrefix(o.path, "/api/admin/tickets/{id}") || o.path == "/api/admin/users/{id}/entitlement" ||
-			o.path == "/api/admin/entitlements/{id}" || (o.method == "POST" && o.path == "/api/admin/redeem-codes")
+			o.path == "/api/admin/entitlements/{id}" || (o.method == "POST" && o.path == "/api/admin/redeem-codes") ||
+			o.path == "/api/admin/entitlements/grant-all" || strings.HasPrefix(o.path, "/api/admin/entitlement-batches/")
 		ok := resp.StatusCode >= 200 && resp.StatusCode <= 299
 		if perTicket {
 			ok = resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusUnprocessableEntity
