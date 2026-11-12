@@ -22,7 +22,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use super::apm::{ApmBridge, AudioProcessingSettings};
+use super::apm::{ApmBridge, AudioProcessingSettings, NoiseFallback};
 use super::appaudio::{self, AppAudioOptions, CapturePlan};
 use super::audio::{self, Direction, MicCapture, Playback, FRAME_SAMPLES, SAMPLE_RATE};
 use super::camera;
@@ -324,6 +324,8 @@ pub struct VoiceCore {
     apm: Arc<ApmBridge>,
     /// Canal de eventos do medidor e do teste de microfone (independente do da sala: valem fora de chamada).
     aux_emit: Arc<Mutex<Option<Emit>>>,
+    /// Canal da sala em curso (vazio fora de chamada): recebe, com prioridade, o aviso de queda do nível Máximo.
+    room_emit: Arc<Mutex<Option<Emit>>>,
     monitor_on: AtomicBool,
     /// Medição só da captura da chamada (anel de "falando" do próprio usuário): nunca abre prévia.
     call_meter: AtomicBool,
@@ -342,6 +344,24 @@ impl Default for VoiceCore {
 
 impl VoiceCore {
     pub fn new() -> Self {
+        let apm = Arc::new(ApmBridge::new(AudioProcessingSettings::default()));
+        let aux_emit: Arc<Mutex<Option<Emit>>> = Arc::new(Mutex::new(None));
+        let room_emit: Arc<Mutex<Option<Emit>>> = Arc::new(Mutex::new(None));
+        // O nível Máximo (DeepFilterNet) pode cair por CPU/falha a qualquer momento, no meio do áudio: o aviso
+        // sai pelo canal da sala, se há uma chamada, ou pelo do medidor/teste (diálogo de dispositivos).
+        {
+            let (room, aux) = (room_emit.clone(), aux_emit.clone());
+            apm.set_notice_sink(Some(Arc::new(move |n: NoiseFallback| {
+                let target = lock(&room).clone().or_else(|| lock(&aux).clone());
+                if let Some(emit) = target {
+                    emit(VoiceEvent::NoiseSuppressionFallback {
+                        from: "max",
+                        to: "strong",
+                        reason: n.reason.as_str(),
+                    });
+                }
+            })));
+        }
         Self {
             session: tokio::sync::Mutex::new(None),
             live: Mutex::new(None),
@@ -351,8 +371,9 @@ impl VoiceCore {
             deafened: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             synthetic: Mutex::new(None),
-            apm: Arc::new(ApmBridge::new(AudioProcessingSettings::default())),
-            aux_emit: Arc::new(Mutex::new(None)),
+            apm,
+            aux_emit,
+            room_emit,
             monitor_on: AtomicBool::new(false),
             call_meter: AtomicBool::new(false),
             prepared: Mutex::new(None),
@@ -415,6 +436,7 @@ impl VoiceCore {
             connect_started.elapsed().as_millis()
         );
         let room = Arc::new(room);
+        *lock(&self.room_emit) = Some(emit.clone());
 
         let shared = Arc::new(Shared {
             emit: emit.clone(),
@@ -524,6 +546,7 @@ impl VoiceCore {
 
     async fn teardown(&self, mut s: Session) {
         s.shared.closing.store(true, Ordering::SeqCst);
+        *lock(&self.room_emit) = None;
         {
             let mut live = lock(&self.live);
             if live.as_ref().is_some_and(|l| l.id == s.id) {

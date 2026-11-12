@@ -1,5 +1,6 @@
 //! Processamento de áudio do microfone: APM do WebRTC (cancelamento de eco, supressão de ruído "Padrão" e
-//! controle de ganho) mais o RNNoise nativo ("Forte", `rnnoise.rs`).
+//! controle de ganho) mais a supressão por IA nativa: RNNoise ("Forte", `rnnoise.rs`) e DeepFilterNet
+//! ("Máximo", `deepfilter.rs`).
 //!
 //! O `NativeAudioSource` do LiveKit NÃO passa pelo APM (ele só atua no caminho do ADM do WebRTC, que não
 //! usamos porque capturamos e tocamos com o cpal). Por isso fazemos a ponte à mão com o
@@ -10,27 +11,32 @@
 //!   (`try_lock`: se a captura estiver usando o APM naquele instante, esse quadro de referência é pulado).
 //! * **near-end (stream):** cada quadro de 10 ms do MICROFONE passa por `process_near` ANTES de ir ao
 //!   `NativeAudioSource`. Ordem: **AEC primeiro** (precisa do microfone cru e do far-end), depois NS/AGC do APM e,
-//!   no nível Forte, o RNNoise por último (com o NS do APM desligado: não se processa ruído duas vezes).
+//!   no nível Forte, o RNNoise por último e, no Máximo, o DeepFilterNet (com o NS do APM desligado: não se
+//!   processa ruído duas vezes). O DeepFilterNet carrega em segundo plano e, até ficar pronto (ou se o processador
+//!   não aguentar e ele cair), o RNNoise cobre; a queda é avisada por `set_notice_sink`.
 //! * **dica de atraso:** estimada a cada ~1 s pelos timestamps do cpal (`delay.rs`); 60 ms sem timestamps.
 //!
-//! Níveis de ruído: `off` (NS do APM desligado), `standard` (NS do APM) e `strong` (APM sem NS + RNNoise).
+//! Níveis de ruído: `off` (NS do APM desligado), `standard` (NS do APM), `strong` (APM sem NS + RNNoise) e `max`
+//! (APM sem NS + DeepFilterNet, com RNNoise de reserva).
 //! A API do APM do libwebrtc 0.3 só expõe quatro interruptores (`echo_cancellation`, `gain_control`,
 //! `high_pass_filter`, `noise_suppression`): o filtro passa-altas fica sempre ligado; não há como escolher o
 //! nível de supressão de eco nem o modo "móvel" por aqui (o AEC3 usa os padrões do WebRTC).
 //!
 //! Sem reprodução ativa não há far-end e o APM só aplica supressão de ruído e ganho. O APM não troca
 //! configuração em execução, então mudar AEC/AGC/Padrão recria o módulo (o AEC reconverge em ~1 s). Ligar ou
-//! desligar o Forte NÃO recria o APM (só liga/desliga o RNNoise, com crossfade).
+//! desligar o Forte ou o Máximo NÃO recria o APM (só liga/desliga o RNNoise/DeepFilterNet, com crossfade).
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use libwebrtc::native::apm::AudioProcessingModule;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use super::audio::{FRAME_SAMPLES, SAMPLE_RATE};
+use super::deepfilter::{Enhancer, FallbackReason, Notice};
 use super::delay::{DelayEstimator, LatencyProbe, DEFAULT_DELAY_MS};
 use super::gate::{GateLevel, InputSensitivity, NoiseGate};
+pub use super::level::NoiseSuppressionLevel;
 use super::rnnoise::Denoiser;
 
 /// Dica de atraso padrão (sem timestamps do cpal).
@@ -39,39 +45,15 @@ pub const DEFAULT_STREAM_DELAY_MS: i32 = DEFAULT_DELAY_MS;
 /// Atualiza a estimativa de atraso a cada 100 quadros (~1 s).
 const DELAY_UPDATE_FRAMES: u32 = 100;
 
-/// Nível de supressão de ruído (mesmo vocabulário da interface: `"off" | "standard" | "strong"`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NoiseSuppressionLevel {
-    Off,
-    Standard,
-    Strong,
+/// Aviso de que o nível Máximo (DeepFilterNet) deixou de atender e o Forte (RNNoise) cobre. Quem monta o
+/// `ApmBridge` decide como entregá-lo à interface (`set_notice_sink`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoiseFallback {
+    pub reason: FallbackReason,
 }
 
-impl<'de> Deserialize<'de> for NoiseSuppressionLevel {
-    /// Aceita o texto novo e também o booleano das versões anteriores da interface
-    /// (`true` = padrão, `false` = desligada).
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "lowercase")]
-        enum Named {
-            Off,
-            Standard,
-            Strong,
-        }
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Raw {
-            Legacy(bool),
-            Level(Named),
-        }
-        Ok(match Raw::deserialize(d)? {
-            Raw::Legacy(true) | Raw::Level(Named::Standard) => Self::Standard,
-            Raw::Legacy(false) | Raw::Level(Named::Off) => Self::Off,
-            Raw::Level(Named::Strong) => Self::Strong,
-        })
-    }
-}
+/// Destino do aviso. Chamado no máximo uma vez por queda, fora do `Mutex` do áudio.
+pub type NoticeSink = Arc<dyn Fn(NoiseFallback) + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -96,23 +78,21 @@ impl Default for AudioProcessingSettings {
 }
 
 impl AudioProcessingSettings {
-    /// O APM só é necessário para AEC, AGC ou NS "Padrão" (o Forte roda fora dele).
+    /// O APM só é necessário para AEC, AGC ou NS "Padrão" (Forte e Máximo rodam fora dele).
     pub fn needs_apm(&self) -> bool {
-        self.echo_cancellation
-            || self.auto_gain_control
-            || self.noise_suppression == NoiseSuppressionLevel::Standard
+        self.echo_cancellation || self.auto_gain_control || self.noise_suppression.uses_apm_ns()
     }
 
     pub fn any(&self) -> bool {
-        self.needs_apm() || self.noise_suppression == NoiseSuppressionLevel::Strong
+        self.needs_apm() || self.noise_suppression.uses_native_denoiser()
     }
 
-    /// O que define a configuração do APM (o nível Forte não entra: não exige recriá-lo).
+    /// O que define a configuração do APM (Forte e Máximo não entram: não exigem recriá-lo).
     fn apm_key(&self) -> (bool, bool, bool) {
         (
             self.echo_cancellation,
             self.auto_gain_control,
-            self.noise_suppression == NoiseSuppressionLevel::Standard,
+            self.noise_suppression.uses_apm_ns(),
         )
     }
 }
@@ -121,6 +101,8 @@ struct Inner {
     settings: AudioProcessingSettings,
     apm: Option<AudioProcessingModule>,
     denoiser: Denoiser,
+    /// DeepFilterNet (nível Máximo). Enquanto carrega ou depois de cair, o `denoiser` (RNNoise) cobre.
+    enhancer: Enhancer,
     gate: NoiseGate,
     delay_ms: i32,
     estimator: DelayEstimator,
@@ -137,8 +119,8 @@ fn build(settings: AudioProcessingSettings) -> Option<AudioProcessingModule> {
             settings.auto_gain_control,
             // O filtro passa-altas acompanha qualquer processamento (tira ruído grave de DC/vento).
             true,
-            // Só o nível Padrão usa o NS do APM; no Forte quem suprime é o RNNoise.
-            settings.noise_suppression == NoiseSuppressionLevel::Standard,
+            // Só o nível Padrão usa o NS do APM; no Forte e no Máximo quem suprime é o RNNoise/DeepFilterNet.
+            settings.noise_suppression.uses_apm_ns(),
         )
     })
 }
@@ -151,17 +133,30 @@ pub struct ApmBridge {
     level_db: AtomicU32,
     level_open: AtomicBool,
     level_frames: AtomicU64,
+    /// Para onde vai o aviso de queda do nível Máximo (definido por quem monta a ponte).
+    sink: Mutex<Option<NoticeSink>>,
 }
 
 impl ApmBridge {
     pub fn new(settings: AudioProcessingSettings) -> Self {
+        Self::with_enhancer(settings, Enhancer::with_default_loader())
+    }
+
+    /// Como `new`, com o DeepFilterNet dado (testes injetam um modelo falso).
+    pub fn with_enhancer(settings: AudioProcessingSettings, mut enhancer: Enhancer) -> Self {
         let mut denoiser = Denoiser::new();
-        denoiser.set_enabled(settings.noise_suppression == NoiseSuppressionLevel::Strong);
+        enhancer.set_enabled(settings.noise_suppression.wants_enhancer());
+        denoiser.set_enabled(
+            settings
+                .noise_suppression
+                .wants_rnnoise(enhancer.is_serving()),
+        );
         Self {
             inner: Mutex::new(Inner {
                 settings,
                 apm: build(settings),
                 denoiser,
+                enhancer,
                 gate: NoiseGate::new(SAMPLE_RATE, settings.input_sensitivity),
                 delay_ms: DEFAULT_STREAM_DELAY_MS,
                 estimator: DelayEstimator::new(),
@@ -173,6 +168,19 @@ impl ApmBridge {
             level_db: AtomicU32::new((-100f32).to_bits()),
             level_open: AtomicBool::new(false),
             level_frames: AtomicU64::new(0),
+            sink: Mutex::new(None),
+        }
+    }
+
+    /// Define (ou remove) o destino do aviso de queda do nível Máximo.
+    pub fn set_notice_sink(&self, sink: Option<NoticeSink>) {
+        *self.sink.lock().unwrap_or_else(|e| e.into_inner()) = sink;
+    }
+
+    fn deliver(&self, fallback: NoiseFallback) {
+        let sink = self.sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(sink) = sink {
+            sink(fallback);
         }
     }
 
@@ -196,8 +204,12 @@ impl ApmBridge {
         if g.settings.apm_key() != settings.apm_key() || g.apm.is_some() != settings.needs_apm() {
             g.apm = build(settings);
         }
+        // Máximo: o DeepFilterNet carrega em segundo plano e o RNNoise cobre até ele ficar pronto.
+        g.enhancer
+            .set_enabled(settings.noise_suppression.wants_enhancer());
+        let serving = g.enhancer.is_serving();
         g.denoiser
-            .set_enabled(settings.noise_suppression == NoiseSuppressionLevel::Strong);
+            .set_enabled(settings.noise_suppression.wants_rnnoise(serving));
         g.gate.configure(settings.input_sensitivity);
         g.settings = settings;
     }
@@ -224,8 +236,8 @@ impl ApmBridge {
         self.lock().delay_ms
     }
 
-    /// Passa um quadro de 10 ms do microfone (48 kHz mono) pelo AEC/NS/AGC e, no Forte, pelo RNNoise, no
-    /// lugar. Devolve `true` se algum processamento foi aplicado.
+    /// Passa um quadro de 10 ms do microfone (48 kHz mono) pelo AEC/NS/AGC e, no Forte, pelo RNNoise (no
+    /// Máximo, pelo DeepFilterNet), no lugar. Devolve `true` se algum processamento foi aplicado.
     pub fn process_near(&self, frame: &mut [i16]) -> bool {
         if frame.len() != FRAME_SAMPLES {
             return false;
@@ -247,14 +259,23 @@ impl ApmBridge {
             let _ = apm.set_stream_delay_ms(delay);
             processed = apm.process_stream(frame, SAMPLE_RATE as i32, 1).is_ok();
         }
-        // 2) RNNoise (Forte), por último, logo antes do NativeAudioSource.
+        // 2) DeepFilterNet (Máximo) ou RNNoise (Forte), por último, logo antes do NativeAudioSource. No Máximo o
+        //    RNNoise só trabalha enquanto o DeepFilterNet não atende (carregando ou caído); a troca é por fade.
+        processed |= g.enhancer.process(frame);
+        let level_setting = g.settings.noise_suppression;
+        let serving = g.enhancer.is_serving();
+        g.denoiser.set_enabled(level_setting.wants_rnnoise(serving));
         processed |= g.denoiser.process(frame);
+        let notice = g.enhancer.take_notice();
         // 3) Porta de ruído (sensibilidade de entrada), depois de qualquer supressão; também mede o nível.
         let level = g.gate.process(frame);
         drop(g);
         self.level_db.store(level.db.to_bits(), Ordering::Relaxed);
         self.level_open.store(level.gate_open, Ordering::Relaxed);
         self.level_frames.fetch_add(1, Ordering::Relaxed);
+        if let Some(Notice::Fallback(reason)) = notice {
+            self.deliver(NoiseFallback { reason });
+        }
         processed
     }
 
@@ -496,7 +517,7 @@ mod tests {
             NoiseSuppressionLevel::Off
         );
         assert!(
-            serde_json::from_str::<AudioProcessingSettings>(r#"{"noiseSuppression":"max"}"#)
+            serde_json::from_str::<AudioProcessingSettings>(r#"{"noiseSuppression":"ultra"}"#)
                 .is_err()
         );
         let v = serde_json::to_value(AudioProcessingSettings {
@@ -632,5 +653,127 @@ mod tests {
         assert_eq!(d.input_sensitivity.mode, GateMode::Off);
         let v = serde_json::to_value(s).unwrap();
         assert_eq!(v["inputSensitivity"]["mode"], "auto");
+    }
+
+    // ----- nível Máximo (DeepFilterNet) -----
+
+    use crate::voice::deepfilter::{Model, ModelError, FRAME as DF_FRAME};
+
+    /// Modelo falso: identidade.
+    struct Identity;
+    impl Model for Identity {
+        fn process(
+            &mut self,
+            i: &[f32; DF_FRAME],
+            o: &mut [f32; DF_FRAME],
+        ) -> Result<(), ModelError> {
+            *o = *i;
+            Ok(())
+        }
+    }
+
+    fn max_settings() -> AudioProcessingSettings {
+        AudioProcessingSettings {
+            echo_cancellation: false,
+            noise_suppression: NoiseSuppressionLevel::Max,
+            auto_gain_control: false,
+            ..Default::default()
+        }
+    }
+
+    fn wait_serving(b: &ApmBridge) {
+        let mut q = vec![0i16; FRAME_SAMPLES];
+        for _ in 0..400 {
+            b.process_near(&mut q);
+            if b.lock().enhancer.is_serving() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("o DeepFilterNet falso não ficou pronto");
+    }
+
+    #[test]
+    fn max_json_and_apm_key() {
+        let s: AudioProcessingSettings =
+            serde_json::from_str(r#"{"noiseSuppression":"max"}"#).unwrap();
+        assert_eq!(s.noise_suppression, NoiseSuppressionLevel::Max);
+        assert!(s.any());
+        assert_eq!(max_settings().apm_key(), strong(false, false).apm_key());
+        assert!(!max_settings().needs_apm(), "Máximo roda fora do APM");
+        let v = serde_json::to_value(max_settings()).unwrap();
+        assert_eq!(v["noiseSuppression"], "max");
+    }
+
+    #[test]
+    fn max_is_covered_by_rnnoise_until_the_model_is_ready_then_takes_over() {
+        use crate::voice::deepfilter::Loader;
+        let loader: Loader = Arc::new(|| {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            Ok(Box::new(Identity) as Box<dyn Model>)
+        });
+        let b = ApmBridge::with_enhancer(max_settings(), Enhancer::new(Some(loader)));
+        {
+            let g = b.lock();
+            assert!(!g.enhancer.is_serving(), "ainda carregando");
+            assert!(g.denoiser.is_enabled(), "RNNoise cobre enquanto carrega");
+        }
+        let mut q = noise(FRAME_SAMPLES, 0.3, 5);
+        assert!(
+            b.process_near(&mut q),
+            "o RNNoise processa durante o carregamento"
+        );
+        wait_serving(&b);
+        let mut q = noise(FRAME_SAMPLES, 0.3, 6);
+        b.process_near(&mut q);
+        assert!(
+            !b.lock().denoiser.is_enabled(),
+            "DeepFilterNet atendendo: sem RNNoise"
+        );
+    }
+
+    #[test]
+    fn max_without_the_model_reports_unavailable_and_keeps_rnnoise() {
+        use std::sync::atomic::AtomicUsize;
+        let b = ApmBridge::with_enhancer(max_settings(), Enhancer::new(None));
+        let hits = Arc::new(AtomicUsize::new(0));
+        let reasons = Arc::new(Mutex::new(Vec::new()));
+        {
+            let (hits, reasons) = (hits.clone(), reasons.clone());
+            b.set_notice_sink(Some(Arc::new(move |n: NoiseFallback| {
+                hits.fetch_add(1, Ordering::SeqCst);
+                reasons.lock().unwrap().push(n.reason);
+            })));
+        }
+        let mut q = noise(FRAME_SAMPLES, 0.3, 5);
+        for _ in 0..5 {
+            b.process_near(&mut q);
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 1, "o aviso sai uma vez só");
+        assert_eq!(reasons.lock().unwrap()[0], FallbackReason::Unavailable);
+        assert!(b.lock().denoiser.is_enabled());
+    }
+
+    #[test]
+    fn leaving_max_releases_the_enhancer_and_keeps_the_apm() {
+        use crate::voice::deepfilter::Loader;
+        let loader: Loader = Arc::new(|| Ok(Box::new(Identity) as Box<dyn Model>));
+        let b = ApmBridge::with_enhancer(max_settings(), Enhancer::new(Some(loader)));
+        wait_serving(&b);
+        b.configure(strong(true, true));
+        {
+            let g = b.lock();
+            assert!(!g.enhancer.is_enabled());
+            assert!(g.denoiser.is_enabled(), "Forte liga o RNNoise");
+            assert!(g.apm.is_some());
+        }
+        let mut q = noise(FRAME_SAMPLES, 0.3, 5);
+        b.process_near(&mut q);
+        b.process_near(&mut q);
+        assert_eq!(
+            b.lock().enhancer.state(),
+            "off",
+            "modelo liberado após o fade-out"
+        );
     }
 }

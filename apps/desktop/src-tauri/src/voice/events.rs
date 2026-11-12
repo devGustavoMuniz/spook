@@ -58,6 +58,14 @@ pub enum VoiceEvent {
         db: f32,
         gate_open: bool,
     },
+    /// O nível de ruído "Máximo" (DeepFilterNet) deixou de atender e o Forte (RNNoise) assumiu. `reason`: `cpu` (o
+    /// processador não acompanhou) | `load-failed` | `unavailable` (build sem o modelo) | `error`. Sai no máximo
+    /// uma vez por queda.
+    NoiseSuppressionFallback {
+        from: &'static str,
+        to: &'static str,
+        reason: &'static str,
+    },
     /// Andamento do teste de microfone. `phase`: `requesting` | `recording` | `playing` | `done` | `error`;
     /// `error` (só em `error`): `permission-denied` | `not-found` | `in-use` | `unsupported` | `unknown`...
     MicTest {
@@ -169,6 +177,16 @@ mod tests {
         assert_eq!(v["type"], "input-level");
         assert_eq!(v["db"], -42.5);
         assert_eq!(v["gateOpen"], true);
+        let v = serde_json::to_value(VoiceEvent::NoiseSuppressionFallback {
+            from: "max",
+            to: "strong",
+            reason: "cpu",
+        })
+        .unwrap();
+        assert_eq!(v["type"], "noise-suppression-fallback");
+        assert_eq!(v["from"], "max");
+        assert_eq!(v["to"], "strong");
+        assert_eq!(v["reason"], "cpu");
         let v = serde_json::to_value(VoiceEvent::MicTest {
             phase: "recording",
             remaining_ms: Some(3200),

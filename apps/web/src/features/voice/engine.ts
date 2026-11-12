@@ -81,9 +81,15 @@ export type DeviceInfo = { id: string; label: string };
  * - `off`: nenhum filtro;
  * - `standard`: o filtro embutido do navegador (web) ou do WebRTC (desktop);
  * - `strong`: modelo de IA gratuito (RNNoise) processando o áudio antes de publicar. Só vale onde a engine
- *   declara `audioCapabilities.strongNoiseSuppression`.
+ *   declara `audioCapabilities.strongNoiseSuppression`;
+ * - `max`: IA mais pesada (DeepFilterNet3), para ambientes muito ruidosos; usa mais processador e, se o computador
+ *   não acompanhar, a engine volta sozinha para `strong` (evento `noise-suppression-fallback`). Só vale onde a
+ *   engine declara `audioCapabilities.maxNoiseSuppression` (hoje, só o desktop).
  */
-export type NoiseSuppressionLevel = "off" | "standard" | "strong";
+export type NoiseSuppressionLevel = "off" | "standard" | "strong" | "max";
+
+/** Por que o nível `max` deixou de atender: `cpu` (o processador não acompanhou), modelo que não carregou, build sem o modelo ou erro. */
+export type NoiseFallbackReason = "cpu" | "load-failed" | "unavailable" | "error";
 
 /**
  * Sensibilidade de entrada (porta de ruído), aplicada DEPOIS da supressão de ruído e válida para qualquer nível:
@@ -159,6 +165,8 @@ export type AudioCapabilities = {
   strongNoiseSuppression: boolean;
   /** Por que o "Forte" não está disponível (texto curto em pt-br para a interface; ex.: "em breve no app"). */
   strongUnavailableReason?: string;
+  /** Nível "Máximo (IA)" (DeepFilterNet) disponível. Ausente = não: a interface nem mostra a opção (a web não tem). */
+  maxNoiseSuppression?: boolean;
   /** A engine consegue enviar o áudio do sistema/aba ao compartilhar a tela (ausente = sim). O desktop não. */
   screenShareAudio?: boolean;
   /**
@@ -280,6 +288,12 @@ export type VoiceEngineEvents = {
   "devices-changed": Record<string, never>;
   /** O processamento do microfone mudou de estado (carregando a IA, ativa, rebaixada). Só a engine web emite. */
   "audio-processing-status": AudioProcessingStatus;
+  /** O nível `max` deixou de atender e a engine voltou para `to` (Forte). Só o desktop emite, no máximo uma vez por queda. */
+  "noise-suppression-fallback": {
+    from: NoiseSuppressionLevel;
+    to: NoiseSuppressionLevel;
+    reason: NoiseFallbackReason;
+  };
   /** Nível do microfone (~20 por segundo) enquanto `setInputLevelMonitor(true)`. */
   "input-level": InputLevel;
   /** Andamento do teste de microfone. */

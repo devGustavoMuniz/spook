@@ -12,10 +12,14 @@ name = "spook_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-default = ["camera"]
+default = ["camera", "deepfilter"]
 # Câmera nativa (nokhwa: AVFoundation, Media Foundation, V4L2). Isolada porque os backends de câmera são o
 # ponto mais frágil da build; sem a feature, `voice_set_camera_enabled(true)` responde "não suportado".
 camera = ["dep:nokhwa", "dep:image"]
+# Supressão de ruído "Máximo" (DeepFilterNet3 por inferência `tract`, em Rust puro, modelo ONNX de ~8 MB embutido).
+# Isolada porque puxa ~55 crates (tract, ndarray...) e deixa o binário maior; sem a feature, o nível "max" responde
+# "indisponível" e o RNNoise (Forte) cobre. Ver SPEC 5.5, "Adicional: supressão de ruído DeepFilterNet".
+deepfilter = ["dep:deep_filter", "dep:ndarray"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -50,6 +54,13 @@ scap = "0.0.8"
 jpeg-encoder = "0.7"
 # Supressão de ruído "Forte" (RNNoise do Xiph em Rust puro, BSD-3-Clause; sem libclang nem código nativo).
 nnnoiseless = { version = "=0.5.2", default-features = false }
+# Supressão de ruído "Máximo" (IA): DeepFilterNet3 (Rikorose; código e pesos MIT OR Apache-2.0). A versão publicada no
+# crates.io (0.2.5, 2022) é do DeepFilterNet2 e não traz o modelo 3: usamos a tag v0.5.6 do repositório oficial (o
+# `Cargo.lock` fixa o commit). `tract` 0.19 (inferência ONNX), sem Python nem biblioteca nativa; `default-model`
+# embute o DFN3. Só o lib `df` é usado (sem as features `bin`, `dataset`, `wav-utils`).
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", tag = "v0.5.6", default-features = false, features = ["tract", "default-model"], optional = true }
+# Mesma versão que o `deep_filter` já traz (0.15.6): só para montar as visões de quadro passadas ao modelo.
+ndarray = { version = "0.15", optional = true }
 thiserror = "2"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["humantime"] }

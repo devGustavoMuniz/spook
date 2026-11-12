@@ -12,7 +12,7 @@ import {
   listDevices,
   supportsAudioProcessing,
 } from "@/features/voice/controller";
-import { noiseStatusText } from "@/features/voice/device-dialog";
+import { noiseStatusText, visibleNoiseLevels } from "@/features/voice/device-dialog";
 import {
   loadAudioProcessing,
   loadDevicePrefs,
@@ -75,6 +75,7 @@ const NOISE_LEVELS: { value: NoiseSuppressionLevel; labelKey: MessageKey; hintKe
       labelKey: "settings.voice.noiseStrong",
       hintKey: "settings.voice.noiseStrongHint",
     },
+    { value: "max", labelKey: "settings.voice.noiseMax", hintKey: "settings.voice.noiseMaxHint" },
   ];
 
 /**
@@ -163,7 +164,7 @@ export function VoiceSettingsPage() {
             <legend className="mb-1 text-sm font-medium">
               {t("settings.voice.noiseReduction")}
             </legend>
-            {NOISE_LEVELS.map(({ value, labelKey, hintKey }) => {
+            {visibleNoiseLevels(NOISE_LEVELS, caps).map(({ value, labelKey, hintKey }) => {
               const unavailable = value === "strong" && !caps.strongNoiseSuppression;
               return (
                 <ChoiceCard

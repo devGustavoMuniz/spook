@@ -169,7 +169,18 @@ export const voice = {
   "voice.noise.strong.label": "Forte (IA)",
   "voice.noise.strong.hint":
     "Modelo de IA gratuito que remove teclado, ventilador e TV ao fundo. Usa mais processador.",
+  "voice.noise.max.label": "Máximo (IA)",
+  "voice.noise.max.hint":
+    "Usa mais processador; para ambientes muito ruidosos. Se o computador não acompanhar, volta sozinho para o Forte.",
   "voice.noise.unavailable": " ({reason})",
+  "voice.noise.status.max": "Máximo (IA): processando com o DeepFilterNet. Usa mais processador.",
+  "voice.noise.fallback.cpu":
+    "O computador não acompanhou o nível Máximo. Voltamos para o Forte (IA).",
+  "voice.noise.fallback.loadFailed":
+    "Não foi possível carregar o modelo do nível Máximo. Usando o Forte (IA).",
+  "voice.noise.fallback.unavailable":
+    "O nível Máximo não está disponível nesta versão do app. Usando o Forte (IA).",
+  "voice.noise.fallback.error": "O nível Máximo falhou. Voltamos para o Forte (IA).",
   "voice.noise.status.degraded": "A IA foi desativada. Usando o filtro Padrão.",
   "voice.noise.status.off": "Desligada: sua voz não passa por nenhum filtro.",
   "voice.noise.status.standard": "Padrão do navegador: filtro leve em uso.",

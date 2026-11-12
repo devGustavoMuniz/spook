@@ -11,7 +11,7 @@ import {
 import { toast } from "sonner";
 import { effectiveLimits, useLimitsStore } from "@/features/nitro/limits-store";
 import type { PlanLimits } from "@/features/nitro/plans";
-import { t } from "@/i18n";
+import { type MessageKey, t } from "@/i18n";
 import { voiceMessage } from "@/lib/app-errors";
 import { playCallSound } from "./call-sounds";
 import {
@@ -32,6 +32,8 @@ import {
   type DeviceKind,
   type DisconnectReason,
   type InputLevel,
+  type NoiseFallbackReason,
+  type NoiseSuppressionLevel,
   type ScreenShareQuality,
   type Unsubscribe,
   VoiceConnectError,
@@ -151,6 +153,7 @@ function ensureEngine(): VoiceEngine {
     }),
     e.on("audio-blocked", ({ blocked }) => session().patch({ audioBlocked: blocked })),
     e.on("audio-processing-status", onAudioProcessingStatus),
+    e.on("noise-suppression-fallback", onNoiseFallback),
     e.on("participant-joined", ({ identity }) => applyPersonVolume(e, identity)),
     e.on("input-level", (l) => {
       useInputLevelStore.getState().set(l);
@@ -198,8 +201,46 @@ function onAudioProcessingStatus(status: AudioProcessingStatus) {
   toast.warning(status.reason ?? t("voice.toast.aiOff"));
 }
 
+/** O aviso de queda do nível "Máximo" sai uma vez por sessão do app (as quedas seguintes só atualizam o estado). */
+let noiseFallbackToasted = false;
+/** O status "degraded" atual veio de uma queda do "Máximo" (some quando a pessoa escolhe outro nível). */
+let noiseFallbackStatus = false;
+
+const FALLBACK_MESSAGES: Record<NoiseFallbackReason, MessageKey> = {
+  cpu: "voice.noise.fallback.cpu",
+  "load-failed": "voice.noise.fallback.loadFailed",
+  unavailable: "voice.noise.fallback.unavailable",
+  error: "voice.noise.fallback.error",
+};
+
+/**
+ * O desktop avisou que o "Máximo" (DeepFilterNet) deixou de atender e o "Forte" assumiu (o processador não
+ * acompanhou, o modelo não carregou…). Grava o nível em efeito (para não tentar e falhar a cada chamada), atualiza o
+ * estado que o diálogo e as configurações mostram e avisa com um toast discreto, uma vez por sessão.
+ */
+function onNoiseFallback({
+  from,
+  to,
+  reason,
+}: {
+  from: NoiseSuppressionLevel;
+  to: NoiseSuppressionLevel;
+  reason: NoiseFallbackReason;
+}) {
+  const saved = loadAudioProcessing();
+  if (saved.noiseSuppression === from) saveAudioProcessing({ ...saved, noiseSuppression: to });
+  const message = t(FALLBACK_MESSAGES[reason] ?? FALLBACK_MESSAGES.error);
+  noiseFallbackStatus = true;
+  useAudioStatusStore.getState().set({ level: to, state: "degraded", reason: message });
+  if (noiseFallbackToasted) return;
+  noiseFallbackToasted = true;
+  toast.info(message, { id: "voice-noise-fallback" });
+}
+
 /** Só para testes: solta a engine, os timers e o estado. */
 export function resetVoiceController() {
+  noiseFallbackToasted = false;
+  noiseFallbackStatus = false;
   useAudioStatusStore.getState().set(null);
   useInputLevelStore.getState().set(null);
   useMicTestStore.getState().set(null);
@@ -703,6 +744,11 @@ export function supportsAudioProcessing(): boolean {
 /** Interruptores de eco/ruído/ganho (diálogo de dispositivos): persiste e, em chamada, aplica na hora. */
 export async function chooseAudioProcessing(options: AudioProcessingOptions) {
   saveAudioProcessing(options);
+  if (noiseFallbackStatus) {
+    // A pessoa escolheu de novo: o aviso da queda anterior não vale mais (se cair outra vez, o evento volta).
+    noiseFallbackStatus = false;
+    useAudioStatusStore.getState().set(null);
+  }
   try {
     await engine?.setAudioProcessing?.(options);
   } catch (err) {

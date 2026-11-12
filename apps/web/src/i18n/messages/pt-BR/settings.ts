@@ -335,6 +335,9 @@ export const settings = {
   "settings.voice.noiseStrong": "Forte (IA)",
   "settings.voice.noiseStrongHint":
     "Modelo de IA gratuito que remove teclado, ventilador e TV ao fundo. Usa mais processador.",
+  "settings.voice.noiseMax": "Máximo (IA)",
+  "settings.voice.noiseMaxHint":
+    "Usa mais processador; para ambientes muito ruidosos. Se o computador não acompanhar, volta sozinho para o Forte.",
   "settings.voice.previews": "Mostrar prévias das transmissões",
   "settings.voice.previewsHint":
     "Mostra a miniatura da tela de quem está transmitindo ao passar o mouse sobre o ícone de tela, antes de entrar. Desligado, o cartão traz só o botão de assistir.",

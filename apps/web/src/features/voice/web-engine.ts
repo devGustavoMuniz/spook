@@ -724,7 +724,12 @@ export class WebVoiceEngine extends Emitter<VoiceEngineEvents> implements VoiceE
     this.refreshMonitor();
   }
 
-  async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
+  async setAudioProcessing(requested: AudioProcessingOptions): Promise<void> {
+    // A web não tem o nível "Máximo" (DeepFilterNet é do desktop): se um valor salvo chegar aqui, vale o "Forte".
+    const options: AudioProcessingOptions =
+      requested.noiseSuppression === "max"
+        ? { ...requested, noiseSuppression: "strong" }
+        : requested;
     const prev = this.audio;
     const wantsStrong = options.noiseSuppression === "strong";
     const unsupported = wantsStrong && !this.audioCapabilities.strongNoiseSuppression;

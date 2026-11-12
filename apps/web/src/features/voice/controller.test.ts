@@ -4,6 +4,7 @@ import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { type Backend, makeBackend, server } from "@/test/server";
 import {
   cancelMicTest,
+  chooseAudioProcessing,
   joinVoice,
   leaveCall,
   leaveOnPageHide,
@@ -548,6 +549,44 @@ describe("processamento do microfone", () => {
       autoGainControl: false,
       inputSensitivity: { mode: "off", thresholdDb: -50 },
     });
+  });
+
+  it("queda do nível Máximo para o Forte: grava o Forte, atualiza o estado e avisa UMA vez por sessão", async () => {
+    await joined();
+    saveAudioProcessing({ ...loadAudioProcessing(), noiseSuppression: "max" });
+    fake.fire("noise-suppression-fallback", { from: "max", to: "strong", reason: "cpu" });
+    expect(loadAudioProcessing().noiseSuppression).toBe("strong");
+    expect(useAudioStatusStore.getState().status).toEqual({
+      level: "strong",
+      state: "degraded",
+      reason: "O computador não acompanhou o nível Máximo. Voltamos para o Forte (IA).",
+    });
+    expect(toasts.info).toHaveBeenCalledTimes(1);
+    expect(toasts.info).toHaveBeenCalledWith(
+      "O computador não acompanhou o nível Máximo. Voltamos para o Forte (IA).",
+      { id: "voice-noise-fallback" },
+    );
+    // segunda queda na mesma sessão: atualiza o estado, mas não repete o toast
+    saveAudioProcessing({ ...loadAudioProcessing(), noiseSuppression: "max" });
+    fake.fire("noise-suppression-fallback", { from: "max", to: "strong", reason: "load-failed" });
+    expect(toasts.info).toHaveBeenCalledTimes(1);
+    expect(useAudioStatusStore.getState().status?.reason).toMatch(/carregar o modelo/);
+    expect(loadAudioProcessing().noiseSuppression).toBe("strong");
+  });
+
+  it("queda do Máximo não mexe no nível salvo se a pessoa já tinha escolhido outro", async () => {
+    await joined();
+    saveAudioProcessing({ ...loadAudioProcessing(), noiseSuppression: "off" });
+    fake.fire("noise-suppression-fallback", { from: "max", to: "strong", reason: "error" });
+    expect(loadAudioProcessing().noiseSuppression).toBe("off");
+  });
+
+  it("escolher um nível depois da queda limpa o aviso do estado", async () => {
+    await joined();
+    fake.fire("noise-suppression-fallback", { from: "max", to: "strong", reason: "unavailable" });
+    expect(useAudioStatusStore.getState().status?.state).toBe("degraded");
+    await chooseAudioProcessing({ ...loadAudioProcessing(), noiseSuppression: "max" });
+    expect(useAudioStatusStore.getState().status).toBeNull();
   });
 
   it("estados normais (carregando/ativa) só atualizam o estado, sem aviso", async () => {

@@ -170,7 +170,17 @@ export const voice = {
   "voice.noise.strong.label": "Strong (AI)",
   "voice.noise.strong.hint":
     "Free AI model that removes keyboard, fan and TV noise in the background. Uses more CPU.",
+  "voice.noise.max.label": "Maximum (AI)",
+  "voice.noise.max.hint":
+    "Uses more CPU; for very noisy environments. If your computer can't keep up, it switches back to Strong on its own.",
   "voice.noise.unavailable": " ({reason})",
+  "voice.noise.status.max": "Maximum (AI): processing with DeepFilterNet. Uses more CPU.",
+  "voice.noise.fallback.cpu":
+    "Your computer couldn't keep up with Maximum. Switched back to Strong (AI).",
+  "voice.noise.fallback.loadFailed": "Couldn't load the Maximum model. Using Strong (AI).",
+  "voice.noise.fallback.unavailable":
+    "Maximum isn't available in this version of the app. Using Strong (AI).",
+  "voice.noise.fallback.error": "Maximum failed. Switched back to Strong (AI).",
   "voice.noise.status.degraded": "AI was turned off. Using the Standard filter.",
   "voice.noise.status.off": "Off: your voice doesn't go through any filter.",
   "voice.noise.status.standard": "Browser standard: light filter in use.",

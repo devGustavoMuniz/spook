@@ -332,6 +332,9 @@ export const settings = {
   "settings.voice.noiseStrong": "Strong (AI)",
   "settings.voice.noiseStrongHint":
     "A free AI model that removes keyboard, fan and TV noise in the background. Uses more CPU.",
+  "settings.voice.noiseMax": "Maximum (AI)",
+  "settings.voice.noiseMaxHint":
+    "Uses more CPU; for very noisy environments. If your computer can't keep up, it switches back to Strong on its own.",
   "settings.voice.previews": "Show stream previews",
   "settings.voice.previewsHint":
     "Shows a thumbnail of the streamer's screen when you hover the screen icon, before joining. When off, the card only has the watch button.",

@@ -64,7 +64,7 @@ export function parseInputSensitivity(raw: unknown): InputSensitivity {
   return out;
 }
 
-const LEVELS: readonly NoiseSuppressionLevel[] = ["off", "standard", "strong"];
+const LEVELS: readonly NoiseSuppressionLevel[] = ["off", "standard", "strong", "max"];
 
 /**
  * Lê o nível de ruído salvo. O formato antigo era booleano (true = filtro ligado, false = desligado):

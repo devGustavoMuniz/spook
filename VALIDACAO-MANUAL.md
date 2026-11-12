@@ -505,6 +505,20 @@ Com o app local (`pnpm dev`; o padrão é 14 dias de Nitro+) ou em produção de
 - [ ] **Desligar:** com `NITRO_TRIAL_DAYS=0` uma conta nova nasce no Grátis e sem faixa; `NITRO_TRIAL_TIER=nitro` dá Nitro; valor inválido (ex.: `abc`, `free`) impede o boot com mensagem clara.
 - [ ] **Métricas:** `spook.entitlement.changes{action="trial"}` sobe a cada conta nova; `spook.entitlement.trial_failed` fica em zero.
 
+### Voz: nível "Máximo (IA)" (DeepFilterNet, desktop)
+
+Nada disto foi executado: o Rust com tauri/livekit/tract só compila no workflow Desktop do CI e a qualidade e o custo dependem da sua voz, do microfone e do computador. Faça no Windows e no macOS (Linux se tiver). Abra o Gerenciador de Tarefas (Windows) ou o Monitor de Atividade (macOS) e olhe o processo `Spook` (e `spook-desktop`).
+
+- [ ] **A opção aparece só no app:** Configurações > Voz e vídeo (e o diálogo de dispositivos na chamada) mostram "Máximo (IA)" depois de "Forte (IA)" com a descrição "Usa mais processador; para ambientes muito ruidosos."; no navegador (web) a opção NÃO existe.
+- [ ] **Compila e abre:** o instalador do Windows/macOS gerado pelo CI abre normalmente (se o `tract` não compilar, o CI do Desktop falha antes; nesse caso desligue a feature `deepfilter` e avise).
+- [ ] **Teste de microfone, Forte x Máximo:** "Testar" o microfone (grava ~5 s e toca) em cada nível, com **teclado mecânico**, **ventilador** e **TV baixa** ao fundo enquanto fala. Compare de ouvido: o Máximo deve soar mais limpo com ruído que muda (teclado, TV) sem deixar a voz "robótica"/aguada; o Forte é a referência. Registre qual prefere.
+- [ ] **Carregamento:** ao escolher "Máximo" a voz não pode travar nem falhar (o Forte cobre por ~1 s enquanto o modelo carrega). Trocar de Forte para Máximo e de volta NO MEIO da chamada: sem estalo audível e sem a sala cair.
+- [ ] **Atraso:** com outra pessoa na chamada, o atraso extra do Máximo (~20 a 30 ms) não deve ser perceptível na conversa.
+- [ ] **CPU:** na chamada com microfone aberto e o Máximo, anote o uso do processo `Spook` no Gerenciador de Tarefas (o esperado é de poucos por cento de UM núcleo; compare com o Forte). Em notebook básico, com jogo/vídeo abertos, anote também.
+- [ ] **Queda automática:** com o computador no limite (abra um jogo pesado, ou um vídeo 4K e uma compilação) e o Máximo ligado, o app deve voltar sozinho para o Forte em alguns segundos, sem cortar a voz: aparece um toast discreto ("O computador não acompanhou o nível Máximo. Voltamos para o Forte (IA).") **uma vez** na sessão, a seleção passa a marcar "Forte" e o motivo aparece na linha de estado. Reiniciar o app e escolher "Máximo" de novo tenta outra vez.
+- [ ] **Eco e porta de ruído:** com o Máximo, o cancelamento de eco (alto-falante, sem fone) e a porta de ruído (automático) continuam funcionando.
+- [ ] **Memória e instalador:** anote o tamanho do instalador (deve ter crescido ~9 a 11 MB) e a memória do app com o Máximo ligado (+~33 MB) e depois de voltar ao Forte (volta ao normal).
+
 ### Áudio por aplicativo no compartilhamento de tela (desktop, Windows)
 
 Nada disto foi executado: o Rust com tauri/windows só compila no workflow Desktop do CI e a captura exige um Windows de verdade. Preparação: instale o app desktop numa máquina com Windows 10 2004+ ou 11, abra Spotify, um navegador (YouTube) e um jogo (ou outro app com som), e entre numa chamada com um amigo (ou uma segunda conta no navegador, ouvindo).

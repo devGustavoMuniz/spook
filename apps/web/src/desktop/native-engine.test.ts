@@ -88,6 +88,7 @@ function setup() {
     "disconnected",
     "input-level",
     "mic-test",
+    "noise-suppression-fallback",
   ] as const) {
     engine.on(k, (p) => {
       // biome-ignore lint/suspicious/noExplicitAny: coletor genérico de eventos de teste
@@ -369,6 +370,32 @@ describe("NativeVoiceEngine: processamento de áudio", () => {
     ]);
   });
 
+  it("o nível Máximo (DeepFilterNet) é declarado e enviado ao Rust em texto, sem virar Forte", async () => {
+    const { rust, engine } = setup();
+    expect(engine.audioCapabilities.maxNoiseSuppression).toBe(true);
+    await engine.setAudioProcessing({
+      echoCancellation: true,
+      noiseSuppression: "max",
+      autoGainControl: true,
+      inputSensitivity: OFF,
+    });
+    expect(rust.named("voice_set_audio_processing")[0]?.args).toEqual({
+      echoCancellation: true,
+      noiseSuppression: "max",
+      autoGainControl: true,
+      inputSensitivity: OFF,
+    });
+  });
+
+  it("traduz o aviso de queda do Máximo (evento do Rust) para o evento da engine", async () => {
+    const { rust, engine, seen } = setup();
+    await engine.connect(params);
+    rust.emit({ type: "noise-suppression-fallback", from: "max", to: "strong", reason: "cpu" });
+    expect(seen["noise-suppression-fallback"]).toEqual([
+      { from: "max", to: "strong", reason: "cpu" },
+    ]);
+  });
+
   it("o desktop declara que não compartilha o áudio do sistema", () => {
     const { engine } = setup();
     expect(engine.audioCapabilities.screenShareAudio).toBe(false);
@@ -630,6 +657,7 @@ describe("NativeVoiceEngine: capacidades do contrato adicional", () => {
     const { engine } = setup();
     expect(engine.audioCapabilities).toEqual({
       strongNoiseSuppression: true,
+      maxNoiseSuppression: true,
       screenShareAudio: false,
       screenShareAppAudio: true,
       participantVolume: { max: 2 },

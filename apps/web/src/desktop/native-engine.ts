@@ -21,6 +21,8 @@ import {
   type LocalMedia,
   type MediaErrorCode,
   type MicTestPhase,
+  type NoiseFallbackReason,
+  type NoiseSuppressionLevel,
   type ScreenShareQuality,
   type VideoKind,
   type VideoSource,
@@ -49,7 +51,13 @@ export type NativeEvent =
   | { type: "screen-black"; black: boolean }
   | { type: "disconnected"; reason: DisconnectReason }
   | { type: "input-level"; db: number; gateOpen: boolean }
-  | { type: "mic-test"; phase: MicTestPhase; remainingMs?: number; error?: MediaErrorCode };
+  | { type: "mic-test"; phase: MicTestPhase; remainingMs?: number; error?: MediaErrorCode }
+  | {
+      type: "noise-suppression-fallback";
+      from: NoiseSuppressionLevel;
+      to: NoiseSuppressionLevel;
+      reason: NoiseFallbackReason;
+    };
 
 /** Porcentagem inteira de 0 a 100 (NaN vira 100). */
 const percent = (n: number) =>
@@ -403,7 +411,8 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
   async resumeAudio() {}
 
   /**
-   * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust). O áudio da tela é por aplicativo
+   * O nível "Forte" é o RNNoise nativo (`nnnoiseless`, no Rust); o "Máximo" (`maxNoiseSuppression`) é o DeepFilterNet3
+   * nativo (`tract`), que carrega em segundo plano e volta sozinho para o Forte se o processador não acompanhar. O áudio da tela é por aplicativo
    * (`screenShareAppAudio`, só no Windows 10 2004+/11; o Rust diz em `voice_list_audio_apps` se a plataforma
    * suporta): o interruptor "Incluir áudio" simples não existe aqui, a escolha mora na seção "Configurações
    * avançadas" do diálogo (`screenShareAudio` fica `false` de propósito).
@@ -415,6 +424,7 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
    */
   readonly audioCapabilities: AudioCapabilities = {
     strongNoiseSuppression: true,
+    maxNoiseSuppression: true,
     screenShareAudio: false,
     screenShareAppAudio: true,
     participantVolume: { max: NATIVE_MAX_PARTICIPANT_VOLUME },
@@ -450,7 +460,7 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
 
   async setAudioProcessing(options: AudioProcessingOptions): Promise<void> {
     try {
-      // O Rust recebe o nível em texto ("off" | "standard" | "strong"); aceita também o booleano antigo.
+      // O Rust recebe o nível em texto ("off" | "standard" | "strong" | "max"); aceita também o booleano antigo.
       await this.deps.invoke("voice_set_audio_processing", {
         echoCancellation: options.echoCancellation,
         noiseSuppression: options.noiseSuppression,
@@ -584,6 +594,9 @@ export class NativeVoiceEngine extends Emitter<VoiceEngineEvents> implements Voi
         break;
       case "input-level":
         this.emit("input-level", { db: e.db, gateOpen: e.gateOpen });
+        break;
+      case "noise-suppression-fallback":
+        this.emit("noise-suppression-fallback", { from: e.from, to: e.to, reason: e.reason });
         break;
       case "mic-test":
         this.emit("mic-test", {

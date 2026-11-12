@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeVoiceEngine } from "@/test/fake-voice-engine";
 import { resetVoiceController } from "./controller";
-import { DeviceDialog, noiseStatusText } from "./device-dialog";
+import { DeviceDialog, noiseStatusText, visibleNoiseLevels } from "./device-dialog";
 import {
   DEFAULT_AUDIO_PROCESSING,
   loadAudioProcessing,
@@ -45,6 +45,52 @@ describe("DeviceDialog: qualidade do microfone", () => {
     for (const name of ["Cancelamento de eco", "Ajuste automático de volume"])
       expect(await screen.findByRole("switch", { name: new RegExp(name) })).toBeChecked();
     expect(loadAudioProcessing()).toEqual(DEFAULT_AUDIO_PROCESSING);
+  });
+
+  it("o nível Máximo (IA) só aparece quando a engine declara a capacidade (desktop)", async () => {
+    const user = userEvent.setup();
+    const eng = new ProcessingEngine();
+    eng.audioCapabilities = { strongNoiseSuppression: true, maxNoiseSuppression: true };
+    setVoiceEngineFactory(() => eng);
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    const group = await screen.findByRole("group", { name: "Redução de ruído" });
+    expect(
+      within(group)
+        .getAllByRole("radio")
+        .map((r) => r.getAttribute("value")),
+    ).toEqual(["off", "standard", "strong", "max"]);
+    expect(await radio(/^Máximo \(IA\)/)).toHaveAccessibleDescription(
+      /Usa mais processador; para ambientes muito ruidosos/,
+    );
+    await user.click(await radio(/^Máximo/));
+    await waitFor(() => expect(loadAudioProcessing().noiseSuppression).toBe("max"));
+    expect(eng.applied.at(-1)).toMatchObject({ noiseSuppression: "max" });
+    expect(screen.getByText(/processando com o DeepFilterNet/)).toBeInTheDocument();
+  });
+
+  it("sem a capacidade (web) o Máximo fica oculto, não desabilitado", async () => {
+    setVoiceEngineFactory(() => new ProcessingEngine());
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    await radio(/^Forte/);
+    expect(screen.queryByRole("radio", { name: /Máximo/ })).toBeNull();
+  });
+
+  it("queda do Máximo: a seleção volta para o Forte e o motivo aparece", async () => {
+    const eng = new ProcessingEngine();
+    eng.audioCapabilities = { strongNoiseSuppression: true, maxNoiseSuppression: true };
+    setVoiceEngineFactory(() => eng);
+    saveAudioProcessing({ ...DEFAULT_AUDIO_PROCESSING, noiseSuppression: "max" });
+    render(<DeviceDialog open onOpenChange={() => {}} />);
+    expect(await radio(/^Máximo/)).toBeChecked();
+    act(() =>
+      useAudioStatusStore.getState().set({
+        level: "strong",
+        state: "degraded",
+        reason: "O computador não acompanhou o nível Máximo. Voltamos para o Forte (IA).",
+      }),
+    );
+    await waitFor(async () => expect(await radio(/^Forte/)).toBeChecked());
+    expect(screen.getByText(/não acompanhou o nível Máximo/)).toBeInTheDocument();
   });
 
   it("cada opção tem descrição ligada ao rádio (leitor de tela)", async () => {
@@ -150,6 +196,30 @@ describe("noiseStatusText", () => {
       /no limite/,
     );
     expect(noiseStatusText("strong", { level: "standard", state: "degraded" })).toMatch(/Padrão/);
+    expect(noiseStatusText("max", null)).toMatch(/^Máximo \(IA\)/);
+    expect(noiseStatusText("max", { level: "strong", state: "degraded", reason: "Caiu." })).toBe(
+      "Caiu.",
+    );
+  });
+});
+
+describe("visibleNoiseLevels", () => {
+  const levels = [
+    { value: "off" as const },
+    { value: "strong" as const },
+    { value: "max" as const },
+  ];
+  it("esconde o Máximo sem a capacidade e mostra com ela", () => {
+    expect(visibleNoiseLevels(levels, {}).map((l) => l.value)).toEqual(["off", "strong"]);
+    expect(visibleNoiseLevels(levels, { maxNoiseSuppression: false }).map((l) => l.value)).toEqual([
+      "off",
+      "strong",
+    ]);
+    expect(visibleNoiseLevels(levels, { maxNoiseSuppression: true }).map((l) => l.value)).toEqual([
+      "off",
+      "strong",
+      "max",
+    ]);
   });
 });
 
@@ -158,6 +228,7 @@ describe("persistência e migração do valor antigo", () => {
     expect(parseNoiseSuppression(true)).toBe("standard");
     expect(parseNoiseSuppression(false)).toBe("off");
     expect(parseNoiseSuppression("strong")).toBe("strong");
+    expect(parseNoiseSuppression("max")).toBe("max"); // adicional: os valores antigos seguem valendo
     expect(parseNoiseSuppression("turbo")).toBeUndefined();
     expect(parseNoiseSuppression(undefined)).toBeUndefined();
 

@@ -119,7 +119,7 @@ pub fn voice_set_deafened(state: State<'_, VoiceState>, deafened: bool) {
 pub fn voice_set_audio_processing(
     state: State<'_, VoiceState>,
     echo_cancellation: bool,
-    // Texto (`off|standard|strong`); o booleano das interfaces antigas também é aceito (true = standard).
+    // Texto (`off|standard|strong|max`); o booleano das interfaces antigas também é aceito (true = standard).
     noise_suppression: NoiseSuppressionLevel,
     auto_gain_control: bool,
     // Porta de ruído (`{ mode: "off" | "auto" | "manual", thresholdDb }`); ausente = desligada (formato antigo).
@@ -390,6 +390,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(old.noise_suppression, NoiseSuppressionLevel::Off);
+        // O nível Máximo (DeepFilterNet) é adicional; os formatos antigos seguem valendo.
+        let max: AudioProcessingSettings = serde_json::from_str(
+            r#"{"echoCancellation":true,"noiseSuppression":"max","autoGainControl":true}"#,
+        )
+        .unwrap();
+        assert_eq!(max.noise_suppression, NoiseSuppressionLevel::Max);
     }
 
     #[test]

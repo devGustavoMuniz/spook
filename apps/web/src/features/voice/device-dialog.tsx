@@ -55,7 +55,16 @@ const NOISE_LEVELS: { value: NoiseSuppressionLevel; labelKey: MessageKey; hintKe
       hintKey: "voice.noise.standard.hint",
     },
     { value: "strong", labelKey: "voice.noise.strong.label", hintKey: "voice.noise.strong.hint" },
+    { value: "max", labelKey: "voice.noise.max.label", hintKey: "voice.noise.max.hint" },
   ];
+
+/** O "Máximo" (IA pesada) só aparece onde a engine declara a capacidade (hoje, só o desktop). */
+export function visibleNoiseLevels<T extends { value: NoiseSuppressionLevel }>(
+  levels: readonly T[],
+  caps: { maxNoiseSuppression?: boolean },
+): T[] {
+  return levels.filter((l) => l.value !== "max" || caps.maxNoiseSuppression === true);
+}
 
 /** O que está em efeito agora, em palavras simples (vai num `aria-live`). */
 export function noiseStatusText(
@@ -65,6 +74,7 @@ export function noiseStatusText(
   if (status?.state === "degraded") return status.reason ?? t("voice.noise.status.degraded");
   if (chosen === "off") return t("voice.noise.status.off");
   if (chosen === "standard") return t("voice.noise.status.standard");
+  if (chosen === "max") return t("voice.noise.status.max");
   if (status?.state === "loading") return t("voice.noise.status.loading");
   if (status?.state === "active")
     return status.load === "high" ? t("voice.noise.status.high") : t("voice.noise.status.active");
@@ -160,7 +170,7 @@ export function DeviceDialog({
               </h3>
               <fieldset className="flex flex-col gap-1.5">
                 <legend className="mb-1 text-sm">{t("voice.devdlg.noise")}</legend>
-                {NOISE_LEVELS.map(({ value, labelKey, hintKey }) => {
+                {visibleNoiseLevels(NOISE_LEVELS, caps).map(({ value, labelKey, hintKey }) => {
                   const id = `noise-${value}`;
                   const unavailable = value === "strong" && !caps.strongNoiseSuppression;
                   return (
