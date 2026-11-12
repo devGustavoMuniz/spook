@@ -167,6 +167,26 @@ jobs:
               fs.writeFileSync("installers/" + f + ".sha256", h + "  " + f + "\n");
             }'
           ls -la installers
+      - name: Instalador completo do Windows (WebView2 offline)
+        # Para máquinas sem o Edge/WebView2 e sem como baixá-lo (Windows enxuto, LTSC, sem internet ou proxy): o
+        # instalador traz o WebView2 inteiro (cerca de 130 MB). Sai como arquivo à parte, que não casa com os padrões do
+        # updater (`windows-x64.exe`) nem da página de download: o instalador normal e as atualizações seguem iguais.
+        if: matrix.os_name == 'windows'
+        run: |
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          echo '{"bundle":{"createUpdaterArtifacts":false,"windows":{"webviewInstallMode":{"type":"offlineInstaller","silent":true}}}}' > apps/desktop/src-tauri/offline.conf.json
+          pnpm --filter @spook/desktop tauri build --bundles nsis --config src-tauri/offline.conf.json
+          shopt -s nullglob
+          files=(apps/desktop/src-tauri/target/release/bundle/nsis/*.exe)
+          [ "${#files[@]}" -eq 1 ] || { echo "::error::esperava 1 instalador completo, achei ${#files[@]}"; exit 1; }
+          out="installers/Spook-${version}-windows-x64-completo.exe"
+          cp "${files[0]}" "$out"
+          node -e '
+            const fs = require("fs"), c = require("crypto"), f = process.argv[1];
+            const h = c.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
+            fs.writeFileSync(f + ".sha256", h + "  " + f.split("/").pop() + "\n");
+          ' "$out"
+          ls -la installers
       - uses: actions/upload-artifact@v4
         with:
           name: spook-desktop-${{ matrix.os_name }}-${{ matrix.arch }}
@@ -228,5 +248,5 @@ jobs:
           else
             gh release create "$TAG" installers/* --draft --verify-tag --repo "$GITHUB_REPOSITORY" \
               --title "Spook ${TAG#desktop-v}" \
-              --notes "Instaladores do Spook desktop. Sem assinatura de código: o Windows (SmartScreen) e o macOS (Gatekeeper) vão avisar na primeira abertura; veja apps/desktop/README.md. Confira o SHA-256 nos arquivos .sha256. O latest.json é o manifesto do atualizador automático: só passa a valer quando este rascunho for PUBLICADO."
+              --notes "Instaladores do Spook desktop. Sem assinatura de código: o Windows (SmartScreen) e o macOS (Gatekeeper) vão avisar na primeira abertura; veja apps/desktop/README.md. Confira o SHA-256 nos arquivos .sha256. Para Windows sem o Edge/WebView2, use o instalador completo (-completo.exe, cerca de 130 MB, sem internet). O latest.json é o manifesto do atualizador automático: só passa a valer quando este rascunho for PUBLICADO."
           fi
