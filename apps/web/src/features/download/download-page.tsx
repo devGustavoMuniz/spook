@@ -374,6 +374,7 @@ function InstallHelp({ highlight }: { highlight: Os | null }) {
           <li>{t("shell.download.help.win.step1")}</li>
           <li>{rich("shell.download.help.win.step2")}</li>
           <li>{rich("shell.download.help.win.step3")}</li>
+          <li>{rich("shell.download.help.win.step4")}</li>
         </ol>
       </details>
       <details className={block} open={highlight === "macos"}>

@@ -164,6 +164,8 @@ export const shell = {
     "Se aparecer <q>O Windows protegeu o computador</q>, clique em <b>Mais informações</b> e depois em <b>Executar assim mesmo</b>.",
   "shell.download.help.win.step3":
     "Para conferir o arquivo: no PowerShell, <code>Get-FileHash .\\Spook-*.exe</code> e compare com o SHA-256 acima.",
+  "shell.download.help.win.step4":
+    "Se o app abrir com o erro <q>Could not find the WebView2 Runtime</q>, o seu Windows não tem o componente do Edge que o Spook usa. Baixe o <b>Evergreen Standalone Installer</b> do WebView2 em <code>developer.microsoft.com/microsoft-edge/webview2</code>, instale e abra o Spook de novo.",
   "shell.download.help.mac.summary": "macOS (Gatekeeper)",
   "shell.download.help.mac.step1": "Abra o .dmg e arraste o <b>Spook</b> para a pasta Aplicativos.",
   "shell.download.help.mac.step2":

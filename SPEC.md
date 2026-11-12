@@ -1104,6 +1104,10 @@ Pedido: "No compartilhamento de tela precisa ter a opção de escolher qual faix
   - *Não é recorrência.* Pagamento único de 30 dias, sem renovação automática nem cartão salvo; renovar é pagar de novo (soma 30 dias). Credenciais, webhook no painel e conformidade: `PENDENCIAS-DONO.md` E1.
   - *Teste.* `billing/service_test.go` (MP falso com httptest: preferência com os campos certos e sem vazar o token, aprovado concede e é idempotente, pendente/recusado/valor/moeda divergentes não concedem, assinatura ausente/inválida, estorno, desligado), `platform/config/config_test.go`, `app/billing_integration_test.go` (banco real: desligado invisível, fluxo completo com renovação e estorno); Vitest `features/nitro/nitro.test.tsx`.
 
+#### Adicional: WebView2 embutido no instalador do Windows
+
+Fora do SPEC original. Um usuário abriu o app no Windows e recebeu "Could not find the WebView2 Runtime": o Tauri usa o WebView2 (motor do Edge) e a máquina não o tinha. O padrão do Tauri é baixar o instalador do WebView2 na hora de instalar, o que falha sem internet, atrás de proxy ou com o download bloqueado. Decisão: `bundle.windows.webviewInstallMode = { type: "embedBootstrapper", silent: true }` em `tauri.conf.json`, que embute o instalador do WebView2 (cerca de 2 MB) no instalador do Spook e o roda em silêncio quando falta. Vale a partir da próxima versão gerada; quem já instalou sem o componente precisa instalá-lo à mão. A página /download ganhou o passo 4 na ajuda do Windows com o caminho para o instalador oficial. Não usamos o instalador offline completo (mais de 100 MB).
+
 ## 6. Modelo de dados
 
 IDs são Snowflake (`bigint`) salvo indicação contrária. Timestamps em `timestamptz`.
